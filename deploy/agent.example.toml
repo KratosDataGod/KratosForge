@@ -53,6 +53,12 @@ max_backoff_seconds = 1800
 # webhook_env = "ONCALL_TEAMS_WEBHOOK"
 # criticality = ["critical"]
 
+# [shortcut_health]                      # check the environments' shortcuts, post each break to Teams once (docs/agent.md)
+# enabled = true                         # reads only: no Fabric job, nothing written to Fabric
+# minutes = 60                           # how often (at least 15)
+# environments = ["prod"]                # default: agent.environments
+# webhook_env = "SHORTCUTS_TEAMS_WEBHOOK"  # default: alerts.teams_webhook_env
+
 # [pipeline]                             # take run requests from Fabric pipelines (docs/agent.md)
 # enabled = true
 # environments = ["prod"]                # whose LH_Meta mailbox to read; default: agent.environments

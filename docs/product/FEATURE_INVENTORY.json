@@ -1591,7 +1591,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1620,22 +1620,25 @@
       "source": [
         "sidecar/fabric_desktop/shortcut_service.py",
         "sidecar/fabric_desktop/shortcut_center.py",
+        "sidecar/fabric_desktop/shortcut_watch.py",
         "app/ui/shortcuts.js"
       ],
       "tests": [
         "sidecar/tests/test_shortcut_center.py",
         "sidecar/tests/test_shortcut_fixes.py",
+        "sidecar/tests/test_shortcut_watch.py",
         "app/tests/browser/shortcut-fixes.test.cjs"
       ],
       "docs": [
-        "docs/shortcuts.md"
+        "docs/shortcuts.md",
+        "docs/agent.md"
       ],
       "ui": {
         "surface": "OneLake > Shortcuts",
         "preview": true
       },
       "limitations": [
-        "No scheduled check or alert",
+        "The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments",
         "Approved request creates the shortcut in one lakehouse only",
         "OneLake error codes unseen on a tenant"
       ],
@@ -1643,7 +1646,7 @@
         53,
         595
       ],
-      "next_action": "Scheduled health check with a Teams alert (PB-053).",
+      "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
         "PB-053"
       ]

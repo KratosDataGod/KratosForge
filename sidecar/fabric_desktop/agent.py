@@ -10,7 +10,8 @@ the schedules that are due, reads the pipeline mailbox (every ``pipeline.poll_se
 ``[pipeline]`` is enabled), and starts queued jobs up to ``concurrency``. Each running job renews
 its lease in the queue; each table it writes is held under a write lease in OneLake. Stopping
 the service (SIGTERM, Ctrl+C, service stop) stops taking new jobs and waits for running ones;
-anything cut off is picked up again by the next start.
+anything cut off is picked up again by the next start. With ``[shortcut_health]`` it also checks
+the environments' shortcuts every ``shortcut_health.minutes`` and posts each new break to Teams once.
 """
 
 from __future__ import annotations
@@ -25,21 +26,26 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import agent_status, shared_schedules
+from . import agent_status, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
+from .auth import ONELAKE_SCOPES
 from .dataops_service import post_teams
+from .fabric_api import FabricClient
 from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
 from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
+from .onelake import FileStore
 from .runtime import Runtime
 from .workloads import evaluate
-from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
+from .workloads.incidents import IncidentLog
 from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
+from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
+from .workloads.platform_notify import send as send_notices
 
 KIND_META = "meta"
 
@@ -79,6 +85,7 @@ class Agent:
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
+        self._shortcuts_at: float | None = None
         self._outbox: Outbox | None = None
         self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
         self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
@@ -173,6 +180,62 @@ class Agent:
                 self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
                                  extra=fields(queued=result["queued"], error=result["error"]))
         return changed
+
+    def check_shortcuts(self) -> dict[str, dict[str, Any]]:
+        """``[shortcut_health]``: check the shortcuts in each environment's workspaces and post each new
+        break, and its fix, to Teams once (shortcut_watch.py). Only reads Fabric and OneLake. An
+        environment that a live agent whose name sorts first also checks is left to that agent.
+        A failure is logged, never fatal. Returns {env: {checked, broken} or {skipped: why}}."""
+        url = self.config.shortcut_webhook
+        if not url:
+            self.log.warning("shortcut_health is on but its webhook variable isn't set; shortcuts aren't checked")
+            return {}
+        now = dt.datetime.fromtimestamp(self.clock(), dt.timezone.utc)
+        out: dict[str, dict[str, Any]] = {}
+        found: list[dict[str, Any]] = []
+        for env in self.config.shortcut_health.environments:
+            try:
+                workspaces = shortcut_watch.env_workspaces(self.runtime._project().environments.get(env, {}))
+            except Exception as exc:
+                self.log.warning("couldn't read the project for the shortcut check", extra=fields(
+                    env=env, error=f"{type(exc).__name__}: {exc}"))
+                out[env] = {"skipped": "the project can't be read"}
+                continue
+            if not workspaces:
+                out[env] = {"skipped": "no workspace"}
+                continue
+            try:
+                records = read_status(self._control(env))
+            except Exception as exc:  # better a second message than none: check here
+                self._controls.pop(env, None)
+                records = []
+                self.log.warning("couldn't read the agent records; checking shortcuts here", extra=fields(
+                    env=env, error=f"{type(exc).__name__}: {exc}"))
+            if not shortcut_watch.poster(self.config.name, records, now):
+                out[env] = {"skipped": "another agent checks them"}
+                continue
+            try:
+                auth = self.runtime.auth
+                fabric, storage = auth.fabric_token(), auth.storage_token()  # here: MSAL stays on one thread
+                onelake = auth._token(ONELAKE_SCOPES)
+                rows, problems = shortcut_watch.scan(workspaces, FabricClient(lambda t=fabric: t),
+                                                     FabricClient(lambda t=onelake: t), FileStore(lambda t=storage: t))
+            except Exception as exc:
+                self.log.warning("couldn't check the shortcuts", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
+                out[env] = {"skipped": "the check failed"}
+                continue
+            for p in problems:
+                self.log.warning("couldn't list some shortcuts", extra=fields(env=env, error=p))
+            found += shortcut_watch.events(rows, env, now.isoformat(timespec="seconds"))
+            out[env] = {"checked": len(rows), "broken": sum(r["health"] == "broken" for r in rows)}
+            self.log.info("shortcuts checked", extra=fields(env=env, **out[env]))
+        box = self.config.home / shortcut_watch.LEDGER
+        result = send_notices([validate(e) for e in found], PlatformRouting([PlatformRoute(DEFAULT_ROUTE, url)]),
+                              Outbox(box, clock=self.clock), Ledger(box, clock=self.clock), post_teams)
+        if result.get("error"):
+            self.log.warning("couldn't post shortcut breaks to Teams; they'll go with the next check",
+                             extra=fields(queued=result["queued"], error=_without_webhook(result["error"], url)))
+        return out
 
     # ---- adding work
 
@@ -390,6 +453,10 @@ class Agent:
             self._status_at = self.clock()
             self.publish_status()
             self.send_waiting_alerts()
+        sh = self.config.shortcut_health
+        if sh.enabled and (self._shortcuts_at is None or self.clock() - self._shortcuts_at >= sh.minutes * 60):
+            self._shortcuts_at = self.clock()  # after the status record, which tells other agents this one checks
+            self.check_shortcuts()
         if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
             self._pruned_at = self.clock()
             self.prune_queue()

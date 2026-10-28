@@ -137,7 +137,7 @@ With a platform Teams route set (**Settings > Notifications**), KratosForge post
 | A request is made (a key table, a source, access to a data product, a shortcut, a workspace, access to a workspace, a domain, an exception to a policy) | `request.waiting` | Platform admins, and the data product's owners when it names one |
 | It is approved or declined | `request.decided` | Whoever asked |
 | It is withdrawn | `request.withdrawn` | Platform admins and the product's owners |
-| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again | `shortcut.broken`, `shortcut.fixed` | Platform admins |
+| A health check on **Shortcuts > Health** finds a shortcut broken, or fixed again. An agent with `[shortcut_health]` posts the same kinds from its scheduled check to its own channel ([agent](agent.md#shortcut-health)) | `shortcut.broken`, `shortcut.fixed` | Platform admins |
 | A data product is published as deprecated, or with a new `deprecated_on` (see [Data mesh](data-mesh.md#data-products)) | `product.deprecated` | The teams of the projects that link to it, and whoever saved each link |
 
 | Someone presses **Tell them** under **Who's affected** on an incident page ([user guide](user-guide.md#whos-affected-preview)) | `incident.impact` | The owners of the data products built on the incident's table, people who linked a project to them, and followers |

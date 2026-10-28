@@ -157,6 +157,9 @@ async function tabStops(page, scope) {
       break;
     }
     seen.add(at.stop);
+    // A page still drawing can replace the control under focus or restyle it a frame late: read once more
+    // before calling a ring missing.
+    if (at.inside && !at.shown) { await page.waitForTimeout(150); at.shown = (await page.evaluate(focusNow, scope))?.shown ?? false; }
     if (at.inside) stops.push({ key: at.key, shown: at.shown });
     if (at.editor) await page.keyboard.press("Escape");
   }

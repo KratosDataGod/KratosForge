@@ -215,3 +215,28 @@ def test_the_policy_key_is_it_only_and_fails_closed():
     assert app_settings.DEFAULTS["allow_signed_out_schedules"] is True
     assert app_settings.RESTRICTED["allow_signed_out_schedules"] is False
     assert "allow_signed_out_schedules" not in app_settings.USER_KEYS
+
+
+def test_signed_out_tasks_set_up_before_the_policy_never_run_and_are_paused(tmp_path, app_exe, monkeypatch):
+    from fabric_desktop import schedule_service
+    from fabric_desktop.service import Service
+
+    scheduler = Scheduler()
+    allow = {"on": True}
+    monkeypatch.setattr(Service, "pc_schedules", property(
+        lambda self: LocalSchedules(self.root, scheduler, "C:/engine/a/python.exe", allow_signed_out=allow["on"])))
+    svc = Service(root=tmp_path / "app")
+    item = svc.pc_schedules.add(TARGET, DAILY, signed_out=True)
+    plain = svc.pc_schedules.add(TARGET, DAILY)
+    allow["on"] = False
+    monkeypatch.setattr(schedule_service.ScheduleMixin, "_run_notebook_here",
+                        lambda self, name: pytest.fail("a disallowed signed-out schedule must not run"))
+    row = svc.run_schedule(item["id"])
+    assert row["status"] == "skipped" and "turned off runs while you're signed out" in row["message"]
+    assert svc.pc_schedules.runs()[0]["schedule_id"] == item["id"]
+
+    scheduler.calls.clear()
+    assert svc.sync_pc_schedules()["paused"] == [item["id"]]
+    assert scheduler.calls == [("set_enabled", item["id"], False)]
+    assert svc.pc_schedules.get(item["id"])["enabled"] is False and svc.pc_schedules.get(plain["id"])["enabled"] is True
+    assert svc.sync_pc_schedules()["paused"] == []  # already paused: nothing more to do

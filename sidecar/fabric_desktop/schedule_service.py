@@ -208,9 +208,11 @@ class ScheduleMixin:
                        and r.get("item_id") in items]
 
     def sync_pc_schedules(self) -> dict[str, Any]:
-        """Called when the app starts: point every task at this engine."""
+        """Called when the app starts: point every task at this engine, and pause signed-out schedules
+        IT has turned off (allow_signed_out_schedules)."""
         try:
-            return {"updated": self.pc_schedules.sync()}
+            schedules = self.pc_schedules
+            return {"updated": schedules.sync(), "paused": schedules.pause_disallowed()}
         except Exception as exc:  # Task Scheduler refused: the list still shows them
             return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -232,9 +234,16 @@ class ScheduleMixin:
         """One scheduled run on this PC (Task Scheduler calls this through the CLI)."""
         schedules = self.pc_schedules
         s = schedules.get(schedule_id)
-        lock = self._lock(schedule_id)
         row: dict[str, Any] = {"schedule_id": schedule_id, "label": target_label(s["target"]), "trigger": trigger,
                                "started": _now(), "pid": os.getpid()}
+        if s.get("signed_out") and not schedules.allow_signed_out:
+            # A task set up before IT turned it off still has its password; it never runs, and says why.
+            row |= {"ended": _now(), "seconds": 0, "status": "skipped",
+                    "message": "Your organization turned off runs while you're signed out of Windows. "
+                               "Edit the schedule to run only while you're signed in."}
+            schedules.log_run(row)
+            return row
+        lock = self._lock(schedule_id)
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}

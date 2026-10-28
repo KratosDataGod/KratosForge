@@ -134,7 +134,7 @@ Four more keys are for control rather than convenience:
 | --- | --- |
 | `allow_fabric_runs: false` | The app doesn't start jobs on Fabric capacity (Run in Fabric, Fabric schedules, Optimize, the Fabric side of a proof). People can still turn Fabric schedules off. It doesn't change what a person's own Fabric roles allow in the browser |
 | `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to shared optimization lakehouses ([Optimize](optimize/README.md)) |
-| `allow_signed_out_schedules: false` | People can't set schedules on this PC to run while they're signed out of Windows (Windows keeps their password with the task). Schedules already set that way say so and can only be turned back to run while signed in. Also off when the policy file can't be read ([Notebooks](notebooks.md)) |
+| `allow_signed_out_schedules: false` | People can't set schedules on this PC to run while they're signed out of Windows (Windows keeps their password with the task). Schedules already set that way are paused when the app starts, skip any run Windows still starts, say so, and can only be turned back to run while signed in (Windows keeps the password with such a task until then, or until it's removed). Also off when the policy file can't be read ([Notebooks](notebooks.md)) |
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 

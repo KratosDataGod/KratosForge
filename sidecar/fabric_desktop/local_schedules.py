@@ -380,6 +380,20 @@ class LocalSchedules:
         self.scheduler.unregister(schedule_id)
         self._save(data)
 
+    def pause_disallowed(self) -> list[str]:
+        """When IT turned off runs while signed out (allow_signed_out_schedules), pauses every signed-out
+        schedule still on, so Windows stops starting them (pausing needs no password). Returns their ids."""
+        if self.allow_signed_out:
+            return []
+        data = self._load()
+        paused = [s for s in data["schedules"] if s.get("signed_out") and s.get("enabled", True)]
+        for s in paused:
+            self.scheduler.set_enabled(s["id"], False)
+            s["enabled"] = False
+        if paused:
+            self._save(data)
+        return [s["id"] for s in paused]
+
     def sync(self) -> int:
         """Point every task at this engine (after an update). Returns how many were re-registered."""
         data = self._load()

@@ -17,6 +17,8 @@ before(async () => {
   if (skip) return;
   app = await openApp({ engine: ["app_settings"], mocks: { list_notebooks: () => [{ name: "Sales daily" }, { name: "Orders" }] } });
   await page().waitForSelector("#rail-main .rail-item");
+  // Settings come from the engine; the Preview test reads them, so they must be in first.
+  await page().waitForFunction(() => state.settings && "show_preview" in state.settings);
 });
 
 after(async () => { await app?.close(); });
@@ -76,6 +78,9 @@ test("Escape closes it and gives focus back to what had it", { skip }, async () 
   await bar().waitFor();
   await page().keyboard.press("Escape");
   assert.strictEqual(await bar().count(), 0);
+  // Focus goes back once the bar has gone, which a busy machine can take a moment to do.
+  await page().waitForFunction((label) => document.activeElement?.textContent === label, label, { timeout: 5000 })
+    .catch(() => {});
   assert.strictEqual(await page().evaluate(() => document.activeElement?.textContent), label);
 });
 

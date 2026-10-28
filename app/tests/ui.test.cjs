@@ -1232,7 +1232,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -5247,4 +5247,66 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
   assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
+});
+
+// PB-078: every feature the docs call Preview is one Settings > Preview features knows (an id in
+// PREVIEW_FEATURES), or the docs say why it has none: it has no screen yet, or it's a setting in a
+// file rather than a screen, which show_preview can't hide.
+test("every feature the docs call Preview has a Preview id, or the docs say why not", () => {
+  const root = path.join(__dirname, "..", "..");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
+  // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
+  const BY_ID = {
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
+    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
+    fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
+    sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
+    notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
+    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
+    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
+    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
+      "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
+    pipelineRuns: ["Pipeline runs in Monitor"], sourceControl: ["Source control"], profile: ["Profile"],
+    platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
+      "Platform notices", "Semantic model rules"],
+    mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
+    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
+    updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
+  };
+  // A "(Preview)" heading with no id, and the words in its own page that say why.
+  const NO_ID = {
+    "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
+    "Local data projects": ["docs/local-data.md", /the screens for it come next/],
+    "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
+    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
+  };
+  const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
+  for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (["product", "quality"].includes(e.name) ? [] : walk(path.join(dir, e.name))) : e.name.endsWith(".md") ? [path.join(dir, e.name)] : []);
+  const missing = [];
+  for (const file of walk(path.join(root, "docs"))) {
+    for (const [, name] of fs.readFileSync(file, "utf8").matchAll(/^#+ (.+?) \(Preview\)\s*$/gm)) {
+      if (!idOf.has(name) && !NO_ID[name]) missing.push(`${path.relative(root, file)}: ${name}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], "each (Preview) heading needs an id in BY_ID, or a NO_ID reason its page gives");
+  for (const [name, [file, why]] of Object.entries(NO_ID)) {
+    assert.match(fs.readFileSync(path.join(root, file), "utf8"), why, `${file} says why ${name} has no Preview id`);
+  }
+  // The ones PB-078 named: batch_by and objectives are project settings, the rest have ids.
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"),
+    /settings in your project files rather than screens, such as reading \*\*in batches\*\* \(`batch_by`\), \[reliability objectives\]/);
+  for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
 });

@@ -44,14 +44,14 @@ Every pull request that adds or changes a screen shows, in its description:
 
 Measured by `app/tests/browser/action-baseline.cjs` at `main` 0a2f24e on 26 October 2026: signed out, no tenant, a 1440x940 window, the real engine. Run it again after each change and add a column.
 
-| Measure | Baseline | After AF-2 | After AF-4 |
-| --- | --- | --- | --- |
-| Home: solid buttons | 3, all sign-in (Sign in, Sign in, Sign in and scan) | 2 signed out with no notebooks (Sign in, Sign in and scan); Continue is solid once a notebook exists | Unchanged |
-| Home: New notebook position | 1,798 px down, not in the first view; outlined | 176 px down, in the first view; outlined | Unchanged |
-| Notebook (new, empty): solid buttons | Publish to OneLake, its options arrow, and Add data items in the empty explorer | Unchanged | Run all on the ribbon; Add data items in the empty explorer |
-| Notebook: Run all | In view, not the solid button | Unchanged | The solid button |
-| Optimize (no shared lakehouse): solid button | Create a lakehouse | Unchanged | Unchanged |
-| Command bar finds Run all, Run cell, Validate, Publish, Run in Fabric | No (only Schedule) | Unchanged | Yes (Validate and Run in Fabric when Preview features are shown) |
+| Measure | Baseline | After AF-2 | After AF-4 | After AF-5 |
+| --- | --- | --- | --- | --- |
+| Home: solid buttons | 3, all sign-in (Sign in, Sign in, Sign in and scan) | 2 signed out with no notebooks (Sign in, Sign in and scan); Continue is solid once a notebook exists | Unchanged | Unchanged |
+| Home: New notebook position | 1,798 px down, not in the first view; outlined | 176 px down, in the first view; outlined | Unchanged | Unchanged |
+| Notebook (new, empty): solid buttons | Publish to OneLake, its options arrow, and Add data items in the empty explorer | Unchanged | Run all on the ribbon; Add data items in the empty explorer | Unchanged |
+| Notebook: Run all | In view, not the solid button | Unchanged | The solid button | Unchanged |
+| Optimize (no shared lakehouse): solid button | Create a lakehouse | Unchanged | Unchanged | None signed out (Create a lakehouse is outlined); with an X-ray scan, the most severe finding's fix |
+| Command bar finds Run all, Run cell, Validate, Publish, Run in Fabric | No (only Schedule) | Unchanged | Yes (Validate and Run in Fabric when Preview features are shown) | Unchanged |
 
 Rates that need real use (recommendation acceptance, failure and recovery) are not measured. They could only come from the opt-in telemetry, which is off by default.
 
@@ -62,8 +62,8 @@ Rates that need real use (recommendation acceptance, failure and recovery) are n
 | AF-1 | Shared action framework, this standard and the baseline | Merged (#722) |
 | AF-2 | Home: Continue, Start something and Recent notebooks first; one sign-in prompt; a signed-out summary that says Fabric wasn't checked | Merged (#760) |
 | AF-3 | Feedback that leads somewhere: finished actions offer the next step; safe reads offer Retry | After AF-1 |
-| AF-4 | Notebook run-first: Run all is the solid button; after a run, a line under the ribbon offers the next step (the failed cell, Validate's findings, Save, or Publish once every cell ran); notebook actions in the command bar | In review |
-| AF-5 | Optimize opportunities that act: top three with evidence and a Fix that opens the X-ray fix; useful before a shared lakehouse exists | Mockup |
+| AF-4 | Notebook run-first: Run all is the solid button; after a run, a line under the ribbon offers the next step (the failed cell, Validate's findings, Save, or Publish once every cell ran); notebook actions in the command bar | Merged (#776) |
+| AF-5 | Optimize before a shared lakehouse: this PC's X-ray findings, most severe first, each with the X-ray's own fix; Create a lakehouse outlined | In review |
 | AF-6 | OneLake and Workspaces signed out: say what appears after sign-in instead of a blank pane | Open |
 | AF-7 | Monitor failed rows: Run again where the engine already supports it | Open |
 | AF-8 | Platform Overview: lead with the first setup step and waiting requests | Open |

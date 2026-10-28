@@ -151,7 +151,24 @@ class CloudMixin:
         return {"runs": runs[:limit], "unavailable": unavailable}
 
     def cancel_fabric_run(self, workspace_id: str, item_id: str, job_id: str) -> dict[str, Any]:
+        """Ask Fabric to stop a job. Fabric stops it in its own time, so a run this app logged is
+        marked ``cancel_requested`` until fabric_runs reads Cancelled (or how it really ended)."""
+        logged = next((r for r in self._read_fabric_runs() if r.get("job_id") == job_id), None)
+        if logged and (logged.get("workspace_id"), logged.get("item_id")) != (workspace_id, item_id):
+            raise ValueError("That job belongs to another item in the app's run log, so it wasn't cancelled.")
+        if logged and logged.get("status") in TERMINAL:
+            raise ValueError(f"{logged.get('name') or 'This run'} already ended in Fabric ({logged['status']}), "
+                             "so there's nothing to cancel.")
         self.fabric_jobs.cancel_job(workspace_id, item_id, job_id)  # type: ignore[attr-defined]
+        if logged:
+            # Read again just before writing, so a status poll since the read above isn't undone. A poll
+            # that writes in between can still drop the mark: the run then reads Running, not
+            # Cancelling, until Fabric reports Cancelled, which is harmless.
+            runs = self._read_fabric_runs()
+            for r in runs:
+                if r.get("job_id") == job_id and r.get("status") not in TERMINAL:
+                    r["cancel_requested"] = _now()
+            self._write_fabric_runs(runs)
         return {"cancelled": job_id}
 
     # ---- notebooks in Fabric

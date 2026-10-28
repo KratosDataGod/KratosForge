@@ -1100,10 +1100,11 @@ async function renderMonitor() {
       open: () => showRun(r.run_id, r.env),
     })),
     ...(cloud || []).map((r) => ({
-      at: r.started_at, status: fabricStatus(r.status), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
+      at: r.started_at, status: fabricStatus(r.status), pill: fabricPill(r), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
+      cancel: previewShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
@@ -1136,7 +1137,11 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+        e.stopPropagation();
+        if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
+      }, "tool small outline danger") : null,
+      r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1166,6 +1171,13 @@ function runEnvCell(r) {
 // Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
+}
+
+// Runs > Status for a Fabric job: Cancelled and Cancelling say so; the rest use the shared pills.
+function fabricPill(r) {
+  if (r.status === "Cancelled") return h("span", { class: "pill-s neu" }, "Cancelled");
+  if (r.cancel_requested && !FABRIC_DONE.has(r.status)) return h("span", { class: "pill-s wrn" }, "Cancelling…");
+  return null;
 }
 
 // Fabric's own pages (Monitoring hub, OneLake catalog) are one second webview the shell lays

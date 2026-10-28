@@ -595,7 +595,7 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     let settled = false;
     let why = null;
     const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v && why ? why.value.trim() : v); };
-    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const cancel = btn(opts.cancelLabel || "Cancel", null, () => done(false), "tool outline");
     const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
     let typed = null;
     if (opts.reason) {

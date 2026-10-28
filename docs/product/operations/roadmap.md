@@ -2,7 +2,7 @@
 
 Rolling plan from week 1 (starting Monday 2026-11-02) to week 12 (ending 2027-01-24). The weekly review moves it on by a week, records what changed and why, and keeps it in line with the [work queues](README.md#work-queues). Items with a PB id are in [the backlog](../PRODUCT_BACKLOG.md). Anything marked *needs Chris* waits for his mockup approval, his go on a new feature, or his yes on capacity spend.
 
-Why this order: as of 2026-10-28 about 500 PRs merged in a week, main CI is green, and 3 of 142 features are verified end to end. A Fortune 100 rollout needs proof and reliability before breadth, so weeks 1 to 4 turn built work into verified work.
+Why this order: as of 2026-10-28 about 370 PRs merged into main in the week from 2026-10-21, main CI is green, and 3 of 142 features are verified end to end. A Fortune 100 rollout needs proof and reliability before breadth, so weeks 1 to 4 turn built work into verified work.
 
 ## Weeks 1 to 4: stabilize and verify (2026-11-02 to 2026-11-29)
 

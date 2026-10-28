@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
   issues: write
 
 concurrency:
@@ -21,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -33,5 +37,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh label create weekly-review --color 5319e7 --description "Weekly product and engineering review" 2>/dev/null || true
-          gh issue create --repo "$GITHUB_REPOSITORY" --label weekly-review \
-            --title "Weekly review: week ending $(date -u +%F)" --body-file "$RUNNER_TEMP/report.md"
+          TITLE="Weekly review: week ending $(date -u +%F)"
+          # A second run on the same day updates that day's issue instead of opening another.
+          NUMBER=$(gh issue list --repo "$GITHUB_REPOSITORY" --label weekly-review --state all --search "\"$TITLE\" in:title" --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n 1)
+          if [ -n "$NUMBER" ]; then
+            gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/report.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label weekly-review --title "$TITLE" --body-file "$RUNNER_TEMP/report.md"
+          fi

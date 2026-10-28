@@ -64,6 +64,8 @@ def check() -> list[str]:
         for field in ("name", "scope", "lead", "next_action"):
             if not ws.get(field):
                 problems.append(f"{key}: no {field}")
+        if not (ws.get("active") or {}).get("story"):
+            problems.append(f"{key}: no active story")
         if len(ws.get("ready", [])) < rules["ready_minimum"]:
             problems.append(f"{key}: {len(ws.get('ready', []))} ready stories, needs {rules['ready_minimum']}")
         for kind, slot in slots(ws):
@@ -189,7 +191,7 @@ def report(gh: dict[str, Any], today: dt.date) -> str:
              "The orchestrator thread adds recommendations, the roadmap update and decisions for Chris as a comment.", "",
              "## Delivery", f"- PRs merged since {gh['since']}: **{gh['merged']['total']}**; PRs opened: {gh['opened']}",
              f"- Main CI, last {len(ci)} runs: {green} green, {len(ci) - green} not green",
-             f"- Open PRs: {len(gh['open_prs'])} ({sum(1 for p in gh['open_prs'] if p['draft'])} drafts)", "",
+             f"- Open PRs: {len(gh['open_prs'])}, of which drafts: {sum(1 for p in gh['open_prs'] if p['draft'])}", "",
              "## Product", f"- Features: {len(inv)}; verified end to end: {verified}",
              "- Backlog states: " + ", ".join(f"{k} {v}" for k, v in sorted(states.items())), "",
              "## Story issues by status"]

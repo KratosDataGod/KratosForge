@@ -8,14 +8,6 @@ const XRAY_KINDS = {
   stale: "Not changing", vacuum: "Needs vacuum", empty: "Empty lakehouses",
 };
 
-function bytesText(n) {
-  if (!n) return "0 bytes";
-  const units = ["bytes", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-  return `${i ? n.toFixed(1) : n} ${units[i]}`;
-}
-
 // Where each kind of finding is explained, with how to fix it by hand (docs/xray-fixes.md).
 const XRAY_DOCS = {
   small_files: "small-files", unidentified: "unidentified-tables", access: "access", cost: "cost",
@@ -115,7 +107,7 @@ function drawXray(box, res) {
 
   const stats = h("div", { class: "xray-stats" },
     stat(result.workspaces, "workspaces"), stat(result.lakehouses, "lakehouses"),
-    stat(result.tables, result.partial ? "tables (first 500)" : "tables"), stat(bytesText(result.bytes), "in Delta tables"),
+    stat(result.tables, result.partial ? "tables (first 500)" : "tables"), stat(sizeText(result.bytes), "in Delta tables"),
     stat(open.length, open.length === 1 ? "finding" : "findings", open.length ? (high ? "bad" : "warn") : "good"));
   const top = head(h("div", { class: "row" }, h("span", { class: "muted-text small" }, "Scanned ", when(result.scanned)), scanBtn, foldBtn));
   if (xrayPage.folded) {
@@ -282,7 +274,7 @@ async function vacuumDialog(f, box, res) {
     "Could not check the table");
   if (!p) { closeDialog(); return; }
   const what = p.files
-    ? `Vacuum deletes ${p.files.toLocaleString()} old file${p.files === 1 ? "" : "s"}${p.bytes != null ? ` (${bytesText(p.bytes)})` : ""} that no version in the last ${p.keep_days} days reads.`
+    ? `Vacuum deletes ${p.files.toLocaleString()} old file${p.files === 1 ? "" : "s"}${p.bytes != null ? ` (${sizeText(p.bytes)})` : ""} that no version in the last ${p.keep_days} days reads.`
     : `Nothing to delete yet: every old file is still inside the ${p.keep_days} days of history this table keeps.`;
   body.replaceChildren(
     h("p", { class: "text" }, what),
@@ -322,7 +314,7 @@ function xrayLakehouses(rows) {
       h("tbody", {}, shown.map((r) => h("tr", {},
         h("td", {}, h("span", { class: "item" }, itemIcon("Lakehouse", 16), r.lakehouse_name)),
         h("td", {}, r.workspace_name),
-        h("td", { class: "n" }, r.tables), h("td", { class: "n" }, bytesText(r.bytes)),
+        h("td", { class: "n" }, r.tables), h("td", { class: "n" }, sizeText(r.bytes)),
         h("td", { class: "n" }, r.issues ? h("span", { class: "pill-s wrn" }, r.issues) : h("span", { class: "muted-text" }, "None")),
         h("td", { class: "n" }, r.managed ? h("span", { class: "pill-s pass" }, "Managed by metadata")
           : !r.tables ? null

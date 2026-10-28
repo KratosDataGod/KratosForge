@@ -293,7 +293,11 @@ def _shortcut_health(raw: dict[str, Any], envs: list[str], alerts_env: str, numb
     unknown = set(raw) - {"enabled", "minutes", "environments", "webhook_env", "url", "webhook"}
     if unknown:
         errors.append(f"shortcut_health: doesn't know {', '.join(sorted(unknown))}")
-    sh_envs = [str(e) for e in raw.get("environments") or envs]
+    given = raw.get("environments")
+    if given is not None and not isinstance(given, list):
+        errors.append('shortcut_health.environments: a list, like ["prod"]')
+        given = None
+    sh_envs = [str(e) for e in given or envs]
     errors += [f"shortcut_health.environments: {e} isn't in agent.environments" for e in sh_envs if e not in envs]
     webhook_env = str(raw.get("webhook_env") or "")
     if enabled is True and not (webhook_env or alerts_env):

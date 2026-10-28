@@ -2,6 +2,7 @@
 
 import datetime as dt
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -71,6 +72,9 @@ def test_off_unless_turned_on_and_needs_a_channel(tmp_path, monkeypatch):
     text = str(err.value)
     assert "so breaks go to a Teams channel" in text and "shortcut_health.minutes" in text
     assert "dev isn't in agent.environments" in text and "webhook_env" in text
+    # a string isn't read letter by letter as environments "p", "r", "o", "d"
+    with pytest.raises(agent_config.ConfigError, match="shortcut_health.environments: a list"):
+        config(tmp_path, '[shortcut_health]\nenabled = true\nenvironments = "prod"\nwebhook_env = "X"')
 
 
 # ---- the check itself: reads only
@@ -191,17 +195,56 @@ def titles(world):
     return [t for _, t, _ in world["posts"]]
 
 
+def step(agent):
+    agent.step()
+    if agent._shortcut_thread is not None:
+        agent._shortcut_thread.join(timeout=30)
+
+
 def test_the_agent_runs_the_check_on_its_schedule(world):
     clock = Clock()
     agent = world["make"](clock=clock)
-    agent.step()
+    step(agent)
     assert world["scans"] == 1  # at start
     clock.t += 59 * 60
-    agent.step()
+    step(agent)
     assert world["scans"] == 1  # not yet: every 60 minutes
     clock.t += 60
-    agent.step()
+    step(agent)
     assert world["scans"] == 2
+
+
+def test_a_slow_check_runs_beside_the_loop(world, monkeypatch):
+    clock = Clock()
+    agent = world["make"](clock=clock)
+    started, release = threading.Event(), threading.Event()
+    real = shortcut_watch.scan
+
+    def slow(*args):
+        started.set()
+        assert release.wait(30)
+        return real(*args)
+
+    monkeypatch.setattr(shortcut_watch, "scan", slow)
+    agent.step()  # returns while the check waits
+    assert started.wait(30) and agent._shortcut_thread.is_alive()
+    clock.t += 3600
+    agent.step()  # due again, but the last check hasn't finished: not a second one
+    assert agent.start_shortcut_check() is None
+    release.set()
+    agent._shortcut_thread.join(timeout=30)
+    assert world["scans"] == 1
+
+
+def test_a_bad_message_doesnt_drop_the_others(world, monkeypatch, caplog):
+    good = {"kind": "shortcut.broken", "id": "lh1|Tables/dbo/orders", "title": "orders in LH_Gold",
+            "at": "2027-01-01T00:00:00+00:00", "to": {"roles": ["platform_admin"]},
+            "open": {"view": "shortcuts", "tab": "health"}}
+    monkeypatch.setattr(shortcut_watch, "events", lambda rows, env, at: [good | {"title": ""}, good])
+    with caplog.at_level("WARNING"):
+        world["make"]().check_shortcuts()
+    assert titles(world) == ["Shortcut broken: orders in LH_Gold"]
+    assert "a shortcut message was left out" in caplog.text
 
 
 def test_a_break_posts_once_and_a_new_break_posts_again(world):

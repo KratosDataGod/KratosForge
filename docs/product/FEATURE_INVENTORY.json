@@ -1591,7 +1591,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1639,6 +1639,7 @@
       },
       "limitations": [
         "The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments",
+        "The agent's scheduled check is Preview: not yet run on a live tenant",
         "Approved request creates the shortcut in one lakehouse only",
         "OneLake error codes unseen on a tenant"
       ],

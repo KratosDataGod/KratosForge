@@ -29,7 +29,6 @@ from urllib.parse import urlsplit
 from . import agent_status, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
-from .auth import ONELAKE_SCOPES
 from .dataops_service import post_teams
 from .fabric_api import FabricClient
 from .jobqueue import JobQueue
@@ -39,6 +38,7 @@ from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .onelake import FileStore
+from .redact import describe
 from .runtime import Runtime
 from .workloads import evaluate
 from .workloads.agents import read_status
@@ -86,6 +86,7 @@ class Agent:
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
         self._shortcuts_at: float | None = None
+        self._shortcut_thread: threading.Thread | None = None
         self._outbox: Outbox | None = None
         self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
         self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
@@ -195,10 +196,9 @@ class Agent:
         found: list[dict[str, Any]] = []
         for env in self.config.shortcut_health.environments:
             try:
-                workspaces = shortcut_watch.env_workspaces(self.runtime._project().environments.get(env, {}))
+                workspaces = shortcut_watch.env_workspaces(self.runtime.environment_config(env))
             except Exception as exc:
-                self.log.warning("couldn't read the project for the shortcut check", extra=fields(
-                    env=env, error=f"{type(exc).__name__}: {exc}"))
+                self.log.warning("couldn't read the project for the shortcut check", extra=fields(env=env, error=describe(exc)))
                 out[env] = {"skipped": "the project can't be read"}
                 continue
             if not workspaces:
@@ -210,18 +210,17 @@ class Agent:
                 self._controls.pop(env, None)
                 records = []
                 self.log.warning("couldn't read the agent records; checking shortcuts here", extra=fields(
-                    env=env, error=f"{type(exc).__name__}: {exc}"))
+                    env=env, error=describe(exc)))
             if not shortcut_watch.poster(self.config.name, records, now):
                 out[env] = {"skipped": "another agent checks them"}
                 continue
             try:
-                auth = self.runtime.auth
-                fabric, storage = auth.fabric_token(), auth.storage_token()  # here: MSAL stays on one thread
-                onelake = auth._token(ONELAKE_SCOPES)
-                rows, problems = shortcut_watch.scan(workspaces, FabricClient(lambda t=fabric: t),
-                                                     FabricClient(lambda t=onelake: t), FileStore(lambda t=storage: t))
+                # A token per call (the credential caches and refreshes it), so a long scan never runs on an expired one.
+                rt = self.runtime
+                rows, problems = shortcut_watch.scan(workspaces, FabricClient(rt.auth.fabric_token),
+                                                     FabricClient(rt.onelake_token), FileStore(rt.auth.storage_token))
             except Exception as exc:
-                self.log.warning("couldn't check the shortcuts", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
+                self.log.warning("couldn't check the shortcuts", extra=fields(env=env, error=describe(exc)))
                 out[env] = {"skipped": "the check failed"}
                 continue
             for p in problems:
@@ -230,12 +229,36 @@ class Agent:
             out[env] = {"checked": len(rows), "broken": sum(r["health"] == "broken" for r in rows)}
             self.log.info("shortcuts checked", extra=fields(env=env, **out[env]))
         box = self.config.home / shortcut_watch.LEDGER
-        result = send_notices([validate(e) for e in found], PlatformRouting([PlatformRoute(DEFAULT_ROUTE, url)]),
+        checked = []
+        for e in found:
+            try:
+                checked.append(validate(e))
+            except ValueError as exc:  # one odd shortcut never holds back the others' messages
+                self.log.warning("a shortcut message was left out", extra=fields(shortcut=str(e.get("id"))[:200],
+                                                                                   error=describe(exc)))
+        result = send_notices(checked, PlatformRouting([PlatformRoute(DEFAULT_ROUTE, url)]),
                               Outbox(box, clock=self.clock), Ledger(box, clock=self.clock), post_teams)
         if result.get("error"):
             self.log.warning("couldn't post shortcut breaks to Teams; they'll go with the next check",
                              extra=fields(queued=result["queued"], error=_without_webhook(result["error"], url)))
         return out
+
+    def start_shortcut_check(self) -> threading.Thread | None:
+        """Run ``check_shortcuts`` on its own thread, so a long scan doesn't hold up schedules, the
+        mailbox or jobs. None while the previous check is still running: it is skipped, not queued."""
+        if self._shortcut_thread is not None and self._shortcut_thread.is_alive():
+            self.log.info("the last shortcut check is still running; skipping this one")
+            return None
+
+        def run() -> None:
+            try:
+                self.check_shortcuts()
+            except Exception:  # a check must never take the agent down; the log has it
+                self.log.exception("shortcut check crashed")
+
+        self._shortcut_thread = threading.Thread(target=run, name="shortcut-health", daemon=True)
+        self._shortcut_thread.start()
+        return self._shortcut_thread
 
     # ---- adding work
 
@@ -456,7 +479,7 @@ class Agent:
         sh = self.config.shortcut_health
         if sh.enabled and (self._shortcuts_at is None or self.clock() - self._shortcuts_at >= sh.minutes * 60):
             self._shortcuts_at = self.clock()  # after the status record, which tells other agents this one checks
-            self.check_shortcuts()
+            self.start_shortcut_check()
         if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
             self._pruned_at = self.clock()
             self.prune_queue()

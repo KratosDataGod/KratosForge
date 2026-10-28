@@ -23,7 +23,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. The desktop app takes the same lease when you run a metadata entity on this PC or replay quarantined rows. Every OneLake table write, from those runs, the agent, a notebook's `write_table` or a job's publish, also holds a second lease in the table's own lakehouse (`Files/_fabric_desktop/leases/<schema>.<table>.json`), so a notebook and a metadata run writing the same table wait for each other; a notebook or job waits up to 90 seconds (a metadata run `table_lease_seconds`), then stops with "<table> is being written by <holder> on <machine>". A notebook killed mid-write leaves its lease for at most a minute, so the next write waits it out and goes ahead. Whether OneLake honours these conditional requests between two machines is not yet verified on a live tenant. For a local environment the lease files are in its `.local` folder, and taking one over is a single step across every process on the PC, so two writers never both win an expired lease. A worker that can't renew its lease for a whole `table_lease_seconds` (OneLake unreachable, say) treats it as lost and reports the run that way. Before each write starts, the writer also checks its leases: if one was taken over, or hasn't been renewed for two thirds of its length, it stops with nothing written ("Nothing was written; run it again"). A Delta write or MERGE uploads its files first and commits at the end, so a lease lost during the upload is still reported afterwards, as before. The check covers every table write made while the lease is held, so quarantine and business-key writes made during an entity's run also stop if that entity's lease lapses. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
 - **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes (counted from local midnight, so `every_minutes = 60` runs on the hour and a restart doesn't move it), daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
-- **Shortcut health on a schedule.** With `[shortcut_health]` turned on, the agent checks the environments' shortcuts and posts each new break to Teams once. It only reads. See [Shortcut health](#shortcut-health).
+- **Shortcut health on a schedule (Preview).** With `[shortcut_health]` turned on, the agent checks the environments' shortcuts and posts each new break to Teams once. It only reads. See [Shortcut health](#shortcut-health).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
 - **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
 
@@ -102,10 +102,10 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `incidents.escalate_after_minutes` | 0 (never) | Post incidents still open and unacknowledged after this long to `escalate_to` |
 | `incidents.escalate_to` | none | The name of the route escalations go to; required with `escalate_after_minutes` |
 | `[[incidents.route]]` | none | A Teams channel for some incidents: `name`, `webhook_env`, and filters (see below) |
-| `shortcut_health.enabled` | false | Check the environments' [shortcuts](#shortcut-health) on a schedule and post each break to Teams once |
-| `shortcut_health.minutes` | 60 | How often to check (at least 15) |
-| `shortcut_health.environments` | `agent.environments` | Whose workspaces' shortcuts to check |
-| `shortcut_health.webhook_env` | `alerts.teams_webhook_env` | Variable holding the Teams webhook breaks go to; one of the two is required when it's on |
+| `shortcut_health.enabled` | false | (Preview) Check the environments' [shortcuts](#shortcut-health) on a schedule and post each break to Teams once |
+| `shortcut_health.minutes` | 60 | (Preview) How often to check (at least 15) |
+| `shortcut_health.environments` | `agent.environments` | (Preview) Whose workspaces' shortcuts to check |
+| `shortcut_health.webhook_env` | `alerts.teams_webhook_env` | (Preview) Variable holding the Teams webhook breaks go to; one of the two is required when it's on |
 
 Then check it. This validates the file and the project and gets a token for Fabric and for OneLake:
 
@@ -253,6 +253,8 @@ The file keeps every open incident and the last 200 resolved ones. Each has `id`
 
 ### Shortcut health
 
+> **Preview.** Built and tested against a mocked Fabric and OneLake. It has not yet run on a live tenant; see step 10 of [Verify on your tenant](#verify-on-your-tenant).
+
 Broken [shortcuts](shortcuts.md) otherwise show only when someone opens **Shortcuts > Health**. With `[shortcut_health] enabled = true`, the agent checks them itself, at start and then every `shortcut_health.minutes`:
 
 ```toml
@@ -264,6 +266,8 @@ webhook_env = "SHORTCUTS_TEAMS_WEBHOOK"   # the variable holding the webhook, ne
 ```
 
 **What it reads.** For each environment, the lakehouses in its workspaces (the environment's `workspace_id` and each designation's workspace) and their shortcuts, through the Fabric REST API; then, for each shortcut, one entry of the folder it sits in and one entry of the shortcut itself, through OneLake, as **Check now** does in the app. Only reads, with the agent's identity: no job runs, so the check uses no capacity, and no table data is read. A shortcut is broken, healthy, unreachable or not checked exactly as on [Health](shortcuts.md#health); the agent's identity needs read access to the lakehouses (and, for a OneLake shortcut, to its target) to tell.
+
+**How it runs.** On its own thread beside the agent's loop, so a long scan doesn't hold up schedules, the pipeline mailbox or jobs. A check that is still running when the next one is due isn't doubled: that one is skipped. Each request takes a current token, so a long scan doesn't fail on one that expired.
 
 **What it writes.** Nothing in Fabric, OneLake or the platform. On the agent's machine, `shortcut_alerts.sqlite3` in its home keeps which breaks were posted, and the messages Teams didn't take yet. Its status record gains the `shortcut_health` field.
 

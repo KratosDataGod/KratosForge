@@ -20,6 +20,7 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..errors import NotSetUp
 from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
@@ -584,7 +585,7 @@ class OneLakeStore(Store):
     def _lakehouse_id(self, lakehouse: str) -> str:
         if lakehouse not in self.lakehouse_ids:
             how = "run Dev to create it" if self.env == "dev" else "promote to create it"
-            raise LookupError(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
+            raise NotSetUp(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
         return self.lakehouse_ids[lakehouse]
 
     def workspace_of(self, lakehouse: str) -> str:

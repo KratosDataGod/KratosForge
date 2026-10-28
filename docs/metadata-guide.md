@@ -285,12 +285,12 @@ Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each s
 **Promote to Test** (or Prod):
 
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
-2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace, and any missing key tables where the target's keys are: the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod) (`SQL_Keys`), the environment's platform (`SQL_Platform`), or, without a platform, `LH_Keys` in the Keys workspace (created if it's missing).
-3. Syncs source systems to the same place and publishes the `VL_Sources` variable library.
+2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace. Key tables: without a platform, it creates `LH_Keys` in the Keys workspace if it's missing, and any missing key tables in it. With the target's keys in the platform (the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod) `SQL_Keys`, or the environment's `SQL_Platform`), a platform admin's promote creates the missing key tables, and anyone else's lists them as missing, to request on **Data mesh > Requests**.
+3. Writes the source systems to `LH_Keys` (`config.source_system`, `config.source_connection`) when the target's keys are there; with keys in the platform, no source system tables are written. For a target in a Fabric workspace, it also publishes the `VL_Sources` variable library.
 4. Pins the target to this metadata version, recorded in `meta.deployments` with a [release record](#release-records).
 5. If the target runs in Fabric, uploads the new version for its runner.
 
-Promote copies **configuration**, never data and never keys. With one keys database, Dev, Test and Prod issue from the same key tables, so a business key has the same surrogate key everywhere; otherwise each environment issues its own (in `SQL_Platform` or `LH_Keys`). Test and Prod load from their own sources. After a promote, run the target to load it.
+Promote copies **configuration**, never data and never keys. With one keys database, Dev, Test and Prod issue from the same key tables, so a business key has the same surrogate key everywhere; otherwise each environment issues its own: in its `SQL_Platform`, in `LH_Keys` in its Keys workspace, or, for an environment that runs on this PC, in key tables on this PC. Test and Prod load from their own sources. After a promote, run the target to load it.
 
 ### Release records
 

@@ -1,8 +1,10 @@
 # Smoke test results, <date>
 
+This file is committed to a public repository: no workspace, tenant, user or item names or ids go in it, and no tokens.
+
 - **App version:** <Settings › About>
 - **Run by:** <role, not a name>
-- **Workspace:** <test workspace name> (marked `fabric-desktop-live-test`, Trial or non-production capacity)
+- **Workspace:** a test workspace marked `fabric-desktop-live-test`, on <Trial or non-production> capacity
 - **Command:** `fabric-desktop smoke-test --workspace <id> [--run-in-fabric] [--platform [--platform-upgrade]]`
 - **Smoke run id:** <from summary.md> · **Live test run id:** <from summary.md>
 

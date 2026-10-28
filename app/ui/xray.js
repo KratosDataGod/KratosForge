@@ -181,20 +181,32 @@ function xrayWhere(f) {
   return `${f.workspace_name} / ${f.lakehouse_name}`;
 }
 
-function xrayFinding(f, box, res) {
-  const sev = { high: ["fail", "Fix first"], medium: ["wrn", "Worth fixing"], low: ["neu", "Good to know"] }[f.severity];
+// A finding's fix button. box is the X-ray card, or a function that redraws whatever shows the
+// finding (Optimize's Overview, AF-5). In a table row the button is small, and only the row asked
+// to lead keeps a solid button.
+function xrayAction(f, box, res, { small = false, solid = true } = {}) {
+  const cls = (base) => `${solid ? base : base.replace(" primary", " outline")}${small ? " small" : ""}`;
   const lakehouseLink = () => openInFabric(fabricItemLink({ type: "Lakehouse", item_id: f.lakehouse_id, workspace_id: f.workspace_id }));
-  const action = {
-    optimize: () => btn("Optimize", "sync", () => optimizeDialog(f, box, res), "tool primary"),
-    vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), "tool outline"),
-    open: () => btn("Open in Fabric", "publish", lakehouseLink, "tool outline"),
-    access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
+  const make = {
+    optimize: () => btn("Optimize", "sync", () => optimizeDialog(f, box, res), cls("tool primary")),
+    vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), cls("tool outline")),
+    open: () => btn("Open in Fabric", "publish", lakehouseLink, cls("tool outline")),
+    access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, cls("tool outline")),
     run_local: () => btn("Open notebook", "notebook", () => {
       openNotebook(f.notebook);
       toast("Set Runs on to This PC in the ribbon, and its runs start no Fabric job (OneLake reads and writes still use capacity).");
-    }, "tool primary"),
-    cost: () => btn("See cost", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool outline"),
+    }, cls("tool primary")),
+    cost: () => btn("See cost", null, () => { optimizePage.tab = "cost"; go("optimize"); }, cls("tool outline")),
   }[f.action];
+  return make ? make() : null;
+}
+
+function redrawXray(box, res) {
+  if (typeof box === "function") box(); else drawXray(box, res);
+}
+
+function xrayFinding(f, box, res) {
+  const sev = { high: ["fail", "Fix first"], medium: ["wrn", "Worth fixing"], low: ["neu", "Good to know"] }[f.severity];
   return h("div", { class: "xray-item" },
     h("span", { class: `pill-s ${sev[0]}` }, sev[1]),
     h("div", { class: "grow" },
@@ -203,7 +215,7 @@ function xrayFinding(f, box, res) {
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); openXrayDoc(f.kind); } }, "How to fix this")),
       xrayWhere(f) ? h("div", { class: "muted-text small where" }, xrayWhere(f)) : null,
       xrayFix(f)),
-    f.fix?.state === "submitted" ? null : action ? action() : null);
+    f.fix?.state === "submitted" ? null : xrayAction(f, box, res));
 }
 
 // A fix shows as submitted until its Fabric job finishes; only a completed job marks the finding fixed.
@@ -231,7 +243,7 @@ async function optimizeDialog(f, box, res, refresh = false) {
     closeDialog();
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Optimizing ${label} in Fabric. Follow it in Monitor.`, false, { log: true });
-    drawXray(box, res);
+    redrawXray(box, res);
   }, "tool primary");
   let ack = null;
   start.disabled = true;
@@ -261,7 +273,7 @@ async function vacuumDialog(f, box, res) {
     closeDialog();
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
-    drawXray(box, res);
+    redrawXray(box, res);
   }, "tool primary");
   vacuumBtn.disabled = true;
   showDialog(`Vacuum ${label}`, body, [btn("Cancel", null, closeDialog, "tool outline"), vacuumBtn]);
@@ -291,7 +303,7 @@ function vacuumAll(findings, box, res) {
     }
     toast(failed.length ? `Started ${started} vacuums. Not started: ${failed.join(", ")}` : `Started ${started} vacuums in Fabric. Follow them in Monitor.`,
       !!failed.length, { log: true });
-    drawXray(box, res);
+    redrawXray(box, res);
   };
   showDialog(`Vacuum ${findings.length} tables`, h("p", { class: "text" },
     "Each table is vacuumed in Fabric as its own table maintenance job. Each keeps the history it promises: at least 7 days, ",

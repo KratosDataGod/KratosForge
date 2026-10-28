@@ -16,6 +16,7 @@ import pytest
 from deltalake import DeltaTable, TableFeatures, write_deltalake
 from test_batches import DAYS, full_entity
 from test_large_tables import DAY1, DAY2, DAY3, Setup, entity, rows
+from test_meta import ORDER_COLS, Repo, edit_entity, landing
 
 from fabric_desktop import delta_profile
 from fabric_desktop.meta import Engine, Project, drift, mesh
@@ -245,3 +246,48 @@ def test_a_dimension_refuses_a_narrowing_with_the_same_message(tmp_path, mode, m
     res = s.engine(DAY2).run("bronze.events", backfill="none")
     assert res.status == "failed" and f"schema change refused: qty int64 to {qty} would narrow" in res.message, res.message
     assert table(s).version() == version and table(s).schema().to_arrow().field("qty").type == pa.int64()
+
+
+@pytest.mark.parametrize("value,dtype", [("7", pl.Int64), ("1.5", pl.Float64)])
+def test_a_landing_file_that_leaves_a_kept_column_empty_still_loads(tmp_path, value, dtype):
+    # A column the drift policy keeps reads as text from a CSV that leaves it empty: the table keeps its type.
+    r = Repo(tmp_path / "project")
+    edit_entity(r.root, "bronze.orders", 'mode = "full"', 'mode = "incremental"')
+    r.reload()
+    assert r.engine().run("bronze.orders").status == "ok"
+    landing(r.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS},score\n200,2,2026-10-02,30.00,,shipped,2026-10-02,{value}\n")
+    assert r.engine(DAY2).run("bronze.orders").status == "ok"
+    landing(r.root, "landing/orders/orders_2026-10-03.csv", f"{ORDER_COLS},score\n201,2,2026-10-03,30.00,,shipped,2026-10-03,\n")
+    res = r.engine(DAY3).run("bronze.orders")
+    assert res.status == "ok", res.message
+    out = r.table("bronze.orders")
+    assert out.schema["score"] == dtype and out.filter(pl.col("order_id") == 201)["score"].to_list() == [None]
+
+
+def test_a_landing_file_that_changes_a_kept_column_s_kind_is_still_refused(tmp_path):
+    r = Repo(tmp_path / "project")
+    edit_entity(r.root, "bronze.orders", 'mode = "full"', 'mode = "incremental"')
+    r.reload()
+    assert r.engine().run("bronze.orders").status == "ok"
+    landing(r.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS},score\n200,2,2026-10-02,30.00,,shipped,2026-10-02,7\n")
+    assert r.engine(DAY2).run("bronze.orders").status == "ok"
+    landing(r.root, "landing/orders/orders_2026-10-03.csv", f"{ORDER_COLS},score\n201,2,2026-10-03,30.00,,shipped,2026-10-03,x\n")
+    res = r.engine(DAY3).run("bronze.orders")
+    assert res.status == "failed" and "schema change refused: score int64 to string" in res.message, res.message
+
+
+def test_an_int32_batch_of_a_column_the_contract_doesnt_declare_goes_into_its_int64_column(tmp_path):
+    s = Setup(tmp_path, True)
+    qty_entity(s, "int64")
+    text = (s.root / "metadata" / "entities" / "bronze.events.toml").read_text(encoding="utf-8")
+    (s.root / "metadata" / "entities" / "bronze.events.toml").write_text(text.replace('qty = "int64"\n', ""), encoding="utf-8")
+    s.source(qty_rows(range(3), DAY1), mode="overwrite")
+    assert s.engine(DAY1).run("bronze.events").status == "ok"
+    assert table(s).schema().to_arrow().field("qty").type == pa.int64()
+    batch = qty_rows([7], DAY2).with_columns(pl.col("qty").cast(pl.Int32))
+    write_deltalake(str(s.src), batch.to_arrow(), mode="overwrite", schema_mode="overwrite")
+    assert DeltaTable(str(s.src)).schema().to_arrow().field("qty").type == pa.int32()
+    res = s.engine(DAY2).run("bronze.events", backfill="none")
+    assert res.status == "ok", res.message
+    assert table(s).schema().to_arrow().field("qty").type == pa.int64()
+    assert [h["change"] for h in history(s)] == ["created"]

@@ -1220,6 +1220,7 @@ class Engine:
             metadata["fabric_desktop_watermark"] = mark
         # Before any merge: scd1_merge, scd2_merge and the relaxed concats below join the new rows to
         # the table's, and would fail on a change of kind, or quietly keep the old type, first.
+        df = _fit_to_table(e, df, self._schema_from)
         self._refuse_type_changes(e, self._schema_from, df.schema)
         how, why = self._merge_plan(e, df, backfill)
         if how:
@@ -1385,6 +1386,24 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     sk = e.surrogate_key
     return df.select([sk] + [c for c in df.columns if c != sk])
+
+
+def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.DataFrame:
+    """The new rows in the table's types where nothing is lost: a column with no values in this
+    load (a file that left it empty reads as text), and a column the contract doesn't declare whose
+    type the table's widens (an int32 batch into an int64 column). A narrowing the contract asks
+    for, and any real change of kind, are left for _refuse_type_changes."""
+    if table is None:
+        return df
+    declared = e.columns
+    casts = []
+    for name, dtype in df.schema.items():
+        old = table.get(name)
+        if old is None or old == dtype:
+            continue
+        if df[name].null_count() == df.height or (name not in declared and drift_mod.widens(dtype, old)):
+            casts.append(pl.col(name).cast(old))
+    return df.with_columns(casts) if casts else df
 
 
 def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,

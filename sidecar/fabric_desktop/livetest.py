@@ -468,7 +468,8 @@ class LiveTest:
         first = leases.Leases(backend, owner=f"live test {self.run_id} A", ttl=leases.TABLE_LEASE_TTL, wait=0)
         second = leases.Leases(backend, owner=f"live test {self.run_id} B", ttl=leases.TABLE_LEASE_TTL, wait=0)
         with first.hold(key):
-            if second.try_acquire(key) is not None:
+            if (stolen := second.try_acquire(key)) is not None:
+                backend.delete(key, stolen)  # B's copy, so leaving A's hold reports this, not a lost lease
                 raise RuntimeError("A second writer got the lease while the first held it: OneLake didn't refuse "
                                    "a create with If-None-Match: *")
             if backend.replace(key, b"{}", '"0x8D0000000000000"') is not None:

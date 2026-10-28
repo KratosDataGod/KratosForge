@@ -550,6 +550,24 @@ def test_a_store_that_ignores_conditional_requests_fails_the_lease_check(tmp_pat
     assert "If-None-Match" in check["detail"]
 
 
+class IgnoresIfMatch(leases.LocalBackend):
+    """A store that refuses a second create but replaces a file whatever its ETag."""
+
+    def replace(self, key, data, etag):
+        path = self._path(key)
+        if not path.exists():
+            return None
+        path.write_bytes(data)
+        return self._etag(data)
+
+
+def test_the_lease_check_fails_on_a_store_that_ignores_if_match(tmp_path):
+    result = extra_harness(tmp_path, extra={"lease.onelake"},
+                           lease_backend=lambda: IgnoresIfMatch(tmp_path / "leases")).run()
+    check = by_id(result)["lease.onelake"]
+    assert check["status"] == "failed" and "ignored If-Match" in check["detail"]
+
+
 def test_a_merge_into_a_table_outside_the_profile_is_refused_before_writing(tmp_path):
     def deletion_vectors(ref, data, mode):
         write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode,
@@ -567,6 +585,9 @@ def test_lease_and_merge_checks_need_the_lakehouse(tmp_path):
     class NoLakehouse(ItemFabric):
         def create_lakehouse(self, ws, name, description=""):
             raise FabricError("Capacity is paused", "CapacityNotActive")
-    result = extra_harness(tmp_path, NoLakehouse(), extra={"lease.onelake", "delta.merge_profile"}).run()
+    built = []
+    result = extra_harness(tmp_path, NoLakehouse(), extra={"lease.onelake", "delta.merge_profile"},
+                           lease_backend=lambda: built.append(1)).run()
+    assert built == [], "no lease store is touched without the run's own lakehouse"
     assert by_id(result)["lease.onelake"]["status"] == "skipped"
     assert by_id(result)["delta.merge_profile"]["status"] == "skipped"

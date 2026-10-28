@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "2225e28",
+    "commit": "cdbb967",
     "date": "2026-10-27",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -18,7 +18,8 @@
       "Product check 2026-10-26 at bb084c6: PRs #676 to #741 merged after #677; their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-27 at 6159e50: PRs merged after #797 (#560, #449, #701, #763, #765, #782, #788 to #809); their rows were updated. Other rows were not re-read.",
-      "Product check 2026-10-27 23:42 at 2225e28: PRs #811 to #826 merged after #812; their rows were updated, and the inventory text the #815 implementation reviews named stale was corrected."
+      "Product check 2026-10-27 23:42 at 2225e28: PRs #811 to #826 merged after #812; their rows were updated, and the inventory text the #815 implementation reviews named stale was corrected.",
+      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -214,7 +215,8 @@
         803,
         806,
         825,
-        826
+        826,
+        827
       ]
     },
     {
@@ -1451,14 +1453,15 @@
         787,
         808,
         809,
-        823
+        823,
+        833,
+        835
       ],
       "limitations": [
         "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
         "The Monitoring tab (WH-19) is not yet checked on a tenant",
         "One result set per run: the engine refuses a second statement",
-        "No Fabric SQL database, no Snowflake",
-        "The object explorer isn't a keyboard tree (PB-025 review, finding 2)"
+        "No Fabric SQL database, no Snowflake"
       ]
     },
     {
@@ -2781,7 +2784,7 @@
     {
       "id": "FEAT-PRV-06",
       "name": "Side by side and the TPC-H benchmark",
-      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards.",
+      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost, splits This PC's time into processing and OneLake upload wait, and says plainly when a table is missing. TPC-H data generates on every core and is always deleted afterwards. Cores on this PC (All cores, Match Fabric or a number) holds the PC's run to that many cores, and the result says whether both sides matched.",
       "pillar": "Local development",
       "category": "Reliability, Testing, and Performance",
       "status": "Implemented",
@@ -2800,16 +2803,29 @@
           "kind": "test",
           "ref": "sidecar/tests/test_side_by_side.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_side_by_side_cores.py",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/sbs-cores.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/side_by_side.py",
         "sidecar/fabric_desktop/side_by_side_service.py",
         "sidecar/fabric_desktop/benchmark.py",
-        "app/ui/sidebyside.js"
+        "app/ui/sidebyside.js",
+        "sidecar/fabric_desktop/cpu_cap.py"
       ],
       "tests": [
-        "sidecar/tests/test_side_by_side.py"
+        "sidecar/tests/test_side_by_side.py",
+        "sidecar/tests/test_side_by_side_cores.py",
+        "app/tests/browser/sbs-cores.test.cjs"
       ],
       "docs": [
         "docs/side-by-side.md"
@@ -2820,7 +2836,8 @@
       },
       "limitations": [
         "Writes the real tables twice (confirmed first)",
-        "Files/ not compared"
+        "Files/ not compared",
+        "On a PC with more than 64 logical processors, a capped run is held to cores in one Windows processor group"
       ],
       "prs": [
         44,
@@ -2834,7 +2851,8 @@
         673,
         683,
         819,
-        822
+        822,
+        829
       ],
       "workstream": "Prove (FD-112)",
       "next_action": "Chris's SF1 local run is 65 s vs 101 s before (1.9x); keep the benchmark and retire correctness checks into Prove (PB-076).",
@@ -3802,6 +3820,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_requests_core_four.py",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/policy-exceptions.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -3811,7 +3834,8 @@
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_requests_core_four.py"
+        "sidecar/tests/test_requests_core_four.py",
+        "app/tests/browser/policy-exceptions.test.cjs"
       ],
       "docs": [
         "docs/metadata-guide.md",
@@ -3832,7 +3856,8 @@
       ],
       "prs": [
         603,
-        605
+        605,
+        838
       ]
     },
     {
@@ -4176,7 +4201,7 @@
     {
       "id": "FEAT-MESH-04",
       "name": "Data mesh: domains, products, links, glossary",
-      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home.",
+      "description": "Domains imported from and created in Fabric, data products with ports, endorsement badges and Purview term links, last scan and mixed endorsement on the product page, links between teams' products, glossary, About text and a mesh map on Home. Projects have owners and members (Domains > This project), and joining a domain is a request its owners approve.",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -4265,6 +4290,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_mesh_home.py",
           "note": "product check 2026-10-27 23:42 at 2225e28: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/mesh-members.test.cjs",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4290,7 +4320,8 @@
         "app/tests/browser/mesh-products.test.cjs",
         "app/tests/browser/mesh-requests.test.cjs",
         "app/tests/browser/mesh-layout.test.cjs",
-        "sidecar/tests/test_mesh_home.py"
+        "sidecar/tests/test_mesh_home.py",
+        "app/tests/browser/mesh-members.test.cjs"
       ],
       "docs": [
         "docs/data-mesh.md"
@@ -4327,7 +4358,10 @@
         817,
         818,
         824,
-        825
+        825,
+        827,
+        834,
+        836
       ],
       "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.",
       "backlog": [
@@ -4347,6 +4381,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_breaking_changes.py::test_dropping_a_column_another_project_reads_blocks_the_promote",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_versioned_contracts.py",
+          "note": "product check 2026-10-28 11:42 at cdbb967: test file named by the merged PR; CI on main runs it"
         }
       ],
       "source": [
@@ -4354,7 +4393,8 @@
         "sidecar/fabric_desktop/meta_service.py"
       ],
       "tests": [
-        "sidecar/tests/test_breaking_changes.py"
+        "sidecar/tests/test_breaking_changes.py",
+        "sidecar/tests/test_versioned_contracts.py"
       ],
       "docs": [
         "docs/data-mesh.md"
@@ -4366,7 +4406,8 @@
       "prs": [
         71,
         701,
-        817
+        817,
+        836
       ],
       "workstream": "Staged roadmap (FD-127)",
       "next_action": "Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it.",
@@ -4374,7 +4415,6 @@
         "PB-082"
       ],
       "limitations": [
-        "A consumer's edited accepts range doesn't reach the catalog (PB-082 review, finding 2)",
         "8.2's catalog changes not yet tried in Fabric"
       ]
     },
@@ -7129,7 +7169,9 @@
       ],
       "prs": [
         557,
-        558
+        558,
+        827,
+        831
       ],
       "workstream": "UX and simplicity oversight",
       "next_action": "Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off."

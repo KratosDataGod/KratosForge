@@ -127,30 +127,34 @@ def compare(e: Entity, left: pl.DataFrame | None, right: pl.DataFrame | None) ->
 
 def _projected(data: pads.Dataset, columns: list[str]) -> pa.RecordBatchReader:
     """``columns`` of the current rows of ``data``, as a stream: nothing is held in memory."""
-    names = set(data.schema.names)
-    where = pads.field("is_current") == True if "is_current" in names else None  # noqa: E712 - a dataset expression
-    return data.scanner(columns=columns, filter=where).to_reader()
+    return data.scanner(columns=columns, filter=_current_rows(data)).to_reader()
+
+
+def _current_rows(data: pads.Dataset) -> Any:
+    """The dataset filter for current rows (Type 2 tables keep old versions), or None for all rows."""
+    return pads.field("is_current") == True if "is_current" in data.schema.names else None  # noqa: E712
 
 
 def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: list[str]) -> dict[str, Any]:
     """Rows, an order-independent checksum of ``columns`` and the sums of ``totals``, in one pass."""
     import duckdb
     if not columns:  # nothing shared to checksum: only the row count says anything
-        return {"rows": _projected(data, []).read_all().num_rows, "checksum": "0" * 16, "totals": []}
+        return {"rows": data.count_rows(filter=_current_rows(data)), "checksum": None, "totals": []}
     reader = _projected(data, columns)
-    fields = sorted(reader.schema, key=lambda f: f.name.lower())
-    row_hash = (f"coalesce(sum(CAST(hash({', '.join(side_by_side._normalized(f.name, f.type, f.name in numbers) for f in fields)}) AS HUGEINT)), 0)"
-                if fields else "0")
-    integers = {f.name for f in reader.schema if pa.types.is_integer(f.type)}
-    sums = [f"sum({side_by_side._quote(c)})" if c in integers else f"sum(CAST({side_by_side._quote(c)} AS DOUBLE))"
-            for c in totals]
-    con = duckdb.connect()
     try:
-        con.execute("SET TimeZone = 'UTC'")
-        con.register("t", reader)
-        got = con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t").fetchone()
+        fields = sorted(reader.schema, key=lambda f: f.name.lower())
+        row_hash = f"coalesce(sum(CAST(hash({', '.join(side_by_side._normalized(f.name, f.type, f.name in numbers) for f in fields)}) AS HUGEINT)), 0)"
+        integers = {f.name for f in reader.schema if pa.types.is_integer(f.type)}
+        sums = [f"sum({side_by_side._quote(c)})" if c in integers else f"sum(CAST({side_by_side._quote(c)} AS DOUBLE))"
+                for c in totals]
+        con = duckdb.connect()
+        try:
+            con.execute("SET TimeZone = 'UTC'")
+            con.register("t", reader)
+            got = con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t").fetchone()
+        finally:
+            con.close()
     finally:
-        con.close()
         reader.close()
     return {"rows": int(got[0]), "checksum": f"{int(got[1]) % (1 << 64):016x}", "totals": list(got[2:])}
 
@@ -158,12 +162,13 @@ def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: 
 # Sums of floating-point columns depend on the order rows are added in, which differs between two
 # scans of the same rows; a difference this small, relative to the totals, is the same total.
 FLOAT_TOLERANCE = 1e-9
+FLOAT_FLOOR = 1e-9  # and an absolute one, for sums near zero
 
 
 def _diff(left: Any, right: Any) -> Any:
     """How a total moved; 0 for two float sums equal within FLOAT_TOLERANCE."""
     d = (right or 0) - (left or 0)
-    if isinstance(d, float) and abs(d) <= FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)):
+    if isinstance(d, float) and abs(d) <= max(FLOAT_TOLERANCE * max(abs(left or 0), abs(right or 0)), FLOAT_FLOOR):
         return 0.0
     return d
 
@@ -186,7 +191,8 @@ def hashed(e: Entity, left: pads.Dataset, right: pads.Dataset) -> dict[str, Any]
     totals = [c for c in common if c not in e.keys and not c.lower().endswith("id")
               and _is_number(ls.field(c).type) and _is_number(rs.field(c).type)]
     a, b = _summary(left, common, numbers, totals), _summary(right, common, numbers, totals)
-    match = a["checksum"] == b["checksum"]
+    # With no shared columns there's nothing to checksum: say so rather than call it a match.
+    match = None if not common else a["checksum"] == b["checksum"]
     return {
         "entity": e.name, "keys": e.keys, "rows": {"left": a["rows"], "right": b["rows"]},
         "columns": {"only_left": [c for c in lcols if c not in rcols], "only_right": [c for c in rcols if c not in lcols],
@@ -199,6 +205,8 @@ def hashed(e: Entity, left: pads.Dataset, right: pads.Dataset) -> dict[str, Any]
         "compared_on_keys": False, "method": "hashed", "limit_rows": LIMIT_ROWS,
         "checksum": {"left": a["checksum"], "right": b["checksum"], "match": match},
         "note": (f"More than {LIMIT_ROWS:,} rows, so row counts, totals and a checksum of every row in the shared columns "
-                 f"were compared instead of each row by key. " + ("The checksums match: the rows are the same." if match
-                 else "The checksums differ: some rows differ, but which keys can't be told without loading the table.")),
+                 f"were compared instead of each row by key. " + (
+                     "The tables share no columns, so no rows could be compared." if match is None
+                     else "The checksums match: the rows are the same." if match
+                     else "The checksums differ: some rows differ, but which keys can't be told without loading the table.")),
     }

@@ -329,7 +329,7 @@ def test_hashed_totals_of_floats_added_in_another_order_are_the_same(svc):
     right = pa.table({key: [str(i) for i in reversed(range(len(values)))], "amount": pa.array(list(reversed(values)))})
     out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
     assert out["totals"][0]["diff"] == 0
-    assert compare_mod._diff(0.1 + 0.2, 0.3) == 0 and compare_mod._diff(1.0, 1.5) == 0.5 and compare_mod._diff(3, 4) == 1
+    assert compare_mod._diff(1e-12, -1e-12) == 0 and compare_mod._diff(0.1 + 0.2, 0.3) == 0 and compare_mod._diff(1.0, 1.5) == 0.5 and compare_mod._diff(3, 4) == 1
 
 
 def test_hashed_compare_with_no_shared_columns_still_counts_rows(svc):
@@ -339,6 +339,9 @@ def test_hashed_compare_with_no_shared_columns_still_counts_rows(svc):
     e = svc._project().entities["silver.customers"]
     out = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1]})))
     assert out["rows"] == {"left": 2, "right": 1} and out["columns"]["only_left"] == ["a"]
+    even = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1, 2]})))
+    assert even["checksum"]["match"] is None and "share no columns, so no rows could be compared" in even["note"]
+    assert "the rows are the same" not in even["note"]
 
 
 def test_a_table_missing_on_one_side_isnt_loaded_on_the_other(svc, monkeypatch):

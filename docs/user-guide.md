@@ -261,7 +261,7 @@ Click an item's row (not its name) to see it in a panel on the right, without le
 | You click | The panel shows |
 | --- | --- |
 | A table | Its first 100 rows, its column types (the **Schema** tab) and its row count, read on this PC from OneLake |
-| A data file (CSV, TSV, Parquet, JSON) | Its first 100 rows. Files over 200 MB aren't downloaded for a preview |
+| A data file (CSV, TSV, Parquet, JSON) | Its first 100 rows. Files over 200 MB aren't downloaded for a preview, and a previewed file is deleted from this PC as soon as its rows are read |
 | A text file (txt, md, py, sql, yaml and similar) | The start of the file |
 | A notebook | Its cells, read only, from its Fabric definition. Outputs aren't shown, since Fabric keeps them with each run |
 | A lakehouse | Its tables and files. Click one to preview it; **Back** returns to the lakehouse |
@@ -749,7 +749,7 @@ The one list of Preview features, with where each one is, is on the [documentati
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses, your Windows user name in paths, and tenant, workspace and item ids. You can read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 

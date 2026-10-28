@@ -110,7 +110,7 @@ Draft issues. FD-n ids let dependencies point at each other.
 | FD-10 | M1 | Linux CI and agent packaging | FD-8 | Done |
 | FD-11 | M2 | Key Vault, audit and workload identity for the agent | FD-4 | Open |
 | FD-12 | M3 | Shared job claims across workers | FD-6, FD-7, FD-11 | Open |
-| FD-13 | M4 | Pipeline mailbox | FD-8 | Done against fakes (live check in the live test's `pipeline.mailbox`, PB-049) |
+| FD-13 | M4 | Pipeline mailbox | FD-8 | Done against fakes ([Run from a Fabric pipeline](agent.md#run-from-a-fabric-pipeline); live check in the live test's `pipeline.mailbox`, PB-049) |
 | FD-14 | M5 | Workload compatibility analyzer | FD-3 | Open |
 | FD-15 | M5 | Measured local cost and side-by-side comparison | FD-9 | Open |
 
@@ -140,7 +140,7 @@ Draft issues. FD-n ids let dependencies point at each other.
 
 **FD-12 Shared job claims.** Workers register and heartbeat in LH_Meta; one worker claims a job via a conditional-create claim file; a stopped worker's claim expires and another runs the job; no job runs twice.
 
-**FD-13 Pipeline mailbox.** Contract for `requests/<id>.json` and `results/<id>.json` plus a sample Fabric pipeline that writes a request and waits; duplicates ignored; malformed requests answered with the reason. Built as `mailbox.py` with `status/<id>.json` answers and the sample notebook `examples/pipeline/run_on_agent.ipynb` ([Run from a Fabric pipeline](agent.md#run-from-a-fabric-pipeline)). OneLake doesn't say who wrote a file, so the agent checks the pipeline run a request names instead of its writer.
+**FD-13 Pipeline mailbox.** Built (`mailbox.py`): the contract for `requests/<id>.json`, with the agent answering in `status/<id>.json` and `cancel/<id>.json` to cancel, plus a sample notebook a Fabric pipeline runs to write a request and wait; duplicates ignored; malformed requests answered with the reason. OneLake doesn't say who wrote a file, so the agent checks the pipeline run a request names instead of its writer. See [Run from a Fabric pipeline](agent.md#run-from-a-fabric-pipeline).
 
 **FD-14 Compatibility analyzer.** Parses notebook Python (AST) and SQL (sqlglot), lists each unsupported Spark API or SQL feature with cell and line, and gives run here, run in Fabric or rewrite per workload; replaces `compute_check` keeping its output shape.
 

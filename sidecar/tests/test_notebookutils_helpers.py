@@ -207,3 +207,21 @@ def test_udf_names_a_file_it_cant_read(capsys):
     from fabric_desktop.notebookutils_local import _udf_functions
     assert _udf_functions({"broken.py": "def (:\n"}) == []
     assert "Skipped broken.py" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("area, instead", [("warehouse.getWithProperties('WH')", "Warehouse page"),
+                                           ("connections.getCredential('c')", "credentials.getSecret")])
+def test_fabric_only_areas_say_what_to_do_instead(k, area, instead):
+    out = k.run(f"notebookutils.{area}")
+    assert out["status"] == "error"
+    assert out["outputs"][-1]["ename"] == "AttributeError"
+    assert "runs in Fabric only" in out["outputs"][-1]["evalue"] or "only a Fabric session" in out["outputs"][-1]["evalue"]
+    assert instead in out["outputs"][-1]["evalue"]
+    assert k.run("hasattr(notebookutils, 'connections'), hasattr(mssparkutils, 'warehouse')")["outputs"][-1]["text"] \
+        == "(False, False)"
+
+
+def test_session_restarts_python_as_documented(k):
+    out = k.run("x = 1\nnotebookutils.session.restartPython()")
+    assert out["status"] != "error", out
+    assert k.run("x")["outputs"][-1]["ename"] == "NameError"

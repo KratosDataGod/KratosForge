@@ -276,7 +276,9 @@ def precondition(row: dict[str, Any]) -> dict[str, Any]:
     if out["exists"] and row["kind"] in ("view", "procedure", "function"):
         out["definition"] = definition_fingerprint(row.get("warehouse_text") or "")
     elif out["exists"] and row["kind"] == "table":
-        out["columns"] = list((columns(row.get("warehouse_text") or "") or {}).keys())
+        # columns() keeps a name that isn't plain as [name]; the catalog gives it bare
+        out["columns"] = [n[1:-1] if n.startswith("[") and n.endswith("]") else n
+                          for n in (columns(row.get("warehouse_text") or "") or {})]
     return out
 
 

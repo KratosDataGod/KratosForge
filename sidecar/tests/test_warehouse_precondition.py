@@ -99,6 +99,11 @@ def test_the_plan_gives_each_change_the_object_as_the_preview_saw_it():
         assert warehouse.precondition_problem(change["precondition"]) is None
 
 
+def test_a_column_name_that_needs_brackets_is_given_as_the_catalog_gives_it():
+    spaced = "CREATE TABLE [dbo].[orders] (\n  [Order Date] date NULL,\n  [a]]b] int NULL,\n  [id] int NOT NULL\n);\n"
+    assert plan_of("only_warehouse", "table", spaced)["precondition"]["columns"] == ["Order Date", "a]b", "id"]
+
+
 def test_the_fingerprint_reads_the_definition_as_the_catalog_gives_it():
     assert warehouse.definition_fingerprint(f"{VIEW}\nGO\n") == warehouse.definition_fingerprint(f"\r\n{VIEW}  ")
     assert warehouse.definition_fingerprint(VIEW) != warehouse.definition_fingerprint(VIEW + " -- edited")

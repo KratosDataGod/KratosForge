@@ -26,7 +26,7 @@ function openSqlQuery(ref) {
   sqlPracticePolicies = null;  // policies may have changed since the last visit
   if (sqlRefKey(sqlPage.ref) !== sqlRefKey(ref)) {
     Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {},
-      catalog: null, whOpen: null, whFilter: "" });
+      catalog: null, whOpen: null, whFocus: null, whFilter: "" });
   }
   go("query");
 }

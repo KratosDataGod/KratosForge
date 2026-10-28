@@ -208,6 +208,10 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #999 | Metadata loads: Fabric-safe types (#954), stacked on #994 | CONDITIONAL at df277615 | 8.8 | Second quality reviewer. Store.write and write_stream covered; 79 passed with main merged. Required: merge_insert and upsert bypass delta_safe. Probed: a new TIME column gives a raw delta-rs error; a new UInt32 is silently created as Int32 (overflow risk) while the docs say every load is covered. |
+
+| #984 | Signed-out schedules (nit push) | PASS at c8f96b3d | 9.3 | Second quality reviewer. Saves after each pause; pause before sync(); 59 passed with main merged. |
+
 | #996 | Memory limit reads the venv's real interpreter (#896) | PASS at e5d4749a | 9.2 | Second quality reviewer. Merged with main: kernel_process + silent_except 41 passed; reverting to proc.pid fails the new test. Nits: launcher pid read until ready; child processes not counted (sum the tree as a follow-up). |
 
 | #933 | Notebook MERGE on this PC (nit push) | PASS at 6054e235 (carried) | 9.1 | Second quality reviewer. Carried from e78c59e9. Docs qualifier accurate; WITH SCHEMA EVOLUTION found after leading comments, with a test; spark_merge + silent_except 40 passed with main merged. New nit: UPDATE, DELETE and RESTORE after a leading comment give raw DuckDB or parse errors (nothing changed, probed); strip comments there too. Needs Chris's go. |

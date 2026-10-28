@@ -40,6 +40,11 @@ ITEMS = {setup_mod.META: "meta_id", setup_mod.LANDING: "landing_id", setup_mod.S
 # Deleted in this order: what depends on SQL_Platform first, the lakehouses last.
 _DELETE_ORDER = (setup_mod.VARLIB, setup_mod.FUNCTIONS, setup_mod.SQL, setup_mod.LANDING, setup_mod.META)
 _LAKEHOUSES = {setup_mod.META, setup_mod.LANDING}
+# The Fabric item type each platform item is. A lakehouse and a SQL database come with a SQL
+# endpoint of the same name, which is theirs, not a clash.
+ITEM_TYPES = {setup_mod.META: "Lakehouse", setup_mod.LANDING: "Lakehouse", setup_mod.SQL: "SQLDatabase",
+              setup_mod.FUNCTIONS: "UserDataFunction", setup_mod.VARLIB: "VariableLibrary"}
+_OWN_ENDPOINT = "SQLEndpoint"
 CONNECTION_HELP = (f"Open {setup_mod.FUNCTIONS} in the test workspace in Fabric, choose Manage connections, add "
                    f"{setup_mod.SQL} with the alias \"{udf.ALIAS}\", publish, then press Enter here.")
 FLOW_TITLES = {
@@ -50,6 +55,25 @@ FLOW_TITLES = {
     15: "Central platform: a policy exception, asked for, approved and ended",
     16: "Central platform: restrict a central lakehouse family (central_restrict)",
 }
+
+
+def _platform_items(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """The workspace's platform items, by name, matched on name AND type; and what clashes with them:
+    an item of another type with a platform name (not a lakehouse's or SQL database's own SQL endpoint),
+    or two items of a platform item's type with its name."""
+    found: dict[str, dict[str, Any]] = {}
+    clashes = []
+    for item in items:
+        name, kind = item.get("displayName"), item.get("type")
+        if name not in ITEMS:
+            continue
+        if kind == ITEM_TYPES[name]:
+            if name in found:
+                clashes.append(f"two {kind} items named {name}")
+            found[name] = item
+        elif not (kind == _OWN_ENDPOINT and ITEM_TYPES[name] in ("Lakehouse", "SQLDatabase")):
+            clashes.append(f"a {kind or 'item of unknown type'} named {name}, where the platform's is a {ITEM_TYPES[name]}")
+    return found, clashes
 
 
 class Skip(Exception):
@@ -130,13 +154,15 @@ class PlatformTest:
             self.refused = [livetest.scrub(f"Couldn't read the workspace: {exc}")]
             return self._finish()
         self.refused = livetest.refusals(workspace, self.protected_ids)
-        found = {i.get("displayName"): i for i in self.fabric.list_items(self.workspace_id)
-                 if i.get("displayName") in ITEMS} if not self.refused else {}
-        if found and not self.upgrade:
+        found, clashes = _platform_items(self.fabric.list_items(self.workspace_id)) if not self.refused else ({}, [])
+        if clashes:
+            self.refused.append("The workspace holds items the platform's names would clash with: " + "; ".join(clashes)
+                                + ". The platform flows don't take over or work around them; use a workspace without them.")
+        elif found and not self.upgrade:
             self.refused.append(f"The workspace already holds {', '.join(sorted(found))}. The platform flows only run "
                                 "on a workspace with no platform, so they never change a real one; add --platform-upgrade "
                                 "only for a platform a previous build made in this test workspace.")
-        if self.upgrade and not found and not self.refused:
+        elif self.upgrade and not found and not self.refused:
             self.refused.append("--platform-upgrade needs the platform a previous build made in this workspace, and "
                                 "there is none: run Finish setup there from that build first.")
         if self.refused:
@@ -246,8 +272,9 @@ class PlatformTest:
 
     def _restrict(self) -> str:
         if self.restrict is None:
-            raise Skip("No central lakehouse is set up in the test workspace: run flow 16 by hand (Optimize > Settings, "
-                       "Restrict readers) and tick it in the results file.")
+            raise Skip("No central lakehouse is set up in the test workspace: run flow 16 by hand (Optimize > Access > "
+                       "Who may read it; it needs OneLake security on and a lakehouse with schemas) and tick it in the "
+                       "results file.")
         return self.restrict()
 
     # ---- cleanup and results

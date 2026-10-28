@@ -31,7 +31,9 @@ class Fabric:
         self._delete(item_id)
 
     def delete_lakehouse(self, ws, item_id):
-        self._delete(item_id)
+        name = next((i["displayName"] for i in self.items if i["id"] == item_id), None)
+        self._delete(item_id)  # its SQL endpoint goes with it, as in Fabric
+        self.items = [i for i in self.items if not (i.get("type") == "SQLEndpoint" and i["displayName"] == name)]
 
     def _delete(self, item_id):
         if item_id in self.fail_delete:
@@ -55,7 +57,7 @@ class Setup:
             made = self.recreate or not cfg.get(key)
             if made:
                 cfg[key] = f"{key}-{self.calls}"
-                self.fabric.items.append({"id": cfg[key], "displayName": item})
+                self.fabric.items.append({"id": cfg[key], "displayName": item, "type": platformtest.ITEM_TYPES[item]})
             steps.append({"step": item, "status": "done", "detail": ("Created " if made else "Kept ") + item})
         if self.connected:
             out = self.platform.call("ensure_schema")
@@ -100,7 +102,9 @@ def test_every_flow_runs_from_empty_and_everything_made_is_deleted(tmp_path):
 @pytest.mark.parametrize("fabric, says", [
     (Fabric(description="Team workspace"), "doesn't contain fabric-desktop-live-test"),
     (Fabric(name="Sales Prod"), "looks like production"),
-    (Fabric(items=[{"id": "real-meta", "displayName": "LH_Meta"}]), "already holds LH_Meta"),
+    (Fabric(items=[{"id": "real-meta", "displayName": "LH_Meta", "type": "Lakehouse"}]), "already holds LH_Meta"),
+    (Fabric(items=[{"id": "nb", "displayName": "UDF_Platform", "type": "Notebook"}]),
+     "a Notebook named UDF_Platform, where the platform's is a UserDataFunction"),
 ])
 def test_a_workspace_it_may_not_change_is_refused_before_anything_is_made(tmp_path, fabric, says):
     test, fabric, _, setup = harness(tmp_path, fabric)
@@ -115,7 +119,9 @@ def test_a_policy_platform_workspace_is_refused(tmp_path):
 
 
 def test_upgrade_takes_over_a_previous_builds_platform_brings_its_schema_up_and_deletes_it(tmp_path):
-    old = [{"id": f"old-{key}", "displayName": name} for name, key in platformtest.ITEMS.items()]
+    old = [{"id": f"old-{key}", "displayName": name, "type": platformtest.ITEM_TYPES[name]}
+           for name, key in platformtest.ITEMS.items()]
+    old.append({"id": "old-meta-endpoint", "displayName": "LH_Meta", "type": "SQLEndpoint"})  # the lakehouse's own
     test, fabric, platform, setup = harness(tmp_path, Fabric(items=old), upgrade=True)
     with platform._db() as db:  # what an older build left: an earlier schema version
         db.run(f"UPDATE {db.t('config', 'setting')} SET value = '3' WHERE name = 'schema_version'")
@@ -125,7 +131,7 @@ def test_upgrade_takes_over_a_previous_builds_platform_brings_its_schema_up_and_
     assert checks["platform.finish_empty"]["status"] == "skipped"
     assert checks["platform.upgrade"]["status"] == "passed", checks["platform.upgrade"]
     assert f"schema version {core.SCHEMA_VERSION}" in checks["platform.upgrade"]["detail"]
-    assert sorted(fabric.deleted) == sorted(i["id"] for i in old) and fabric.items == []
+    assert sorted(fabric.deleted) == sorted(i["id"] for i in old if i["type"] != "SQLEndpoint") and fabric.items == []
 
 
 def test_upgrade_without_a_previous_platform_is_refused(tmp_path):
@@ -202,3 +208,19 @@ def test_the_plan_names_what_is_made_and_how_it_goes(tmp_path):
         assert name in plan
     assert "fdlt_run1" in plan and "platform-ledger.json" in plan and "Delete every platform item" in plan
     assert all(name in setup_mod.__dict__.values() for name in platformtest.ITEMS)
+
+
+def test_upgrade_matches_name_and_type_and_refuses_a_clash(tmp_path):
+    old = [{"id": f"old-{key}", "displayName": name, "type": platformtest.ITEM_TYPES[name]}
+           for name, key in platformtest.ITEMS.items()]
+    found, clashes = platformtest._platform_items(old + [{"id": "ep", "displayName": "LH_Meta", "type": "SQLEndpoint"},
+                                                         {"id": "ep2", "displayName": "SQL_Platform", "type": "SQLEndpoint"}])
+    assert {n: i["id"] for n, i in found.items()} == {n: f"old-{k}" for n, k in platformtest.ITEMS.items()} and clashes == []
+    probe = old + [{"id": "ep", "displayName": "LH_Meta", "type": "SQLEndpoint"},
+                   {"id": "nb", "displayName": "UDF_Platform", "type": "Notebook"}]
+    test, fabric, _, setup = harness(tmp_path, Fabric(items=probe), upgrade=True)
+    result = test.run()
+    assert result["outcome"] == "refused" and any("a Notebook named UDF_Platform" in r for r in result["refused"])
+    assert setup.calls == 0 and fabric.deleted == [] and result["ledger"] == []
+    _, clashes = platformtest._platform_items(old + [{"id": "dup", "displayName": "VL_Platform", "type": "VariableLibrary"}])
+    assert clashes == ["two VariableLibrary items named VL_Platform"]

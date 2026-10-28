@@ -89,8 +89,8 @@ PLATFORM_FLOWS = [
     Flow(15, "Central platform: a policy exception, asked for, approved and ended", ["FEAT-GOV-03", "FEAT-GOV-08"],
          ["Data mesh > Requests: ask for an exception to a published policy, approve it as an admin, end it."]),
     Flow(16, "Central platform: restrict a central lakehouse family (central_restrict)", ["FEAT-ADM-11"],
-         ["Optimize > Settings: with a central lakehouse in the test workspace, restrict its readers, confirm, "
-          "and check the OneLake security role in Fabric."]),
+         ["Optimize > Access > Who may read it: with a central lakehouse in the test workspace (OneLake security on, "
+          "a lakehouse with schemas), pick the readers, confirm, and check the OneLake security role in Fabric."]),
 ]
 
 

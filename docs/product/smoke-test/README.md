@@ -57,12 +57,12 @@ With `--platform` (PB-052), the smoke test also sets up the central platform in 
 | 13 | Register a data product | FEAT-MESH-04 | Register project `fdlt_<run id>` and its product, and list it | With `--platform-keep`, see it in Data mesh › Products |
 | 14 | Issue and look up surrogate keys | FEAT-MESH-02, FEAT-META-05 | Make a key table, issue keys for two business keys twice (same keys back), look one up | None |
 | 15 | A policy exception, asked for, approved and ended | FEAT-GOV-03, FEAT-GOV-08 | Publish a warn-only policy, ask for an exception, approve it, see it active, end it | The same in Data mesh › Requests |
-| 16 | Restrict a central lakehouse family | FEAT-ADM-11 | Only when a central lakehouse is set up in the test workspace; otherwise skipped | Optimize › Settings: restrict readers and check the OneLake security role in Fabric |
+| 16 | Restrict a central lakehouse family | FEAT-ADM-11 | Only when a central lakehouse is set up in the test workspace; otherwise skipped | By hand only, for now: Optimize › Access › Who may read it (needs OneLake security on and a lakehouse with schemas), then check the OneLake security role in Fabric |
 
 How a platform run goes:
 
 1. **The UDF connection is by hand.** Fabric has no API to connect UDF_Platform to SQL_Platform. When the tables step finds no connection, the run stops and asks you to open UDF_Platform › Manage connections and add SQL_Platform with the alias `platform`, then press Enter. With `--yes` it doesn't wait: flow 11 fails and the rest are skipped.
-2. **The upgrade from a previous version** can't be faked on a tenant. Before the run, install the Stable build, Finish setup with the test workspace as the platform workspace, then run the candidate with `--platform --platform-upgrade`.
+2. **The upgrade from a previous version** can't be faked on a tenant. Before the run, install the Stable build, Finish setup with the test workspace as the platform workspace, then run the candidate with `--platform --platform-upgrade`. The person running it must already be a platform admin of that platform. The run takes over only items whose name and type are the platform's (a lakehouse's own SQL endpoint is fine), and refuses a workspace where another item has one of those names.
 3. **Cleanup.** Every item id goes into `platform/platform-ledger.json` as soon as it exists. At the end, the items are deleted by id, what depends on SQL_Platform first. Anything that can't be deleted is listed under "left behind" and fails the run. `--platform-keep` leaves everything in place to look at; delete it in Fabric afterwards.
 
 ## Recording a run

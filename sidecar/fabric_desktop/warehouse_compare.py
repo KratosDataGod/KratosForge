@@ -15,6 +15,8 @@ import difflib
 import re
 from typing import Any
 
+from .warehouse import definition_fingerprint
+
 MAX_ROWS = 3000   # side-by-side rows returned for one object
 
 # A GO line is a token here, so a "GO" inside a string or a comment stays part of it.
@@ -266,6 +268,18 @@ def _added_columns(warehouse: str, project: str) -> list[tuple[str, str]] | None
     return new or None
 
 
+def precondition(row: dict[str, Any]) -> dict[str, Any]:
+    """The object as the preview saw it (warehouse.object_changed checks it before the change runs):
+    absent, or there with this definition (views, procedures, functions) or these columns (tables)."""
+    out: dict[str, Any] = {"kind": row["kind"], "schema": row["schema"], "name": row["name"],
+                           "exists": row["state"] != "only_project"}
+    if out["exists"] and row["kind"] in ("view", "procedure", "function"):
+        out["definition"] = definition_fingerprint(row.get("warehouse_text") or "")
+    elif out["exists"] and row["kind"] == "table":
+        out["columns"] = list((columns(row.get("warehouse_text") or "") or {}).keys())
+    return out
+
+
 def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The changes, in the order a deploy runs them, from compare() rows. Each is {kind, schema, name,
     path, action (create, alter, add_columns, drop), sql, ticked, offered, why}. A drop is offered but
@@ -275,7 +289,7 @@ def deploy_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for r in rows:
         base = {"kind": r["kind"], "schema": r["schema"], "name": r["name"], "path": r.get("path", ""),
-                "detail": r.get("detail") or []}
+                "detail": r.get("detail") or [], "precondition": precondition(r)}
         own = _one_definition(r["kind"], r["project_text"]) if r["state"] in ("only_project", "changed") else None
         if r["state"] in ("only_project", "changed") and r["kind"] != "table" and own is None:
             out.append({**base, "action": "create" if r["state"] == "only_project" else "alter", "sql": "",

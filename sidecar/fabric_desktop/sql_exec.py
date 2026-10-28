@@ -138,6 +138,7 @@ class Execution:
     confirm_name: str = ""  # warehouse change: the warehouse the person confirmed, checked against Fabric's name
     affected: int = 0  # warehouse change: rows its statements changed
     plan: bool = False  # warehouse target: the estimated plan, not the rows (WH-09)
+    precondition: dict[str, Any] | None = None  # a deploy change: the object as its preview saw it (#947)
     committed: bool = False
 
     @property
@@ -222,7 +223,7 @@ class SqlExecutions:
               allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
               confirm: bool = False, dry_run: bool = False, timeout: float | None = None,
               warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-              estimated_plan: bool = False) -> dict[str, Any]:
+              estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
         against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
         WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit.
@@ -231,7 +232,9 @@ class SqlExecutions:
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric. With
         ``allow=["warehouse_write"]`` it is a change: it runs only with ``confirm`` and
         ``confirm_name``, the warehouse's name as the person confirmed it. With ``estimated_plan``
-        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML."""
+        (WH-09) a query that reads isn't run: Fabric returns how it would run it, as showplan XML. A change
+        with ``precondition`` (warehouse.precondition_problem) runs only if that object is still as a
+        deploy's preview saw it; otherwise nothing is sent (#947)."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
         if target not in TARGET_ALLOWS:
@@ -269,6 +272,12 @@ class SqlExecutions:
         change = target == "warehouse" and "warehouse_write" in allowed
         if estimated_plan and (target != "warehouse" or change):
             raise ValueError("An estimated plan is for a warehouse query that reads.")
+        if precondition is not None:
+            if not change:
+                raise ValueError("A precondition is for a warehouse change.")
+            problem = warehouse.precondition_problem(precondition)
+            if problem:
+                raise ValueError(f"The change wasn't sent: {problem}.")
         writes_setting = app_settings.load()["sql_warehouse_writes"] if change else {}
         if change and not writes_setting["value"]:
             raise PermissionError("Warehouse changes are turned off in Settings › SQL"
@@ -290,6 +299,7 @@ class SqlExecutions:
             run.warehouse = {k: warehouse_ref[k] for k in ("workspace_id", "item_id", "kind")}
             run.confirm_name = confirm_name.strip() if change else ""
             run.plan = bool(estimated_plan)
+            run.precondition = dict(precondition) if precondition is not None else None
             stop = sql_policy.refused(warehouse.verdicts(query, writes=change), allowed)  # before Fabric is asked anything
             if stop is not None:
                 return self._refuse(run, stop)
@@ -423,6 +433,8 @@ class SqlExecutions:
                                    "warehouse": {k: run.warehouse[k] for k in ("server", "database")},
                                    "time_limit_s": minutes * 60, "writes": "warehouse_write" in run.allow,
                                    "plan": run.plan}
+            if run.precondition:
+                job["precondition"] = run.precondition
         else:
             job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                    "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},

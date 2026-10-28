@@ -609,24 +609,28 @@ function renderQuery() {
   // WH-19: the Monitoring tab, once opened for this warehouse.
   const monitor = wh && p.whMonitor?.key === sqlRefKey(ref) ? p.whMonitor : null;
   const monitorOn = !!(monitor && p.whMonitorShown);
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn && !monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn && !monitorOn),
-        onclick: () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
-        ondblclick: async () => {
+  // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
+  // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
+  const sqlTab = (cls, on, label, iconName, select, close, extra = {}) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
+    h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
+      ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: (e) => { if (e.key === "Delete") { e.preventDefault(); close(); } } } : {}),
+      ...extra }, icon(iconName, 14), label),
+    close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: close }, "×") : null);
+  const tabs = h("div", { class: "sql-tabbar" },
+    h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
+      p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",
+        () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
+        p.tabs.length > 1 ? () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } : null,
+        { ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); } },
-        icon("branchCompare", 14), "Compare"),
-      h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
-    monitor ? h("div", { class: `sql-tab wh-mon-tab${monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(monitorOn), onclick: () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); } },
-        icon("monitor", 14), "Monitoring"),
-      h("button", { class: "close", "aria-label": "Close Monitoring", onclick: () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); } }, "×")) : null,
+        } })),
+      compare ? sqlTab(" wh-cmp-tab", compareOn, "Compare", "branchCompare",
+        () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); },
+        () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); }) : null,
+      monitor ? sqlTab(" wh-mon-tab", monitorOn, "Monitoring", "monitor",
+        () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); },
+        () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); }) : null),
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",

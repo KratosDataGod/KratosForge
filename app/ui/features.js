@@ -400,7 +400,7 @@ function openPalette(initial = "") {
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
     "aria-label": "Command bar" });
-  const list = h("div", { class: "palette-list", role: "listbox" });
+  const list = h("div", { class: "palette-list", role: "listbox", "aria-label": "Results" });
   const close = () => {
     const open = document.getElementById("palette");
     if (!open) return;

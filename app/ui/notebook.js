@@ -822,6 +822,7 @@ function editorFor(cell) {
       doc: cell.source,
       extensions: [
         gutterComp.of(gutters(cell)), cmStyleNonce(),
+        CM.EditorView.contentAttributes.of({ "aria-label": cell.type === "markdown" ? "Markdown cell" : "Code cell" }),
         dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
@@ -908,6 +909,14 @@ document.addEventListener("keydown", (e) => {
   const cell = selectedCell();
   const key = e.key;
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+  // Tab from a cell in command mode (as after Esc) moves on past the cell, so Tab doesn't loop back into
+  // its own buttons and editor (#905). Shift+Tab goes back as usual.
+  if (key === "Tab" && !e.shiftKey && plain && t.matches?.(".cell")) {
+    const next = [...document.querySelectorAll(FOCUSABLE)].find((el) => el.tabIndex >= 0 && el.offsetParent !== null
+      && !t.contains(el) && t.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (next) { e.preventDefault(); next.focus(); }
+    return;
+  }
   let handled = true;
   if (key === "Enter" && e.shiftKey) runCell(cell).then(() => focusNext(cell, false));
   else if (key === "Enter" && (e.ctrlKey || e.metaKey)) runCell(cell);
@@ -942,6 +951,7 @@ document.addEventListener("keydown", (e) => {
     { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
     { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
     { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    { keys: ["Tab"], label: "In command mode: move on past the cell", when: inNotebook },
     { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
     { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
     { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },

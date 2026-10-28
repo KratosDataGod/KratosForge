@@ -24,9 +24,9 @@ const SCHEMES = ["light", "dark"];
 
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
-const KNOWN_RULES = new Set(["notebook: aria-input-field-name", "sql: aria-required-children", "command-bar: aria-input-field-name"]);
-const KNOWN_KEYBOARD = new Set(['notebook: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached']);
-const KNOWN_FOCUS = new Set(['sql: div.cm-content "SQL query"']);
+const KNOWN_RULES = new Set([]);
+const KNOWN_KEYBOARD = new Set([]);
+const KNOWN_FOCUS = new Set([]);
 
 // Every page on the rail is found at run time; these open the screens that aren't rail pages.
 const EXTRA = [
@@ -78,13 +78,17 @@ function keyboardScan(scope) {
     const text = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30);
     return `${el.tagName.toLowerCase()}${cls}${text ? ` "${text}"` : ""}`;
   };
-  const focusable = "button, a[href], input, select, textarea, summary, label, [tabindex]:not([tabindex=\"-1\"]), [contenteditable=true], .cm-editor";
+  const focusable = ["button", "a[href]", "input", "select", "textarea", "summary", "label", "[tabindex]", "[contenteditable=true]", ".cm-editor"]
+    .map((s) => `${s}:not([tabindex="-1"])`).join(", ");
+  // A mouse-only control the keyboard reaches another way: hidden from assistive tech, beside a Tab stop
+  // that names its key (a tab's ×, closed with Delete on the tab).
+  const keyedElsewhere = (el) => el.closest("[aria-hidden=true]") && el.parentElement?.querySelector("[aria-keyshortcuts]");
   const unreachable = [];
   for (const el of root.querySelectorAll("*")) {
     const rect = el.getBoundingClientRect();
     if (!rect.width || !rect.height || getComputedStyle(el).cursor !== "pointer") continue;
     if (el.parentElement && getComputedStyle(el.parentElement).cursor === "pointer") continue;  // inherited: judged at the top
-    if (el.closest(focusable) || el.querySelector(focusable)) continue;
+    if (el.closest(focusable) || el.querySelector(focusable) || keyedElsewhere(el)) continue;
     unreachable.push(css(el));
   }
   return { unreachable };
@@ -129,8 +133,8 @@ async function tabStops(page, scope) {
     const at = await page.evaluate(focusNow, scope);
     if (!at) break;
     if (seen.has(at.stop)) {
-      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`${scope} :is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), .cm-content)`)]
-        .filter((e) => !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden" && !e.closest("[inert], [hidden]"))
+      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`${scope} :is(button, a[href], input, select, textarea, summary, [tabindex], .cm-content):not([tabindex="-1"])`)]
+        .filter((e) => !e.disabled && e.checkVisibility({ visibilityProperty: true }) && !e.closest("[inert], [hidden]"))  // a closed <details> menu's items aren't shown
         .filter((e) => !seenIds.includes(e.dataset.a11yStop)).length, [scope, [...seen]]);
       if (left) trap = { key: at.key, left };
       break;

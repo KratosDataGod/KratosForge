@@ -2,7 +2,8 @@
 
 A connection profile is the one place that says "this work uses Fabric workspace X and Databricks
 workspace Y, runs on DuckDB by default, deploys Prod to these targets, and may (or may not) start
-remote compute". Kinds: ``local`` (no platform), ``fabric``, ``databricks`` and ``hybrid`` (both).
+remote compute". Kinds: ``local`` (no platform), ``fabric``, ``databricks``, ``snowflake`` and
+``hybrid`` (two or more platforms).
 Only ``name`` and ``kind`` are required; everything else has a default, so a simple profile stays
 simple and the advanced parts are there when needed.
 
@@ -14,14 +15,22 @@ simple and the advanced parts are there when needed.
     databricks   {"method": "cli-profile", "profile": "DEFAULT"}  (a ~/.databrickscfg profile)
                  {"method": "oauth-u2m"}  (browser sign-in, tokens kept by the Databricks CLI)
                  {"method": "oauth-m2m", "client_id", "secret": "<ref>"}
+    snowflake    {"method": "oauth-local"}  (browser sign-in through Snowflake's built-in local application)
+                 {"method": "keypair", "private_key_file": "C:\\keys\\sf.p8", "passphrase": "<ref>"}
+                 {"method": "pat", "secret": "<ref>"}  (a programmatic access token)
+                 {"method": "cli-connection", "connection": "dev"}  (a Snowflake CLI connection)
 
 where ``<ref>`` is ``env:NAME`` (an environment variable) or ``credman:TARGET`` (Windows Credential
 Manager). Load, save and import refuse any value that looks like a secret (redact.secrets, which
 knows Databricks personal access tokens) and any secret-named field that isn't a reference. Export
 drops machine-specific references so a shared file never points at someone else's secret.
 
-A hybrid profile keeps each platform's sign-in, workspace and deploy target separate: it needs one
-Fabric and one Databricks connection, and they may not share a secret reference.
+A hybrid profile keeps each platform's sign-in, workspace and deploy target separate: it needs
+connections to two or more platforms, and no two platforms may share a secret reference.
+
+Schema 2 added Snowflake and hybrids other than Fabric + Databricks. A profile is always written with
+the lowest schema that holds it, so one that uses only Fabric and Databricks stays schema 1 and still
+opens in an app that knows only schema 1.
 
 Validation here is offline (structure, references, mappings). Checking a sign-in or a workspace
 against the platform is a later phase and sets ``validation`` when it runs.
@@ -34,6 +43,7 @@ import copy
 import datetime as dt
 import os
 import re
+import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
@@ -42,14 +52,19 @@ from urllib.parse import urlparse
 from . import redact
 from .jsonfile import read_json, write_json
 
-SCHEMA = 1
+SCHEMA = 2
+SUPPORTED_SCHEMAS = (1, 2)
 KINDS = {"local": "This PC only", "fabric": "Microsoft Fabric", "databricks": "Azure Databricks",
-         "hybrid": "Fabric and Databricks"}
-PLATFORMS = ("fabric", "databricks")
+         "snowflake": "Snowflake", "hybrid": "Two or more platforms"}
+PLATFORMS = ("fabric", "databricks", "snowflake")
+# What schema 1 knew; a profile that fits in it is written as schema 1.
+_SCHEMA1_KINDS = ("local", "fabric", "databricks", "hybrid")
+_SCHEMA1_PLATFORMS = ("fabric", "databricks")
 ENVIRONMENTS = ("dev", "test", "staging", "prod")
 METHODS = {
     "fabric": ("app-sign-in", "service-principal", "managed-identity", "workload-identity"),
     "databricks": ("cli-profile", "oauth-u2m", "oauth-m2m"),
+    "snowflake": ("oauth-local", "keypair", "pat", "cli-connection"),
 }
 NEEDS_SECRET = {"service-principal", "oauth-m2m"}
 REMOTE_POLICIES = ("ask", "policy", "never")
@@ -58,6 +73,10 @@ VALIDATION = ("not_checked", "ok", "warnings", "failed")
 # Where each Databricks cloud's workspaces live. Only Azure is turned on; the others are ready to add.
 DATABRICKS_CLOUDS = {"azure": (".azuredatabricks.net", True), "aws": (".cloud.databricks.com", False),
                      "gcp": (".gcp.databricks.com", False)}
+# An account identifier: <org>-<account>, or a legacy locator with an optional .region[.cloud].
+# Never a URL: the address is always https://<account>.snowflakecomputing.com.
+_SF_ACCOUNT = re.compile(r"^[A-Za-z0-9_]{1,100}(-[A-Za-z0-9_]{1,154}|(\.[A-Za-z0-9-]{1,40}){0,2})$")
+_SF_NAME = re.compile(r"^[^\x00-\x1f]{1,255}$")
 _REF = re.compile(r"^(env:[A-Za-z_][A-Za-z0-9_]{0,127}|credman:[A-Za-z0-9 ._:/\\-]{1,200})$")
 _MACHINE_REF = ("env:", "credman:")
 _NAME = re.compile(r"^[^\x00-\x1f]{1,80}$")
@@ -109,13 +128,26 @@ def _connection_defaults(conn: dict[str, Any]) -> dict[str, Any]:
     elif platform == "databricks":
         base |= {"cloud": "azure", "host": "", "credential": {"method": "oauth-u2m"},
                  "catalog": "", "schema": "", "compute": {"cluster_id": "", "warehouse_id": "", "serverless": False}}
+    elif platform == "snowflake":
+        base |= {"account": "", "user": "", "role": "", "warehouse": "", "database": "", "schema": "",
+                 "credential": {"method": "oauth-local"}}
     return base | conn
+
+
+def needed_schema(data: dict[str, Any]) -> int:
+    """The lowest schema that holds ``data``: 1 unless it uses Snowflake or a hybrid that isn't
+    exactly Fabric + Databricks."""
+    platforms = {c.get("platform") for c in data.get("connections") or []}
+    if data.get("kind") not in _SCHEMA1_KINDS or not platforms <= set(_SCHEMA1_PLATFORMS):
+        return 2
+    return 1
 
 
 def normalize(data: dict[str, Any]) -> dict[str, Any]:
     """``data`` with every optional part filled in with its default. Doesn't validate."""
     p = copy.deepcopy(data)
-    p.setdefault("schema", SCHEMA)
+    if p.get("schema") in SUPPORTED_SCHEMAS or "schema" not in p:
+        p["schema"] = needed_schema(p)
     p.setdefault("id", "p-" + uuid.uuid4().hex[:12])
     p.setdefault("description", "")
     p["connections"] = [_connection_defaults(c) for c in p.get("connections") or []]
@@ -151,11 +183,64 @@ def _host_problems(conn: dict[str, Any], where: str) -> list[str]:
     return []
 
 
+def _secret_ref(cred: dict[str, Any]) -> str | None:
+    return cred.get("secret") or cred.get("passphrase")
+
+
+def key_file_problem(path: Any, windows: bool | None = None) -> str:
+    """Why ``path`` can't be a private key file, or "". On Windows only a drive-letter path: a UNC or
+    \\\\?\\ path would make reading the key reach out to a share."""
+    windows = os.name == "nt" if windows is None else windows
+    if not isinstance(path, str) or not path.strip():
+        return "name the private key file"
+    if path.startswith(("\\\\", "//")):
+        return "the private key file must be on this PC, not a network share"
+    if windows:
+        ok = re.fullmatch(r"[A-Za-z]:[\\/][^\x00-\x1f<>\"|?*]+", path) is not None
+    else:
+        ok = path.startswith("/") and "\x00" not in path
+    if ok:
+        return ""
+    return "the private key file must be a full path" + (", like C:\\keys\\snowflake.p8" if windows else "")
+
+
+def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
+    out = []
+    account = conn.get("account") or ""
+    if account and not _SF_ACCOUNT.fullmatch(account):
+        out.append(f"{where}.account must be the account identifier, like myorg-myaccount (not a URL).")
+    for field in ("user", "role", "warehouse", "database", "schema"):
+        value = conn.get(field) or ""
+        if value and not (isinstance(value, str) and _SF_NAME.fullmatch(value)):
+            out.append(f"{where}.{field} must be a name (up to 255 characters).")
+    cred = conn.get("credential") or {}
+    method = cred.get("method")
+    if method == "keypair":
+        why = key_file_problem(cred.get("private_key_file"))
+        if why:
+            out.append(f"{where}: {why}.")
+        phrase = cred.get("passphrase")
+        if phrase and not (isinstance(phrase, str) and _REF.fullmatch(phrase)):
+            out.append(f"{where}.credential.passphrase must be a reference (env:NAME or credman:TARGET), not a value.")
+    elif method == "pat" and not cred.get("secret"):
+        out.append(f"{where}: a programmatic access token needs a secret reference (env:NAME or credman:TARGET).")
+    elif method == "cli-connection" and not cred.get("connection"):
+        out.append(f"{where}: name the Snowflake CLI connection to use.")
+    return out
+
+
+def snowflake_host(account: str) -> str:
+    """The address for a Snowflake account identifier; a profile never holds one of its own."""
+    if not _SF_ACCOUNT.fullmatch(account or ""):
+        raise ValueError("Not a Snowflake account identifier.")
+    return f"https://{account.lower()}.snowflakecomputing.com"
+
+
 def problems(data: dict[str, Any]) -> list[str]:
     """Every reason ``data`` (normalized or not) isn't a valid profile; empty when it is."""
     out = secret_problems(data)
     p = normalize(data)
-    if p.get("schema") != SCHEMA:
+    if p.get("schema") not in SUPPORTED_SCHEMAS:
         out.append(f"Profile schema {p.get('schema')} is newer than this app knows ({SCHEMA}). Update KratosForge.")
     if not isinstance(p.get("name"), str) or not _NAME.fullmatch(p["name"].strip() or "\x00"):
         out.append("A profile needs a name (up to 80 characters).")
@@ -165,12 +250,12 @@ def problems(data: dict[str, Any]) -> list[str]:
     if kind not in KINDS:
         out.append(f"kind must be one of: {', '.join(KINDS)}.")
     ids: list[str] = []
-    by_platform: dict[str, list[dict[str, Any]]] = {"fabric": [], "databricks": []}
+    by_platform: dict[str, list[dict[str, Any]]] = {platform: [] for platform in PLATFORMS}
     for i, conn in enumerate(p["connections"]):
         where = f"connections[{i}]"
         platform = conn.get("platform")
         if platform not in PLATFORMS:
-            out.append(f"{where}.platform must be fabric or databricks.")
+            out.append(f"{where}.platform must be one of: {', '.join(PLATFORMS)}.")
             continue
         by_platform[platform].append(conn)
         if not _ID.fullmatch(str(conn.get("id"))):
@@ -180,6 +265,8 @@ def problems(data: dict[str, Any]) -> list[str]:
         method = cred.get("method")
         if method not in METHODS[platform]:
             out.append(f"{where}.credential.method must be one of: {', '.join(METHODS[platform])}.")
+        elif platform == "snowflake":
+            out += _snowflake_problems(conn, where)
         elif method in NEEDS_SECRET and not (cred.get("client_id") and cred.get("secret")):
             out.append(f"{where}: {method} needs client_id and a secret reference (env:NAME or credman:TARGET).")
         elif method == "cli-profile" and not cred.get("profile"):
@@ -190,17 +277,24 @@ def problems(data: dict[str, Any]) -> list[str]:
     if dupes:
         out.append(f"Connection ids must be different: {', '.join(dupes)}.")
     if kind == "local" and p["connections"]:
-        out.append("A local profile has no platform connections; make it Fabric, Databricks or hybrid instead.")
+        out.append("A local profile has no platform connections; make it Fabric, Databricks, Snowflake or hybrid instead.")
     for platform in PLATFORMS:
-        if kind in (platform, "hybrid") and not by_platform[platform]:
+        if kind == platform and not by_platform[platform]:
             out.append(f"A {KINDS[kind]} profile needs a {KINDS[platform]} connection.")
         if kind not in (platform, "hybrid") and by_platform[platform] and kind in KINDS and kind != "local":
             out.append(f"A {KINDS[kind]} profile can't have a {KINDS[platform]} connection; make it hybrid.")
+    used = [platform for platform in PLATFORMS if by_platform[platform]]
+    if kind == "hybrid" and len(used) < 2:
+        has = ", ".join(KINDS[u] for u in used) or "none"
+        out.append(f"A hybrid profile needs connections to two or more platforms (it has: {has}).")
     if kind == "hybrid":
-        fabric_refs = {c["credential"].get("secret") for c in by_platform["fabric"]} - {None, ""}
-        dbx_refs = {c["credential"].get("secret") for c in by_platform["databricks"]} - {None, ""}
-        if fabric_refs & dbx_refs:
-            out.append("Fabric and Databricks connections must use different credentials, not the same secret reference.")
+        refs = {platform: {_secret_ref(c["credential"]) for c in by_platform[platform]} - {None, ""}
+                for platform in used}
+        for i, a in enumerate(used):
+            for b in used[i + 1:]:
+                if refs[a] & refs[b]:
+                    out.append(f"{KINDS[a]} and {KINDS[b]} connections must use different credentials, "
+                               "not the same secret reference.")
     d = p["defaults"]
     if d.get("connection") and d["connection"] not in ids:
         out.append(f"defaults.connection names {d['connection']!r}, which isn't one of this profile's connections.")
@@ -251,17 +345,20 @@ def default_profile() -> dict[str, Any]:
 
 def export(profile: dict[str, Any]) -> dict[str, Any]:
     """The profile without anything tied to this PC: machine-specific secret references, the CLI
-    profile name (each person has their own) and the last validation. Safe to share or commit."""
+    profile or connection name and key file (each person has their own) and the last validation.
+    Safe to share or commit. Written with the lowest schema that holds it."""
     p = validate(profile)
     for conn in p["connections"]:
         cred = conn["credential"]
-        for key in ("secret", "profile"):
-            if isinstance(cred.get(key), str) and (key == "profile" or cred[key].startswith(_MACHINE_REF)):
+        for key in ("secret", "passphrase", "profile", "connection", "private_key_file"):
+            value = cred.get(key)
+            if isinstance(value, str) and value and (key in ("profile", "connection", "private_key_file")
+                                                     or value.startswith(_MACHINE_REF)):
                 cred[key] = ""
                 cred["needs_setup"] = True
     p["validation"] = {"status": "not_checked", "checked_at": None, "problems": []}
     p.pop("id")
-    return {"kind": "kratosforge.connection-profile", "schema": SCHEMA, "profile": p}
+    return {"kind": "kratosforge.connection-profile", "schema": p["schema"], "profile": p}
 
 
 def import_(document: dict[str, Any], existing_ids: set[str] | None = None) -> dict[str, Any]:
@@ -285,6 +382,12 @@ def import_(document: dict[str, Any], existing_ids: set[str] | None = None) -> d
                 cred["secret"] = "env:SET_ME"
             if cred.get("method") == "cli-profile" and not cred.get("profile"):
                 cred["profile"] = "DEFAULT"
+            if cred.get("method") == "pat" and not cred.get("secret"):
+                cred["secret"] = "env:SET_ME"
+            if cred.get("method") == "cli-connection" and not cred.get("connection"):
+                cred["connection"] = "default"
+            if cred.get("method") == "keypair" and not cred.get("private_key_file"):
+                cred["private_key_file"] = str(Path.home() / ".snowflake" / "SET_ME.p8")
     p["validation"] = {"status": "warnings" if todo else "not_checked", "checked_at": None, "problems": todo}
     return validate(p)
 
@@ -359,6 +462,102 @@ def connection_from_cli_profile(entry: dict[str, Any]) -> dict[str, Any]:
         "cloud": cloud, "host": host.rstrip("/"), "credential": {"method": "cli-profile", "profile": entry["name"]},
         "compute": {"cluster_id": entry.get("cluster_id", ""), "warehouse_id": entry.get("warehouse_id", ""),
                     "serverless": bool(entry.get("serverless"))}})
+
+
+# ---------------------------------------------------------------- Snowflake CLI connections
+
+# The connection fields kept from the Snowflake CLI's files; everything else is dropped unread.
+_SF_KEEP = ("account", "user", "role", "warehouse", "database", "schema", "authenticator", "private_key_file")
+# Fields that hold a secret: their presence earns a warning; their values are never kept.
+_SF_SECRET_FIELDS = ("password", "token", "private_key_raw", "private_key_passphrase", "oauth_client_secret")
+# Snowflake CLI authenticator -> the profile's method, for the ones KratosForge can sign in with.
+_SF_AUTHENTICATORS = {"snowflake_jwt": "keypair", "programmatic_access_token": "pat",
+                      "oauth_authorization_code": "oauth-local"}
+
+
+def snowflake_config_dir(windows: bool | None = None) -> Path | None:
+    """Where the Snowflake CLI keeps config.toml and connections.toml, by the CLI's own rules:
+    SNOWFLAKE_HOME if it is set (and only if that folder exists: the CLI doesn't fall back), else
+    ~/.snowflake if it exists, else the system default (%USERPROFILE%\\AppData\\Local\\snowflake on
+    Windows, ~/.config/snowflake elsewhere). None when SNOWFLAKE_HOME names a missing folder."""
+    windows = os.name == "nt" if windows is None else windows
+    home_env = os.environ.get("SNOWFLAKE_HOME")
+    if home_env:
+        folder = Path(home_env).expanduser()
+        return folder if folder.is_dir() else None
+    dot = Path.home() / ".snowflake"
+    if dot.is_dir():
+        return dot
+    return Path.home() / "AppData" / "Local" / "snowflake" if windows else Path.home() / ".config" / "snowflake"
+
+
+def _read_toml(path: Path) -> dict[str, Any] | None:
+    """The parsed file, or None when it can't be read. No exception text is kept: a parse error
+    quotes the offending line, which may hold a secret."""
+    try:
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return None
+
+
+def snowflake_cli_connections(folder: Path | None = None) -> dict[str, Any]:
+    """The Snowflake CLI's connections: name, account, user, role, warehouse, database, schema and how
+    each signs in. Read-only and offline.
+
+    tomllib reads a file whole, so each connection is cut down to the fields in _SF_KEEP at once and
+    the parsed data dropped. Passwords, tokens, raw keys and passphrases are never returned, logged
+    or kept; a connection that keeps one in the file gets a warning."""
+    folder = snowflake_config_dir() if folder is None else folder
+    if folder is None:
+        return {"path": os.environ.get("SNOWFLAKE_HOME", ""), "found": False, "default": None, "connections": [],
+                "error": "SNOWFLAKE_HOME names a folder that doesn't exist."}
+    config_path, connections_path = folder / "config.toml", folder / "connections.toml"
+    result: dict[str, Any] = {"path": str(folder), "found": False, "default": None, "connections": []}
+    raw: dict[str, Any] = {}
+    if config_path.is_file():
+        result["found"] = True
+        config = _read_toml(config_path)
+        if config is None:
+            return result | {"error": f"Couldn't read {config_path}."}
+        name = config.get("default_connection_name")
+        result["default"] = name if isinstance(name, str) else None
+        raw = config.get("connections") if isinstance(config.get("connections"), dict) else {}
+        del config
+    if connections_path.is_file():  # it wins over config.toml's [connections]
+        result["found"] = True
+        parsed = _read_toml(connections_path)
+        if parsed is None:
+            return result | {"error": f"Couldn't read {connections_path}."}
+        raw = parsed
+        del parsed
+    for name, section in raw.items():
+        if not isinstance(section, dict):
+            continue
+        kept = {k: section[k] for k in _SF_KEEP if isinstance(section.get(k), str) and not _looks_secret(section[k])}
+        holds_secret = any(section.get(k) for k in _SF_SECRET_FIELDS)
+        authenticator = (kept.get("authenticator") or "snowflake").lower()
+        method = _SF_AUTHENTICATORS.get(authenticator)
+        warnings = []
+        if holds_secret:
+            warnings.append("Keeps a password, token or key in plain text in this file. Use a key file, a token "
+                            "reference or browser sign-in instead.")
+        if authenticator == "externalbrowser":
+            warnings.append("Uses browser single sign-on, which KratosForge doesn't support yet.")
+        elif method is None:
+            warnings.append(f"Signs in with {authenticator}, which KratosForge doesn't use. "
+                            "Key pair, programmatic access tokens and OAuth sign-in work.")
+        result["connections"].append({"name": str(name), **{k: kept.get(k, "") for k in _SF_KEEP},
+                                      "method": method or "", "usable": method is not None, "warnings": warnings})
+    return result
+
+
+def connection_from_cli_connection(entry: dict[str, Any]) -> dict[str, Any]:
+    """A Snowflake connection that uses a Snowflake CLI connection by name (no secret is copied)."""
+    return _connection_defaults({
+        "id": re.sub(r"[^A-Za-z0-9_-]", "-", entry["name"])[:40] or "snowflake", "platform": "snowflake",
+        **{k: entry.get(k, "") for k in ("account", "user", "role", "warehouse", "database", "schema")},
+        "credential": {"method": "cli-connection", "connection": entry["name"]}})
 
 
 # ---------------------------------------------------------------- storage

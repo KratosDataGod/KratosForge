@@ -42,6 +42,9 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
+    # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end line.
+    (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY-----|[\s\S]*)"),
+     REMOVED),
     # name=value or "name": "value" for names that hold secrets.
     # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
     (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"

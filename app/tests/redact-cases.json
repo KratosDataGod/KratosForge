@@ -27,6 +27,10 @@
     {"level": "secrets", "in": "client secret abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx expired", "out": "client secret [removed] expired"},
     {"level": "secrets", "in": "key AKIAABCDEFGHIJKLMNOP and xoxb-1234567890-abcdef", "out": "key [removed] and [removed]"},
     {"level": "secrets", "in": ["Databricks said 401 for dapi", "0123456789abcdef0123456789abcdef-2 today"], "out": "Databricks said 401 for [removed] today"},
-    {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"}
+    {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"},
+    {"level": "secrets", "in": ["key: -----BEGIN ", "PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY----- done"], "out": "key: [removed] done"},
+    {"level": "secrets", "in": ["-----BEGIN ENCRYPTED ", "PRIVATE KEY-----\nMIIFHzBJBgkqhkiG9w0BBQ0wPDAbBgkq\n-----END ENCRYPTED PRIVATE KEY-----"], "out": "[removed]"},
+    {"level": "secrets", "in": ["cut off: -----BEGIN RSA ", "PRIVATE KEY-----\nMIIEowIBAAKCAQEA"], "out": "cut off: [removed]"},
+    {"level": "secrets", "in": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----", "out": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----"}
   ]
 }

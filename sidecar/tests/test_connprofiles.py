@@ -36,8 +36,11 @@ def test_the_default_profile_is_what_the_app_does_today():
 
 def test_kinds_need_their_platforms():
     assert "needs a Azure Databricks connection" in " ".join(cp.problems({"name": "x", "kind": "databricks"}))
-    assert any("needs a Microsoft Fabric connection" in m for m in cp.problems({"name": "x", "kind": "hybrid",
-               "connections": [{"platform": "databricks"}]}))
+    assert any("two or more platforms (it has: Azure Databricks)" in m for m in cp.problems(
+        {"name": "x", "kind": "hybrid", "connections": [{"platform": "databricks"}]}))
+    assert "needs a Snowflake connection" in " ".join(cp.problems({"name": "x", "kind": "snowflake"}))
+    assert any("make it hybrid" in m for m in cp.problems({"name": "x", "kind": "snowflake",
+               "connections": [{"platform": "snowflake"}, {"platform": "fabric"}]}))
     assert any("make it hybrid" in m for m in cp.problems({"name": "x", "kind": "fabric",
                "connections": [{"platform": "fabric"}, {"platform": "databricks"}]}))
     assert any("local profile has no platform" in m for m in cp.problems({"name": "x", "kind": "local",
@@ -225,3 +228,219 @@ def test_a_reference_with_a_trailing_newline_is_not_a_reference():
     data = {"name": "x", "kind": "databricks", "connections": [{"platform": "databricks", "host": HOST,
             "credential": {"method": "oauth-m2m", "client_id": "c", "secret": "env:X\n"}}]}
     assert any("must be a reference" in m for m in cp.problems(data))
+
+
+# ---------------------------------------------------------------- Snowflake (SF-00)
+
+KEY = "C:\\keys\\sf.p8"
+
+
+def snowflake(**extra):
+    return {"name": "Snow", "kind": "snowflake", "connections": [
+        {"id": "sf", "platform": "snowflake", "account": "myorg-myaccount", "user": "CHRIS", "role": "DEV",
+         "warehouse": "DEV_WH", "database": "SALES", "schema": "PUBLIC"}], **extra}
+
+
+def test_a_snowflake_profile_defaults_to_browser_sign_in_and_is_schema_2():
+    p = cp.validate({"name": "Snow", "kind": "snowflake", "connections": [{"platform": "snowflake"}]})
+    conn = p["connections"][0]
+    assert conn["credential"] == {"method": "oauth-local"} and conn["account"] == "" and p["schema"] == 2
+    assert cp.problems(snowflake()) == []
+
+
+@pytest.mark.parametrize("data", [
+    {"name": "Laptop", "kind": "local"},
+    {"name": "Fab", "kind": "fabric", "connections": [{"platform": "fabric"}]},
+    {"name": "Dbx", "kind": "databricks", "connections": [{"platform": "databricks", "host": HOST}]},
+    "hybrid",
+])
+def test_profiles_schema_1_knew_load_unchanged_and_save_as_schema_1(data, tmp_path):
+    data = hybrid() if data == "hybrid" else data
+    old = {**data, "schema": 1}
+    data = {**data, "id": "p-same"}
+    old = {**data, "schema": 1}
+    assert cp.problems(old) == []
+    assert cp.validate(old) == cp.validate(data)
+    saved = cp.ProfileStore(tmp_path).save(old)
+    assert saved["schema"] == 1 and json.loads((tmp_path / f"{saved['id']}.json").read_text())["schema"] == 1
+    assert cp.export(saved)["schema"] == 1
+    # A file stamped 2 that schema 1 could hold is written back as 1, so an older app still opens it.
+    assert cp.validate({**data, "schema": 2})["schema"] == 1
+
+
+def test_profiles_with_snowflake_or_other_hybrids_are_schema_2_and_newer_ones_are_refused():
+    assert cp.validate(snowflake())["schema"] == 2 and cp.export(cp.validate(snowflake()))["schema"] == 2
+    three = hybrid()
+    three["connections"].append(snowflake()["connections"][0])
+    assert cp.problems(three) == [] and cp.validate(three)["schema"] == 2
+    assert any("newer than this app knows (2). Update KratosForge" in m
+               for m in cp.problems({**snowflake(), "schema": 3}))
+
+
+def test_hybrids_need_two_platforms_and_no_two_may_share_a_secret():
+    fab_sf = {"name": "x", "kind": "hybrid", "connections": [{"platform": "fabric"}, *snowflake()["connections"]]}
+    dbx_sf = {"name": "x", "kind": "hybrid", "connections": [hybrid()["connections"][1], *snowflake()["connections"]]}
+    assert cp.problems(fab_sf) == [] and cp.problems(dbx_sf) == []
+    assert any("two or more platforms" in m for m in cp.problems(
+        {"name": "x", "kind": "hybrid", "connections": snowflake()["connections"]}))
+    three = hybrid()
+    three["connections"].append(snowflake()["connections"][0])
+    three["connections"][0]["credential"] = {"method": "service-principal", "tenant_id": "t", "client_id": "c",
+                                             "secret": "env:A"}
+    three["connections"][1]["credential"] = {"method": "oauth-m2m", "client_id": "c", "secret": "env:B"}
+    three["connections"][2]["credential"] = {"method": "pat", "secret": "env:C"}
+    assert cp.problems(three) == []
+    for shared_with in (0, 1):  # Snowflake against Fabric, then against Databricks
+        data = json.loads(json.dumps(three))
+        data["connections"][2]["credential"]["secret"] = data["connections"][shared_with]["credential"]["secret"]
+        assert any("must use different credentials" in m and "Snowflake" in m for m in cp.problems(data))
+    data = json.loads(json.dumps(three))
+    data["connections"][2]["credential"] = {"method": "keypair", "private_key_file": "/keys/sf.p8",
+                                            "passphrase": "env:A"}
+    assert any("different credentials" in m for m in cp.problems(data))
+
+
+@pytest.mark.parametrize("account", ["myorg-myaccount", "my_org-acct_1", "xy12345", "xy12345.east-us-2.azure"])
+def test_snowflake_accounts_are_identifiers(account):
+    data = snowflake()
+    data["connections"][0]["account"] = account
+    assert cp.problems(data) == []
+    assert cp.snowflake_host(account) == f"https://{account.lower()}.snowflakecomputing.com"
+
+
+@pytest.mark.parametrize("account", ["https://myorg-myaccount.snowflakecomputing.com", "myorg/acct", "me@myorg",
+                                     "myorg-acct.evil.com/x", "a b"])
+def test_snowflake_accounts_are_never_urls_or_paths(account):
+    data = snowflake()
+    data["connections"][0]["account"] = account
+    assert any("account identifier" in m for m in cp.problems(data))
+    with pytest.raises(ValueError):
+        cp.snowflake_host(account)
+
+
+def test_snowflake_sign_in_methods_and_their_parts():
+    def found(cred):
+        data = snowflake()
+        data["connections"][0]["credential"] = cred
+        return " ".join(cp.problems(data))
+    assert found({"method": "oauth-local"}) == ""
+    assert "programmatic access token needs a secret reference" in found({"method": "pat"})
+    assert found({"method": "pat", "secret": "credman:snowflake-pat"}) == ""
+    assert "must be a reference" in found({"method": "pat", "secret": "plain-value"})
+    assert "name the Snowflake CLI connection" in found({"method": "cli-connection"})
+    assert "name the private key file" in found({"method": "keypair"})
+    assert "passphrase must be a reference" in found({"method": "keypair", "private_key_file": "/k/sf.p8",
+                                                       "passphrase": "hunter2"})
+    assert "must be one of: oauth-local, keypair, pat, cli-connection" in found({"method": "password"})
+
+
+@pytest.mark.parametrize("path,windows,ok", [
+    (KEY, True, True), ("D:/keys/sf.p8", True, True),
+    ("\\\\server\\share\\sf.p8", True, False), ("\\\\?\\C:\\keys\\sf.p8", True, False),
+    ("//server/share/sf.p8", True, False), ("keys\\sf.p8", True, False), ("/home/me/sf.p8", True, False),
+    ("/home/me/sf.p8", False, True), ("sf.p8", False, False), ("//server/share/sf.p8", False, False), ("", True, False),
+])
+def test_key_files_are_full_paths_on_this_pc(path, windows, ok):
+    assert (cp.key_file_problem(path, windows=windows) == "") is ok
+
+
+def test_snowflake_profiles_refuse_pasted_tokens_and_keys():
+    pem = "-----BEGIN " + "PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----"
+    for value in (pem, JWT):
+        found = cp.problems(snowflake(description=value))
+        assert any("looks like a token" in m for m in found) and value not in " ".join(found)
+
+
+def test_export_drops_snowflake_parts_tied_to_this_pc_and_import_asks_for_them():
+    data = snowflake()
+    data["connections"].append({"id": "sf2", "platform": "snowflake", "account": "myorg-other",
+                                "credential": {"method": "keypair", "private_key_file": "/home/me/sf.p8",
+                                               "passphrase": "env:SF_PASS"}})
+    data["connections"].append({"id": "sf3", "platform": "snowflake",
+                                "credential": {"method": "cli-connection", "connection": "my-cli-conn"}})
+    data["connections"].append({"id": "sf4", "platform": "snowflake", "credential": {"method": "pat",
+                                                                                     "secret": "credman:sf"}})
+    doc = cp.export(cp.validate(data))
+    text = json.dumps(doc)
+    assert "/home/me" not in text and "SF_PASS" not in text and "credman:sf" not in text and "my-cli-conn" not in text
+    back = cp.import_(doc)
+    assert back["validation"]["status"] == "warnings" and len(back["validation"]["problems"]) == 3
+    creds = [c["credential"] for c in back["connections"]]
+    assert creds[1]["private_key_file"].endswith("SET_ME.p8") and creds[2]["connection"] == "default"
+    assert creds[3]["secret"] == "env:SET_ME"
+
+
+# ---------------------------------------------------------------- Snowflake CLI connections
+
+SECRETS = {"password": "Hunter2-Secret-Value", "token": "tok-ABCDEF0123456789", "private_key_raw": "RAWKEYMATERIAL99",
+           "private_key_passphrase": "PassphraseValue77"}
+
+
+def _write(folder, name, text):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text(text, encoding="utf-8")
+
+
+def test_snowflake_cli_connections_are_read_without_their_secrets(tmp_path):
+    _write(tmp_path, "config.toml", 'default_connection_name = "dev"\n[connections.ignored]\naccount = "x-y"\n')
+    _write(tmp_path, "connections.toml", f"""
+[dev]
+account = "myorg-dev"
+user = "CHRIS"
+authenticator = "SNOWFLAKE_JWT"
+private_key_file = "C:/keys/sf.p8"
+private_key_passphrase = "{SECRETS['private_key_passphrase']}"
+
+[pat]
+account = "myorg-dev"
+authenticator = "PROGRAMMATIC_ACCESS_TOKEN"
+token = "{SECRETS['token']}"
+
+[sso]
+account = "myorg-dev"
+authenticator = "externalbrowser"
+
+[old]
+account = "myorg-dev"
+password = "{SECRETS['password']}"
+private_key_raw = "{SECRETS['private_key_raw']}"
+""")
+    found = cp.snowflake_cli_connections(tmp_path)
+    text = json.dumps(found) + repr(found)
+    for value in SECRETS.values():
+        assert value not in text
+    assert found["found"] and found["default"] == "dev"
+    by = {c["name"]: c for c in found["connections"]}
+    assert set(by) == {"dev", "pat", "sso", "old"}  # connections.toml wins over config.toml
+    assert by["dev"]["method"] == "keypair" and by["dev"]["usable"] and by["dev"]["private_key_file"] == "C:/keys/sf.p8"
+    assert any("plain text" in w for w in by["dev"]["warnings"])
+    assert by["pat"]["method"] == "pat" and any("plain text" in w for w in by["pat"]["warnings"])
+    assert not by["sso"]["usable"] and any("single sign-on" in w for w in by["sso"]["warnings"])
+    assert not by["old"]["usable"] and any("plain text" in w for w in by["old"]["warnings"])
+    conn = cp.connection_from_cli_connection(by["dev"])
+    assert conn["credential"] == {"method": "cli-connection", "connection": "dev"} and conn["account"] == "myorg-dev"
+    assert cp.problems({"name": "x", "kind": "snowflake", "connections": [conn]}) == []
+
+
+def test_a_broken_snowflake_file_never_echoes_its_lines(tmp_path):
+    _write(tmp_path, "connections.toml", f'[dev]\naccount = "myorg-dev"\npassword = "{SECRETS["password"]}\n')
+    found = cp.snowflake_cli_connections(tmp_path)
+    assert found["error"] == f"Couldn't read {tmp_path / 'connections.toml'}."
+    assert SECRETS["password"] not in json.dumps(found) and found["connections"] == []
+
+
+def test_snowflake_cli_folder_follows_the_cli_rules(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(cp.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("SNOWFLAKE_HOME", raising=False)
+    assert cp.snowflake_config_dir(windows=True) == home / "AppData" / "Local" / "snowflake"
+    (home / ".snowflake").mkdir()
+    assert cp.snowflake_config_dir(windows=True) == home / ".snowflake"
+    custom = tmp_path / "sf"
+    monkeypatch.setenv("SNOWFLAKE_HOME", str(custom))
+    assert cp.snowflake_config_dir(windows=True) is None  # set but missing: no fallback, as the CLI does
+    assert cp.snowflake_cli_connections()["found"] is False
+    custom.mkdir()
+    assert cp.snowflake_config_dir(windows=True) == custom
+    assert cp.snowflake_cli_connections() == {"path": str(custom), "found": False, "default": None, "connections": []}

@@ -112,7 +112,7 @@ def _lakehouse_key(ref: Any) -> Any:
 
 # Why OneLake > Catalog's Endorsed items filter is off (docs/troubleshooting.md says the same).
 ENDORSED_FILTER_REASON = (
-    "Not available here: Fabric shows endorsement only through its admin tenant scan, and KratosForge "
+    "Not available here: KratosForge reads endorsement only through Fabric's admin tenant scan, and it "
     "runs that scan only for data products. See it on a product's page (Data mesh > Products; a platform "
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
@@ -441,7 +441,7 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         return {"pending": True, "items": {}}
 
     def endorsements(self, workspace_ids: list[str]) -> dict[str, Any]:  # noqa: ARG002
-        """Fabric shows endorsement only through Power BI's admin tenant scan, and that scan (Scan now on a
+        """KratosForge reads endorsement only through Power BI's admin tenant scan, and that scan (Scan now on a
         data product's page, a Fabric administrator only) reads just the platform's product items into
         catalog.endorsement, keyed by item id. Nothing reads it for every item listed here, so the filter
         stays off and says where endorsement does show."""

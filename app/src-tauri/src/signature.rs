@@ -5,8 +5,11 @@
 //! signing on is what turns this on, with no setting to forget.
 
 /// The signer of a validly signed file: the subject of its signing certificate, as an X.500
-/// string ("CN=..., O=..., L=..., S=..., C=..."). Trusted Signing issues a new certificate every
-/// few days with the same subject, so the subject, not the certificate, names the publisher.
+/// string ("CN=..., O=..., L=..., S=..., C=..."), followed by the certificate's Trusted Signing
+/// identity usages (1.3.6.1.4.1.311.97.*, which name the validated identity) when it has any.
+/// Trusted Signing issues a new certificate every few days with the same subject and usages, so
+/// those, not the certificate, name the publisher; another authority's certificate with the same
+/// subject lacks Microsoft's usage and doesn't match.
 /// Ok(None) when the file has no signature; Err when it has one Windows doesn't trust (tampered,
 /// or chaining to no trusted root) or can't be read. Revocation isn't checked: that needs the
 /// certificate authority's servers, which many company networks block, and Trusted Signing's
@@ -15,7 +18,9 @@
 pub fn signer(path: &std::path::Path) -> Result<Option<String>, String> {
     use windows::core::{GUID, HSTRING, PCWSTR};
     use windows::Win32::Foundation::{HANDLE, HWND, TRUST_E_NOSIGNATURE, TRUST_E_SUBJECT_FORM_UNKNOWN, TRUST_E_PROVIDER_UNKNOWN};
-    use windows::Win32::Security::Cryptography::{CertNameToStrW, CERT_X500_NAME_STR, X509_ASN_ENCODING};
+    use windows::Win32::Security::Cryptography::{
+        CertGetEnhancedKeyUsage, CertNameToStrW, CERT_X500_NAME_STR, CTL_USAGE, X509_ASN_ENCODING,
+    };
     use windows::Win32::Security::WinTrust::{
         WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData, WinVerifyTrust,
         WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
@@ -54,12 +59,38 @@ pub fn signer(path: &std::path::Path) -> Result<Option<String>, String> {
             if cert.is_null() || (*cert).pCert.is_null() || (*(*cert).pCert).pCertInfo.is_null() {
                 Err("Its signing certificate couldn't be read".to_string())
             } else {
-                let subject = &(*(*(*cert).pCert).pCertInfo).Subject;
+                let context = (*cert).pCert;
+                let subject = &(*(*context).pCertInfo).Subject;
                 let len = CertNameToStrW(X509_ASN_ENCODING, subject, CERT_X500_NAME_STR, None);
                 let mut buf = vec![0u16; len as usize];
                 let written = CertNameToStrW(X509_ASN_ENCODING, subject, CERT_X500_NAME_STR, Some(&mut buf));
                 let name = String::from_utf16_lossy(&buf[..(written as usize).saturating_sub(1)]);
-                if name.trim().is_empty() { Err("Its signing certificate names no one".to_string()) } else { Ok(Some(name)) }
+                // The certificate's own usages (flag 0x2, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG): the
+                // ones it carries, not what the computer's policy adds.
+                let mut size = 0u32;
+                let mut usages: Vec<String> = Vec::new();
+                if CertGetEnhancedKeyUsage(context, 0x2, None, &mut size).is_ok() && size > 0 {
+                    let mut buf = vec![0u64; (size as usize).div_ceil(8)];
+                    let usage = buf.as_mut_ptr() as *mut CTL_USAGE;
+                    if CertGetEnhancedKeyUsage(context, 0x2, Some(usage), &mut size).is_ok() {
+                        for i in 0..(*usage).cUsageIdentifier as usize {
+                            let oid = *(*usage).rgpszUsageIdentifier.add(i);
+                            if let Ok(text) = oid.to_string() {
+                                if text.starts_with(TRUSTED_SIGNING_IDENTITY) {
+                                    usages.push(text);
+                                }
+                            }
+                        }
+                    }
+                }
+                usages.sort();
+                if name.trim().is_empty() {
+                    Err("Its signing certificate names no one".to_string())
+                } else if usages.is_empty() {
+                    Ok(Some(name))
+                } else {
+                    Ok(Some(format!("{name} [{}]", usages.join(", "))))
+                }
             }
         };
         data.dwStateAction = WTD_STATEACTION_CLOSE;
@@ -67,6 +98,11 @@ pub fn signer(path: &std::path::Path) -> Result<Option<String>, String> {
         outcome
     }
 }
+
+/// Trusted Signing puts an extended key usage under this arc in every certificate it issues for a
+/// validated identity; the rest of the number is that identity's.
+#[cfg(windows)]
+const TRUSTED_SIGNING_IDENTITY: &str = "1.3.6.1.4.1.311.97.";
 
 /// Off Windows nothing is signed this way, so nothing is checked.
 #[cfg(not(windows))]

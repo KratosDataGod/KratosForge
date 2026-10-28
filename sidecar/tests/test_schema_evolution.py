@@ -206,3 +206,42 @@ def test_overwrite_schema_must_be_true_or_false(tmp_path):
     s = Setup(tmp_path, True)
     qty_entity(s, "int64", extra='overwrite_schema = "yes"')
     assert "bronze.events: contract overwrite_schema is true or false" in validate(Project(s.root))
+
+
+def dim_entity(s: Setup, mode: str, qty: str) -> None:
+    (s.root / "metadata" / "entities" / "bronze.amounts.toml").unlink(missing_ok=True)  # reads amount
+    scd = 'tracked = ["qty"]' if mode == "scd2" else ""
+    entity(s.root, "bronze.events", f"""
+        name = "bronze.events"
+        owner = "Chris"
+        [source]
+        table = {json.dumps(s.src.as_posix())}
+        [load]
+        mode = "{mode}"
+        [scd]
+        surrogate_key = "event_sk"
+        {scd}
+        [contract]
+        keys = ["id"]
+        [contract.columns]
+        id = "int64"
+        qty = "{qty}"
+        modified = "date"
+    """)
+
+
+@pytest.mark.parametrize("merge", [True, False])
+@pytest.mark.parametrize("mode", ["scd1", "scd2"])
+@pytest.mark.parametrize("qty", ["int32", "string"])
+def test_a_dimension_refuses_a_narrowing_with_the_same_message(tmp_path, mode, merge, qty):
+    # scd1_merge and scd2_merge join the new rows to the table's: the refusal comes before them.
+    s = Setup(tmp_path, merge)
+    dim_entity(s, mode, "int64")
+    s.source(qty_rows(range(3), DAY1))
+    assert s.engine(DAY1).run("bronze.events").status == "ok"
+    version = table(s).version()
+    dim_entity(s, mode, qty)
+    s.source(qty_rows(range(2, 5), DAY2, qty=2))
+    res = s.engine(DAY2).run("bronze.events", backfill="none")
+    assert res.status == "failed" and f"schema change refused: qty int64 to {qty} would narrow" in res.message, res.message
+    assert table(s).version() == version and table(s).schema().to_arrow().field("qty").type == pa.int64()

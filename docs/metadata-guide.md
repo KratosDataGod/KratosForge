@@ -170,7 +170,7 @@ Both ways end with the same rows. When the changed rows are spread over every fi
 
 ### Schema changes (Preview)
 
-A run changes a table's schema in one of three ways, and records every change.
+This is how runs treat a table's schema, not a screen of its own, so **Settings > Preview features** has nothing to hide for it. A run changes a table's schema in one of three ways, and records every change.
 
 - **A new column goes in place.** A column the contract adds, or one the drift policy keeps, joins the table in the same MERGE or append as the rows: no Parquet file is rewritten, and older rows read it as empty.
 - **A wider type rewrites the table.** Widening a column in the contract (`int32` to `int64`, `float32` to `float64`, a decimal with more digits) reads the whole table and replaces it, and the write step says so. Delta has a type widening feature that would avoid the rewrite, but the Delta writer KratosForge uses can't write it yet, and it raises the table's Delta protocol beyond what Fabric's SQL analytics endpoint and Direct Lake are known to read, so it stays off.

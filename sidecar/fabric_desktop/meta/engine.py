@@ -1218,6 +1218,9 @@ class Engine:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
+        # Before any merge: scd1_merge, scd2_merge and the relaxed concats below join the new rows to
+        # the table's, and would fail on a change of kind, or quietly keep the old type, first.
+        self._refuse_type_changes(e, self._schema_from, df.schema)
         how, why = self._merge_plan(e, df, backfill)
         if how:
             version, info = self._write_merged(e, df, how, backfill, metadata)

@@ -83,8 +83,8 @@ def test_two_source_rows_for_one_table_row_are_refused_and_nothing_changes(lake)
 @pytest.mark.parametrize("statement, reason", [
     ("MERGE INTO nope t USING sales s ON t.id = s.id WHEN MATCHED THEN DELETE", "doesn't exist"),
     ("MERGE INTO sales t USING sales s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *", None),
-    ("UPDATE sales SET amount = 0 WHERE id = 1", "UPDATE and DELETE change tables in place, which runs in Fabric"),
-    ("DELETE FROM sales WHERE id = 1", "UPDATE and DELETE change tables in place, which runs in Fabric"),
+    ("UPDATE nope SET amount = 0", "doesn't exist"),
+    ("UPDATE sales SET amount = 0 WHERE id IN (SELECT id FROM sales)", "subquery"),
 ])
 def test_what_isnt_supported_is_refused_by_name(lake, statement, reason):
     out, text = run(f"spark.sql({statement!r})")
@@ -133,8 +133,9 @@ def test_the_compute_check_lets_merge_run_on_this_pc():
         return compute_check([{"type": "code", "source": source}], None)["local"]
     assert local("spark.sql('MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')")["ok"]
     assert local("%%sql\nMERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")["ok"]
-    assert not local("spark.sql('DELETE FROM t WHERE id = 1')")["ok"]
-    assert not local("%%sql\nUPDATE t SET a = 1 WHERE id = 2")["ok"]
+    assert local("spark.sql('DELETE FROM t WHERE id = 1')")["ok"]
+    assert local("%%sql\nUPDATE t SET a = 1 WHERE id = 2")["ok"]
+    assert not local("%%sql\nUPDATE LH_Keys.keys.customer SET a = 1")["ok"]
     assert local("spark.sql('MERGE INTO t USING s ON t.r = \\'EU\\' WHEN MATCHED THEN DELETE')")["ok"]
     assert local('spark.sql(f"MERGE INTO {target} USING s ON t.id = s.id WHEN MATCHED THEN DELETE")')["ok"]
 
@@ -144,7 +145,7 @@ def test_the_compute_check_sends_a_python_cell_merge_it_cant_run_to_fabric(monke
         return compute_check([{"type": "code", "source": source}], None)["local"]
     other = local('spark.sql("""MERGE INTO LH_Keys.keys.customer k USING s ON k.bk = s.bk\n'
                   'WHEN NOT MATCHED THEN INSERT *""")')
-    assert not other["ok"] and "MERGE into another lakehouse" in other["reasons"][0]["text"]
+    assert not other["ok"] and "of another lakehouse" in other["reasons"][0]["text"]
     monkeypatch.setattr(lakehouse, "_setting", lambda key, default: False if key == "show_preview" else default)
     assert not local("spark.sql('MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')")["ok"]
 
@@ -202,7 +203,7 @@ def test_the_delta_table_merge_builder(lake):
     out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').merge(spark.table('sales'), "
                     "'sales.id = source.id').execute()")
     assert out["status"] == "error" and "no whenMatched or whenNotMatched clause" in text
-    out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').update('id = 1', {'amount': '0'})")
+    out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').restoreToVersion(0)")
     assert out["status"] == "error" and "runs in Fabric" in text
 
 
@@ -245,9 +246,9 @@ def test_the_attached_lakehouses_name_can_lead_the_target(lake):
                     "WHEN MATCHED THEN UPDATE SET amount = s.amount')")
     assert out["status"] == "ok", text
     assert [r["amount"] for r in rows(lake)] == [9.0, 20.0, 30.0]
-    from fabric_desktop.spark_local import merge_runs_here
-    assert merge_runs_here("MERGE INTO Sales.dbo.sales t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
-    assert not merge_runs_here("MERGE INTO LH_Keys.keys.customer t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
+    from fabric_desktop.spark_local import change_runs_here
+    assert change_runs_here("MERGE INTO Sales.dbo.sales t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
+    assert not change_runs_here("MERGE INTO LH_Keys.keys.customer t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")
 
 
 def test_duplicate_source_rows_may_all_delete_the_same_row(lake):
@@ -258,3 +259,46 @@ def test_duplicate_source_rows_may_all_delete_the_same_row(lake):
     out, text = run("spark.createDataFrame([(2,), (2,)], ['id']).createOrReplaceTempView('dup2')\n"
                     "spark.sql('MERGE INTO sales t USING dup2 s ON t.id = s.id WHEN MATCHED AND t.id > 0 THEN DELETE')")
     assert out["status"] == "error" and "More than one source row matches" in text
+
+
+def test_update_and_delete_change_the_table_in_one_commit_each(lake):
+    before = DeltaTable(str(lake / "dbo" / "sales")).version()
+    out, text = run("r = spark.sql(\"UPDATE dbo.sales SET amount = amount * 2 WHERE region = 'EU'\")\n"
+                    "print(r.collect()[0].asDict())")
+    assert out["status"] == "ok" and "'num_affected_rows': 2" in text, text
+    assert [r["amount"] for r in rows(lake)] == [20.0, 20.0, 60.0]
+    out, text = run("print(spark.sql('DELETE FROM sales WHERE amount > 50').collect()[0].asDict())")
+    assert out["status"] == "ok" and "'num_affected_rows': 1" in text, text
+    assert [r["id"] for r in rows(lake)] == [1, 2]
+    table = DeltaTable(str(lake / "dbo" / "sales"))
+    assert table.version() == before + 2 and [h["operation"] for h in table.history(2)] == ["DELETE", "UPDATE"]
+
+
+def test_a_sql_cell_and_the_delta_table_builder_update_and_delete(lake):
+    out, text = run("%%sql\nUPDATE Sales.dbo.sales SET region = 'EMEA' WHERE region = 'EU'")
+    assert out["status"] == "ok", text
+    assert [r["region"] for r in rows(lake)] == ["EMEA", "US", "EMEA"]
+    out, text = run("from delta.tables import DeltaTable\nimport pyspark.sql.functions as F\n"
+                    "t = DeltaTable.forName(spark, 'dbo.sales')\n"
+                    "t.update(F.col('id') == 2, {'amount': F.col('amount') + 1})\n"
+                    "t.updateExpr('id = 3', {'amount': '0'})\n"
+                    "t.delete(\"region = 'US' AND amount > 20\")")
+    assert out["status"] == "ok", text
+    assert rows(lake) == [{"id": 1, "region": "EMEA", "amount": 10.0}, {"id": 3, "region": "EMEA", "amount": 0.0}]
+    out, text = run("from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'sales').delete()")
+    assert out["status"] == "ok", text  # no condition: every row, as in Fabric
+    assert rows(lake) == []
+
+
+def test_update_and_delete_are_refused_where_merge_is(lake, monkeypatch):
+    out, text = run("spark.createDataFrame([(1,)], ['id']).createOrReplaceTempView('v')\n"
+                    "spark.sql('DELETE FROM v WHERE id = 1')")
+    assert out["status"] == "error" and "temp view" in text, text
+    out, text = run("spark.sql('DELETE FROM sales WHERE id = 1; SELECT 1')")
+    assert out["status"] == "error" and "only statement" in text, text
+    assert len(rows(lake)) == 3
+    monkeypatch.setattr(lakehouse, "_setting", lambda key, default: False if key == "show_preview" else default)
+    for statement in ("UPDATE sales SET amount = 0", "DELETE FROM sales"):
+        out, text = run(f"spark.sql({statement!r})")
+        assert out["status"] == "error" and "Preview features are off" in text, text
+    assert [r["amount"] for r in rows(lake)] == [10.0, 20.0, 30.0]

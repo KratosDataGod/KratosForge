@@ -70,7 +70,7 @@ _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b
 
 def _merge_runs_here(query: str) -> bool:
     from . import spark_local
-    return spark_local.merge_runs_here(query)
+    return spark_local.change_runs_here(query)
 # The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
 # them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
 SPILL_CHARS = 100_000_000

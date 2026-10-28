@@ -208,6 +208,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #998 | README rewrite: zensical.org link back | PASS at 39bd2216 (carried) | 9.3 | One CONTRIBUTING line since 78234cd4. Nits closed; approval of the outline confirmed via the coordinator. |
+
 | #884 | Smoke test: two fixes from the first live run | PASS at a10da7f9 | 9.2 | Flow 2 passes for Microsoft's client id; live-test result.json no longer records the tenant id (flow 10 still checks the bundle). smoketest, livetest, silent_except 66 passed; clean merge. Nit: compare client ids case-insensitively. |
 
 | #998 | README rewrite (independent check) | PASS at 78234cd4 | 9.3 | coverage() 70/9/8/15 of 102 and 14/3 match; every old code span and link found in the docs (11 in looser wording), only the zensical.org link gone; loosened UI tests still covered elsewhere; QA-008 wording right. zensical strict, product_data, ui.test 301/0. Nits: zensical.org link; check the quickstart OneLake line against background writes; name the #972 port in the PR; confirm the approval covers the outline. |

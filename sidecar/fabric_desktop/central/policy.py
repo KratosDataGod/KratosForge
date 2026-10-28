@@ -12,7 +12,11 @@ Tables (T-SQL catalog.<table>; SQLite catalog__<table>):
     catalog.policy_assignment  where a policy applies: enterprise, a domain, a project or an entity
     catalog.policy_event       each policy's history: created, edited, published, deprecated, ...
     catalog.policy_exception   exceptions to a policy for a project, domain or workspace, each until a date,
-                               granted by approving an exception request (Data mesh > Requests)
+                               granted by approving an exception request (Data mesh > Requests). One a
+                               platform admin ends early keeps its row: its end moves to yesterday and
+                               ended_at, ended_by, end_reason and granted_until say who, why and what it was.
+                               warned_until is the end date whose "about to end" Teams notice was claimed,
+                               so only one PC in the organization posts it
     catalog.policy_template    your organization's policy templates: reusable definitions in a policy's own
                                shape (built-in templates ship in BUILTIN_TEMPLATES and never change)
 
@@ -31,7 +35,7 @@ Every step is returned, so a result can always be explained.
 Who may change what:
 
     platform admins      create, edit, publish, deprecate and retire policies; assign them anywhere;
-                         grant exceptions (by approving a request)
+                         grant exceptions (by approving a request) and end them early, with a reason
     domain owners        assign policies to their own domain (and its subdomains), tightening only
     everyone             reading policies, their history and how they resolve
     templates            platform admins add, change and delete them; domain owners too (their own) when
@@ -47,8 +51,8 @@ import json
 import uuid
 from typing import Any
 
-from .core import (OPERATIONS, REQUEST_HOOKS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _names, _now, _row, _upsert,
-                   _who, domain_id, is_admin, require_admin)
+from .core import (OPERATIONS, REQUEST_HOOKS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _columns, _names, _now, _row,
+                   _upsert, _who, domain_id, is_admin, require_admin)
 
 POLICY_CATEGORIES = {
     "naming": "Naming standards",
@@ -71,7 +75,10 @@ SETTINGS = ("enforcement", "severity", "mandatory", "version", "params")
 EXCEPTION_SCOPES = ("project", "domain", "workspace")
 _EXCEPTION_TABLE = [("id", "key"), ("policy_id", "text"), ("scope", "text"), ("target", "text"), ("until_date", "text"),
                     ("reason", "long"), ("requested_by", "text"), ("approved_by", "text"), ("approved_at", "text"),
-                    ("request_id", "text")]
+                    ("request_id", "text"), ("ended_at", "text"), ("ended_by", "text"), ("end_reason", "long"),
+                    ("granted_until", "text"), ("warned_until", "text")]
+# Ending an exception early needs a reason the policy's history can show; this keeps it readable.
+EXCEPTION_END_REASON_MAX = 500
 _POLICY_TABLES: dict[str, list[tuple[str, str]]] = {
     "policy": [("id", "key"), ("name", "text"), ("category", "text"), ("owner", "text"), ("status", "text"),
                ("current_version", "text"), ("draft_version", "text"), ("created_at", "text"), ("created_by", "text"),
@@ -101,12 +108,21 @@ def ensure_policy_schema(db: Db) -> list[str]:
 
 def ensure_exception_schema(db: Db) -> list[str]:
     """catalog.policy_exception, added after policies were: core.ensure_schema (Platform > Settings >
-    Finish or repair) creates it, and so does the first approved exception."""
-    if db.exists("catalog", "policy_exception"):
-        return []
-    db.run(f"CREATE TABLE {db.t('catalog', 'policy_exception')} ({', '.join(_column(db, n, k) for n, k in _EXCEPTION_TABLE)})")
-    db.commit()
-    return ["catalog.policy_exception"]
+    Finish or repair) creates it, and so does the first approved exception. A table made before
+    exceptions could end early gets the columns that say so (additive only)."""
+    if not db.exists("catalog", "policy_exception"):
+        db.run(f"CREATE TABLE {db.t('catalog', 'policy_exception')} ({', '.join(_column(db, n, k) for n, k in _EXCEPTION_TABLE)})")
+        db.commit()
+        return ["catalog.policy_exception"]
+    have = _columns(db, "policy_exception")
+    added = []
+    for name, kind in _EXCEPTION_TABLE:
+        if name not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'policy_exception')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, name, kind)}")
+            added.append(f"catalog.policy_exception.{name}")
+    if added:
+        db.commit()
+    return added
 
 
 def _ready(db: Db) -> None:
@@ -422,7 +438,8 @@ def policy_version(db: Db, id: str, version: int) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- exceptions
 # Asked for on Data mesh > Requests (core.request, kind "exception"), granted by a platform admin
-# approving it. An exception lasts until its date (that day included), then ends on its own.
+# approving it. An exception lasts until its date (that day included), then ends on its own, or a
+# platform admin ends it early (end_policy_exception).
 
 
 def _one_year_from(day: dt.date) -> dt.date:
@@ -481,8 +498,10 @@ def _approve_exception(db: Db, req: dict[str, Any], by: str) -> None:
 
 def _exception_out(row: dict[str, Any], today: str) -> dict[str, Any]:
     until = str(row.get("until_date") or "")
-    return dict(row, until=until, active=bool(until) and today <= until,
-                note=f"Excepted until {until}: {row.get('reason') or 'no reason given'}")
+    ended_early = bool(row.get("ended_at"))
+    # warned_until: the end date whose Teams notice was claimed, so a PC can skip asking again.
+    return dict(row, until=until, active=bool(until) and today <= until and not ended_early, ended_early=ended_early,
+                warned_until=str(row.get("warned_until") or ""), note=f"Excepted until {until}: {row.get('reason') or 'no reason given'}")
 
 
 def list_policy_exceptions(db: Db, policy: str = "", active: bool = False, today: str = "") -> list[dict[str, Any]]:
@@ -495,12 +514,63 @@ def list_policy_exceptions(db: Db, policy: str = "", active: bool = False, today
     return sorted((r for r in rows if r["active"] or not active), key=lambda r: (r["until"], r["policy_id"], r["target"]))
 
 
+def end_policy_exception(db: Db, id: str, reason: str = "", by: str = "") -> dict[str, Any]:
+    """End a granted exception now, before its date. Platform admins only, with a reason. The row stays,
+    so the record of the grant does too: its end moves to yesterday (so it no longer applies today,
+    wherever it's read) and ended_at, ended_by, end_reason and granted_until record what happened. The
+    audit and the policy's history say who ended it and why."""
+    require_admin(db, by, "end policy exceptions early")
+    reason = str(reason or "").strip()
+    if not reason:
+        raise PlatformError("Say why the exception ends early: the policy's history keeps the reason")
+    if len(reason) > EXCEPTION_END_REASON_MAX:
+        raise PlatformError(f"Keep the reason to {EXCEPTION_END_REASON_MAX} characters or fewer")
+    eid = str(id or "").strip()
+    row = _row(db, "policy_exception", "id", eid) if eid and len(eid) <= 64 and db.exists("catalog", "policy_exception") else None
+    if row is None:
+        raise PlatformError(f"There's no policy exception {eid[:64]!r}: it may have been asked for but never approved")
+    ensure_exception_schema(db)
+    row = _row(db, "policy_exception", "id", eid) or row
+    today = dt.date.today()
+    until = str(row.get("until_date") or "")
+    if row.get("ended_at"):
+        raise PlatformError(f"This exception already ended early, on {str(row['ended_at'])[:10]} by {row.get('ended_by') or 'someone'}")
+    if not until or until < today.isoformat():
+        raise PlatformError(f"This exception already ended on {until or 'its date'}: there's nothing to end")
+    ended = {"id": eid, "until_date": (today - dt.timedelta(days=1)).isoformat(), "granted_until": until,
+             "ended_at": _now(), "ended_by": _who(by), "end_reason": reason}
+    _upsert(db, "catalog", "policy_exception", "id", ended)
+    detail = {"exception": eid, "scope": row.get("scope"), "target": row.get("target"), "was_until": until, "reason": reason}
+    _event(db, str(row["policy_id"]), "", "exception ended early", by, detail)
+    _audit(db, by, "ended exception", eid, detail | {"policy": row["policy_id"]})
+    db.commit()
+    return _exception_out(dict(row, **ended), today.isoformat())
+
+
+def claim_exception_warning(db: Db, id: str, until: str, by: str = "") -> dict[str, Any]:
+    """Claim the one "about to end" Teams notice for an exception and its end date, for the whole organization.
+    Every PC asks before posting; only the call whose UPDATE changes the row (warned_until set to this end
+    date) gets ``claimed: true``. One conditional UPDATE, so two PCs asking at once can't both claim it.
+    Anyone may ask: it only records that the notice went, on the exception's own row."""
+    eid, until = str(id or "").strip(), _date(until, "Until")
+    row = _row(db, "policy_exception", "id", eid) if eid and len(eid) <= 64 and db.exists("catalog", "policy_exception") else None
+    if row is None:
+        raise PlatformError(f"There's no policy exception {eid[:64]!r}")
+    ensure_exception_schema(db)
+    cur = db.run(f"UPDATE {db.t('catalog', 'policy_exception')} SET warned_until = ? "
+                 "WHERE id = ? AND until_date = ? AND ended_at IS NULL AND COALESCE(warned_until, '') <> ?",
+                 (until, eid, until, until))
+    claimed = cur.rowcount == 1
+    db.commit()
+    return {"claimed": claimed}
+
+
 def _excepted(exceptions: list[dict[str, Any]], pid: str, chain: list[tuple[str, str]], context: dict[str, Any],
               today: str) -> dict[str, Any] | None:
     """The active exception that covers this policy at this place, if any."""
     workspace = str(context.get("workspace") or "").strip().lower()
     for e in exceptions:
-        if e.get("policy_id") != pid or not (today <= str(e.get("until") or "")):
+        if e.get("policy_id") != pid or e.get("ended_at") or not (today <= str(e.get("until") or "")):
             continue
         if (e["scope"], e["target"]) in chain or (e["scope"] == "workspace" and workspace and workspace == str(e["target"]).lower()):
             return {k: e[k] for k in ("id", "scope", "target", "until", "reason", "approved_by", "note")}
@@ -1066,7 +1136,8 @@ OPERATIONS.update({
     "save_assignment": save_assignment, "remove_assignment": remove_assignment, "list_assignments": list_assignments,
     "policy_applicability": policy_applicability, "resolve_policies": resolve_policies, "policy_snapshot": snapshot,
     "policy_options": policy_options, "policies_ready": policies_ready,
-    "list_policy_exceptions": list_policy_exceptions,
+    "list_policy_exceptions": list_policy_exceptions, "end_policy_exception": end_policy_exception,
+    "claim_exception_warning": claim_exception_warning,
     "ensure_template_schema": ensure_template_schema, "list_policy_templates": list_policy_templates,
     "save_policy_template": save_policy_template, "delete_policy_template": delete_policy_template,
     "use_policy_template": use_policy_template, "save_policy_as_template": save_policy_as_template,

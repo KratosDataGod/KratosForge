@@ -44,7 +44,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "governance_templates", "governance_template_save", "governance_template_delete", "governance_template_use",
            "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check", "governance_practice_settings",
            "governance_product_checklist",
-           "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
+           "mesh_overview", "mesh_members", "mesh_set_member", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
@@ -88,7 +88,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
            "replay_delete_outputs",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
-           "notebook_dependencies", "side_by_side_writes",
+           "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
            "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
@@ -216,6 +216,10 @@ METHODS |= COMMENT_METHODS
 from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
 
 METHODS |= EDITOR_METHODS
+
+# Policy exceptions (central/governance_service.py): ending one early (the platform checks for a platform
+# admin), and the ones about to end, for the bell, the Data mesh banner and a Teams notice.
+METHODS |= {"governance_end_exception", "governance_exceptions_ending"}
 
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read

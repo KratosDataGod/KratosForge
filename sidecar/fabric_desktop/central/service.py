@@ -1008,7 +1008,33 @@ class PlatformMixin:
             return
         if project.info:
             i = mesh.identity(project) | {"landing": mesh.landing_readers(project)}
-            self._catalog().call("register_project", project=i)
+            try:
+                out = self._catalog().call("register_project", project=i)
+            except core.PlatformError as exc:  # not a member: setting up the platform still finishes
+                _log.info("register_project: %s", exc)
+                return
+            self._keep_catalog_domain(project, out)
+
+    @staticmethod
+    def _keep_catalog_domain(project: Any, out: Any) -> None:
+        """A move to another domain waits for that domain's owners: project.toml keeps the domain the
+        catalog has until they approve, so the files and the catalog agree."""
+        if not (isinstance(out, dict) and out.get("domain_request")):
+            return
+        fields = mesh.identity(project) | {"domain": out.get("domain_id") or "", "subdomain": out.get("subdomain_id") or ""}
+        mesh.write_project_file(project.root, fields)
+        project.reload()
+
+    def mesh_members(self, project: str = "") -> dict[str, Any]:
+        """The open project's members in the platform's catalog, and whether you may change them."""
+        name = project or mesh.project_name(self._project())  # type: ignore[attr-defined]
+        return call_or_repair(self._catalog(), "list_project_members", "keep a project's members", project=name)
+
+    def mesh_set_member(self, user: str, role: str = "", project: str = "") -> dict[str, Any]:
+        """Add a member to the open project, change their role, or take them off (role "")."""
+        name = project or mesh.project_name(self._project())  # type: ignore[attr-defined]
+        return call_or_repair(self._catalog(), "set_project_member", "keep a project's members",
+                              project=name, user=user, role=role)
 
     def mesh_overview(self) -> dict[str, Any]:
         """Everything the Mesh tabs show: this project, the domains, products here and published elsewhere."""
@@ -1043,8 +1069,10 @@ class PlatformMixin:
             if fields.get("subdomain") and known.get(fields["subdomain"], {}).get("parent_id") != fields["domain"]:
                 raise GateError("save", [f"{fields['subdomain']} isn't a subdomain of {fields['domain']}"])
         mesh.write_project_file(project.root, fields)
-        catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
-        return self.mesh_overview()
+        project.reload()
+        out = catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
+        self._keep_catalog_domain(project, out)
+        return self.mesh_overview() | {"domain_request": (out or {}).get("domain_request") if isinstance(out, dict) else None}
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -1116,6 +1144,7 @@ class PlatformMixin:
             if events:
                 self._governance_notify(lambda: events)  # type: ignore[attr-defined]
             raise
+        problems += self._sync_links(project, catalog)
         if old_function:
             problems.append("Published, but the catalog keeps no port history yet: UDF_Platform is older than "
                             "versioned contracts. A platform admin runs Platform > Settings > Finish or repair once.")
@@ -1178,6 +1207,14 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
         alias = link.get("alias", "")
+        kept = project.links.get(alias)
+        if kept is not None and kept.product != link.get("product", ""):
+            kept = None  # the alias now names another product: its versions and columns don't carry over
+        # The New link dialog sends neither accepts nor columns: saving the same link again keeps the file's.
+        if kept is not None and "accepts" not in link:
+            link = link | {"accepts": kept.accepts}
+        if kept is not None and "columns" not in link:
+            link = link | {"columns": kept.columns}
         accepts = str(link.get("accepts") or "").strip()
         if accepts:
             try:
@@ -1200,6 +1237,32 @@ class PlatformMixin:
         out = self.mesh_overview()
         out["problems"] = out.get("problems", []) + problems
         return out
+
+    def _sync_links(self, project: Any, catalog: Any) -> list[str]:
+        """Send each link's file to the catalog where the catalog has something else (accepts or columns
+        edited in links/<alias>.toml, say), so the producer's promote checks what the file says. A link the
+        catalog refuses is a problem to fix, never a failed publish."""
+        name = mesh.project_name(project)
+        try:
+            recorded = {c["id"]: c for p in catalog.call("list_products") for c in p.get("consumers", [])}
+        except Exception as exc:  # noqa: BLE001 - publishing is done; the links are sent on the next one
+            return [f"The project's links weren't checked against the catalog: {describe(exc)}"]
+        problems = []
+        for link in project.links.values():
+            if link.location("dev") or link.location("test") or link.location("prod"):
+                continue  # pinned: not in the catalog
+            reads = {env: link.reads(env) for env in ENVIRONMENTS}
+            want = (link.product, link.port, reads, link.accepts, link.columns)
+            have = recorded.get(f"{name}:{link.alias}")
+            if have is not None and (have.get("product_id"), have.get("port"), have.get("reads") or {},
+                                     have.get("accepts") or "", have.get("columns") or {}) == want:
+                continue
+            try:
+                problems += self._register_link(consumer=name, alias=link.alias, product_id=link.product,
+                                                port=link.port, reads=reads, accepts=link.accepts, columns=link.columns)
+            except core.PlatformError as exc:
+                problems.append(f"links/{link.alias} isn't in the catalog as its file says: {exc}")
+        return list(dict.fromkeys(problems))
 
     def _current_version(self, product_id: str) -> str:
         """The product's version in the catalog, for a new link's accepts; "" (any) when it can't be read."""

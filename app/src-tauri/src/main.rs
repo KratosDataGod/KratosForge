@@ -1791,6 +1791,28 @@ async fn fabric_view_action(app: tauri::AppHandle, window: tauri::Window, action
     }
 }
 
+/// The Fabric page the calling window's view shows, without its query or fragment, so the page can
+/// offer to open the same item itself (Open in KratosForge). None when it isn't on Fabric.
+#[tauri::command]
+async fn fabric_view_url(app: tauri::AppHandle, window: tauri::Window) -> Result<Option<String>, String> {
+    let label = fabric_view_label(window.label())?;
+    let Some(view) = app.get_webview(label) else { return Ok(None) };
+    Ok(fabric_page_address(&view.url().map_err(|e| e.to_string())?))
+}
+
+fn fabric_page_address(url: &Url) -> Option<String> {
+    if url.scheme() != "https" || url.host_str() != Some("app.fabric.microsoft.com") {
+        return None;
+    }
+    let mut page = url.clone();
+    page.set_query(None);
+    page.set_fragment(None);
+    let _ = page.set_username("");
+    let _ = page.set_password(None);
+    let _ = page.set_port(None);
+    Some(page.to_string())
+}
+
 /// Signs the Fabric view out and forgets its saved sign-in; the sidecar forgets its own.
 #[tauri::command]
 async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
@@ -2173,7 +2195,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())
@@ -2323,6 +2345,17 @@ mod integrity_tests {
 #[cfg(test)]
 mod fabric_nav_tests {
     use super::*;
+
+    #[test]
+    fn the_page_address_is_fabric_only_and_drops_the_query() {
+        let page = |u: &str| fabric_page_address(&Url::parse(u).unwrap());
+        assert_eq!(page("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh?experience=fabric-developer&ctid=t#x"),
+                   Some("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh".into()));
+        assert_eq!(page("https://login.microsoftonline.com/common/oauth2"), None);
+        assert_eq!(page("http://app.fabric.microsoft.com/groups/ws"), None);
+        assert_eq!(page("https://u:p@app.fabric.microsoft.com:8443/groups/ws"),
+                   Some("https://app.fabric.microsoft.com/groups/ws".into()));
+    }
 
     fn nav(url: &str) -> FabricNav {
         fabric_nav(&Url::parse(url).unwrap(), false, &[])

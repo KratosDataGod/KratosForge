@@ -76,7 +76,7 @@ function runAsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading who runs what..."));
   loadRunAs(box);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.runas", {
-    reads: "Your sign-in on this PC and your organization's policy, each agent's status record in the environments' LH_Meta, and the Fabric schedules Monitor > Fabric schedules last read. It makes no Fabric call.",
+    reads: "Your sign-in on this PC and your organization's policy, each agent's status record in the environments' LH_Meta, and the Fabric schedules Monitor > Fabric > Schedules last read. It makes no Fabric call.",
     changes: "Nothing. Nothing here signs in, renews a certificate, rotates a secret or changes access. That happens in Microsoft Entra and on the agent's server.",
     results: "Nothing is stored. Agents report facts about their credential (a certificate's end date, their last token request), never the credential, its path or its thumbprint.",
     more: [["Unknown and Not visible", "Unknown means an older agent doesn't report it. Not visible means Fabric or Azure holds the credential and doesn't say when it lapses. Neither means it is broken."]],
@@ -107,7 +107,7 @@ async function loadRunAs(box) {
       h("span", {}, h("b", {}, "Fabric schedules"), fab.state === "read" ? ` as Schedules last read them, ${relTime(fab.at)}`
         : fab.state === "reading" ? " being read on Schedules"
         : fab.state === "error" ? `: ${friendlyError(fab.detail).text}`
-        : [" not read yet. ", btn("Read them on Fabric schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")])),
+        : [" not read yet. ", btn("Read them on Fabric > Schedules", null, () => { monitorPage.panel = "fabric_schedules"; go("monitor"); }, "tool link small")])),
     raAttention(out) || "",  // replaceChildren would print a null
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
       h("thead", {}, h("tr", {}, ["Place", "Runs as", "Credential", "Its state", "Where data and credentials go"].map((c) => h("th", {}, c)))),

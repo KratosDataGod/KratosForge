@@ -249,6 +249,7 @@ class SbsService(Service):
 @pytest.fixture
 def svc(tmp_path, tables, monkeypatch):
     monkeypatch.setattr(side_by_side_service, "POLL_SECONDS", 0)
+    monkeypatch.setattr(sbs, "DEFAULT_CORES", "all")  # in the engine, as the fakes need; test_side_by_side_cores.py caps
     monkeypatch.setattr(side_by_side_service, "FileStore", FakeFiles)
     monkeypatch.setattr(lakehouse, "write_table", tables.write)
     monkeypatch.setattr(lakehouse, "open_table", lambda t: DeltaTable(str(tables.path(t))))

@@ -72,7 +72,9 @@ MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception", "data")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut", "workspace", "workspace_access", "domain", "exception", "data",
+                 "join_domain")
+PROJECT_ROLES = ("owner", "member")
 # Kinds whose approval the app carries out in Fabric first, as the person approving (central/requests_service.py).
 FABRIC_KINDS = ("shortcut", "workspace", "workspace_access")
 WORKSPACE_ROLES = ("Viewer", "Contributor", "Member", "Admin")
@@ -215,6 +217,9 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "grant_review": [("id", "key"), ("product_id", "text"), ("project", "text"), ("reviewed_by", "text"),
                      ("reviewed_at", "text")],
     "follow": [("id", "key"), ("user_name", "text"), ("product_id", "text"), ("followed_at", "text")],
+    # Who may change a project's entry in the catalog, publish its products and make its links.
+    "project_member": [("id", "key"), ("project", "text"), ("user_name", "text"), ("role", "text"),
+                       ("added_by", "text"), ("added_at", "text")],
     # What each environment last published of a product, so a promote's changes are told once per environment.
     "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
                     ("deprecated_on", "text"), ("published_at", "text")],
@@ -262,6 +267,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
     created += ensure_grant_reviews(db)
     created += ensure_follows(db)
     created += ensure_entra_groups(db)
+    created += ensure_project_members(db)
     created += ensure_product_items(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
@@ -681,7 +687,10 @@ def delete_domain(db: Db, did: str, by: str = "") -> None:
 
 
 def register_project(db: Db, project: dict[str, Any], by: str = "") -> dict[str, Any]:
-    """Record a metadata project and its domain. The domain must be one the central team made."""
+    """Record a metadata project and its domain. The domain must be one the central team made. Only the
+    project's members (or a platform admin) change it; the first to record a project owns it. Joining
+    a domain, or moving to another, waits for that domain's owners (or a platform admin): the answer
+    has ``domain_request`` and the catalog keeps the domain it had until they approve."""
     name = str(project.get("name") or "").strip()
     if not name:
         raise PlatformError("The project needs a name")
@@ -693,13 +702,20 @@ def register_project(db: Db, project: dict[str, Any], by: str = "") -> dict[str,
         s = _row(db, "domain", "id", sub)
         if s is None or s.get("parent_id") != dom:
             raise PlatformError(f"{sub} isn't a subdomain of {dom}")
+    require_member(db, name, by, "change it")
+    before = _row(db, "project", "name", name) or {}
+    asked = None
+    if dom and (dom, sub) != (before.get("domain_id") or "", before.get("subdomain_id") or "") \
+            and not (is_admin(db, by) or _who(by) in _domain_deciders(db, dom, sub)):
+        asked = _ask_to_join(db, name, dom, sub, by)
+        dom, sub = before.get("domain_id") or "", before.get("subdomain_id") or ""
     row = {"name": name, "domain_id": dom or None, "subdomain_id": sub or None, "team": str(project.get("team") or ""),
            "description": str(project.get("description") or ""), "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "project", "name", row)
     if "landing" in project:
         _save_readers(db, name, project.get("landing") or {})
     db.commit()
-    return row
+    return dict(row, domain_request=asked) if asked else row
 
 
 def list_projects(db: Db) -> list[dict[str, Any]]:
@@ -720,6 +736,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     ensure_contracts(db)
     pid = f"{project}/{name}"
+    require_member(db, project, by, "publish its products")
     _may_publish(db, pid, _row(db, "product", "id", pid), product, by)
     ensure_follows(db)
     before = _row(db, "product_env", "id", f"{pid}:{env}")
@@ -1102,6 +1119,7 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
     new link, if the product was deprecated on a date that has come. ``accepts`` is the product
     versions the consumer can read ("2", "2-3" or "2+"); ``columns`` the ones it relies on."""
     ensure_contracts(db)
+    require_member(db, consumer, by, "make its links")
     product = _row(db, "product", "id", product_id)
     if product is None:
         raise PlatformError(f"{product_id} isn't a published data product")
@@ -1693,6 +1711,184 @@ def _save_readers(db: Db, project: str, landing: dict[str, list[str]]) -> None:
                (f"{project}:{source}", project, source, json.dumps(sorted(entities)), _now()))
 
 
+# --------------------------------------------------------------------------- project members
+# A project's owners and members change its catalog entry, publish its products and make its links.
+# Owners also add and remove members. A project kept from before members starts with the people who
+# already worked on it there: who recorded it, published its products, owns them or made its links.
+
+def ensure_project_members(db: Db) -> list[str]:
+    """catalog.project_member, added after the mesh: additive, safe to run again."""
+    if db.exists("catalog", "project_member"):
+        return []
+    cols = _CATALOG["project_member"]
+    db.run(f"CREATE TABLE {db.t('catalog', 'project_member')} ({', '.join(_column(db, n, k) for n, k in cols)})")
+    db.commit()
+    return ["catalog.project_member"]
+
+
+def _stored_members(db: Db, project: str) -> dict[str, str]:
+    if not db.exists("catalog", "project_member"):
+        return {}
+    rows = db.rows(f"SELECT user_name, role FROM {db.t('catalog', 'project_member')} WHERE project = ?", (project,))
+    return {r["user_name"]: r["role"] for r in rows}
+
+
+def _earlier_people(db: Db, project: str) -> list[str]:
+    """Who already worked on a project in the catalog before it had members: people, never team names."""
+    people = [_who((_row(db, "project", "name", project) or {}).get("updated_by"))]
+    for p in db.rows(f"SELECT owner, updated_by FROM {db.t('catalog', 'product')} WHERE project = ?", (project,)):
+        people += [_who(p.get("updated_by")), *_product_owners(p)]
+    if db.exists("catalog", "link"):
+        people += [_who(r.get("updated_by")) for r in
+                   db.rows(f"SELECT updated_by FROM {db.t('catalog', 'link')} WHERE consumer_project = ?", (project,))]
+    return sorted({x for x in people if x and _EMAIL.match(x)})
+
+
+def _put_member(db: Db, project: str, user: str, role: str, by: str) -> None:
+    _upsert(db, "catalog", "project_member", "id", {"id": f"{project}|{user}", "project": project, "user_name": user,
+                                                    "role": role, "added_by": _who(by), "added_at": _now()})
+
+
+def require_member(db: Db, project: str, by: str, action: str) -> None:
+    """Refuse unless the caller is one of the project's members or a platform admin. A project with no
+    members yet gets the people who already worked on it as owners. Only a name the catalog has never
+    seen (no project, products or links) makes the caller its first owner; any other waits for an admin."""
+    who = _who(by)
+    ensure_project_members(db)
+    members = _stored_members(db, project)
+    if not members:
+        first = _earlier_people(db, project)
+        if not first and not _in_catalog(db, project) and _EMAIL.match(who):
+            first = [who]
+        for person in first:
+            _put_member(db, project, person, "owner", by or person)
+        members = _stored_members(db, project)
+    if is_admin(db, by) or (who and who in members):
+        return
+    owners = sorted(u for u, r in members.items() if r == "owner")
+    if not owners:
+        raise PlatformError(f"{project} has no owner yet, so only a platform admin can {action}. A platform admin "
+                            "names its first owner on Data mesh > Domains > This project.")
+    raise PlatformError(f"Only {project}'s members or a platform admin can {action}. Ask one of its owners "
+                        f"({', '.join(owners)}) to add you on Data mesh > Domains > This project.")
+
+
+def _in_catalog(db: Db, project: str) -> bool:
+    """Whether the catalog already knows a project by this name: its row, a product of it, or a link it made
+    (a link records no project row, so a name can be only there)."""
+    if _row(db, "project", "name", project) is not None:
+        return True
+    if db.rows(f"SELECT id FROM {db.t('catalog', 'product')} WHERE project = ?", (project,)):
+        return True
+    return db.exists("catalog", "link") and bool(
+        db.rows(f"SELECT id FROM {db.t('catalog', 'link')} WHERE consumer_project = ?", (project,)))
+
+
+def list_project_members(db: Db, project: str, by: str = "") -> dict[str, Any]:
+    """A project's members, and whether the caller may change them. Reads only: a project kept from
+    before members lists who would start as its owners, marked ``earlier``."""
+    members = _stored_members(db, project)
+    earlier = not members
+    if earlier:
+        members = {p: "owner" for p in _earlier_people(db, project)}
+    who = _who(by)
+    rows = sorted(({"user": u, "role": r} for u, r in members.items()), key=lambda m: (m["role"] != "owner", m["user"]))
+    return {"project": project, "members": rows, "earlier": earlier,
+            "can_change": is_admin(db, by) or members.get(who) == "owner"
+            or (not members and not _in_catalog(db, project) and bool(_EMAIL.match(who))),
+            "domain_request": _waiting_join(db, project, who)}
+
+
+def _waiting_join(db: Db, project: str, who: str) -> dict[str, Any] | None:
+    """The project's waiting ask to join a domain, if any. None when the catalog has no requests yet."""
+    if not db.exists("catalog", "request"):
+        return None
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = 'join_domain' AND status = 'waiting' "
+                   "AND target = ?", (project,))
+    if not rows:
+        return None
+    r = _request_out(rows[0])
+    return r | {"mine": bool(who) and r["requested_by"] == who}
+
+
+def set_project_member(db: Db, project: str, user: str, role: str = "", by: str = "") -> dict[str, Any]:
+    """Add a member, make one an owner or a member, or take one off (``role`` ""). Only the project's
+    owners or a platform admin; a project always keeps an owner."""
+    project = str(project or "").strip()
+    user = _who(user)
+    if not project:
+        raise PlatformError("Say which project")
+    if not _EMAIL.match(user):
+        raise PlatformError(f"{user or 'That'} isn't an email address: members are people, by their sign-in")
+    if role and role not in PROJECT_ROLES:
+        raise PlatformError(f"role must be one of {', '.join(PROJECT_ROLES)}")
+    require_member(db, project, by, "change its members")
+    members = _stored_members(db, project)
+    if not is_admin(db, by) and members.get(_who(by)) != "owner":
+        raise PlatformError(f"Only {project}'s owners or a platform admin can change its members")
+    after = dict(members)
+    if role:
+        after[user] = role
+    else:
+        after.pop(user, None)
+    if "owner" in members.values() and "owner" not in after.values():
+        raise PlatformError(f"{project} needs an owner: make someone else an owner first")
+    if role:
+        _put_member(db, project, user, role, by)
+    else:
+        db.run(f"DELETE FROM {db.t('catalog', 'project_member')} WHERE id = ?", (f"{project}|{user}",))
+    _audit(db, by, "project member", project, {"user": user, "role": role or "removed", "was": members.get(user) or ""})
+    db.commit()
+    return list_project_members(db, project, by)
+
+
+def _domain_deciders(db: Db, dom: str, sub: str = "") -> set[str]:
+    """Who approves a project joining a domain: its owners, and the subdomain's, if one is picked."""
+    people = _names((_row(db, "domain", "id", dom) or {}).get("owners"))
+    if sub:
+        people |= _names((_row(db, "domain", "id", sub) or {}).get("owners"))
+    return people
+
+
+def _ask_to_join(db: Db, project: str, dom: str, sub: str, by: str) -> dict[str, Any]:
+    """A join_domain request for the project, unless the same one is already waiting. One that asked for
+    another domain is withdrawn: the project's latest choice is the one its owners decide."""
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = 'join_domain' AND status = 'waiting' "
+                     "AND target = ?", (project,)):
+        d = _request_out(r)["detail"]
+        if (d.get("domain"), d.get("subdomain") or "") == (dom, sub):
+            return _request_out(r)
+        db.run(f"UPDATE {db.t('catalog', 'request')} SET status = 'withdrawn', decided_by = ?, decided_at = ? WHERE id = ?",
+               (_who(by), _now(), r["id"]))
+    return request(db, "join_domain", project, project=project, detail={"domain": dom, "subdomain": sub}, by=by)
+
+
+def _check_join_domain(db: Db, target: str, detail: dict[str, Any], reason: str, by: str) -> tuple[str, dict[str, Any]]:
+    dom, sub = str(detail.get("domain") or "").strip(), str(detail.get("subdomain") or "").strip()
+    domain = _row(db, "domain", "id", dom)
+    if domain is None:
+        raise PlatformError(f"domain {dom} isn't one of your organization's domains")
+    if sub and (_row(db, "domain", "id", sub) or {}).get("parent_id") != dom:
+        raise PlatformError(f"{sub} isn't a subdomain of {dom}")
+    require_member(db, target, by, "ask to join a domain")
+    return target, {"domain": dom, "subdomain": sub, "domain_name": domain.get("name") or dom,
+                    "owners": ", ".join(sorted(_domain_deciders(db, dom, sub)))}
+
+
+def _approve_join_domain(db: Db, req: dict[str, Any], by: str) -> None:
+    d = req["detail"]
+    if _row(db, "domain", "id", d["domain"]) is None:
+        raise PlatformError(f"domain {d['domain']} isn't there any more: decline this request")
+    row = _row(db, "project", "name", req["target"])
+    if row is None:
+        raise PlatformError(f"{req['target']} isn't in the catalog any more: decline this request")
+    db.run(f"UPDATE {db.t('catalog', 'project')} SET domain_id = ?, subdomain_id = ?, updated_at = ? WHERE name = ?",
+           (d["domain"], d.get("subdomain") or None, _now(), req["target"]))
+
+
+REQUEST_HOOKS["join_domain"] = {"check": _check_join_domain, "approve": _approve_join_domain}
+
+
 # --------------------------------------------------------------------------- requests
 
 
@@ -1933,6 +2129,8 @@ def _deciders(db: Db, req: dict[str, Any]) -> set[str]:
         if req["detail"].get("what") == "change":
             return _product_owners(_row(db, "product", "id", req["target"]) or {})
         return _names((_row(db, "domain", "id", req["target"]) or {}).get("owners"))
+    if req["kind"] == "join_domain":
+        return _domain_deciders(db, req["detail"].get("domain") or "", req["detail"].get("subdomain") or "")
     return set()
 
 
@@ -1965,6 +2163,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
         if req["kind"] == "data":
             who = ("the product's owner or a platform admin" if req["detail"].get("what") == "change"
                    else "the domain's owners or a platform admin")
+        if req["kind"] == "join_domain":
+            who = "the domain's owners or a platform admin"
         raise PlatformError(f"Only {who} can decide this request")
     if approve:
         d = req["detail"]
@@ -2768,6 +2968,7 @@ OPERATIONS = {
     "add_product_term": add_product_term, "remove_product_term": remove_product_term,
     "note_seen": note_seen, "owner_coverage": owner_coverage,
     "access_reviews": access_reviews, "confirm_access": confirm_access,
+    "list_project_members": list_project_members, "set_project_member": set_project_member,
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,

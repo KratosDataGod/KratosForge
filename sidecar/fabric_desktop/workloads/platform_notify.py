@@ -1,7 +1,8 @@
 """Telling Teams channels about platform requests, broken shortcuts and deprecated products, once each.
 
 Governance sends one event per change (a request waiting on someone, decided or withdrawn; a
-shortcut broken or fixed; a data product deprecated, for the projects that read it). Each event goes to the routes whose kinds and domains match it, or to
+shortcut broken or fixed; a data product deprecated, for the projects that read it; a policy exception
+about to end, for whoever asked and the place it covers). Each event goes to the routes whose kinds and domains match it, or to
 the default route when none does. An event is posted once per ``dedupe`` key: a shortcut that
 stays broken isn't posted again, and ``shortcut.fixed`` is posted only when its break was, then
 closes it, so the next break is news again. Quiet hours and Teams being unreachable work as for
@@ -25,20 +26,21 @@ from .. import redact
 from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
-         "product.deprecated", "incident.impact", "product.changed")
+         "product.deprecated", "incident.impact", "product.changed", "exception.ending")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
 CLOSES = {"request.decided": "request.waiting", "request.withdrawn": "request.waiting", "shortcut.fixed": "shortcut.broken"}
 VIEWS = {"platform": ("requests",), "shortcuts": ("health",), "metadata": ("links",), "incident": ("detail",),
-         "onelake": ("products",)}
+         "onelake": ("products",), "governance": ("exceptions",)}
 SEVERITIES = ("info", "warn")
 _UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _ROLE = re.compile(r"^(platform_admin|requester|(domain_owner|product_owner|project):[A-Za-z0-9._-]+)$")
 _TITLES = {"request.waiting": "Waiting on you", "request.decided": "Decided", "request.withdrawn": "Withdrawn",
            "shortcut.broken": "Shortcut broken", "shortcut.fixed": "Shortcut fixed",
            "product.deprecated": "Data product deprecated", "incident.impact": "Incident upstream of your data",
-           "product.changed": "Data product changed"}
+           "product.changed": "Data product changed", "exception.ending": "Policy exception ending"}
 _WHERE = {"requests": "Data mesh > Requests", "health": "Shortcuts > Health", "links": "Data mesh > Products and links > Links",
-          "detail": "Monitor > Incidents", "products": "Data mesh > Products"}
+          "detail": "Monitor > Incidents", "products": "Data mesh > Products",
+          "exceptions": "Platform > Govern > Governance"}
 
 
 def _strs(value: Any, name: str) -> list[str]:
@@ -88,7 +90,8 @@ def validate(event: dict[str, Any]) -> dict[str, Any]:
     opened = event.get("open") or {}
     if not isinstance(opened, dict) or opened.get("view") not in VIEWS or opened.get("tab") not in VIEWS[opened.get("view")]:
         raise ValueError("open is {view: platform, tab: requests}, {view: shortcuts, tab: health}, "
-                         "{view: metadata, tab: links}, {view: incident, tab: detail} or {view: onelake, tab: products}")
+                         "{view: metadata, tab: links}, {view: incident, tab: detail}, {view: onelake, tab: products} "
+                         "or {view: governance, tab: exceptions}")
     out["open"] = {"view": opened["view"], "tab": opened["tab"], "target": str(opened.get("target") or "")}
     out["dedupe"] = str(event.get("dedupe") or f"{kind}:{out['id']}")
     return out
@@ -113,7 +116,7 @@ def message(event: dict[str, Any]) -> tuple[str, list[str]]:
                                    event["env"].title() if event["env"] else "") if x)
     if scope:
         lines.append(scope)
-    if event["kind"].startswith(("shortcut.", "incident.", "product.")) and event["detail"]:
+    if event["kind"].startswith(("shortcut.", "incident.", "product.", "exception.")) and event["detail"]:
         lines.append(event["detail"])
     lines.append(f"Open it in KratosForge > {_WHERE[event['open']['tab']]}.")
     return f"{_TITLES[event['kind']]}: {event['title']}", lines

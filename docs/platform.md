@@ -64,9 +64,10 @@ Inside the platform:
 | Who | Can change |
 | --- | --- |
 | **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies and their exceptions, shortcut rules and accepted shortcut risks ([shortcuts.md](shortcuts.md#accept-a-crossed-environment)), the list of admins, and every request |
-| **A domain's owners** (set on the domain) | Requests for a new data product from their domain, their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
+| **A domain's owners** (set on the domain) | Requests for a new data product from their domain, which projects join their domain, their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
+| **A project's owners** (Preview, [data-mesh.md](data-mesh.md#members-and-joining-a-domain-preview)) | The project's members. Its members publish its products, make its links and change its domain |
 | **A data product's owner** | Who else may read their product (access requests), and requests for a change to it |
-| **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
+| **Everyone** | Catalog text (descriptions, tags, classification), the products and links of projects they're a member of, and requests |
 
 The platform checks these itself on every call, as the person Fabric says is calling (a user data function reads the caller from Fabric, never from what the app sends). The app hides buttons you can't use, but that's only a convenience. Whoever sets the platform up is its first admin; a platform with no admin lets the first person who signs in claim it on **Platform > Settings**, and always keeps at least one. Admins are kept in each environment's `SQL_Platform`; adding or removing one on the Platform page changes all of them.
 
@@ -76,7 +77,7 @@ Every change is recorded with who made it and when (**Platform > Audit**). Actio
 
 The rail's **Platform** page is the central team's home, and the same screens show every other team what the platform offers.
 
-Its tabs are **Overview**, **Set up** (a menu of **Landing zone**, **Business keys** and **Glossary**), **Govern** (a menu of **Governance** and **Audit**) and **Settings**. On a page from a menu, the tab names it, for example **Set up: Glossary**. Requests and domains are on Data mesh, where every team works: **Data mesh > Requests** and **Data mesh > Domains**; older links to Platform's Requests and Domains open them there. In these docs, **Platform > Business keys** means Set up > Business keys.
+Its tabs are **Overview**, **Set up**, **Govern** and **Settings**, the way Data mesh lays out its tabs. **Set up** holds **Landing zone**, **Business keys** and **Glossary**, and **Govern** holds **Governance** and **Audit**: pick one on the switcher under the tabs. Requests and domains are on Data mesh, where every team works: **Data mesh > Requests** and **Data mesh > Domains**; older links to Platform's Requests and Domains open them there. In these docs, **Platform > Business keys** means Set up > Business keys.
 
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.

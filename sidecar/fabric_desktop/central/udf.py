@@ -503,6 +503,23 @@ def remove_product_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
     return _run(sqlDB, "remove_product_term", ctx, product_id=product_id, term=term)
 
 
+# ---- a project's members (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def list_project_members(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str) -> dict:
+    return _run(sqlDB, "list_project_members", ctx, project=project)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def set_project_member(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, user: str,
+                       role: str) -> dict:
+    return _run(sqlDB, "set_project_member", ctx, project=project, user=user, role=role)
+
+
 # ---- following a data product (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -785,6 +802,24 @@ def save_policy_as_template(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunct
 @udf.function()
 def set_template_authors(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, authors: str) -> dict:
     return _run(sqlDB, "set_template_authors", ctx, authors=authors)
+
+
+# ---- ending a policy exception early (policy.py): platform admins only, checked by the platform
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def end_policy_exception(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, reason: str) -> dict:
+    return _run(sqlDB, "end_policy_exception", ctx, id=id, reason=reason)
+
+
+# ---- an exception's "about to end" notice, claimed once for the organization (policy.py)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def claim_exception_warning(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, until: str) -> dict:
+    return _run(sqlDB, "claim_exception_warning", ctx, id=id, until=until)
 
 
 # ---- product groups: a data product's semantic models and reports, by Fabric item id (Preview)

@@ -222,7 +222,7 @@
     {
       "id": "FEAT-SHL-05",
       "name": "Preview tags and hiding Preview features",
-      "description": "Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.",
+      "description": "Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.",
       "pillar": "Platform foundation",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -236,6 +236,10 @@
         {
           "kind": "code",
           "ref": "app/ui/features.js PREVIEW_FEATURES"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not"
         }
       ],
       "source": [
@@ -246,7 +250,8 @@
         "app/tests/ui.test.cjs"
       ],
       "docs": [
-        "docs/README.md"
+        "docs/README.md",
+        "docs/metadata-guide.md"
       ],
       "ui": {
         "surface": "Settings > Preview features",
@@ -254,9 +259,9 @@
       },
       "limitations": [
         "Hiding only hides UI; engine methods stay callable",
-        "Several docs-Preview features have no PREVIEW_FEATURES id"
+        "Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so"
       ],
-      "next_action": "Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).",
+      "next_action": "None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).",
       "backlog": [
         "PB-078"
       ],
@@ -955,13 +960,12 @@
         "preview": true
       },
       "limitations": [
-        "Files download whole into the app data folder and are not cleaned up (inference)",
         "Notebook preview shows no outputs"
       ],
       "prs": [
         43
       ],
-      "next_action": "Clean up downloaded preview files (inference: never removed).",
+      "next_action": "None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).",
       "backlog": [
         "PB-087"
       ]

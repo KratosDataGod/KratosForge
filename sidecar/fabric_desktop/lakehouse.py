@@ -563,6 +563,86 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     return PendingWrite(name_, rows, ref.uri, future)
 
 
+@dataclass
+class ChangeResult:
+    """What a MERGE (PB-015) changed in a lakehouse table, in one Delta commit."""
+    table: str
+    operation: str
+    delta_version: int
+    rows_inserted: int = 0
+    rows_updated: int = 0
+    rows_deleted: int = 0
+
+    def __repr__(self) -> str:
+        return (f"{self.operation.upper()} into {self.table}: {self.rows_inserted} inserted, {self.rows_updated} "
+                f"updated, {self.rows_deleted} deleted (Delta version {self.delta_version})")
+
+
+def change_table(change: Any, source: pa.Table | None = None) -> ChangeResult:
+    """Run ``change`` (a delta_dml.Change on a table of the attached lakehouse) with delta-rs, in one
+    commit, after the cell's own writes still uploading. ``source`` is a MERGE's rows. During a proof
+    the change is made to this run's sandbox copy (the pinned version, copied in first), never the
+    shared table. The table must pass the Fabric Delta profile check before and after."""
+    from deltalake import CommitProperties, write_deltalake
+
+    from . import delta_dml, delta_profile
+    lh = _current()
+    ref = table_ref(change.name)
+    reason = write_refusal(lh.name, ref.schema, ref.table)
+    if reason:
+        raise PermissionError(reason)
+    name_ = f"{ref.schema}.{ref.table}"
+    if (p := _proof()) is not None:
+        opts = p.options()
+
+        def seed(uri: str, data: pa.Table) -> DeltaTable:
+            write_deltalake(uri, data, mode="overwrite", storage_options=opts)
+            return DeltaTable(uri, storage_options=opts)
+        try:
+            p.read_location(ref.schema, ref.table)  # a table the proof can't read can't be changed in it
+        except Exception as exc:
+            raise TableNotFoundError(str(exc)) from None
+        uri = p.write_location(ref.schema, ref.table, "append", seed)  # "append": the pinned version comes first
+    else:
+        opts = storage_options(lh.storage_token())
+        uri = ref.uri
+        if (queue := _queue()) is not None:
+            queue.wait()  # in order with the cell's writes still uploading
+    table = _open_for_change(uri, opts, name_)
+    try:
+        delta_profile.check_table(table)
+    except delta_profile.ProfileViolation as exc:
+        raise ValueError(f"{name_} isn't changed on this PC: {exc}. Writing to it could make it unreadable in "
+                         "Fabric.") from None
+    before = table.version()
+    names = source.schema.names if source is not None else None
+    out = delta_dml.apply(change, table, source, names,
+                          CommitProperties(custom_metadata={"fabric_desktop.operation": change.kind}))
+    after = DeltaTable(uri, storage_options=opts)
+    delta_profile.note_after_write(after)
+    result = ChangeResult(name_, change.kind, after.version(), out["rows_inserted"], out["rows_updated"],
+                          out["rows_deleted"])
+    if p is None:
+        _record_table(ref, before, "write", lh)  # a replay starts the table at the version before the change
+        if lh.history_file:
+            record = {"job": f"Notebook {change.kind.upper()} in {lh.name}", "table_uri": ref.uri, "mode": change.kind,
+                      "rows": out["rows_inserted"] + out["rows_updated"] + out["rows_deleted"],
+                      "delta_version": result.delta_version,
+                      "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            lh.history_file.parent.mkdir(parents=True, exist_ok=True)
+            with lh.history_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+    return result
+
+
+def _open_for_change(uri: str, opts: dict[str, str] | None, name: str) -> DeltaTable:
+    try:
+        return DeltaTable(uri, storage_options=opts)
+    except TableNotFoundError:
+        raise TableNotFoundError(f"{name} isn't in {_current().name}, so there's nothing to change. Create it first "
+                                 "(df.write.saveAsTable or CREATE TABLE ... AS SELECT).") from None
+
+
 def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake

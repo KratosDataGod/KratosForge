@@ -92,7 +92,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | In review |
 | [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | In review |
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
-| [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
+| [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | In progress |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
 | [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
 
@@ -148,7 +148,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-015
 
-**Write semantics for MERGE, UPDATE and DELETE on this PC** · P2 (score 2.25) · L · confidence Medium · Proposed
+**Write semantics for MERGE, UPDATE and DELETE on this PC** · P2 (score 2.25) · L · confidence Medium · In progress
 
 - **Problem:** Spark notebooks that MERGE or UPDATE must run in Fabric today, so the most common incremental pattern costs capacity during development.
 - **Proposed capability:** spark.sql MERGE/UPDATE/DELETE and DeltaTable merge executed through delta-rs on the PC, with the Fabric Delta profile check, behind a Preview flag.

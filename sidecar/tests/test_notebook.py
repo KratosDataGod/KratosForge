@@ -309,7 +309,7 @@ def test_pyspark_runs_locally_but_scala_rdds_and_merge_stay_in_fabric():
     cells = [{"type": "markdown", "source": "spark.sparkContext is explained here"},
              {"type": "code", "source": "import polars as pl\nfrom fabric_desktop import lakehouse"},
              {"type": "code", "source": "df = spark.read.table('dbo.orders')\nnotebookutils.fs.ls('Files')"},
-             {"type": "code", "source": "%%sql\nMERGE INTO sk.customer t USING s ON t.id = s.id"},
+             {"type": "code", "source": "%%sql\nMERGE INTO LH_Keys.sk.customer t USING s ON t.id = s.id WHEN MATCHED THEN DELETE"},
              {"type": "code", "source": "%%sql\ninsert into dbo.orders select * from x"},
              {"type": "code", "source": "%%pyspark\nx = 1"},
              {"type": "code", "source": "%%spark\nval x = 1"},

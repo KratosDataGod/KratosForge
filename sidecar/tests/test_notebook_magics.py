@@ -45,8 +45,9 @@ def test_sql_line_magic_returns_a_dataframe_inside_python():
 
 def test_sql_line_magic_refuses_in_place_changes_and_needs_a_query():
     k = Kernel()
-    out = k.run("x = %sql MERGE INTO a USING b ON a.id = b.id WHEN MATCHED THEN DELETE")
-    assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
+    for change in ("UPDATE a SET v = 1 WHERE id = 2", "MERGE INTO LH_Keys.keys.a USING b ON a.id = b.id WHEN MATCHED THEN DELETE"):
+        out = k.run(f"x = %sql {change}")
+        assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
     out = k.run("x = %sql")
     assert out["status"] == "error" and "needs a query" in out["outputs"][-1]["evalue"]
 

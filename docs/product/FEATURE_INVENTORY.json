@@ -2004,12 +2004,12 @@
         "preview": false
       },
       "limitations": [
-        "MERGE INTO, UPDATE and DELETE raise",
+        "MERGE INTO runs on this PC (Preview, PB-015, #848; not yet proved against Fabric); UPDATE and DELETE raise",
         "partitionBy and reader schema() are ignored",
         "insertInto defaults to errorifexists, unlike Spark's append (inference)",
         "No RDD, UDF, streaming; Scala/R refused"
       ],
-      "next_action": "Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; MERGE, UPDATE and DELETE still run in Fabric only (PB-015).",
+      "next_action": "Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; UPDATE and DELETE still run in Fabric only, and a Prove run of a MERGE notebook is still to do (PB-015).",
       "backlog": [
         "PB-012",
         "PB-013",

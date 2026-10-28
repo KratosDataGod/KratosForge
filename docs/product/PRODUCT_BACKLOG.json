@@ -660,7 +660,7 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps FD-LDE-005 local Delta: the LDE thread builds create, append, overwrite and time travel; MERGE, UPDATE and DELETE semantics stay with this item (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],

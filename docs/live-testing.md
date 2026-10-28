@@ -97,6 +97,63 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 These need longer runs or capacity time; they will be added as more opt-in checks.
 
+## Databricks live test
+
+The Databricks SQL warehouse and Databricks Connect engines are in Preview and tested against fakes. This live test runs them, through the same code notebooks use, against a real Azure Databricks workspace. It signs in, lists Unity Catalog catalogs, runs queries on a SQL warehouse, runs a cell on a cluster through Databricks Connect, cancels a long statement and a long Spark job, closes both sessions, checks that errors come back as errors, and writes a report.
+
+It creates nothing in the workspace: no tables, schemas, files, jobs or clusters. It does start compute. A stopped warehouse or a terminated cluster starts when the test uses it, and bills Databricks units (DBU) until its own auto-stop.
+
+### Before you start
+
+1. **Pick or create a SQL warehouse for tests.** The smallest is enough: a serverless 2X-Small with **Auto stop** set to the minimum.
+2. **For Databricks Connect, pick or create a cluster** on Databricks Runtime 16 or later, in **Dedicated** (single user) access mode, with Unity Catalog. A single node is enough. Set **Terminate after** to 10 minutes. In KratosForge, install databricks-connect for its runtime from **Engines** first.
+3. **Tag them for tests.** On the warehouse and on the cluster, add a custom tag with the key `fabric-desktop-live-test`. The value doesn't matter. Only someone with CAN MANAGE can add it, which is the point: the live test refuses compute without it.
+4. **Sign in with the Databricks CLI:** `databricks auth login --host <workspace url> --profile kf-test`. You need CAN USE on the warehouse, CAN ATTACH TO on the cluster, and USE CATALOG on at least one catalog.
+
+The live test also refuses a warehouse or cluster whose name contains "prod", "prd" or "production" as a word, or that has auto-stop turned off.
+
+### Run it
+
+```powershell
+fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id> --dry-run   # signs in to nothing
+fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id>             # asks "Run it?", then runs
+```
+
+Leave out `--cluster` to test only the SQL warehouse. Use `--host <workspace url>` instead of `--profile` to sign in with `databricks auth login --host`. Add `--stop-compute` to stop the warehouse and terminate the cluster afterwards. They are only stopped if they were stopped when the run began, so the test never stops compute someone else was using. Answering "Run it?" (or passing `--yes`) is the confirmation the engines need before they start remote compute.
+
+The exit code is 0 when every check passed, 1 when one failed, and 2 when the warehouse or cluster was refused or the run wasn't started.
+
+### What it checks
+
+| Check | What it proves |
+| --- | --- |
+| Get a token for the workspace | Sign-in from the CLI profile works |
+| Read the SQL warehouse, read the cluster | You can see them. The safety checks run here, before anything starts. Reading never starts them |
+| Open a Databricks SQL session | The engine opens on the warehouse |
+| List Unity Catalog catalogs | The Catalog pane's API works with your privileges |
+| Run a query on the warehouse | Statement Execution works; a stopped warehouse starts; 5 rows come back |
+| A failing statement is reported as an error | The warehouse's error reaches the cell, naming the missing table |
+| Cancel a running statement | Cancel stops the statement on the warehouse |
+| Close the SQL session | Closing works |
+| Open a Databricks Connect session | The cluster's runtime, the installed client and this PC's Python match, and the session connects |
+| Run a cell on the cluster | `spark.range(5).count()` returns 5 from the cluster |
+| Cancel a running Spark job | Cancel interrupts the job on the cluster |
+| Close the session | The session's process on this PC ends |
+| A missing warehouse is reported as an error | The workspace's errors reach the app as errors |
+| The workspace refuses a bad token | A request with a bad token fails with 401 or 403 |
+
+Results go to `live-test-results/<run id>/`, in `summary.md` and `result.json` (`"schema": "databricks-live-test-result@1"`). They name the workspace, warehouse and cluster, and never hold a token. `left_running` lists what the run started and left to its auto-stop.
+
+### By hand
+
+After an unattended run passes, check these in the app once, on the same warehouse and cluster:
+
+1. On **Engines**, the Databricks SQL warehouse and Databricks Connect engines ask before starting the warehouse or cluster, and name it.
+2. A SQL cell on the warehouse shows a table. Cancel on a long cell stops it.
+3. The Catalog pane lists the catalogs, then a catalog's schemas, then a schema's tables, without starting a stopped warehouse.
+4. A PySpark cell through Databricks Connect shows the first rows of a DataFrame. Stopping the engine ends its process (it no longer appears in Task Manager).
+5. A connection profile with remote compute set to **never** refuses both engines.
+
 ## T-SQL contract cases
 
 KratosForge never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.

@@ -18,7 +18,7 @@ ROUTE = "https://contoso.webhook.office.com/hook"
 CAP = "11111111-2222-3333-4444-555555555555"
 GROUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 WS = "99999999-8888-7777-6666-555555555555"
-TODAY = dt.date.today()  # noqa: DTZ011 - the platform compares with this PC's date too
+TODAY = dt.datetime.now(dt.timezone.utc).date()  # the platform's date is UTC's (UDF_Platform runs in UTC)
 NO_PII = {"id": "no-pii-in-dev", "name": "No PII in Dev", "category": "classification", "severity": "high",
           "enforcement": "block", "rule": "no_pii_dev"}
 

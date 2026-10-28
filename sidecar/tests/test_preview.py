@@ -98,3 +98,109 @@ def test_service_guards_files():
 def test_server_routes_previews():
     from fabric_desktop.server import METHODS
     assert {"preview_table", "preview_file", "preview_notebook"} <= METHODS
+
+
+# PB-087: a previewed file doesn't stay on this PC, and a file over the limit isn't downloaded whole.
+class _Resp:
+    status_code = 200
+
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_content(self, size):
+        yield from self.chunks
+
+
+class _Session:
+    def __init__(self, chunks):
+        self.chunks, self.read = chunks, 0
+
+    def get(self, url, headers=None, **kwargs):
+        return _Resp(self._count())
+
+    def _count(self):
+        for c in self.chunks:
+            self.read += len(c)
+            yield c
+
+
+def test_download_stops_at_its_limit_and_leaves_nothing(tmp_path):
+    from fabric_desktop.onelake import FileStore, FileTooBig
+    session = _Session([b"x" * 10] * 100)
+    dest = tmp_path / "big.csv"
+    with pytest.raises(FileTooBig):
+        FileStore(lambda: "t", session=session).download("w", "l", "Files/big.csv", dest, max_bytes=25)
+    assert not dest.exists()
+    assert session.read <= 30, "it stopped reading at the limit, not after the whole file"
+    small = FileStore(lambda: "t", session=_Session([b"a,b\n", b"1,2\n"])).download("w", "l", "Files/s.csv", tmp_path / "s.csv", max_bytes=25)
+    assert small.read_bytes() == b"a,b\n1,2\n"
+
+
+def _preview_service(tmp_path, monkeypatch, chunks):
+    from fabric_desktop import preview_service
+    real = preview_service.FileStore
+    seen = []
+
+    class Store:
+        def __init__(self, token):
+            pass
+
+        def download(self, ws, lh, path, dest, max_bytes=None):
+            seen.append((dest, max_bytes))
+            return real(lambda: "t", session=_Session(chunks)).download(ws, lh, path, dest, max_bytes=max_bytes)
+
+    monkeypatch.setattr(preview_service, "FileStore", Store)
+
+    class Svc(PreviewMixin):
+        root = tmp_path
+
+        class auth:
+            storage_token = staticmethod(lambda: "t")
+
+    return Svc(), seen
+
+
+def test_a_previewed_file_is_removed_once_read(tmp_path, monkeypatch):
+    svc, seen = _preview_service(tmp_path, monkeypatch, [b"region,units\n", b"East,3\n"])
+    out = svc.preview_file({"workspace_id": "w", "lakehouse_id": "l"}, "Files/raw/sales.csv", size=20)
+    assert out["kind"] == "table" and out["rows"] == [["East", 3]]
+    dest, limit = seen[0]
+    assert limit == preview.MAX_FILE_BYTES
+    assert dest.name == "sales.csv" and tmp_path / "preview-files" in dest.parents
+    assert not dest.parent.exists(), "its folder is gone once the preview is read"
+    assert not (tmp_path / "files").exists(), "nothing goes in the notebooks' download folder"
+
+
+def test_a_file_with_no_size_given_stops_at_the_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(preview, "MAX_FILE_BYTES", 15)
+    svc, seen = _preview_service(tmp_path, monkeypatch, [b"x" * 10] * 5)
+    out = svc.preview_file({"workspace_id": "w", "lakehouse_id": "l"}, "Files/big.csv")
+    assert out["kind"] == "too_big"
+    assert not seen[0][0].parent.exists()
+
+
+def test_preview_downloads_left_behind_go_at_the_next_start(tmp_path):
+    import os
+    from fabric_desktop import retention
+    base = tmp_path / "preview-files"
+    old, new = base / "old", base / "new"
+    for d in (old, new):
+        d.mkdir(parents=True)
+        (d / "a.csv").write_text("x")
+    os.utime(old, (1_000, 1_000))
+    now = 1_000 + retention.PREVIEW_HOURS * 3600 + 1
+    os.utime(new, (now, now))
+    for days in (30, 0):  # whatever local_retention_days says, even "keep everything"
+        assert retention.sweep(tmp_path, days, dry_run=True, now=now)["removed"] == ["preview-files/old"]
+    out = retention.sweep(tmp_path, 0, now=now)
+    assert out["removed"] == ["preview-files/old"] and out["bytes"] == 1
+    assert not old.exists() and new.exists(), "one another process may be reading now stays"

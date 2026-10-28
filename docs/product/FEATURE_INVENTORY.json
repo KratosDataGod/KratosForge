@@ -955,13 +955,12 @@
         "preview": true
       },
       "limitations": [
-        "Files download whole into the app data folder and are not cleaned up (inference)",
         "Notebook preview shows no outputs"
       ],
       "prs": [
         43
       ],
-      "next_action": "Clean up downloaded preview files (inference: never removed).",
+      "next_action": "None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).",
       "backlog": [
         "PB-087"
       ]

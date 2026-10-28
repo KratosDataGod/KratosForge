@@ -185,7 +185,7 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Scheduled health check with a Teams alert (PB-053). |
+| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
@@ -206,7 +206,7 @@ on quality.
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
 | [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
-| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
+| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-003 enforcement: block promote and deploy on a Block policy |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
@@ -218,9 +218,9 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-04](#feat-shl-04) | Left rail, pages and command bar | Implemented | Partially Verified | Rail, Ctrl+K | Keep; add keyboard tests for the command bar. |
-| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078). |
+| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078). |
 | [FEAT-SHL-06](#feat-shl-06) | Plain-language errors and activity tray | Implemented | Partially Verified | Top bar bell | Feed incidents and agent status into the bell once incident screens exist (PB-047). |
-| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | Clean up downloaded preview files (inference: never removed). |
+| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087). |
 | [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Column completion for attached tables (Prove backlog #12). |
 | [FEAT-NB-09](#feat-nb-09) | Cell dependencies and stale cells | Implemented | Partially Verified | Notebook View and Run tabs (Preview) | Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version. |
 | [FEAT-NB-10](#feat-nb-10) | New notebook wizard | Implemented | Partially Verified | Create > Notebook from a template (Preview) | Add the entry point from a lakehouse table (plan Stage 3). |
@@ -370,19 +370,19 @@ on quality.
 
 ### FEAT-SHL-05
 
-**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.
+**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.
 
 - **Pillar and category:** Platform foundation; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Settings > Preview features
-- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES
+- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES; test: app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not
 - **Source:** `app/ui/features.js`, `app/ui/settings.js`
 - **Tests:** `app/tests/ui.test.cjs`
-- **Docs:** [docs/README.md](../README.md)
-- **Known limitations:** Hiding only hides UI; engine methods stay callable. Several docs-Preview features have no PREVIEW_FEATURES id.
+- **Docs:** [docs/README.md](../README.md), [docs/metadata-guide.md](../metadata-guide.md)
+- **Known limitations:** Hiding only hides UI; engine methods stay callable. Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so.
 - **Pull requests and issues:** [#699](https://github.com/KratosDataGod/KratosForge/pull/699)
 - **Backlog:** [PB-078](PRODUCT_BACKLOG.md#pb-078)
-- **Recommended next action:** Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).
+- **Recommended next action:** None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).
 
 ### FEAT-SHL-06
 
@@ -598,10 +598,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/preview.py`, `sidecar/fabric_desktop/preview_service.py`, `app/ui/item-preview.js`
 - **Tests:** `sidecar/tests/test_preview.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
-- **Known limitations:** Files download whole into the app data folder and are not cleaned up (inference). Notebook preview shows no outputs.
+- **Known limitations:** Notebook preview shows no outputs.
 - **Pull requests and issues:** [#43](https://github.com/KratosDataGod/KratosForge/pull/43)
 - **Backlog:** [PB-087](PRODUCT_BACKLOG.md#pb-087)
-- **Recommended next action:** Clean up downloaded preview files (inference: never removed).
+- **Recommended next action:** None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).
 
 ### FEAT-FAB-05
 
@@ -765,19 +765,19 @@ on quality.
 
 ### FEAT-ONE-03
 
-**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.
+**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** OneLake > Shortcuts (Preview)
 - **Evidence:** test: sidecar/tests/test_shortcut_center.py::test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it; test: sidecar/tests/test_shortcut_fixes.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/shortcut-fixes.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `app/ui/shortcuts.js`
-- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `app/tests/browser/shortcut-fixes.test.cjs`
-- **Docs:** [docs/shortcuts.md](../shortcuts.md)
-- **Known limitations:** No scheduled check or alert. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
+- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `sidecar/fabric_desktop/shortcut_watch.py`, `app/ui/shortcuts.js`
+- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `sidecar/tests/test_shortcut_watch.py`, `app/tests/browser/shortcut-fixes.test.cjs`
+- **Docs:** [docs/shortcuts.md](../shortcuts.md), [docs/agent.md](../agent.md)
+- **Known limitations:** The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments. The agent's scheduled check is Preview: not yet run on a live tenant. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
 - **Pull requests and issues:** [#53](https://github.com/KratosDataGod/KratosForge/pull/53), [#595](https://github.com/KratosDataGod/KratosForge/pull/595)
 - **Backlog:** [PB-053](PRODUCT_BACKLOG.md#pb-053)
-- **Recommended next action:** Scheduled health check with a Teams alert (PB-053).
+- **Recommended next action:** Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).
 
 ### FEAT-ONE-04
 
@@ -1092,7 +1092,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/scorecard.py`, `sidecar/fabric_desktop/measure.py`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md)
-- **Known limitations:** CPU/memory come from the engine process, not the child kernel (inference). Fabric CPU/memory not available.
+- **Known limitations:** With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094). Fabric CPU/memory not available.
 - **Owning workstream:** Prove (FD-119)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-094](PRODUCT_BACKLOG.md#pb-094)
 - **Recommended next action:** Measure the kernel child process when it is on (FD-119).
@@ -1461,15 +1461,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py
-- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
-- **Tests:** `sidecar/tests/test_governance.py`
-- **Docs:** [docs/governance.md](../governance.md)
-- **Known limitations:** GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced.
+- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py; test: sidecar/tests/test_policy_package.py (GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)); code: sidecar/fabric_desktop/central/policy_package.py
+- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`, `sidecar/fabric_desktop/central/policy_package.py`, `sidecar/fabric_desktop/central/checks_service.py`, `sidecar/fabric_desktop/cli.py`
+- **Tests:** `sidecar/tests/test_governance.py`, `sidecar/tests/test_policy_package.py`
+- **Docs:** [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
+- **Known limitations:** GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced. Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken. An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it).
 - **Pull requests and issues:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
-- **Recommended next action:** GOV-002 offline validation, after Chris approves
+- **Recommended next action:** GOV-003 enforcement: block promote and deploy on a Block policy
 
 ### FEAT-GOV-06
 

@@ -208,6 +208,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | #984 | Schedules on this PC can also run while signed out (PB-048c) | PASS at 9016ade3 | 9.1 | Second quality reviewer. Merged with main: 87 engine tests passed; browser 20/20; ui 299/1, the 1 being the known #972 Preview-id test. The password stays in Windows' prompt and Task Scheduler (env-var inputs, fixed script, PowerShell by full path). The id is hex-checked in Python and Rust. Nothing changes on a cancelled prompt. Nits: a partial save shown as "Not saved"; an unchanged save re-prompts; check Entra/MSA accounts on Windows; tag Preview if merged before the Windows check. Waits on Chris's Windows check and policy switch. |
 
+| #979 | Re-check: empty-load guard, overwrite_schema skips the fit | PASS at b3944c0c | 9.2 | Both nits fixed with a test. schema_evolution, meta, landing_manifest, silent_except 88 passed. Needs Chris's go for PB-031. |
+
 | #979 | Re-check: fit empty and lossless columns to the table first | PASS at c1176f7c | 9.0 | _fit_to_table casts all-null columns and undeclared widenable columns before the guard; declared narrowing and kind changes still refused; tests for both. 175 passed; ui.test only #972's known failure. Nits: a 0-row load would cast declared narrowings (guard df.height > 0); fit ignores overwrite_schema. batch_by limitation listed. Needs Chris's go for PB-031. |
 
 | #988 | Tab focus (reopened #961) | PASS at 24b319cb (carried) | 9.2 | Second quality reviewer. Carried from ceffd34b. Changed lines vs main match ceffd34b except the #972 port; append-only conflicts kept both sides; audit regenerated with 0 violations (Monitor aria-prohibited-attr gone); ui.test 301/0. |

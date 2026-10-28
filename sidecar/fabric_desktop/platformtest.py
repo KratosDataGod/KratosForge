@@ -41,10 +41,11 @@ ITEMS = {setup_mod.META: "meta_id", setup_mod.LANDING: "landing_id", setup_mod.S
 _DELETE_ORDER = (setup_mod.VARLIB, setup_mod.FUNCTIONS, setup_mod.SQL, setup_mod.LANDING, setup_mod.META)
 _LAKEHOUSES = {setup_mod.META, setup_mod.LANDING}
 # The Fabric item type each platform item is. A lakehouse and a SQL database come with a SQL
-# endpoint of the same name, which is theirs, not a clash.
+# endpoint of the same name (and, when made before Fabric stopped that, a default semantic model),
+# which are theirs, not a clash.
 ITEM_TYPES = {setup_mod.META: "Lakehouse", setup_mod.LANDING: "Lakehouse", setup_mod.SQL: "SQLDatabase",
               setup_mod.FUNCTIONS: "UserDataFunction", setup_mod.VARLIB: "VariableLibrary"}
-_OWN_ENDPOINT = "SQLEndpoint"
+_THEIR_OWN = ("SQLEndpoint", "SemanticModel")
 CONNECTION_HELP = (f"Open {setup_mod.FUNCTIONS} in the test workspace in Fabric, choose Manage connections, add "
                    f"{setup_mod.SQL} with the alias \"{udf.ALIAS}\", publish, then press Enter here.")
 FLOW_TITLES = {
@@ -59,7 +60,8 @@ FLOW_TITLES = {
 
 def _platform_items(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """The workspace's platform items, by name, matched on name AND type; and what clashes with them:
-    an item of another type with a platform name (not a lakehouse's or SQL database's own SQL endpoint),
+    an item of another type with a platform name (not a lakehouse's or SQL database's own SQL endpoint
+    or default semantic model),
     or two items of a platform item's type with its name."""
     found: dict[str, dict[str, Any]] = {}
     clashes = []
@@ -71,7 +73,7 @@ def _platform_items(items: list[dict[str, Any]]) -> tuple[dict[str, dict[str, An
             if name in found:
                 clashes.append(f"two {kind} items named {name}")
             found[name] = item
-        elif not (kind == _OWN_ENDPOINT and ITEM_TYPES[name] in ("Lakehouse", "SQLDatabase")):
+        elif not (kind in _THEIR_OWN and ITEM_TYPES[name] in ("Lakehouse", "SQLDatabase")):
             clashes.append(f"a {kind or 'item of unknown type'} named {name}, where the platform's is a {ITEM_TYPES[name]}")
     return found, clashes
 

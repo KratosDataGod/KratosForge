@@ -214,7 +214,8 @@ def test_upgrade_matches_name_and_type_and_refuses_a_clash(tmp_path):
     old = [{"id": f"old-{key}", "displayName": name, "type": platformtest.ITEM_TYPES[name]}
            for name, key in platformtest.ITEMS.items()]
     found, clashes = platformtest._platform_items(old + [{"id": "ep", "displayName": "LH_Meta", "type": "SQLEndpoint"},
-                                                         {"id": "ep2", "displayName": "SQL_Platform", "type": "SQLEndpoint"}])
+                                                         {"id": "ep2", "displayName": "SQL_Platform", "type": "SQLEndpoint"},
+                                                         {"id": "sm", "displayName": "LH_Meta", "type": "SemanticModel"}])
     assert {n: i["id"] for n, i in found.items()} == {n: f"old-{k}" for n, k in platformtest.ITEMS.items()} and clashes == []
     probe = old + [{"id": "ep", "displayName": "LH_Meta", "type": "SQLEndpoint"},
                    {"id": "nb", "displayName": "UDF_Platform", "type": "Notebook"}]

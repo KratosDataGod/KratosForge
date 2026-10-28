@@ -229,11 +229,12 @@ async function renderSourceControl() {
   }
   const st = gitPage.status;
   const counts = st.staged.length + st.unstaged.length + st.untracked.length + st.conflicts.length;
-  const tab = (id, label) => h("button", { class: `tab${gitPage.tab === id ? " active" : ""}`, onclick: () => { gitPage.tab = id; render(); } }, label);
+  const tab = (id, label) => h("button", { class: `tab${gitPage.tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(gitPage.tab === id),
+    onclick: () => { gitPage.tab = id; render(); } }, label);
   const isPlatform = gitKindOf(st.root).kind === "platform";
   const isCapacity = gitKindOf(st.root).kind === "capacity";
   if ((gitPage.tab === "platform" && !isPlatform) || (gitPage.tab === "capacity" && !isCapacity)) gitPage.tab = "changes";
-  const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
+  const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Repository" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
     isPlatform ? tab("platform", "Platform") : null, isCapacity ? tab("capacity", "Capacity") : null, tab("branches", "Branches"),
     tab("history", "History"), tab("settings", "Repository settings"));
   const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };

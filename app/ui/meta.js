@@ -172,7 +172,8 @@ async function renderMetadata() {
   const inProject = group[3] === "project";
   if (inProject) m.projectTab = m.tab;  // Project opens where you left it
   const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
-  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) },
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id),
+    onclick: () => goMeta(visible(tabs)[0][0]) },
     label, metaGroupPreview(tabs) ? previewTag() : null);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
@@ -191,9 +192,9 @@ async function renderMetadata() {
         { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
       btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
         { disabled: p.errors.length ? true : null })] : null,
-    tabs: [h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
-      h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
-    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, shownGroups("mesh").map(groupTab),
+      h("button", { class: `tab${inProject ? " active" : ""}`, role: "tab", "aria-selected": String(inProject), onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
+    inProject ? h("div", { class: "subtabs meta-project-groups", role: "tablist", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
     // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
     banners: [problemsBanner(p.errors), exceptionBanner(p), policyEnding],
     groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
@@ -221,8 +222,8 @@ function renderMetaNoProject(p) {
     intro: pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
     // Set up a project is the page's own button, before the tab's so the tab's primary stays last.
     actions: null,
-    tabs: [h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) },
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, groups.map(([id, label, tabs]) =>
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id), onclick: () => goMeta(shown(tabs)[0][0]) },
         label, metaGroupPreview(tabs) ? previewTag() : null)))],
     banners: [],
     groupSeg: shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>

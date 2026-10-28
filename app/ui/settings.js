@@ -772,9 +772,9 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
-  const tabs = previewShown() ? h("div", { class: "subtabs" },
+  const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
     [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
-      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+      h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.

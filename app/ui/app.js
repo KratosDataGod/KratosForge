@@ -336,9 +336,16 @@ document.addEventListener("keydown", (e) => {
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
   tab.click();
-  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
-  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
-  (now || (tab.isConnected ? tab : null))?.focus();
+  // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
+  // of the same tab, for up to a second, while focus is still nowhere else (#961).
+  const refocus = (tries) => {
+    const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
+    const lost = document.activeElement === document.body || document.activeElement === tab || !document.activeElement?.isConnected;
+    if (now && lost) now.focus();
+    else if (!now && tab.isConnected && lost) tab.focus();
+    if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);
+  };
+  refocus(20);
 });
 
 // ---------- account and data ----------
@@ -1007,8 +1014,8 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
-    h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "fabric"
     ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
@@ -1539,12 +1546,13 @@ const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) =
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
 function onelakeTabs() {
-  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
-    onclick: () => { catalogPage.tab = id; render(); } }, label);
-  return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
-    // Data products moved to Data mesh > Products; this tab takes you there.
-    preview("mesh", h("button", { class: "tab", onclick: () => openProducts() }, "Data products")),
-    preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
+  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
+  // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
+  // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
+    tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
+    preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
 

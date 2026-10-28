@@ -258,6 +258,16 @@ test("the query tab list holds only tabs; Delete on a tab or its × closes it", 
   await page().getByRole("button", { name: "New query" }).click();
   await page().locator(".sql-tab", { hasText: (await names()).at(-1) }).locator(".close").click();
   assert.deepStrictEqual(await names(), before);
+  // The × asks the same way.
+  await page().getByRole("button", { name: "New query" }).click();
+  const clicked = (await names()).at(-1);
+  await page().evaluate(() => { sqlPage.tabs[sqlPage.active].sql = "SELECT 7"; });
+  await page().locator(".sql-tab", { hasText: clicked }).locator(".close").click();
+  await page().getByRole("dialog", { name: `Close ${clicked}?` }).getByRole("button", { name: "Cancel" }).click();
+  assert.deepStrictEqual(await names(), [...before, clicked]);
+  await page().locator(".sql-tab", { hasText: clicked }).locator(".close").click();
+  await page().getByRole("dialog", { name: `Close ${clicked}?` }).getByRole("button", { name: "Close query" }).click();
+  assert.deepStrictEqual(await names(), before);
   await page().getByRole("tab", { name: before[0] }).click();
 });
 

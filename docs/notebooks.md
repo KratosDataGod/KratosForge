@@ -383,7 +383,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | **Export ▾** | Saves the full result as CSV or Parquet in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
-| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it; **Delete** asks first when the query has SQL of its own. |
+| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it, asking first when the query has SQL of its own. |
 
 How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › Advanced › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
 

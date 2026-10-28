@@ -612,7 +612,7 @@ function renderQuery() {
   const monitorOn = !!(monitor && p.whMonitorShown);
   // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
   // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
-  // Delete asks first when the query has SQL of its own (keyClose); focus then goes to the tab now selected.
+  // Delete and × ask first when the query has SQL of its own (keyClose); after Delete, focus goes to the tab now selected.
   const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
     h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
       ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: async (e) => {
@@ -622,7 +622,7 @@ function renderQuery() {
         document.querySelector(".sql-tabs [aria-selected=true]")?.focus();
       } } : {}),
       ...extra }, icon(iconName, 14), label),
-    close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: close }, "×") : null);
+    close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: () => keyClose() }, "×") : null);
   const tabs = h("div", { class: "sql-tabbar" },
     h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
       p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",

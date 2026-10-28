@@ -123,3 +123,65 @@ def test_roles_are_replaced_only_if_unchanged_since_they_were_read():
     with pytest.raises(FabricError) as exc:
         c.put_data_access_roles("ws1", "lh1", roles, etag='"v0"')
     assert exc.value.code == "PreconditionFailed" and len(s.calls) == 3  # a refused write isn't retried
+
+
+# ---- long-running operations (#921)
+
+LOC = "https://api.fabric.microsoft.com/v1/operations/op1"
+
+
+def started(*after):
+    return [Resp(202, headers={"Location": LOC, "x-ms-operation-id": "op1", "Retry-After": "0"}), *after]
+
+
+def test_a_succeeded_operation_follows_the_result_location_fabric_gives():
+    result = "https://api.fabric.microsoft.com/v1/operations/op1/result"
+    c, s = client(started(Resp(200, {"status": "Succeeded"}, headers={"Location": result}), Resp(200, {"id": "lh1"})))
+    assert c.create_lakehouse("ws1", "Sales") == {"id": "lh1"}
+    assert [u for _, u, _ in s.calls[1:]] == [LOC, result]
+
+
+def test_an_operation_with_no_result_is_done_not_an_error():
+    c, s = client(started(Resp(200, {"status": "Succeeded"}),
+                          Resp(400, {"errorCode": "OperationHasNoResult", "message": "No result"})))
+    assert c._wait(c._request("POST", "/workspaces/ws1/items")) == {}
+    assert s.calls[-1][1] == f"{LOC}/result"
+
+
+def test_a_result_that_fails_for_another_reason_still_raises():
+    c, _ = client(started(Resp(200, {"status": "Succeeded"}), Resp(403, {"errorCode": "Forbidden"})))
+    with pytest.raises(FabricError) as exc:
+        c._wait(c._request("POST", "/workspaces/ws1/items"))
+    assert exc.value.status == 403
+
+
+def test_a_result_location_on_another_host_is_refused_without_the_token():
+    c, s = client(started(Resp(200, {"status": "Succeeded"}, headers={"Location": "https://evil.example.com/r"})))
+    with pytest.raises(FabricError) as exc:
+        c._wait(c._request("POST", "/workspaces/ws1/items"))
+    assert exc.value.code == "UntrustedUrl" and len(s.calls) == 2
+
+
+@pytest.mark.parametrize("state, says, code", [
+    ({"status": "Failed", "error": {"errorCode": "ItemDisplayNameAlreadyInUse", "message": "Name already in use.",
+                                    "moreDetails": [{"message": "Pick another name."}], "requestId": "req-9"}},
+     "Fabric's operation op1 failed: Name already in use. Pick another name (ItemDisplayNameAlreadyInUse). Request id req-9.",
+     "ItemDisplayNameAlreadyInUse"),
+    ({"status": "Failed", "error": None}, "Fabric's operation op1 failed and gave no reason.", None),
+    ({"status": "Undefined"}, "Fabric's operation op1 ended in an unknown state and gave no reason.", None),
+    ({"status": "Failed", "error": {"errorCode": "CapacityNotActive", "message": "x"}}, "capacity is paused", "CapacityNotActive"),
+])
+def test_a_failed_operation_says_why_in_fabrics_words(state, says, code):
+    c, _ = client(started(Resp(200, state)))
+    with pytest.raises(FabricError) as exc:
+        c._wait(c._request("POST", "/workspaces/ws1/items"))
+    assert says in str(exc.value) and exc.value.code == code
+    assert "{" not in str(exc.value), "no raw JSON"
+
+
+def test_an_operation_that_never_finishes_times_out_naming_it():
+    c, _ = client(started(*[Resp(200, {"status": "Running"}) for _ in range(5)]))
+    c._poll_timeout = -1
+    with pytest.raises(FabricError) as exc:
+        c._wait(c._request("POST", "/workspaces/ws1/items"))
+    assert exc.value.code == "OperationTimedOut" and "op1" in str(exc.value) and "Running" in str(exc.value)

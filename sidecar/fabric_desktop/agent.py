@@ -87,7 +87,8 @@ class Agent:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
                                    p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim,
-                                   take_over=p.take_over, max_attempts=config.max_attempts)
+                                   take_over=p.take_over, max_attempts=config.max_attempts,
+                                   verify_run=self.runtime.verify_pipeline_run, require_run=p.require_run)
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""

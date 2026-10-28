@@ -302,3 +302,11 @@ def test_update_and_delete_are_refused_where_merge_is(lake, monkeypatch):
         out, text = run(f"spark.sql({statement!r})")
         assert out["status"] == "error" and "Preview features are off" in text, text
     assert [r["amount"] for r in rows(lake)] == [10.0, 20.0, 30.0]
+
+
+def test_update_and_delete_after_a_leading_comment_run_here(lake):
+    out, text = run("spark.sql('-- fix one price\\nUPDATE sales SET amount = 11.0 WHERE id = 1')")
+    assert out["status"] == "ok", text
+    out, text = run("spark.sql('/* drop it */ DELETE FROM sales WHERE id = 3')")
+    assert out["status"] == "ok", text
+    assert [r["amount"] for r in rows(lake)] == [11.0, 20.0]

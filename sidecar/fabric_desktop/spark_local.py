@@ -522,10 +522,11 @@ class LocalSparkSession(SparkSession):
     def sql(self, sqlQuery: str, **kwargs: Any) -> DataFrame:  # noqa: N803
         if kwargs:
             sqlQuery = sqlQuery.format(**kwargs)
-        if _RESTORE.match(sqlQuery):
+        head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if _RESTORE.match(head):
             raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
                              "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
-        if _SCHEMA_EVOLUTION.match(delta_dml_comments.sub("", sqlQuery)):
+        if _SCHEMA_EVOLUTION.match(head):
             raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
                                       "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
         statements = _sql.parse(sqlQuery)

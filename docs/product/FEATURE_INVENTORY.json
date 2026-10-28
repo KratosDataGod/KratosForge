@@ -340,7 +340,8 @@
         "app/ui/styles.css"
       ],
       "tests": [
-        "app/tests/ui.test.cjs"
+        "app/tests/ui.test.cjs",
+        "app/tests/browser/a11y-audit.test.cjs"
       ],
       "ui": {
         "surface": "Whole app",
@@ -351,9 +352,12 @@
         92
       ],
       "workstream": "Enterprise readiness (FD-139)",
-      "next_action": "Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).",
+      "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
       "backlog": [
         "PB-063"
+      ],
+      "docs": [
+        "docs/ux/accessibility-audit.md"
       ]
     },
     {
@@ -1601,7 +1605,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1630,22 +1634,26 @@
       "source": [
         "sidecar/fabric_desktop/shortcut_service.py",
         "sidecar/fabric_desktop/shortcut_center.py",
+        "sidecar/fabric_desktop/shortcut_watch.py",
         "app/ui/shortcuts.js"
       ],
       "tests": [
         "sidecar/tests/test_shortcut_center.py",
         "sidecar/tests/test_shortcut_fixes.py",
+        "sidecar/tests/test_shortcut_watch.py",
         "app/tests/browser/shortcut-fixes.test.cjs"
       ],
       "docs": [
-        "docs/shortcuts.md"
+        "docs/shortcuts.md",
+        "docs/agent.md"
       ],
       "ui": {
         "surface": "OneLake > Shortcuts",
         "preview": true
       },
       "limitations": [
-        "No scheduled check or alert",
+        "The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments",
+        "The agent's scheduled check is Preview: not yet run on a live tenant",
         "Approved request creates the shortcut in one lakehouse only",
         "OneLake error codes unseen on a tenant"
       ],
@@ -1653,7 +1661,7 @@
         53,
         595
       ],
-      "next_action": "Scheduled health check with a Teams alert (PB-053).",
+      "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
         "PB-053"
       ]
@@ -2781,7 +2789,7 @@
         "preview": true
       },
       "limitations": [
-        "CPU/memory come from the engine process, not the child kernel (inference)",
+        "With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094)",
         "Fabric CPU/memory not available"
       ],
       "workstream": "Prove (FD-119)",
@@ -3943,31 +3951,47 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/central/governance_service.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_package.py",
+          "note": "GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/central/policy_package.py"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/central/policy.py",
         "sidecar/fabric_desktop/central/governance_service.py",
-        "app/ui/governance.js"
+        "app/ui/governance.js",
+        "sidecar/fabric_desktop/central/policy_package.py",
+        "sidecar/fabric_desktop/central/checks_service.py",
+        "sidecar/fabric_desktop/cli.py"
       ],
       "tests": [
-        "sidecar/tests/test_governance.py"
+        "sidecar/tests/test_governance.py",
+        "sidecar/tests/test_policy_package.py"
       ],
       "docs": [
-        "docs/governance.md"
+        "docs/governance.md",
+        "docs/governance-guide.md"
       ],
       "ui": {
         "surface": "None",
         "preview": false
       },
       "limitations": [
-        "GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced"
+        "GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced",
+        "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken",
+        "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)"
       ],
       "prs": [
         119
       ],
       "workstream": "Enterprise governance foundation",
-      "next_action": "GOV-002 offline validation, after Chris approves",
+      "next_action": "GOV-003 enforcement: block promote and deploy on a Block policy",
       "backlog": [
         "PB-056",
         "PB-057"

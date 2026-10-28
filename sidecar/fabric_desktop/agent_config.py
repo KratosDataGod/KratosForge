@@ -46,6 +46,12 @@
     claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
     take_over = false                     # true: take over requests from an agent that stopped reporting (Preview)
 
+    [shortcut_health]                     # optional: check the environments' shortcuts, post each break to Teams
+    enabled = true                        # off when left out
+    minutes = 60                          # how often (at least 15)
+    environments = ["prod"]               # agent.environments if left out
+    webhook_env = "SHORTCUTS_TEAMS_WEBHOOK"  # alerts.teams_webhook_env if left out
+
     [[schedule]]
     id = "prod-nightly"
     env = "prod"
@@ -66,7 +72,7 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .fabric_run import schedule_configuration
 from .local_schedules import local_configuration
@@ -139,6 +145,15 @@ class IncidentsConfig:
 
 
 @dataclass(frozen=True)
+class ShortcutHealthConfig:
+    """``[shortcut_health]``: check the shortcuts in each environment's workspaces (shortcut_watch.py)."""
+    enabled: bool = False
+    minutes: float = 60.0
+    environments: list[str] = field(default_factory=list)
+    webhook_env: str = ""
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     path: Path
     name: str
@@ -162,10 +177,17 @@ class AgentConfig:
     schedules: list[Schedule] = field(default_factory=list)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     incidents: IncidentsConfig = field(default_factory=IncidentsConfig)
+    shortcut_health: ShortcutHealthConfig = field(default_factory=ShortcutHealthConfig)
 
     @property
     def teams_webhook(self) -> str:
         return os.environ.get(self.teams_webhook_env, "") if self.teams_webhook_env else ""
+
+    @property
+    def shortcut_webhook(self) -> str:
+        """Where shortcut breaks go: shortcut_health.webhook_env, else alerts.teams_webhook_env."""
+        name = self.shortcut_health.webhook_env or self.teams_webhook_env
+        return os.environ.get(name, "") if name else ""
 
 
 def _secret_keys(table: Any, where: str) -> list[str]:
@@ -260,6 +282,30 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     return Schedule(sid, env, entities, config, str(raw.get("backfill", "")), schedule, shared)
 
 
+def _shortcut_health(raw: dict[str, Any], envs: list[str], alerts_env: str, number: Callable[..., float],
+                     errors: list[str]) -> ShortcutHealthConfig:
+    """``[shortcut_health]``. Turning it on needs somewhere to post: a check nobody hears about is no alert."""
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        errors.append("shortcut_health.enabled: true or false")
+    if any(k in raw for k in ("url", "webhook")):
+        errors.append("shortcut_health: give the webhook as webhook_env, the name of an environment variable")
+    unknown = set(raw) - {"enabled", "minutes", "environments", "webhook_env", "url", "webhook"}
+    if unknown:
+        errors.append(f"shortcut_health: doesn't know {', '.join(sorted(unknown))}")
+    given = raw.get("environments")
+    if given is not None and not isinstance(given, list):
+        errors.append('shortcut_health.environments: a list, like ["prod"]')
+        given = None
+    sh_envs = [str(e) for e in given or envs]
+    errors += [f"shortcut_health.environments: {e} isn't in agent.environments" for e in sh_envs if e not in envs]
+    webhook_env = str(raw.get("webhook_env") or "")
+    if enabled is True and not (webhook_env or alerts_env):
+        errors.append("shortcut_health: give webhook_env (or alerts.teams_webhook_env) so breaks go to a Teams channel")
+    return ShortcutHealthConfig(enabled=enabled is True, minutes=number(raw, "minutes", 60, 15, "shortcut_health"),
+                                environments=sh_envs, webhook_env=webhook_env)
+
+
 def host_name() -> str:
     """The default agent name: this machine's name, with anything agent.name can't hold made a ``-``."""
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname())[:64] or "agent"
@@ -278,8 +324,8 @@ def load(path: Path | str | None = None) -> AgentConfig:
 
 def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors = _secret_keys(raw, "")
-    agent, auth, retry, alerts, pipe, inc = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
-                                                                      "incidents"))
+    agent, auth, retry, alerts, pipe, inc, sh = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
+                                                                          "incidents", "shortcut_health"))
     project = agent.get("project", "")
     if not project:
         errors.append("agent.project: the metadata project folder is required")
@@ -355,6 +401,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                                 digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
                                 quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
                                 escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
+    shortcut_health = _shortcut_health(sh, envs, str(alerts.get("teams_webhook_env", "")), number, errors)
     name = agent.get("name") or host_name()
     if not isinstance(name, str) or not _ID.fullmatch(name):  # the mailbox takes over only such names
         errors.append(f"agent.name: {name!r} isn't 1 to 64 letters, digits, . _ or - (it names agents/<name>.json)")
@@ -374,7 +421,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         workspaces=[str(w) for w in agent.get("workspaces") or []],
         teams_webhook_env=str(alerts.get("teams_webhook_env", "")),
         log_level=str(agent.get("log_level", "INFO")).upper(), schedules=schedules, pipeline=pipeline,
-        incidents=incidents)
+        incidents=incidents, shortcut_health=shortcut_health)
     if errors:
         raise ConfigError(path, errors)
     return cfg

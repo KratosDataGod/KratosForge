@@ -103,7 +103,7 @@ def test_every_check_passes_and_everything_created_is_deleted(tmp_path):
     assert result["left_behind"] == []
     saved = (tmp_path / "out" / "run1" / "result.json").read_text()
     assert json.loads(saved)["schema"] == "live-test-result@1"
-    assert TOKEN not in saved
+    assert TOKEN not in saved and "tenant-1" not in saved  # results get shared: never the tenant id
     assert "Outcome: **passed**" in (tmp_path / "out" / "run1" / "summary.md").read_text()
 
 

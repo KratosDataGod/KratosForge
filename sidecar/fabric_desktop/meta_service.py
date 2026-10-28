@@ -18,6 +18,7 @@ from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
+from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
@@ -89,7 +90,7 @@ def _days(value: Any) -> Any:
         return value
 
 
-class NoMetadataProject(LookupError):
+class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
 
 
@@ -185,7 +186,7 @@ class MetaMixin:
             return store
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
+            raise NotSetUp(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         # environments.toml can be edited by hand: never read or write one environment's tables as another's.
         if clash := [(a, b, w) for a, b, w in _clashes(project.environments) if env in (a, b)]:
             a, b, w = clash[0]
@@ -302,7 +303,7 @@ class MetaMixin:
             cfg["workspace_name"] = workspace_name or ""
             target = target or ("onelake" if workspace_id else "local")
         if target == "onelake" and not cfg.get("workspace_id"):
-            raise LookupError(f"Assign a workspace to {env.title()} first.")
+            raise NotSetUp(f"Assign a workspace to {env.title()} first.")
         if target:
             cfg["target"] = target
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
@@ -470,7 +471,7 @@ class MetaMixin:
         if isinstance(store, OneLakeStore):
             meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
             if not meta_id:
-                raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+                raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
             return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token,  # type: ignore[attr-defined]
                                   timeout=lease_timeout(ttl))
         if isinstance(store, LocalStore):

@@ -340,7 +340,8 @@
         "app/ui/styles.css"
       ],
       "tests": [
-        "app/tests/ui.test.cjs"
+        "app/tests/ui.test.cjs",
+        "app/tests/browser/a11y-audit.test.cjs"
       ],
       "ui": {
         "surface": "Whole app",
@@ -351,9 +352,12 @@
         92
       ],
       "workstream": "Enterprise readiness (FD-139)",
-      "next_action": "Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).",
+      "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
       "backlog": [
         "PB-063"
+      ],
+      "docs": [
+        "docs/ux/accessibility-audit.md"
       ]
     },
     {
@@ -1595,7 +1599,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1624,22 +1628,26 @@
       "source": [
         "sidecar/fabric_desktop/shortcut_service.py",
         "sidecar/fabric_desktop/shortcut_center.py",
+        "sidecar/fabric_desktop/shortcut_watch.py",
         "app/ui/shortcuts.js"
       ],
       "tests": [
         "sidecar/tests/test_shortcut_center.py",
         "sidecar/tests/test_shortcut_fixes.py",
+        "sidecar/tests/test_shortcut_watch.py",
         "app/tests/browser/shortcut-fixes.test.cjs"
       ],
       "docs": [
-        "docs/shortcuts.md"
+        "docs/shortcuts.md",
+        "docs/agent.md"
       ],
       "ui": {
         "surface": "OneLake > Shortcuts",
         "preview": true
       },
       "limitations": [
-        "No scheduled check or alert",
+        "The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments",
+        "The agent's scheduled check is Preview: not yet run on a live tenant",
         "Approved request creates the shortcut in one lakehouse only",
         "OneLake error codes unseen on a tenant"
       ],
@@ -1647,7 +1655,7 @@
         53,
         595
       ],
-      "next_action": "Scheduled health check with a Teams alert (PB-053).",
+      "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
         "PB-053"
       ]

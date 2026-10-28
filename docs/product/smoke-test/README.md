@@ -2,6 +2,8 @@
 
 The live test ([Live testing on your tenant](../../live-testing.md)) checks sign-in, the Fabric API, OneLake and Delta. The smoke test (PB-002) goes further. It runs ten core flows of the app on a real tenant, which is the evidence a launch to about 5,000 people needs. Part of each flow runs unattended from the command line, and a person ticks the rest in the app.
 
+No flow has run on a live tenant yet: the first run waits on the owner's go, and its results will be filed as `results-<date>.md` beside this page.
+
 It runs on a **workspace set aside for tests**, never on a production workspace or on the capacity that hosts one. It writes only through the live test, so the live test's guards and cleanup all apply (see [Before you start](../../live-testing.md#before-you-start)):
 
 - the workspace's description must contain `fabric-desktop-live-test`;

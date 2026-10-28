@@ -359,7 +359,7 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Home (Preview) | The page opens here, even with no project open: **My team**, **On call** or **Organization**, the mesh as each of them sees it. Read only. See [Data mesh](data-mesh.md#home-the-mesh-for-who-you-are-preview) |
 | Products (Preview) | Every team's published data products and each product's page, with no project needed. It was OneLake > Data products. See [Data products](#data-products-preview) |
 | Requests (Preview) | Everyone's requests, with no project needed: **Waiting on you**, **Sent by you** and **Everything**. It was Platform > Requests; older links open it here. See [Data mesh](data-mesh.md#requests-preview) |
-| Domains (Preview) | **Domains**: every domain and subdomain with its owners, projects and published products, and **Access groups**; platform admins import, add, edit and delete domains here. Works without a project. **Map**: your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables). **This project**: the open project's domain and the workspace each layer uses. The glossary is on **Platform > Set up > Glossary** |
+| Domains (Preview) | **Domains**: every domain and subdomain with its owners, projects and published products, and **Access groups**; platform admins import, add, edit and delete domains here. Works without a project. **Map**: your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see each table's whole lineage, from its source files to the projects that read its products. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables). **This project**: the open project's domain, the workspace each layer uses, and its owners and members; joining a domain is a request the domain's owners approve ([Members and joining a domain](data-mesh.md#members-and-joining-a-domain-preview)). The glossary is on **Platform > Set up > Glossary** |
 | Project | The open project, in five groups. **Design**: Entities, Layers, Surrogate keys, Source systems. **Runs**: every run, with its steps, rows and problems. **Quality**: Tests, Table health and Exceptions. **Products and links** (Preview): the project's own data products and its links to other teams'. **Deploy**: Environments and promote, Semantic model. Project opens on the tab you last used |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
@@ -381,6 +381,10 @@ Products works with no metadata project open. Select a product's name to open it
 A data product's page shows its **endorsement** badge (Certified, Promoted or Master data) next to its name, as Fabric's admin tenant scan last read it, and when. Only Fabric administrators can read endorsement, so until one has scanned, the badge is a grey **Endorsement unknown**. A platform admin who is also a Fabric administrator chooses **Scan now**; after that, everyone sees the last scan's badge. To change endorsement, open the item's settings in Fabric: KratosForge can't set it.
 
 **Business terms** list each term with **Open in Purview**. The product's owner or a platform admin chooses **Add a term**, types the term and pastes its address from Purview (an `https` link on `purview.microsoft.com` or `web.purview.azure.com`). KratosForge doesn't read Purview. The details are in [Endorsement and business terms](data-mesh.md#endorsement-and-business-terms).
+
+### Tables, semantic models and reports (Preview)
+
+A data product's page groups what it offers into **Tables**, **Semantic models** and **Reports**; each model and report has its own endorsement badge. The product's owner or a platform admin chooses **Add a model** or **Add a report**, picks a workspace and then the item: the product records only the item's id, type, workspace id and display name, and nothing in Fabric changes. **Remove** asks first. On **Data mesh > Products**, **Has tables**, **Has models** and **Has reports** find products by what they offer, and a product's badge is its semantic model's endorsement. Details in [Tables, semantic models and reports](data-mesh.md#tables-semantic-models-and-reports-preview).
 
 ### Direct Lake check
 
@@ -558,7 +562,7 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 ### Agents (Preview)
 
-An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
+An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > KratosForge > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
 **How this works**, from the title bar's info button, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
@@ -588,7 +592,7 @@ It also lists its last jobs. When the agent has stopped reporting or is older th
 
 ### Queue (Preview)
 
-Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > KratosForge > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
 
 The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Fabric > Schedules last read. The Queue page makes no Fabric call of its own. Until Fabric schedules has read Fabric's schedules, the line says so, with a link.
 
@@ -601,7 +605,7 @@ A run Windows Task Scheduler started on this PC isn't listed while it runs; it s
 
 ### Run as (Preview)
 
-Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
+Monitor > KratosForge > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, from the title bar's info button, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
 
 - **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
 - **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.
@@ -641,7 +645,7 @@ Anything your organization has set shows "Set by your organization's policy" and
 
 ### Platform notices (Preview)
 
-**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, and shortcuts that break or are fixed to Teams channels ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is posted once.
+**Settings > Notifications > Platform notices** sends platform requests waiting on someone, their decisions and withdrawals, shortcuts that break or are fixed, data products changed in Prod or deprecated, incidents upstream of your data, and policy exceptions about to end to Teams channels ([Notices to Teams](platform.md#notices-to-teams-preview)). Each change is posted once.
 
 - **Add a route** names a channel, takes its Teams webhook, and optionally picks which kinds of notice and which domains it posts. A route named `default` gets everything no other route takes. **Test and save** posts one test message first and saves only if Teams takes it. A route's webhook is shown only as its host. Leave the box empty when editing to keep the address it has. **Remove route** asks first.
 - **Quiet hours** (this PC's clock, like `22:00-07:00`) hold notices until they end. **Send during quiet hours anyway** lets warnings, or everything else, through.

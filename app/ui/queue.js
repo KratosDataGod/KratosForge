@@ -2,7 +2,7 @@
 // and queue (Windows Task Scheduler on this PC, each agent's queue, Fabric's scheduler); this
 // page reads what each one says (queue_list, workloads/queue.py) and labels who owns each row.
 // It never starts, stops or reorders work, and makes no Fabric call of its own.
-// Monitor > Queue shows it.
+// Monitor > KratosForge > Operations > Queue shows it.
 
 const QU_STATE = {
   running: ["info", "Running"],
@@ -12,7 +12,7 @@ const QU_STATE = {
   next: ["", "Next"],
 };
 
-// Monitor > Queue, kept for the session.
+// Monitor > KratosForge > Operations > Queue, kept for the session.
 const quPage = { filter: "all" };
 
 function quStatePill(r) {

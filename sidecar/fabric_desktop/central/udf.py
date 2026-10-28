@@ -821,6 +821,30 @@ def end_policy_exception(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunction
 def claim_exception_warning(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, until: str) -> dict:
     return _run(sqlDB, "claim_exception_warning", ctx, id=id, until=until)
 
+
+# ---- product groups: a data product's semantic models and reports, by Fabric item id (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_product_items(sqlDB: fn.FabricSqlConnection, product_id: str = "") -> list:
+    return _run(sqlDB, "list_product_items", product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def add_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                     item: dict) -> list:
+    return _run(sqlDB, "add_product_item", ctx, product_id=product_id, item=item)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
+                        item_id: str) -> list:
+    return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
+
 '''
 
 

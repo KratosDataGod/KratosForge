@@ -433,6 +433,13 @@ h2.flush { margin: 0; }
 .trust-item { padding: 8px 0; border-top: 1px solid var(--border-soft); }
 .trust-item:first-of-type { border-top: 0; }
 .trust-item p { margin: 4px 0; }
+.product-offer { display: flex; flex-direction: column; gap: 10px; }
+.product-offer-group { display: flex; flex-direction: column; gap: 6px; }
+.product-offer-group p { margin: 0; }
+.product-offer-count { font-weight: 400; }
+.product-offer-item { border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.product-offer-filters { margin-bottom: 8px; }
+.product-item-pick { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-height: 260px; overflow: auto; }
 .list td.n, .list th.n, .mini td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .preset-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
 .choice.selected { border-color: var(--accent); background: var(--accent-soft); }

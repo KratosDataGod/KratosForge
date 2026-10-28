@@ -194,11 +194,11 @@ KratosForge is new, and it's honest about what has been proven.
 | Endorsement and business terms | Data mesh > Products, open a product: its endorsement from Fabric's admin tenant scan, and business terms linked to Purview ([data-mesh.md](data-mesh.md#endorsement-and-business-terms)) |
 | Best practices: checks and templates | Platform > Governance > Templates and Check this project; Data mesh > Products, open a product: its checklist ([governance.md](governance.md#best-practices-checks-and-templates-preview)) |
 | Source control | Source control |
-| Workloads | Monitor > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
-| Incidents | Monitor > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
-| Agents | Monitor > Operations > Agents |
-| Queue | Monitor > Operations > Queue |
-| Run as | Monitor > Operations > Run as |
+| Workloads | Monitor > KratosForge > Operations > Workloads, Home (inventory, health, ownership, the workload page, Your workloads) |
+| Incidents | Monitor > KratosForge > Operations > Incidents (numbers, priorities, SLAs, reported incidents, your service desk, Who's affected; [incidents.md](incidents.md)) |
+| Agents | Monitor > KratosForge > Operations > Agents |
+| Queue | Monitor > KratosForge > Operations > Queue |
+| Run as | Monitor > KratosForge > Operations > Run as |
 | External AI tools | Settings > Integrations |
 | Release records | Data mesh > Deploy, each environment's Last release card |
 | Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |

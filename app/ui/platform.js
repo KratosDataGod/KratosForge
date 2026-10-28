@@ -1146,7 +1146,7 @@ registerFeature({
 // ---------- Data mesh > Products: every team's products, for everyone ----------
 // It was OneLake > Data products; OneLake's tab and every link now open it on Data mesh.
 
-const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "" };
+const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "", offer: "all" };
 const productsHost = { body: null };
 
 // Open the products list, or one product's page, on Data mesh > Products.
@@ -1179,7 +1179,7 @@ async function renderDataProducts() {
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("section", { class: "card pad" }, list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on Project > Products and links > Links.",
       anchor: "data-products-preview",
@@ -1192,7 +1192,9 @@ async function renderDataProducts() {
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();
   const draw = () => {
     const q = pp.query.toLowerCase();
+    const grouped = !!out.can_group && previewShown();
     const shown = out.products.filter((p) => (pp.domain === "all" || p.domain_id === pp.domain) && (!pp.following || p.following) && (!pp.reviewDue || dueFor.has(p.id))
+      && (!grouped || productOfferMatches(p, pp.offer))
       && (!q || `${p.name} ${p.description} ${p.owner} ${p.project} ${p.ports.map((x) => x.port).join(" ")}`.toLowerCase().includes(q)));
     const action = (p) => p.linked ? h("span", { class: "pill-s pass" }, "Linked")
       : p.can_link ? btn("Link", "databaseLink", async () => {
@@ -1207,14 +1209,22 @@ async function renderDataProducts() {
         h("button", { class: `chip review-chip${pp.reviewDue ? " on" : ""}`, "aria-pressed": String(pp.reviewDue),
           onclick: () => { pp.reviewDue = !pp.reviewDue; draw(); } }, `Review due (${dueFor.size})`)) : null,
       out.project ? null : h("p", { class: "muted-text small" }, "Open a metadata project to link to a product or ask for access."),
+      // Find products by what they offer (Preview): tables, semantic models, reports.
+      grouped ? h("div", { class: "row tight product-offer-filters" },
+        h("div", { class: "seg", role: "group", "aria-label": "Offers" }, PRODUCT_OFFER_FILTERS.map(([id, label]) =>
+          h("button", { class: pp.offer === id ? "on" : null, "aria-pressed": String(pp.offer === id), "data-offer": id,
+            onclick: () => { pp.offer = id; draw(); } }, label))), previewTag()) : null,
       shown.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Domain", "Owner", "Open to", "Ports", "Readers", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, shown.map((p) => h("tr", {},
           h("td", {}, previewShown() ? h("a", { href: "#", class: "product-open", title: "Endorsement and business terms",
             onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)) : h("b", {}, p.name),
             h("span", { class: "muted-text small" }, ` v${p.version}`),
+            grouped ? h("span", { class: "product-offer-badge" }, " ", productModelBadge(p)) : null,
             p.status === "deprecated" ? h("span", { class: "pill-s wrn" }, `Deprecated${p.deprecated_on ? ` ${p.deprecated_on}` : ""}`) : null,
-            h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id)),
+            h("div", { class: "muted-text small" }, p.description || ""),
+            grouped ? h("div", { class: "muted-text small product-offer-summary" }, productOfferSummary(p)) : null,
+            h("div", { class: "muted-text small mono" }, p.id)),
           h("td", {}, p.domain_id || h("span", { class: "muted-text" }, "")),
           h("td", {}, p.owner || h("span", { class: "muted-text" }, "not set")),
           h("td", {}, ACCESS_LABEL[p.access] || p.access),
@@ -1309,21 +1319,31 @@ async function renderProductTrust(p) {
           pp.mine && p.project === pp.mine ? btn("Edit definition", null, () => goMeta("products"), "tool outline small") : null, btn("Ask for a change", null, () => newRequestDialog(null, "data", { product: p.id }), "tool outline small")),
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
+      productOfferCard(p, (items) => { models = items.filter((i) => i.item_type === "SemanticModel"); paintBadge(); }),
       endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
-      reads: "The product's endorsement as the last tenant scan read it, and its business terms, from the platform's catalog. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
-      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
-      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change and access taken away is in the platform's audit log. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
+      reads: "The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
+      changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
+      results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
     }))));
   const here = () => productsHere() && pp.open === p;
-  const draw = (t) => {
-    if (!here()) return;
+  // The product's badge is its semantic model's endorsement when it has one; otherwise its lakehouses'.
+  let models = [];
+  let shown = null;
+  const paintBadge = () => {
+    if (!here() || (!shown && !models.length)) return;
+    if (models.length) { badges.replaceChildren(productModelBadge({ items: models })); return; }
     // Items that differ get one neutral badge here; the Endorsement card names each item's own.
-    const seen = [...new Map(t.items.map((i) => [i.endorsement || "", i.endorsement])).values()];
+    const seen = [...new Map(shown.items.map((i) => [i.endorsement || "", i.endorsement])).values()];
     badges.replaceChildren(...(seen.length > 1
       ? [h("span", { class: "pill-s neu endorse-badge varies", title: "Its items' endorsements differ: each one is under Endorsement" }, "Endorsement varies")]
       : (seen.length ? seen : [null]).map(endorsementBadge)));
+  };
+  const draw = (t) => {
+    if (!here()) return;
+    shown = t;
+    paintBadge();
     const latest = t.items.map((i) => i.scanned_at).filter((x) => x && !Number.isNaN(Date.parse(x)))
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     lastScan.replaceChildren(...(latest ? ["Last tenant scan: ", when(latest)] : []));

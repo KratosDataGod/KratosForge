@@ -1136,7 +1136,9 @@
       },
       "prs": [
         637,
-        638
+        638,
+        833,
+        835
       ]
     },
     {
@@ -1682,7 +1684,7 @@
       "id": "PB-043",
       "title": "Cancel a Fabric run from the app",
       "category": "Fabric Integration and Deployment",
-      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
+      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
       "capability": "A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.",
       "evidence": [
         "cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act",
@@ -2299,7 +2301,8 @@
       },
       "prs": [
         603,
-        605
+        605,
+        838
       ]
     },
     {
@@ -3232,7 +3235,8 @@
         "priority": "P2"
       },
       "prs": [
-        701
+        701,
+        836
       ]
     },
     {
@@ -4166,7 +4170,9 @@
         806,
         814,
         825,
-        826
+        826,
+        827,
+        831
       ]
     },
     {

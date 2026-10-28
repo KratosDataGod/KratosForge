@@ -70,7 +70,7 @@ function mhTeam(t) {
 
 function mhOncall(o, out) {
   const incidents = mhCard("Incidents that reach data products", btn("Open Incidents", null, backToIncidents, "tool link small"),
-    !out.incidents_read ? h("p", { class: "muted-text" }, "Open a metadata project to see its incidents here; Monitor > Incidents lists them all.")
+    !out.incidents_read ? h("p", { class: "muted-text" }, "Open a metadata project to see its incidents here; Monitor > KratosForge > Operations > Incidents lists them all.")
       : o.incidents.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Incident", "Where", "Products", "Readers", "Owner"].map((c) => h("th", {}, c)))),
         h("tbody", {}, o.incidents.map((i) => h("tr", { class: "click", onclick: () => openIncident(i) },

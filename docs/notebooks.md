@@ -206,13 +206,15 @@ Before running in Fabric, check that the Fabric Environment item the notebook wi
 fabric-desktop env-drift --workspace <workspace id> --environment <Environment item id> [--notebook <name>] [--json]
 ```
 
-It reads the item's published libraries and its Spark runtime with your sign-in: two read-only calls, with no Spark session started. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
+It reads the item's published libraries and its Spark runtime with your sign-in, and the libraries and runtime saved in the item but not yet published. All four calls are read-only, and no Spark session starts. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
 
 - **Missing here**: published to the item, not installed on this PC;
 - **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same);
 - **Only here**: in the notebook's environment, not published to the item. Fabric's runtime may still ship it, which the item's libraries don't say.
 
 It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC runs. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
+
+When the item has **unpublished changes**, the report lists what publishing it would add, remove or change, including a runtime change. Fabric runs what's published, so unpublished changes don't count as drift and don't change the exit code. They do show what the next publish brings in. If the unpublished changes can't be read, the report says so and the comparison with the published libraries stands.
 
 Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 

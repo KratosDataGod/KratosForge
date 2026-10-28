@@ -272,7 +272,7 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 | --- | --- | --- |
 | Audit trail format | Enterprise readiness | Shipped; the integration audit uses the same chain writer (`audit_chain.py`), and `fabric-desktop audit --verify` reads both |
 | Secret redaction | Enterprise readiness | Shipped; the integration layer uses the app's `redact.py` |
-| Policy file keys | Enterprise readiness | Shipped; integration keys (`integrations`, `integrations_max_permissions`, `integrations_extensions`, `integrations_editors`, `receipt_redactions`) are in the same policy file |
+| Policy file keys | Enterprise readiness | Shipped; integration keys (`integrations`, `integrations_max_permissions`, `integrations_http`, `integrations_extensions`, `integrations_editors`, `receipt_redactions`) are in the same policy file |
 | Per-cell timeouts and resource limits | Prove this notebook | Executions use timeouts and interrupt (section 6) |
 | Extension manifest and loader | Git-native development, Phase 4 | Not built; `ExtensionHost.add`, the checks, the switch and list-change notices are ready for it |
 | Artifact capability registry | Git-native development | Not built; would feed `artifact_types` |

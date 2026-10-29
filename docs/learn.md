@@ -37,6 +37,21 @@ runs the same query differently.
 **Reset lab** deletes the lab's folder on this PC, your answers included, and makes it again. It asks
 first. **Leave** goes back to Learn and keeps your answers.
 
+## Guidance
+
+**Learning guidance**, at the top right of Learn and in **Settings > Appearance > Layout > Learning
+guidance**, sets how much the app suggests lessons. You can change it at any time; an organization
+policy can set it, and then it can't be changed here.
+
+| Mode | What it adds |
+| --- | --- |
+| Focus (the default) | Nothing: a best-practice finding shows its rule and **About** link |
+| Guided | **Lesson: <title>** beside a notebook or SQL finding whose rule a published lesson covers. It opens that lesson. Draft lessons are linked only from Learn |
+| Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
+
+The checks themselves run the same in every mode; guidance only adds links. Guidance shows only
+while **Show preview features** is on.
+
 ## What is stored
 
 A started lab is a folder under this PC's KratosForge data: `learn/<id>/` holds the lab's DuckDB

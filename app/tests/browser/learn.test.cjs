@@ -11,7 +11,7 @@ let axeSource = null;
 try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
-const ENGINE = ["app_settings", "learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
+const ENGINE = ["app_settings", "save_app_settings", "learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
   "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "notebook_practice_rules", "sql_practice_rules"];
 const GOOD = "SELECT order_id, customer, amount\nFROM orders\nWHERE region = 'North' AND amount > 100\nORDER BY amount DESC;";
 
@@ -129,4 +129,40 @@ test("Reset lab asks first, and Leave goes back to Learn", { skip }, async () =>
   await page().locator(".subtabs [role=tab]", { hasText: "Labs" }).click();
   await page().locator(".head-actions button").waitFor();
   assert.match(await page().locator(".head-actions").textContent(), /Continue: Your first query on this PC/);
+});
+
+test("Guidance is Focus by default: no Lesson link beside a finding, no suggestion on Home (LX-06)", { skip }, async () => {
+  await page().evaluate(() => { learnPage.open = null; learnPage.tab = "home"; go("learn"); });
+  await page().locator(".learn-continue").waitFor();
+  assert.strictEqual(await page().locator(".learn-guidance select").inputValue(), "focus");
+  assert.strictEqual(await page().evaluate(() => learnFindingLink("SQ002")), null);
+  assert.strictEqual(await page().locator(".learn-suggest").count(), 0);
+});
+
+test("Guided adds the lesson that covers a finding's rule, and it opens the lesson", { skip }, async () => {
+  await page().locator(".learn-guidance select").selectOption("guided");
+  await page().waitForFunction(() => state.settings.learn_mode?.value === "guided");
+  // Lessons ship as drafts until LX-08, and a finding links only live ones: the catalog here marks LM-01 live.
+  await page().evaluate(async () => {
+    const cat = await learnCatalogCached();
+    learnCatalogLoad = Promise.resolve({ ...cat, modules: cat.modules.map((m) => (m.id === "LM-01" ? { ...m, status: "live" } : m)) });
+    document.body.append(h("div", { id: "finding-test" }, learnFindingLink("SQ002")));  // outside #view, which the mode change renders again
+  });
+  await page().locator("#finding-test a", { hasText: "Lesson: Your first query on this PC" }).click();
+  await page().locator(".page-head h1", { hasText: "Your first query" }).waitFor();
+  await page().evaluate(() => document.querySelector("#finding-test").remove());
+  const none = await page().evaluate(async () => { const el = learnFindingLink("NB001"); await learnCatalogCached(); return el.textContent; });
+  assert.strictEqual(none, "", "no lesson covers NB001 yet");
+  const draftOnly = await page().evaluate(async () => { learnCatalogLoad = null; const el = learnFindingLink("SQ002"); await learnCatalogCached(); return el.textContent; });
+  assert.strictEqual(draftOnly, "", "a draft lesson isn't linked beside a finding");
+});
+
+test("Learning also suggests the next lesson on Home, and a policy-set mode can't be changed here", { skip }, async () => {
+  await page().evaluate(() => { learnPage.open = null; go("learn"); });
+  await page().locator(".learn-guidance select").selectOption("learning");
+  await page().locator(".learn-suggest").waitFor();
+  assert.match(await page().locator(".learn-suggest").textContent(), /Suggested next[\s\S]*LAB-02 · Optimize a slow query/);
+  await page().evaluate(() => { state.settings.learn_mode = { value: "guided", source: "policy" }; render(); });
+  await page().locator(".learn-guidance select").waitFor();
+  assert.strictEqual(await page().locator(".learn-guidance select").isDisabled(), true);
 });

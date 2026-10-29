@@ -38,7 +38,8 @@ function learnOpen(id) {
 async function renderLearn() {
   if (learnPage.open) return renderLearnModule(learnPage.open);
   if (!LEARN_TABS.some(([id]) => id === learnPage.tab)) learnPage.tab = "home";
-  const actions = h("div", { class: "head-actions" });
+  const cont = h("span", { class: "learn-continue-slot" });
+  const actions = h("div", { class: "head-actions" }, learnGuidancePicker(), cont);
   const body = h("div", { class: "learn-body" }, h("p", { class: "muted-text" }, "Reading the lessons..."));
   setView(h("div", { class: "page learn" },
     h("div", { class: "page-head" }, h("div", {},
@@ -59,13 +60,13 @@ async function renderLearn() {
   const byId = Object.fromEntries(cat.modules.map((m) => [m.id, m]));
   const inOrder = cat.paths.flatMap((p) => p.modules).map((id) => byId[id]).filter(Boolean);
   const next = byId[learnLast()] || inOrder.find((m) => m.started) || inOrder[0] || cat.modules[0];
-  if (next && learnPage.tab !== "home") actions.replaceChildren(btn(`${next.started ? "Continue" : "Start"}: ${next.title}`, null, () => learnOpen(next.id), "tool primary"));
+  if (next && learnPage.tab !== "home") cont.replaceChildren(btn(`${next.started ? "Continue" : "Start"}: ${next.title}`, null, () => learnOpen(next.id), "tool primary"));
   if (learnPage.tab === "paths") fill(body, ...learnPaths(cat, byId));
   else if (learnPage.tab === "labs") fill(body, learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."));
-  else fill(body, ...learnHome(cat, byId, next));
+  else fill(body, ...learnHome(cat, byId, next, inOrder));
 }
 
-function learnHome(cat, byId, next) {
+function learnHome(cat, byId, next, inOrder) {
   const path = next && cat.paths.find((p) => p.id === next.path);
   const at = path ? path.modules.indexOf(next.id) + 1 : 0;
   const cont = next ? h("section", { class: "card pad learn-continue" },
@@ -76,7 +77,13 @@ function learnHome(cat, byId, next) {
     h("div", { class: "row" }, btn(next.started ? "Resume" : "Start", null, () => learnOpen(next.id), "tool primary"),
       path ? btn("See the path", null, () => { learnPage.tab = "paths"; render(); }, "tool outline") : null))
     : emptyState({ icon: "beaker", title: "No lessons yet", text: "Lessons arrive with app updates." });
-  return [cont,
+  const after = next ? inOrder.slice(inOrder.indexOf(next) + 1) : [];
+  const suggest = learnMode() === "learning" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
+  return [suggest ? h("div", { class: "learn-home-top" }, cont, h("section", { class: "card pad learn-suggest" },
+    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Learning mode: the next lesson you haven't started.")),
+    h("b", {}, `${suggest.id} · ${suggest.title}`),
+    h("span", { class: "muted-text small" }, learnMeta(suggest)),
+    h("div", { class: "row" }, btn("Open", null, () => learnOpen(suggest.id), "tool outline")))) : cont,
     h("h2", { class: "learn-section" }, "Practice labs"),
     learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."),
     h("p", { class: "muted-text small" }, LEARN_LOCAL)];
@@ -114,6 +121,43 @@ async function learnPractices(body) {
         h("td", {}, r.url ? docLink(r.url, `About ${r.id}`) : null))))));
   fill(body, table("Notebooks", nb), table("SQL", sql),
     h("p", { class: "muted-text small" }, "The notebook's Best practices panel and the SQL page check these as you work. A governance policy can turn a rule off or change its severity."));
+}
+
+// ---------- guidance (LX-06) ----------
+
+// Settings > Appearance > Learning guidance (app_settings learn_mode). Focus is the default and adds
+// nothing beside your work; with preview features hidden it's always Focus.
+const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "focus");
+
+function learnGuidancePicker() {
+  const key = "learn_mode";
+  const locked = typeof fixedBy === "function" && fixedBy(state.settings, key) !== null;
+  return h("label", { class: "row learn-guidance" }, "Learning guidance ",
+    h("select", { disabled: locked ? true : null, title: locked ? "Set by your organization's policy" : null,
+      onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
+    LAYOUT_CHOICES[key][2].map(([value, label]) => h("option", { value, selected: learnMode() === value ? true : null }, label))));
+}
+
+// The lessons, read once per session, for the Lesson link beside findings.
+let learnCatalogLoad = null;
+function learnCatalogCached() {
+  return (learnCatalogLoad ||= rpc("learn_catalog").catch(() => { learnCatalogLoad = null; return null; }));
+}
+
+// Guided and Learning: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers.
+// Focus shows nothing extra. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
+// lesson explains the rule.
+function learnFindingLink(ruleId) {
+  if (learnMode() === "focus") return null;
+  const slot = h("span", { class: "learn-finding" });
+  learnCatalogCached().then((cat) => {
+    const covering = (cat?.modules || []).filter((m) => m.status === "live" && (m.rules || []).includes(ruleId));
+    const m = covering.find((x) => x.kind === "module") || covering[0];
+    if (m) fill(slot, h("a", { href: "#", class: "learn-more", title: `${m.id} on Learn`,
+      onclick: (e) => { e.preventDefault(); learnOpen(m.id); } }, `Lesson: ${m.title}`));
+    else slot.remove();
+  });
+  return slot;
 }
 
 // ---------- one module or lab ----------

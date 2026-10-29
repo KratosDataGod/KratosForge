@@ -167,7 +167,9 @@ def faster_than(con: duckdb.DuckDBPyConnection, sql: str, baseline: str, factor:
     speedup = base / mine if mine > 0 else float("inf")
     detail = (f"{speedup:.1f}× faster: {mine:.2f} s against {base:.2f} s (median of {runs} runs on this PC). "
               "Fabric timings differ; this is measured here only.")
-    return _ok(kind, detail) if speedup >= factor else _no(kind, f"{detail} The goal is {factor:g}×.")
+    measured = {"seconds": round(mine, 4), "baseline_seconds": round(base, 4), "speedup": round(speedup, 2) if mine > 0 else None}
+    out = _ok(kind, detail) if speedup >= factor else _no(kind, f"{detail} The goal is {factor:g}×.")
+    return {**out, "measured": measured}
 
 
 def defects_found(con: duckdb.DuckDBPyConnection, sql: str, defects: list[dict[str, Any]],

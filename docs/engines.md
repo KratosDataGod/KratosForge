@@ -32,22 +32,25 @@ here has run against a Fabric tenant or a Databricks workspace yet: the Databric
 Databricks Connect and Fabric Spark engines are tested against fakes of the platforms' documented
 APIs and clients, and stay Preview until they have.
 
-| Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | Nothing | Tested |
-| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Nothing | Tested |
-| SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
-| Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
+| Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | No | Nothing | Tested |
+| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
+| SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
+| Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
-| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Fabric capacity | Preview, tested against fakes |
-| Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | DBUs | Preview, tested against fakes |
-| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
+| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | No | Fabric capacity | Preview, tested against fakes |
+| Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
 Fabric capacity**, so "runs on this PC" never means "uses no capacity".
+
+**Whole result** means the engine can hand back every row of a result, not just the preview, so
+two engines' answers can be compared (below).
 
 A session's database file (an existing DuckDB or SQLite file) is opened read-only. Each session is
 its own in-memory database or Python process: two notebooks never see each other's tables or
@@ -255,6 +258,23 @@ finds it (local engines only; a remote session is never left running).
 If a cell can't run on the chosen engine, KratosForge says why and stops. **It never moves the cell
 to another engine on its own**, and above all never to a remote one.
 
+## Comparing two engines' answers (engine only, no screen yet)
+
+`engines/compare.py` runs one query on two open sessions, for example DuckDB and SQLite on this PC,
+and compares the two results with the same rules, levels and limits as Prove (`verify.py`): key
+columns, numeric tolerances, and only counts and a checksum above 5,000,000 rows. Each side can have
+its own SQL, so a query and its translation can be checked against each other.
+
+- Only engines with **Whole result** take part. Any other engine is refused before anything runs,
+  with the reason.
+- The whole result is never cut short. More rows than asked for (1,000,000 by default), or more than
+  256 MB, makes that side an error, and nothing is compared.
+- If the first engine fails, the second doesn't run.
+- A remote engine's result would be copied onto this PC. That never happens on its own: the caller
+  asks you first, and approving the session itself doesn't count. No remote engine returns whole
+  results yet.
+- Both results stay in memory and are gone when the comparison is returned. Nothing is written.
+
 ## Remote compute needs your say-so
 
 A remote engine can start compute that is billed. It opens only when:
@@ -389,7 +409,8 @@ Every engine with an adapter must pass the shared contract checks in
 engine's own descriptor and hold the adapter to it: claimed capabilities work, unsupported ones
 raise `Unsupported` with a reason, a cell in a language or dialect the engine marks unsupported never
 comes back as run, a failing cell is an error output that never repeats a secret, a closed session
-refuses cells, two sessions share nothing, and a remote engine contacts nothing before it has an
+refuses cells, two sessions share nothing, a whole result comes back only from an engine that
+claims it and only when asked, and a remote engine contacts nothing before it has an
 authorization. Remote engines run against the same fakes as their own tests, so the checks never
 reach a workspace.
 

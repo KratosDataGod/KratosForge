@@ -59,9 +59,9 @@ async function renderLearn() {
   const byId = Object.fromEntries(cat.modules.map((m) => [m.id, m]));
   const inOrder = cat.paths.flatMap((p) => p.modules).map((id) => byId[id]).filter(Boolean);
   const next = byId[learnLast()] || inOrder.find((m) => m.started) || inOrder[0] || cat.modules[0];
-  if (next) actions.replaceChildren(btn(`${next.started ? "Continue" : "Start"}: ${next.title}`, null, () => learnOpen(next.id), "tool primary"));
+  if (next && learnPage.tab !== "home") actions.replaceChildren(btn(`${next.started ? "Continue" : "Start"}: ${next.title}`, null, () => learnOpen(next.id), "tool primary"));
   if (learnPage.tab === "paths") fill(body, ...learnPaths(cat, byId));
-  else if (learnPage.tab === "labs") fill(body, learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."), h("p", { class: "muted-text small" }, LEARN_LOCAL));
+  else if (learnPage.tab === "labs") fill(body, learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."));
   else fill(body, ...learnHome(cat, byId, next));
 }
 
@@ -99,7 +99,7 @@ function learnPaths(cat, byId) {
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); learnOpen(m.id); } }, `${m.id} · ${m.title}`),
         h("span", { class: "muted-text small" }, ` ${learnMeta(m)} `), learnStatus(m))))
         : h("p", { class: "muted-text small" }, "Lessons for this path come in a later update."));
-  })), h("p", { class: "muted-text small" }, LEARN_LOCAL)];
+  }))];
 }
 
 // Every notebook and SQL rule, with its explanation in the docs: the same rules the panels check.
@@ -124,7 +124,7 @@ function learnLesson(src) {
   const wrap = h("div", { class: "learn-lesson" });
   src.split(/^```[^\n]*\n([\s\S]*?)^```\s*$/m).forEach((part, i) => {
     if (i % 2) wrap.append(h("pre", { class: "learn-code" }, part.replace(/\n$/, "")));
-    else if (part.trim()) wrap.append(markdown(part));
+    else if (part.trim()) wrap.append(markdown(part.replace(/^(#{1,2})\s/gm, "#$1 ")));  // the page's title is the h1
   });
   return wrap;
 }
@@ -138,7 +138,7 @@ async function renderLearnModule(id) {
   const ex = m.exercises[Math.min(learnPage.exercise, m.exercises.length - 1)];
   const head = h("div", { class: "page-head" }, h("div", {},
     h("a", { href: "#", class: "small", onclick: (e) => { e.preventDefault(); leave(); } }, "Learn"),
-    h("h1", {}, `${m.id} · ${m.title} `, m.status === "draft" ? learnStatus(m) : null),
+    h("h1", {}, `${m.id} · ${m.title} `, previewTag(), m.status === "draft" ? learnStatus(m) : null),
     h("p", { class: "sub" }, learnMeta(m), m.datasets.length ? ` · lab data generated on this PC (size ${m.size})` : "")),
     h("div", { class: "head-actions" },
       m.lab.started ? btn("Reset lab", "restart", () => learnReset(m), "tool outline") : null,
@@ -160,15 +160,18 @@ function learnExercise(m, ex) {
   if (!m.lab.started) {
     return [...top, h("div", { class: "row" },
       btn("Start the lab", "play", () => learnStart(m), "tool primary"),
-      h("span", { class: "muted-text small" }, "Makes this lab's data on this PC. Nothing is downloaded.")),
-      h("p", { class: "muted-text small" }, LEARN_LOCAL)];
+      h("span", { class: "muted-text small" }, "Makes this lab's data on this PC. Nothing is downloaded."))];
   }
   const editor = h("textarea", { class: "learn-editor", spellcheck: "false", "aria-label": `Your SQL for ${m.id}`, rows: 12 });
   editor.value = m.lab.answers?.[ex.id] ?? "";
   let saveTimer = null;
   const save = () => rpc("learn_lab_save", { module_id: m.id, exercise_id: ex.id, text: editor.value }).catch(() => {});
-  editor.addEventListener("input", () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 1500); });
   const out = h("div", { class: "learn-result" }, learnResult(learnPage.results[ex.id]));
+  editor.addEventListener("input", () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 1500);
+    if (learnPage.results[ex.id]) { delete learnPage.results[ex.id]; fill(out); }  // a result is for the SQL that ran
+  });
   const runIt = async () => {
     if (learnPage.busy) return;
     learnPage.busy = true;

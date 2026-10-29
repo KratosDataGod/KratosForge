@@ -43,6 +43,7 @@ test("Learn sits at the bottom of the rail, before Source control and Settings, 
   await page().locator("#rail-bottom .rail-item", { hasText: "Learn" }).click();
   await page().locator(".learn-continue h2").waitFor();
   assert.match(await page().locator(".page.learn h1").textContent(), /Learn\s*Preview/);
+  assert.strictEqual(await page().locator(".head-actions button").count(), 0, "Home's card is the one Start");
   assert.match(await page().locator(".learn-body").textContent(), /never read or write OneLake/);
   const labs = await page().locator(".learn-grid .learn-card b").allTextContents();
   assert.ok(labs.includes("LAB-02 · Optimize a slow query"), labs.join());
@@ -70,7 +71,7 @@ test("Learn Home has no serious axe findings", { skip: skip || (!axeSource && "a
 
 test("a lesson starts its lab on this PC, runs SQL, and checks the answer", { skip }, async () => {
   await page().evaluate(() => learnOpen("LM-01"));
-  await page().locator(".learn-lesson h1").waitFor();
+  await page().locator(".learn-lesson h2").first().waitFor();
   assert.match(await page().locator(".learn-lesson").textContent(), /Pick the columns/);
   assert.ok(await page().locator(".learn-lesson pre.learn-code").count() >= 1, "fenced SQL is a code block");
   await page().locator("button", { hasText: "Start the lab" }).click();
@@ -80,6 +81,11 @@ test("a lesson starts its lab on this PC, runs SQL, and checks the answer", { sk
   await page().locator(".learn-result table").waitFor();
   assert.deepStrictEqual(await page().locator(".learn-result th").allTextContents(), ["order_id", "amount"]);
   assert.strictEqual(await page().locator(".learn-result tbody tr").count(), 3);
+  await page().locator("textarea.learn-editor").press("End");
+  await page().locator("textarea.learn-editor").type(" ");
+  assert.strictEqual(await page().locator(".learn-result table").count(), 0, "editing clears the last run's result");
+  assert.match(await page().locator(".page-head h1").textContent(), /Preview/);
+  assert.strictEqual(await page().locator("#view h1").count(), 1, "the lesson's own title is a level down");
   await page().locator(".learn-work button", { hasText: "Check my answer" }).click();
   await page().locator(".learn-checks li.no").waitFor();
   assert.match(await page().locator(".learn-aside").textContent(), /Not yet/);
@@ -119,5 +125,7 @@ test("Reset lab asks first, and Leave goes back to Learn", { skip }, async () =>
   assert.strictEqual(await page().locator(".learn-result table").count(), 0, "the old result is gone");
   await page().locator(".head-actions button", { hasText: "Leave" }).click();
   await page().locator(".learn-continue").waitFor();
+  await page().locator(".subtabs [role=tab]", { hasText: "Labs" }).click();
+  await page().locator(".head-actions button").waitFor();
   assert.match(await page().locator(".head-actions").textContent(), /Continue: Your first query on this PC/);
 });

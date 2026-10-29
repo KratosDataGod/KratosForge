@@ -5331,6 +5331,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
     "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Schema changes": ["docs/metadata-guide.md", /how runs treat a table's schema, not a screen of its own/],
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],

@@ -310,11 +310,13 @@ def test_time_zone_timestamps_page_sort_and_search_without_pytz(monkeypatch):
     # Delta's default timestamp has a time zone; DuckDB's fetchall() would need pytz for it.
     monkeypatch.setitem(sys.modules, "pytz", None)
     store = Frames()
-    ts = pa.array([dt.datetime(2026, 10, 20, h, tzinfo=dt.timezone.utc) for h in range(3)], pa.timestamp("us", tz="UTC"))
-    fid = store.keep(pa.table({"at": ts, "n": [1, 2, 3]}))
+    # The grid shows each time in the PC's time zone, with its offset; seconds read the same in every zone.
+    at = [dt.datetime(2026, 10, 20, h, 0, s, tzinfo=dt.timezone.utc) for h, s in ((0, 11), (1, 22), (2, 33))]
+    fid = store.keep(pa.table({"at": pa.array(at, pa.timestamp("us", tz="UTC")), "n": [1, 2, 3]}))
     page = store.page(fid, sort=0, desc=True)
-    assert page["types"][0] == "timestamp" and page["rows"][0][1] == 3 and "2026-10-20 02:00:00" in page["rows"][0][0]
-    assert store.page(fid, q="01:00")["total"] == 1
+    assert page["types"][0] == "timestamp" and page["rows"][0][1] == 3
+    assert dt.datetime.fromisoformat(page["rows"][0][0]) == at[2]
+    assert store.page(fid, q=":22")["total"] == 1
 
 
 def test_profile_counts_infinite_values_and_leaves_them_out_of_the_statistics():
@@ -330,7 +332,9 @@ def test_profile_of_time_zone_timestamps_without_pytz(monkeypatch):
     store = Frames()
     ts = pa.array([dt.datetime(2026, 1, d, tzinfo=dt.timezone.utc) for d in (1, 9)], pa.timestamp("us", tz="UTC"))
     (c,) = store.profile(store.keep(pa.table({"at": ts})))["columns"]
-    assert c["kind"] == "date" and c["min"].startswith("2026-01-01") and c["max"].startswith("2026-01-09")
+    # Shown in the PC's time zone, with its offset (midnight UTC is the day before in the Americas).
+    assert c["kind"] == "date"
+    assert (dt.datetime.fromisoformat(c["min"]), dt.datetime.fromisoformat(c["max"])) == tuple(ts.to_pylist())
 
 
 def test_one_column_that_cant_be_profiled_doesnt_hide_the_others(monkeypatch):

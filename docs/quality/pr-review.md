@@ -76,6 +76,10 @@ Reviewed against `main` 52ff52d. Each PR was reviewed on its own commits only: c
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #1001 5da6a606 | Product data: evening check (#828 to #972), story issues, PB-116 to PB-118 | PASS | 9.2 | Stacked on #997 d3a020e8. I reviewed its own commit 5da6a606 plus a clean main merge. It merges main cleanly. Backlog state counts: Accepted 40, In progress 29, Proposed 19, In review 18; every In review item lists PRs. The new `issues` field is in the schema and rendered as story issue links. PB-116/117/118 (issues #852 to #854) replace the KF- keys in the queue. Queue fix reproduced: at #997's head, queues.py check fails with "PB-013 is Accepted; take it out of the queue"; here it is consistent, with PB-049 (#920) as Fabric's ready-next. product_data.py check consistent; render leaves no diff; zensical --strict clean; no security detail in the diff. PB-049 and PB-072 acceptance changes are flagged for the product owner. |
+
+| #999 008c1d42 | Metadata loads: Fabric-safe types (#954) (fix) | PASS at 008c1d42 | 9.2 | Second quality reviewer. merge_insert and upsert now apply delta_safe (append semantics) before MERGE; LocalStore delegates to super; new tables are created from the safe schema. 80 passed with main merged. Merge after #994. |
+
 | #973 b7c589b4 | Apache-2.0 license, main merge | PASS at b7c589b4 (carried) | 9.3 | Release management merged main b19b7456 (clean). The PR's own delta is identical to 12ca57e7 (sorted +/- lines compared against the merge-base), and it merges main cleanly. RM: ui.test 301/0. Chris picked Apache-2.0 on the license card (option 0, his tap recorded 21:53Z). |
 
 | #914 508586fb | PB-054 late rows, main merge | PASS at 508586fb (carried) | 9.1 | Release management merged main b19b7456 (clean). The PR's own delta is identical to 4e262666 (sorted +/- lines compared against the merge-base), and it merges main cleanly. The only red check was main's old ui failure, fixed by #972. RM's runs at head: ui.test 301/0; silent_except + late_rows_deletes 49 passed. |

@@ -107,9 +107,9 @@ function friendlyError(err) {
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
     [/AADSTS50076|AADSTS50079|AADSTS50074|AADSTS50072/, "Your organization needs an extra sign-in step (multi-factor authentication). Sign in again and finish the step in the Microsoft window."],
     [/AADSTS50020|AADSTS50034|AADSTS90072/, "That account doesn't belong to your organization's Fabric tenant. Sign in with your work account."],
-    [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
     // #1079: Windows sign-in refused a token for one service (seen for Azure SQL and Kusto); the rest still works
     [/IncorrectConfiguration|AADSTS65002/i, "Windows sign-in wouldn't give KratosForge's built-in sign-in a token for this service (warehouse queries or warehouse Monitoring often need one). The rest of the app keeps working. docs/troubleshooting.md says what IT can check."],
+    [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
     [/^SignInError: (AADSTS\d+)/, "Microsoft sign-in didn't finish. Sign in again; if it happens again, ask IT and quote the code in the details below."],
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
     [/AADSTS|interaction_required/i, "Your sign-in needs attention. Sign in again and retry; if it happens again, ask IT and quote the code in the details below."],

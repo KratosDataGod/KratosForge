@@ -315,6 +315,20 @@ class DuckDBSession(_SqlSession):
         else:
             _refuse_outside(request.code, request.dialect)
             code = self._sql(request.code, request.dialect)
+        if request.dialect not in ("spark", "databricks"):
+            return self._execute(code, request)
+        # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks
+        # unless a notebook changes it; sqlglot makes it DuckDB's TIMESTAMPTZ, which DuckDB reads in
+        # this PC's zone. So translated cells run in UTC, and the cell after gets the zone back.
+        zone = self._con.execute("SELECT current_setting('TimeZone')").fetchone()
+        self._con.execute("SET TimeZone = 'UTC'")
+        try:
+            return self._execute(code, request)
+        finally:
+            if zone:
+                self._con.execute("SET TimeZone = ?", [str(zone[0])])
+
+    def _execute(self, code: str, request: CellRequest) -> tuple[pa.Table | None, int]:
         cur = self._con.execute(code)
         if cur.description is None:
             return None, 0

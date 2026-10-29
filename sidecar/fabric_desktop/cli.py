@@ -24,6 +24,11 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run-schedule", help="run one of this PC's schedules (Windows Task Scheduler calls this)")
     p.add_argument("schedule_id")
     p.add_argument("--manual", action="store_true", help="started with Run now, not by the schedule")
+    p = sub.add_parser("run-notebooks", help="run a batch of notebooks started from Home (the app starts this)")
+    p.add_argument("batch_id")
+    p = sub.add_parser("run-notebook", help="run one notebook of a batch started from Home (run-notebooks starts this)")
+    p.add_argument("batch_id")
+    p.add_argument("index", type=int)
     agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status, requeue, prune")
     agent.add_argument("--config", help="agent.toml (default: FABRIC_DESKTOP_AGENT_CONFIG, then "
                                         "%%ProgramData%%\\FabricDesktop\\agent.toml or /etc/fabric-desktop/agent.toml)")
@@ -268,6 +273,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_backup(args))
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
+        return
+    if args.command in ("run-notebooks", "run-notebook"):
+        _run_notebooks(args)
         return
     service = Service()
     result = {
@@ -853,6 +861,22 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
         print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))
     raise SystemExit(0 if result["status"] != "failed" else 1)
+
+
+def _run_notebooks(args: argparse.Namespace) -> None:
+    """Home's Run several: the batch's background process, or one notebook of it. No console and no
+    one watching, so never a sign-in window; one notebook's result is the last line it prints."""
+    from .server import _log_file
+    if args.command == "run-notebooks" and (sys.stdout is None or sys.executable.lower().endswith("pythonw.exe")):
+        sys.stdout = sys.stderr = _log_file()
+    service = Service(headless=True)
+    if args.command == "run-notebooks":
+        service.run_notebook_batch(args.batch_id)
+        return
+    row = service.run_batch_notebook(args.batch_id, args.index)
+    sys.stdout.write("\n" + json.dumps(row, default=str) + "\n")
+    sys.stdout.flush()
+    raise SystemExit(0 if row.get("status") != "failed" else 1)
 
 
 if __name__ == "__main__":

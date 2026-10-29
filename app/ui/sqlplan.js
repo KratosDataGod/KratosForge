@@ -67,7 +67,7 @@ function sqlPlanView(plan) {
     navigator.clipboard?.writeText(plan.xml).then(() => toast("Copied the plan's XML."), () => toast("Could not copy the XML.", true));
   }, "tool small", { title: "Copy the showplan XML, to open in SSMS or another plan viewer" });
   const parts = [h("div", { class: "sql-plan-head" }, h("b", {}, "Estimated plan"),
-    h("span", { class: "muted-text" }, `Fabric worked it out at ${plan.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; the query didn't run. Rows and cost are Fabric's estimates.`),
+    h("span", { class: "muted-text" }, `Fabric worked it out at ${timeText(plan.at)}; the query didn't run. Rows and cost are Fabric's estimates.`),
     h("span", { class: "spacer" }), copy)];
   for (const [i, st] of parsed.statements.entries()) {
     const total = st.cost || st.root?.cost || 0;

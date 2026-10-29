@@ -145,7 +145,7 @@ def _table_html(o: dict[str, Any]) -> str:
 def _nb_output(o: dict[str, Any]) -> dict[str, Any] | None:
     """A notebook-screen output as Jupyter stores it (nbformat 4)."""
     kind = o.get("type")
-    if kind in ("stream", "text"):
+    if kind in ("stream", "text", "translation"):  # translation: the Snowflake SQL report, as text
         return {"output_type": "stream", "name": "stdout", "text": _text_lines(str(o.get("text", "")))}
     if kind == "error":
         tb = str(o.get("traceback") or "")
@@ -209,7 +209,7 @@ th{background:#fafafa}img{max-width:100%;margin:10px}
 
 def _html_output(o: dict[str, Any]) -> str:
     kind = o.get("type")
-    if kind in ("stream", "text"):
+    if kind in ("stream", "text", "translation"):
         return f'<pre class="out">{html.escape(str(o.get("text", "")))}</pre>'
     if kind == "error":
         text = f"{o.get('ename', '')}: {o.get('evalue', '')}"

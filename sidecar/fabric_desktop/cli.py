@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -77,6 +77,12 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
     smoke.add_argument("--run-in-fabric", action="store_true",
                        help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
+    drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
+                                            "with this PC's packages (read only)")
+    drift.add_argument("--workspace", required=True, help="the workspace id")
+    drift.add_argument("--environment", required=True, help="the Environment item's id")
+    drift.add_argument("--notebook", help="also count this notebook's environment on this PC")
+    drift.add_argument("--json", action="store_true", help="print the result as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -213,6 +219,8 @@ def main(argv: list[str] | None = None) -> None:
         for path in result["removed"]:
             print(f"  {path}")
         return
+    if args.command == "env-drift":
+        raise SystemExit(_env_drift(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "smoke-test":
@@ -352,6 +360,14 @@ def _smoke_test(args: argparse.Namespace) -> int:
     print(smoketest.summary(result))
     print("\n".join(result["files"]))
     return 1 if result["outcome"] == "failed" else 0
+
+
+def _env_drift(args: argparse.Namespace) -> int:
+    """0 no drift, 1 drift, 2 the item couldn't be read."""
+    from . import fabric_environment
+    result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
+    print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
+    return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
 
 
 def _live_test(args: argparse.Namespace) -> int:

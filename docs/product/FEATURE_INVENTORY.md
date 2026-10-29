@@ -67,9 +67,9 @@ on quality.
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Implemented | 2 | 114 | 3 | 119 |
-| Partially Implemented | 1 | 10 | 1 | 12 |
+| Partially Implemented | 1 | 10 | 2 | 13 |
 | Implemented but Not Exposed | 0 | 4 | 0 | 4 |
-| Missing | 0 | 0 | 3 | 3 |
+| Missing | 0 | 0 | 2 | 2 |
 | Planned | 0 | 0 | 4 | 4 |
 | **Total** | **3** | **128** | **11** | **142** |
 <!-- END GENERATED: summary -->
@@ -149,7 +149,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Fabric > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
-| [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons. |
+| [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric. |
 | [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant. |
 | [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > KratosForge > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
@@ -170,7 +170,7 @@ on quality.
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Partially Verified | Fabric, Monitor | Check in the Windows app that a look-alike host opens in the browser (PB-008 review). |
 | [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
-| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
+| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Partially Implemented | Unverified | Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview) | Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
 | [FEAT-FAB-13](#feat-fab-13) | Deployment pipelines and item-definition deploy | Planned | Unverified | None | Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates. |
 | [FEAT-ONE-01](#feat-one-01) | OneLake catalog | Implemented | Partially Verified | OneLake > Catalog | Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py). |
@@ -186,7 +186,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
-| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
+| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Merge the batch-limited key reads (PB-068, #847). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
@@ -671,12 +671,13 @@ on quality.
 **Fabric Environment items and Spark settings.** Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.
 
 - **Pillar and category:** Local development; Fabric Integration and Deployment
-- **Status:** Missing. **Verification:** Unverified.
-- **Where people reach it:** None
-- **Evidence:** absent: no Environment item calls in sidecar/fabric_desktop/fabric_api.py
-- **Owning workstream:** Prove (FD-109)
+- **Status:** Partially Implemented. **Verification:** Unverified.
+- **Where people reach it:** Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview)
+- **Evidence:** code: sidecar/fabric_desktop/fabric_environment.py; test: sidecar/tests/test_fabric_environment.py (passed at the PB-016 part 1 head; fakes only, not yet read on a tenant)
+- **Source:** `sidecar/fabric_desktop/fabric_environment.py`, `sidecar/fabric_desktop/environment_service.py`, `sidecar/fabric_desktop/fabric_api.py`
+- **Owning workstream:** Microsoft Fabric
 - **Backlog:** [PB-016](PRODUCT_BACKLOG.md#pb-016)
-- **Recommended next action:** Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).
+- **Recommended next action:** Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).
 
 ### FEAT-FAB-10
 
@@ -685,15 +686,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Pipelines and Orchestration
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview)
-- **Evidence:** test: sidecar/tests/test_workspace_pipelines.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_fabric_connections.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_dataflows.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/workspace-pipelines.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/df-connections.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_copy_jobs.py (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-copy-jobs.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-dataflows.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it)
+- **Evidence:** test: sidecar/tests/test_workspace_pipelines.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_fabric_connections.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_dataflows.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/workspace-pipelines.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/df-connections.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_copy_jobs.py (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-copy-jobs.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-dataflows.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); doc: docs/orchestration/data-factory.md#tested-on-a-tenant (tenant run 2026-10-27 at 21d318fc: the DF-6 engine checks passed (copy job run, dataflow refresh, a second run deduped by Fabric); the viewer check was skipped)
 - **Source:** `sidecar/fabric_desktop/workspace_pipelines_service.py`, `sidecar/fabric_desktop/fabric_connections_service.py`, `sidecar/fabric_desktop/workspace_dataflows_service.py`, `sidecar/fabric_desktop/orchestration/mashup.py`, `app/ui/df-connections.js`, `sidecar/fabric_desktop/orchestration/copyjob.py`, `app/ui/df-copy-jobs.js`, `app/ui/df-dataflows.js`
 - **Tests:** `sidecar/tests/test_workspace_pipelines.py`, `sidecar/tests/test_fabric_connections.py`, `sidecar/tests/test_workspace_dataflows.py`, `app/tests/browser/workspace-pipelines.test.cjs`, `app/tests/browser/df-connections.test.cjs`, `sidecar/tests/test_workspace_copy_jobs.py`, `app/tests/browser/df-copy-jobs.test.cjs`, `app/tests/browser/df-dataflows.test.cjs`
 - **Docs:** [docs/orchestration/data-factory.md](../orchestration/data-factory.md)
-- **Known limitations:** No authoring or deploy of Data Factory items yet (DF-8, DF-10). Run in Fabric and Refresh in Fabric not yet run on a tenant.
+- **Known limitations:** No authoring or deploy of Data Factory items yet (DF-8, DF-10). Run in Fabric and Refresh in Fabric were checked on a tenant through the engine only (2026-10-27), not by clicking the buttons, and not with a viewer account. Open in Fabric opens the workspace: the copy job and dataflow portal addresses aren't confirmed.
 - **Pull requests and issues:** [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741)
 - **Owning workstream:** Build full Data Factory experience (DF-1..10)
 - **Backlog:** [PB-030](PRODUCT_BACKLOG.md#pb-030), [PB-035](PRODUCT_BACKLOG.md#pb-035)
-- **Recommended next action:** DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons.
+- **Recommended next action:** DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric.
 
 ### FEAT-FAB-11
 
@@ -1136,11 +1137,11 @@ on quality.
 - **Pillar and category:** Local development; Local Development and Execution
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Data mesh > Entities > Run
-- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
+- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; test: sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once (PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths); smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
 - **Source:** `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/meta/store.py`
-- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`
+- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`, `sidecar/tests/test_meta_late_rows_deletes.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Watermark filter is strictly >, so late rows are dropped. Type 2 source repeating a key fails (plan).
+- **Known limitations:** Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed. Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead. Type 2 source repeating a key fails (plan).
 - **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#61](https://github.com/KratosDataGod/KratosForge/pull/61)
 - **Backlog:** [PB-019](PRODUCT_BACKLOG.md#pb-019)
 - **Recommended next action:** Keep; add late-arriving rows and source deletes (FD-117).
@@ -1184,11 +1185,11 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/keys.py`, `sidecar/fabric_desktop/meta_service.py`, `app/ui/meta.js`
 - **Tests:** `sidecar/tests/test_keys.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** read_keys reads the whole key table.
+- **Known limitations:** Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged.
 - **Pull requests and issues:** [#23](https://github.com/KratosDataGod/KratosForge/pull/23), [#52](https://github.com/KratosDataGod/KratosForge/pull/52)
 - **Owning workstream:** Staged roadmap (FD-115)
 - **Backlog:** [PB-068](PRODUCT_BACKLOG.md#pb-068)
-- **Recommended next action:** Stop reading whole key tables on every keyed run (FD-115).
+- **Recommended next action:** Merge the batch-limited key reads (PB-068, #847).
 
 ### FEAT-META-06
 

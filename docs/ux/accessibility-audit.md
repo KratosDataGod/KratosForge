@@ -35,6 +35,8 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | SQL query | dark | 22 | 1 (1) | color-contrast (2) | 0 | 0 | 0 |
 | Command bar (Ctrl+K) | light | 17 | 1 (1) | none | 98 | 0 | 0 |
 | Command bar (Ctrl+K) | dark | 17 | 1 (1) | none | 0 | 0 | 0 |
+| Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 14 | 0 | 0 |
+| Data mesh entity | dark | 15 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
 | Shell (top bar and rail) | light | 13 | 0 (0) | none | 18 | 0 | 0 |
 | Shell (top bar and rail) | dark | 13 | 0 (0) | none | 0 | 0 | 0 |
 | Confirm dialog | light | 12 | 0 (0) | none | 3 | 0 | 0 |
@@ -62,3 +64,4 @@ Checks axe couldn't decide by itself (for example text over a gradient or an ima
 - **Monitor**: aria-prohibited-attr: Elements must only use permitted ARIA attributes. At `.subtabs`
 - **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`
 - **SQL query**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.cm-lineNumbers > .cm-activeLineGutter.cm-gutterElement`, `.cm-gutterElement:nth-child(3)`
+- **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow:nth-child(2)`, `.arrow:nth-child(4)`, `.arrow:nth-child(6)`, `.arrow:nth-child(8)`, `#entity-toml`

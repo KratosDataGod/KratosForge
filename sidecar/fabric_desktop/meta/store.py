@@ -210,13 +210,13 @@ class Store:
         except TableNotFoundError:
             return None
 
-    def count(self, lakehouse: str, schema: str, table: str) -> int:
+    def count(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> int:
         """Rows in the table, from the Delta log's file statistics: no data is read. A file written
         without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
         the rows are counted from the files themselves."""
         uri = self.uri(lakehouse, schema, table)
         try:
-            dt_ = DeltaTable(uri, storage_options=self.options())
+            dt_ = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             return 0
         actions = pa.table(dt_.get_add_actions(flatten=True))
@@ -296,6 +296,37 @@ class Store:
             return None, None
         return pl.from_arrow(t.to_pyarrow_table()), t.version()
 
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        """Only the rows matching ``where`` (and only ``columns``), with the Delta version they were
+        read at (default the latest), as read_at gives the whole table. Files whose statistics rule
+        ``where`` out are skipped, so a few rows of a large table cost a few files. (None, None)
+        when there's no table."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None, None
+        lf = lazy(t, uri, options).filter(where)
+        return (lf.select(columns) if columns else lf).collect(), t.version()
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        """The highest value of ``column`` (None when there are no rows or no table), from the Delta
+        log's file statistics when every file has them, so no data is read. A file without them
+        means the column itself is read (that column only)."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None
+        actions = pa.table(t.get_add_actions(flatten=True))
+        name = f"max.{column}"
+        if name in actions.column_names and actions.num_rows and actions.column(name).null_count == 0:
+            # A file's max can be a row since deleted (a deletion vector), so this can be higher
+            # than the true max, never lower.
+            return max(actions.column(name).to_pylist())
+        return lazy(t, uri, options).select(pl.col(column).max()).collect().item()
+
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         """Create an empty table, only if there is none: never overwrites one another writer made or
         filled. True if this call created it."""
@@ -344,7 +375,8 @@ class Store:
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
-               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+               read_version: int | None = None, new_from: tuple[str, int] | None = None,
+               delete_flag: str | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
@@ -356,7 +388,9 @@ class Store:
         it, so a commit by another writer since then raises CommitFailedError instead of being
         merged over (new surrogate keys depend on the keys the table already had). ``new_from``
         (column, first new key) makes rows from that key up part of what the MERGE reads, so a
-        concurrent insert there conflicts.
+        concurrent insert there conflicts. ``delete_flag`` names a boolean column of ``df``: its true
+        rows delete the matching table rows instead (the source deletes of [load] deletes = "hard"),
+        in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
         delta_profile.check_target(uri, self.options())
@@ -371,9 +405,17 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
-                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
-            .when_matched_update_all().when_not_matched_insert_all().execute()
+        merger = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+                              commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        if delete_flag:
+            # Rows flagged in df remove their match from the table; the flag itself is never written.
+            flag = f"coalesce(s.`{delete_flag}`, false)"  # a null flag is a row to keep, never one dropped
+            merger = merger.when_matched_delete(flag) \
+                .when_matched_update_all(except_cols=[delete_flag]) \
+                .when_not_matched_insert_all(predicate=f"NOT {flag}", except_cols=[delete_flag])
+        else:
+            merger = merger.when_matched_update_all().when_not_matched_insert_all()
+        metrics = merger.execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version(), metrics
@@ -457,6 +499,16 @@ class LocalStore(Store):
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_where(lakehouse, schema, table, where, columns,
+                                                                       version))
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))

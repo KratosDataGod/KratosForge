@@ -19,6 +19,9 @@ on:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    # Stable reaches every PC that hasn't chosen Preview, so a promote waits here until a reviewer
+    # set on this environment (Settings > Environments > stable > Required reviewers) approves it.
+    environment: stable
     # Waits for a Preview publish in progress, so it never copies a half-replaced release.
     concurrency:
       group: release-assets
@@ -31,6 +34,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           NOTES: ${{ inputs.notes }}
           BUILD: ${{ inputs.build }}
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' }}
         run: |
           BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]' | tr 'A-F' 'a-f')
           WANT=""
@@ -94,6 +98,12 @@ jobs:
               exit 1
             fi
           done
+          # Once signing is set up, only a build CI signed goes to Stable. Builds from before then say
+          # nothing ("signed" missing), which counts as unsigned.
+          if [ "$SIGNING" = true ] && [ "$(jq -r '.signed // false' version.json)" != true ]; then
+            echo "Build $COMMIT isn't signed, and signing is set up, so it can't go to Stable. Promote a signed build."
+            exit 1
+          fi
           echo "Promoting build $COMMIT from $SOURCE"
           # Keep the build's checksums and its month of history; only the notes and the publish time
           # change. The app refuses a version.json published before one it already saw (HD-022), so

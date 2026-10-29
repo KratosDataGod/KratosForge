@@ -20,6 +20,7 @@ git clone https://github.com/KratosDataGod/KratosForge
 cd KratosForge\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
 python -m pytest -q                   # every test runs without Fabric
+python -m pytest -q -n auto --dist loadfile   # the same, one worker per core, as CI runs it
 fabric-desktop preview ..\examples\sales_by_region.toml
 fabric-desktop sign-in
 fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the job first

@@ -370,7 +370,9 @@ def test_writefile_writes_appends_and_can_be_imported(tmp_path, monkeypatch):
     assert "needs a file name" in k.run("%%writefile\nx")["outputs"][0]["evalue"]
 
 
-def test_small_ipython_magics():
+def test_small_ipython_magics(monkeypatch):
+    for name in ("KF_TEST_VALUE", "KF_TEST_TOKEN"):  # %env sets them in this process; put them back after
+        monkeypatch.setenv(name, "")
     k = Kernel()
     assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
     assert k.run("%matplotlib inline")["status"] == "ok"

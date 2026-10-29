@@ -55,7 +55,7 @@ def test_a_row_keeps_ids_and_check_kinds_never_the_answer():
               "answer": "SELECT secret_column FROM orders"}
     row = progress.from_lab(result, LM01)
     assert "secret_column" not in json.dumps(row)
-    assert row["detail"]["checks"] == ["faster_than", "result_matches"]
+    assert row["detail"]["checks"] == ["result_matches", "faster_than"]   # as the exercise lists them
     assert row["measurement"]["speedup"] == 4.0 and row["measurement"]["kind"] == "measured"
     assert "Performance & Optimization" in row["dimensions"]
 
@@ -119,7 +119,7 @@ def test_the_report_names_finished_lessons_and_cites_them():
     md = progress.report(p, 90)["markdown"]
     assert "## Learning" in md
     assert "Finished KratosForge Learn lesson LM\\-01, Your first query on this PC" in md
-    assert "Learn LM\\-01/north\\-big\\-orders · content v1 · passed" in md
+    assert "Learn LM\\-01/north\\-big\\-orders · version 1 · passed" in md
     assert "No Learn lessons or labs in this period" in progress.report(progress.empty(), 90)["markdown"]
 
 

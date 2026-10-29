@@ -209,12 +209,13 @@ def from_lab(result: dict[str, Any], module: dict[str, Any], origin: str = "live
     if not result.get("passed") or module.get("status") != "live" or not result.get("results"):
         return None
     mid, exercise, version = module["id"], result["exercise"], int(result.get("version") or module.get("version") or 1)
-    kinds = sorted({str(r.get("kind")) for r in result["results"]})
+    number = next((i for i, ex in enumerate(module.get("exercises") or [], 1) if ex.get("id") == exercise), None)
+    kinds = list(dict.fromkeys(str(r.get("kind")) for r in result["results"]))   # in the exercise's order
     timed = next((r.get("measured") for r in result["results"] if r.get("kind") == "faster_than" and r.get("measured")), None)
     dims = list(EVENT_DIMENSIONS["lab.pass"]) + sorted({CHECK_DIMENSIONS[k] for k in kinds if k in CHECK_DIMENSIONS})
-    return {"id": evidence_id("lab.pass", f"{mid}/{exercise}", f"v{version}|{','.join(kinds)}"), "type": "lab.pass",
+    return {"id": evidence_id("lab.pass", f"{mid}/{exercise}", f"v{version}|{','.join(sorted(kinds))}"), "type": "lab.pass",
             "at": _now(), "artifact": {"kind": module.get("kind") or "module", "name": mid, "exercise": exercise,
-                                       "title": str(module.get("title") or "")[:200]},
+                                       "number": number, "title": str(module.get("title") or "")[:200]},
             "ref": {"source": "learn", "id": f"{mid}/{exercise}", "revision": f"v{version}"},
             "status": "verified", "verdict": "passed", "detail": {"checks": kinds, "level": module.get("level")},
             "measurement": {**timed, "kind": "measured", "source": "Learn speed check on this PC"} if timed else None,
@@ -532,8 +533,8 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     for r in rows:
         ref = r.get("ref") or {}
         if ref.get("source") == "learn":
-            lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Learn {md(ref.get('id') or '')} · content "
-                         f"{md(ref.get('revision') or '')} · {r['verdict']}")
+            lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Learn {md(ref.get('id') or '')} · version "
+                         f"{md((ref.get('revision') or '').removeprefix('v'))} · {r['verdict']}")
             continue
         source = (f"Run receipt {ref.get('id')} (SHA-256)" if ref.get("source") == "receipt"
                   else f"Validate {ref.get('id')}")

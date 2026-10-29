@@ -113,9 +113,10 @@ test("Settings show the switches and the danger delete", { skip }, async () => {
 
 test("a Learn exercise and a finished lab read as what was done, with the measured speed-up (LX-07)", { skip }, async () => {
   const text = await app.page.evaluate((rows) => rows.map((r) => profileRow({ ...r, xp: 0, excluded: false }).textContent), data.learn);
-  assert.match(text[0], /Passed exercise store-revenue-2026 in LAB-02 · Optimize a slow query/);
-  assert.match(text[0], /Measured 4\.17× faster than the starting query \(0\.12 s against 0\.5 s\)/);
-  assert.match(text[0], /Learn LAB-02\/store-revenue-2026 · content v1/);
+  assert.match(text[0], /Passed exercise 1 in LAB-02 · Optimize a slow query/);
+  assert.match(text[0], /Every check passed on this PC: Same result, Faster\./);
+  assert.match(text[0], /Measured 4\.17× faster than the starting query on this PC \(0\.12 s against 0\.5 s\)/);
+  assert.match(text[0], /Learn LAB-02\/store-revenue-2026 · lab version 1/);
   assert.match(text[1], /Finished lab LAB-02 · Optimize a slow query/);
-  assert.match(text[1], /Every exercise of the lab passed on this PC \(1\)/);
+  assert.match(text[1], /Its exercise passed on this PC\./);
 });

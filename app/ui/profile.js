@@ -119,12 +119,13 @@ function profileLearnRow(r) {
   const what = r.artifact.kind === "lab" ? "lab" : "lesson";
   const title = `${r.artifact.name}${r.artifact.title ? ` · ${r.artifact.title}` : ""}`;
   const done = r.type === "module.complete";
+  const n = d.exercises || 0;
   const text = done
-    ? `Every exercise of the ${what} passed on this PC (${d.exercises || 0}).`
-    : `Every check passed on this PC: ${(d.checks || []).join(", ").replaceAll("_", " ")}.${typeof m.speedup === "number"
-      ? ` Measured ${m.speedup}× faster than the starting query (${m.seconds} s against ${m.baseline_seconds} s).` : ""}`;
-  return [done ? `Finished ${what} ${title}` : `Passed exercise ${r.artifact.exercise} in ${title}`, text,
-    `Learn ${r.ref.id} · content ${r.ref.revision}`];
+    ? (n === 1 ? "Its exercise passed on this PC." : `All ${n} exercises of the ${what} passed on this PC.`)
+    : `Every check passed on this PC: ${(d.checks || []).map((k) => LEARN_CHECKS[k] || k).join(", ")}.${typeof m.speedup === "number"
+      ? ` Measured ${m.speedup}× faster than the starting query on this PC (${m.seconds} s against ${m.baseline_seconds} s).` : ""}`;
+  return [done ? `Finished ${what} ${title}` : `Passed exercise ${r.artifact.number || r.artifact.exercise} in ${title}`, text,
+    `Learn ${r.ref.id} · ${what} version ${String(r.ref.revision).replace(/^v/, "")}`];
 }
 
 function profileRow(r) {

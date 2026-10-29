@@ -299,6 +299,18 @@ def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_li
     assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
 
 
+@pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
+def test_the_memory_limit_counts_the_processes_a_cell_starts(kernel, quick_limits):
+    from fabric_desktop.kernel_proc import memory_used
+    kernel.run("kept = 1")
+    kernel.memory_limit = (memory_used(kernel.pid) or 0) + 200 * 1024 ** 2
+    child = "import time; block = b'x' * (400 * 1024 ** 2); time.sleep(60)"
+    kernel.start(f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+    assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
 def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, quick_limits, monkeypatch):
     """From a Windows venv, Popen's pid is the venv launcher (a few MB) and the interpreter is its
     child: the limit must read the pid the kernel reported, not proc.pid (#896's Windows trial)."""
@@ -425,3 +437,29 @@ def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kerne
         assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
     kernel.run("x = 2")
     assert kernel.live_pid == kernel.pid != pid
+
+
+def test_a_job_with_more_processes_than_the_list_holds_is_read_again_bigger(monkeypatch):
+    """QueryInformationJobObject fails with ERROR_MORE_DATA when the list is too small, but says how
+    many processes the job has: the list is read again that big rather than given up on."""
+    from fabric_desktop import kernel_proc
+    pids = list(range(1, kernel_proc.JOB_PIDS + 51))
+    calls = []
+
+    class Kernel32:
+        @staticmethod
+        def QueryInformationJobObject(job, kind, buffer, size, _returned):  # noqa: N802
+            listed = buffer._obj  # the JOBOBJECT_BASIC_PROCESS_ID_LIST passed by reference
+            room = len(listed.ProcessIdList)
+            calls.append(room)
+            listed.NumberOfAssignedProcesses = len(pids)
+            if room < len(pids):
+                return False  # ERROR_MORE_DATA
+            listed.NumberOfProcessIdsInList = len(pids)
+            for i, pid in enumerate(pids):
+                listed.ProcessIdList[i] = pid
+            return True
+
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: Kernel32)
+    assert kernel_proc._job_pids(1) == pids
+    assert calls[0] == kernel_proc.JOB_PIDS and calls[1] >= len(pids)

@@ -983,6 +983,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.match(say("SignInError: broker_error: Status_IncorrectConfiguration, error code 3399614466"), /for this service/);  // #1079
+  assert.match(say("SignInError: AADSTS65002: Consent between first party application and first party resource"), /for this service/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
   assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -3272,20 +3274,61 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// The attributes object an h(...) call opens with "{" just before index i: its text, read up to the
+// brace that closes it, past strings, template literals and nested objects (#1061).
+function attrsAt(src, i) {
+  const open = src.lastIndexOf("{", i);
+  if (open < 0 || !/^\{\s*$/.test(src.slice(open, i))) return null;
+  const stack = ["{"];
+  for (let j = open + 1; j < src.length; j++) {
+    const c = src[j];
+    const top = stack[stack.length - 1];
+    if (top === '"' || top === "'") {
+      if (c === "\\") j++;
+      else if (c === top) stack.pop();
+    } else if (top === "`") {
+      if (c === "\\") j++;
+      else if (c === "`") stack.pop();
+      else if (c === "$" && src[j + 1] === "{") { stack.push("{"); j++; }
+    } else if (c === '"' || c === "'" || c === "`" || c === "{") stack.push(c);
+    else if (c === "}") {
+      stack.pop();
+      if (!stack.length) return src.slice(open, j + 1);
+    }
+  }
+  return null;
+}
+
 // UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
 // Home and End and a screen reader says which tab is selected.
 test("every row of tabs is a tablist with selected state", () => {
+  // A row whose tablist is its first child, so a jump button can sit after the list (OneLake, #961).
+  const firstChild = (src, attrs, at) => {
+    const rest = src.slice(at + attrs.length);
+    const m = rest.match(/^\s*,\s*h\("\w+",\s*\{/);
+    return m ? attrsAt(rest, m[0].length) : null;
+  };
   for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
       for (const m of src.matchAll(re)) {
-        const near = src.slice(m.index, m.index + 260);
         const line = src.slice(0, m.index).split("\n").length;
-        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
-        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+        const attrs = attrsAt(src, m.index);
+        assert.ok(attrs, `${file}:${line}: a tab row or tab whose attributes object can't be read`);
+        if (role === 'role: "tab"') {
+          assert.ok(attrs.includes(role), `${file}:${line}: a tab without ${role}`);
+          assert.ok(attrs.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+        } else {
+          const child = attrs.includes(role) ? null : firstChild(src, attrs, src.lastIndexOf("{", m.index));
+          assert.ok(attrs.includes(role) || (child && child.includes(role)), `${file}:${line}: a tab row without ${role}`);
+        }
       }
     }
   }
+  // The reader itself: a role just past the object's closing brace doesn't count.
+  const near = 'h("div", { class: "subtabs", onclick: () => { go(`x${y}`); } }, h("b", {}, \'role: "tablist"\'))';
+  assert.ok(!attrsAt(near, near.indexOf("class:")).includes('role: "tablist"'));
+  assert.strictEqual(attrsAt(near, near.indexOf("class:")), '{ class: "subtabs", onclick: () => { go(`x${y}`); } }');
 });
 
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
@@ -3928,6 +3971,27 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
+});
+
+// #854: what a Databricks import or export didn't carry over, one row per note with its cell.
+test("Databricks conversion notes show each construct with its cell, on import and after export", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`const h = (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k != null) });
+${src.match(/const NBF_NOTE_KINDS = [^\n]*/)[0]}
+${src.match(/function nbfPlural\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
+this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
+  const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path"]);
+  const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
+  assert.strictEqual(blocks.length, 1);
+  assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);
+  assert.match(src, /\.\.\.nbfCheckNotes\(check\)\);/);
+  assert.match(src, /showDialog\("What Databricks source doesn't hold"/);
 });
 
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
@@ -5414,6 +5478,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Fabric Spark": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],

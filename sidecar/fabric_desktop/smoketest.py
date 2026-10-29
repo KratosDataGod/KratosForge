@@ -181,7 +181,7 @@ class SmokeTest:
 
     def _client(self) -> str:
         # app_settings gives Microsoft's client id when nothing is set, so only another id counts
-        if self.client_id and self.client_id != MICROSOFT_CLIENT_ID:
+        if self.client_id and self.client_id.strip().lower() != MICROSOFT_CLIENT_ID.lower():  # a GUID in any case
             raise RuntimeError("Settings > Advanced > App ID (or FABRIC_DESKTOP_CLIENT_ID) is set, so this run "
                                "signs in with your own app registration. Clear it to test Microsoft's client.")
         return "No App ID set: signs in with Microsoft's client."

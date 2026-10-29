@@ -4,7 +4,7 @@ The metadata framework builds and runs your medallion layers (Bronze, Silver, Go
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
-> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app. Some things this guide marks Preview are settings in your project files rather than screens, such as reading **in batches** (`batch_by`), [reliability objectives](#reliability-objectives-preview) and [release records](#release-records). Turning Preview features off (`show_preview`) hides screens only, so these still run whenever a project sets them.
+> **Tested and not yet tested.** Everything that runs on your PC, including Dev on the PC, the four gates and every load mode, is covered by automated tests on every build. Features that talk to Fabric (promote to Test and Prod, runs in Fabric, Optimize, the semantic model, history and restore, the variable library) are built to Fabric's documented APIs but haven't yet been tried on a live tenant. Several are tagged **Preview** in the app. Some things this guide marks Preview are settings in your project files rather than screens, such as reading **in batches** (`batch_by`), [reliability objectives](#reliability-objectives-preview) and [release records](#release-records). Turning Preview features off (`show_preview`) hides screens only, so these still run whenever a project sets them. The exception is a notebook's MERGE INTO, UPDATE and DELETE, which then run in Fabric instead of on this PC.
 
 ## Ideas in one page
 
@@ -122,8 +122,8 @@ Every hook, custom check and custom step needs an `owner` and a `test`, or the s
 | --- | --- | --- |
 | Full reload | `full` | Replaces the table with what the source has now. |
 | Incremental | `incremental` | Reads only rows whose `watermark` column is past the last run's, and merges them on the key. Only the table's files that hold changed rows are rewritten (see [Large tables](#large-tables)). |
-| Type 1 dimension | `scd1` | Merges on the key, overwriting changes. Surrogate keys are issued once and never renumbered. An Unknown member is at -1. |
-| Type 2 dimension | `scd2` | A change in a `tracked` column closes the current row and adds a new version with `valid_from`, `valid_to` and `is_current`. Columns in `type1` are overwritten on every version. |
+| Type 1 dimension | `scd1` | Merges on the key, overwriting changes. Surrogate keys are issued once and never renumbered; new rows get theirs in business-key order, so the same input gives the same keys on every run. An Unknown member is at -1. |
+| Type 2 dimension | `scd2` | A change in a `tracked` column closes the current row and adds a new version with `valid_from`, `valid_to` and `is_current`. Columns in `type1` are overwritten on every version. New versions get their surrogate keys in business-key order, as Type 1 rows do. |
 
 **Key tables in LH_Keys** are read only as far as a run needs. A run with up to 50,000 business keys reads just their rows, skipping the files whose range of business keys can't hold one. The next key comes from the Delta log's statistics. A run with more business keys reads the key table once, which is quicker than filtering by that many values; a run of 1 million keys against a 2 million key table takes about as long as reading the table. Keys from the platform (SQL_Platform or SQL_Keys) are issued per run in SQL.
 

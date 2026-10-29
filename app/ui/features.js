@@ -144,6 +144,15 @@ function learnMore(anchor, label = "Learn more") {
   } }, label);
 }
 
+// A link to a docs page section the engine names, like a best-practice finding's url
+// ("sql-best-practices.md#sq002"). open_doc refuses anything that isn't a docs page.
+function docLink(page, label) {
+  return h("a", { href: "#", class: "learn-more", onclick: (e) => {
+    e.preventDefault();
+    attempt(() => invoke("open_doc", { page }), "Could not open the guide");
+  } }, label);
+}
+
 // "How this works": the panel beside a page or tab that says what it reads, what it changes and where
 // its results go, then links to its section of the guide. It folds to its title, remembered on this
 // PC. Every new page or tab gets one (docs/ui-guidelines.md); withHowItWorks puts it on the right,

@@ -77,6 +77,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
    - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
+   A pull request's CI runs only the slower jobs its changed paths need (the `changes` job in ci.yml): a job it doesn't need ends as skipped, not failed. A docs-only PR skips the Windows jobs and the browser tests, and a PR that changes only the shell or UI skips the Linux engine tests. A skipped job is proven only by the run on `main`, which always runs every job.
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.
 7. **Ask for the merge round.** One question to Chris naming the PRs, the order and the evidence. Nothing merges without his go for that round.
 8. **Merge** in order, waiting for each merge's `main` CI where the next PR conflicts with it. Watch the Preview publish of `main`'s newest commit.

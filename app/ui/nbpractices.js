@@ -144,7 +144,7 @@ function practicesContent(nb) {
       h("p", { class: "comment-text" }, f.description),
       h("div", { class: "row" }, h("button", { class: "link-btn", onclick: () => practiceGo(nb, f) }, `Go to cell ${f.n}, line ${f.line}`),
         h("span", { class: "muted-text" }, `${f.rule_id} · ${f.category}`),
-        f.url ? docLink(f.url, `About ${f.rule_id}`) : null))));
+        f.url ? docLink(f.url, `About ${f.rule_id}`) : null, learnFindingLink(f.rule_id)))));
   }
   body.append(h("p", { class: "muted-text" }, p.policies.length
     ? `Tuned by ${p.policies.join(", ")}: a rule a policy turns off isn't shown.`

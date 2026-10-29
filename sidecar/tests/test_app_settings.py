@@ -105,6 +105,15 @@ def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(d
     assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
 
 
+def test_learn_mode_defaults_to_focus_and_a_policy_can_set_it(dirs):
+    assert app_settings.load()["learn_mode"] == {"value": "focus", "source": "default"}
+    assert app_settings.save({"learn_mode": "guided"})["learn_mode"]["value"] == "guided"
+    with pytest.raises(ValueError, match="focus, guided, learning"):
+        app_settings.save({"learn_mode": "loud"})
+    dirs.write_text(json.dumps({"learn_mode": "learning"}))
+    assert app_settings.load()["learn_mode"] == {"value": "learning", "source": "policy"}
+
+
 def test_forge_animations_off_still_means_motion_off(dirs):
     app_settings.save({"forge_animations": False})
     assert app_settings.load()["motion_level"] == {"value": 0, "source": "user"}

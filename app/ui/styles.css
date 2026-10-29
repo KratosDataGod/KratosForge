@@ -2568,6 +2568,10 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-eyebrow { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .learn-continue h2 { margin: 4px 0; }
 .learn-section { font-size: 16px; margin: 4px 0 0; }
+.learn-guidance { gap: 6px; color: var(--muted); }
+.learn-home-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+.learn-suggest { display: flex; flex-direction: column; gap: 6px; }
+.learn-finding:not(:empty) { margin-left: 8px; }
 .learn-body > .card > h2:first-child { margin-top: 0; }
 .learn-grid, .learn-paths { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .learn-card { display: flex; flex-direction: column; gap: 6px; text-align: left; font: inherit; color: inherit; cursor: pointer; }

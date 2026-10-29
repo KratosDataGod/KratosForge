@@ -2,6 +2,7 @@ import base64
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import polars as pl
@@ -142,6 +143,8 @@ def test_server_keeps_prints_out_of_the_protocol_and_speaks_utf8(tmp_path):
     proc = subprocess.Popen([sys.executable, "-m", "fabric_desktop.server"], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=err, encoding="utf-8",
                             env={"LOCALAPPDATA": str(tmp_path), **_base_env()})
+    hung = threading.Timer(120, proc.kill)  # a hung engine fails the test instead of blocking readline forever
+    hung.start()
 
     def ask(rid, method, **params):
         proc.stdin.write(json.dumps({"id": rid, "method": method, "params": params}, ensure_ascii=False) + "\n")
@@ -162,6 +165,7 @@ def test_server_keeps_prints_out_of_the_protocol_and_speaks_utf8(tmp_path):
         proc.wait(timeout=60)
         assert "native noise" in (tmp_path / "stderr.txt").read_text(encoding="utf-8")
     finally:
+        hung.cancel()
         proc.kill()
         err.close()
 

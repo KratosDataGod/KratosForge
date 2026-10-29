@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__, fabric_api, livetest
+from .auth import MICROSOFT_CLIENT_ID
 
 SCHEMA = "smoke-test-result@1"
 _TOKEN = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
@@ -98,7 +99,7 @@ class SmokeTest:
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.dir = Path(out_dir) / self.run_id
         self.run_in_fabric = run_in_fabric
-        self.client_id = client_id  # an own app registration from Settings; flow 2 needs it empty
+        self.client_id = client_id  # an own app registration from Settings; flow 2 needs it empty or Microsoft's
         # Builds the LiveTest that does every write; the CLI passes the real one, tests a faked one.
         self.live_test = live_test
         self.support_bundle = support_bundle or _support_bundle
@@ -154,10 +155,11 @@ class SmokeTest:
         return self._finish(started)
 
     def _client(self) -> str:
-        if self.client_id:
-            raise RuntimeError("Settings > Advanced > App ID is set, so this run signs in with your own app "
-                               "registration. Clear it to test Microsoft's client.")
-        return "No App ID set."
+        # app_settings gives Microsoft's client id when nothing is set, so only another id counts
+        if self.client_id and self.client_id != MICROSOFT_CLIENT_ID:
+            raise RuntimeError("Settings > Advanced > App ID (or FABRIC_DESKTOP_CLIENT_ID) is set, so this run "
+                               "signs in with your own app registration. Clear it to test Microsoft's client.")
+        return "No App ID set: signs in with Microsoft's client."
 
     def _token(self, method: str) -> str:
         if not getattr(self.credential, method)():

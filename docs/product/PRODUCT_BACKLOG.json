@@ -1451,7 +1451,9 @@
       "problem": "There is no list of which pipeline activities can run locally.",
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-002).",
       "evidence": [
-        "No activity registry in the repo"
+        "sidecar/fabric_desktop/orchestration/registry.py and activities.py: 28 entries at registry version 7 (15 local, 5 static, 8 cloud), with the overclaim rules and a fingerprint test",
+        "sidecar/tests/test_activity_registry.py: 77 tests pass on main at d0747a66 (2026-10-28)",
+        "fabric-desktop pipeline compat|activities, Service pipeline_compatibility and pipeline_activity_registry, two Preview capabilities; docs/orchestration/activity-registry.md"
       ],
       "depends_on": [
         "PB-035"
@@ -1483,7 +1485,9 @@
         "priority": "P1"
       },
       "prs": [
-        150
+        150,
+        563,
+        568
       ],
       "features": [
         "FEAT-ORC-09"
@@ -2703,7 +2707,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
         "Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant"

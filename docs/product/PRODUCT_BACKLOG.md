@@ -358,7 +358,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | Proposed |
 | [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | Proposed |
 | [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | Proposed |
-| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | Proposed |
+| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In review |
 | [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | Proposed |
 
 ### PB-019
@@ -407,7 +407,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-068
 
-**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · Proposed
+**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · In review
 
 - **Problem:** Every keyed run reads the whole key table, which grows with the business.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.
@@ -480,11 +480,11 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** There is no list of which pipeline activities can run locally.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-002).
-- **Current-state evidence:** No activity registry in the repo
+- **Current-state evidence:** sidecar/fabric_desktop/orchestration/registry.py and activities.py: 28 entries at registry version 7 (15 local, 5 static, 8 cloud), with the overclaim rules and a fingerprint test; sidecar/tests/test_activity_registry.py: 77 tests pass on main at d0747a66 (2026-10-28); fabric-desktop pipeline compat|activities, Service pipeline_compatibility and pipeline_activity_registry, two Preview capabilities; docs/orchestration/activity-registry.md
 - **Inventory features:** [FEAT-ORC-09](FEATURE_INVENTORY.md#feat-orc-09)
 - **Dependencies:** [PB-035](#pb-035)
 - **Owner:** Local Fabric pipeline execution (ORCH-002)
-- **Pull requests:** [#150](https://github.com/KratosDataGod/KratosForge/pull/150)
+- **Pull requests:** [#150](https://github.com/KratosDataGod/KratosForge/pull/150), [#563](https://github.com/KratosDataGod/KratosForge/pull/563), [#568](https://github.com/KratosDataGod/KratosForge/pull/568)
 - **Acceptance criteria:**
     - As defined in ORCH-002 by its owning thread
 

@@ -740,11 +740,11 @@ class SqlExecutions:
             os.replace(partial, export.path)  # over the empty file that reserved the name
             export.state = "completed"
         except _Stopped:
+            _discard(partial, export.path)  # before the state changes: a finished export leaves no files
             export.state = "cancelled"
-            _discard(partial, export.path)
         except Exception as exc:  # noqa: BLE001 - shown on the page
-            export.state, export.error = "failed", str(exc) or type(exc).__name__
             _discard(partial, export.path)
+            export.state, export.error = "failed", str(exc) or type(exc).__name__
 
     # ---- clean-up
 

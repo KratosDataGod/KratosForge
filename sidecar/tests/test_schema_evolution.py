@@ -371,3 +371,61 @@ def test_a_failure_after_the_commit_keeps_the_note_that_the_schema_history_wasnt
     assert res.status == "failed" and res.delta_version is not None
     assert res.message == ("OSError: files not recorded; "
                            "couldn't save the schema history (OSError: the meta lakehouse is read only)")
+
+
+# --------------------------------------------------------------------------- reads per run (#1009)
+
+
+def counted(s: Setup, monkeypatch) -> dict:
+    """Counts what a run reads for the schema history: the table's log at a version, and the history."""
+    seen = {"versioned scans": 0, "whole history": 0, "history where": []}
+    scan, meta, where = s.store.scan, s.store.meta, s.store.read_where
+
+    def scan_(lakehouse, schema, table, version=None):
+        if (lakehouse, table, version is not None) == ("LH_Bronze", "events", True):
+            seen["versioned scans"] += 1
+        return scan(lakehouse, schema, table, version)
+
+    def meta_(table):
+        seen["whole history"] += table == "schema_history"
+        return meta(table)
+
+    def where_(lakehouse, schema, table, cond, columns=None, version=None):
+        if table == "schema_history":
+            seen["history where"].append(str(cond))
+        return where(lakehouse, schema, table, cond, columns, version)
+    monkeypatch.setattr(s.store, "scan", scan_)
+    monkeypatch.setattr(s.store, "meta", meta_)
+    monkeypatch.setattr(s.store, "read_where", where_)
+    return seen
+
+
+@pytest.mark.parametrize("change", [False, True], ids=["same schema", "added column"])
+def test_a_run_reads_the_schema_once_and_only_its_own_history(tmp_path, monkeypatch, change):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+    new = rows([10], DAY2)
+    s.source(new.with_columns(pl.lit("eu").alias("region")) if change else new)
+    seen = counted(s, monkeypatch)
+    res = s.run(day=DAY2)
+    assert seen["versioned scans"] == 0 and seen["whole history"] == 0
+    assert seen["history where"] == ([str(pl.col("entity") == "bronze.events")] if change else [])
+    monkeypatch.undo()
+    if change:
+        assert history(s)[-1] == {"change": "added", "columns": "region", "detail": "region string", "breaking": False,
+                                  "delta_version": res.delta_version, "schema_version": 2}
+    else:
+        assert len(history(s)) == 1
+
+
+def test_the_kept_schema_is_the_one_the_log_gives(tmp_path):
+    """The schema a write keeps is read the same way as one read from the log, so the history
+    never records a change that is only a difference in how it was read."""
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1).with_columns(pl.lit("eu").alias("region")))
+    res = s.run()
+    kept = s.store.written_schema("LH_Bronze", "dbo", "events", res.delta_version)
+    assert kept is not None
+    assert kept == s.store.scan("LH_Bronze", "dbo", "events", res.delta_version).collect_schema()
+    assert s.store.written_schema("LH_Bronze", "dbo", "events", res.delta_version - 1) is None

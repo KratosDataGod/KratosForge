@@ -176,7 +176,7 @@ test("Compare lists each object's state, shows the difference and can take the w
   await page().waitForFunction(() => !document.querySelector(".wh-cmp") && sqlPage.tabs[sqlPage.active].proj?.path === "dbo/Tables/DimCustomer.sql");
   await page().getByRole("tab", { name: "Compare" }).click();
   await view.waitFor();
-  await page().getByRole("button", { name: "Close Compare" }).click();
+  await page().getByRole("tab", { name: "Compare" }).press("Delete");  // the × is mouse-only; Delete closes the tab
   assert.strictEqual(await page().getByRole("tab", { name: "Compare" }).count(), 0);
 });
 

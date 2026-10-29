@@ -542,7 +542,8 @@ h2.flush { margin: 0; }
 /* SQL query page */
 .sql-page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .sql-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px 16px 16px; min-height: 0; }
-.sql-tabs { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; }
+.sql-tabbar { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; }
+.sql-tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; }
 .sql-tab { display: inline-flex; align-items: center; min-height: 36px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; }
 .sql-tab.on { background: var(--surface); border-color: var(--border); font-weight: 600; }
 .sql-tab .name, .sql-tab .close, .sql-tab.add { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border: 0; background: transparent; font: inherit; font-size: 13px; color: inherit; cursor: pointer; white-space: nowrap; }
@@ -553,6 +554,7 @@ h2.flush { margin: 0; }
 .sql-actions, .sql-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .sql-edit { position: relative; height: 260px; flex: none; border-bottom: 1px solid var(--border); resize: vertical; overflow: hidden; min-height: 100px; }
 .sql-edit .cm-editor { height: 100%; }
+.sql-edit .cm-editor:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }  /* where the keyboard is (#905) */
 .sql-editor-row { display: flex; border-bottom: 1px solid var(--border); }
 .sql-editor-row .sql-edit { flex: 1; min-width: 0; border-bottom: 0; }
 .sql-compat { position: relative; width: 300px; flex: none; border-left: 1px solid var(--border); }
@@ -2511,6 +2513,10 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field select { padding: 4px; min-height: 0; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
+
+/* A folder box with Browse… beside it (#971, folderField in app.js). */
+.folder-field { display: flex; gap: 8px; align-items: center; }
+.folder-field > input { flex: 1; min-width: 0; }
 
 /* Windows High Contrast (contrast themes): WebView2 applies forced colors, which repaint every color
    with the theme's own and drop backgrounds and box-shadows. Selected and current items are marked

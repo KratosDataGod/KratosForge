@@ -3,8 +3,7 @@ approvals, recent activity (approvals and executions) and Test connection, which
 server the way the tool will."""
 
 import json
-import os
-import sys
+from pathlib import Path
 
 import pytest
 
@@ -19,7 +18,9 @@ from fabric_desktop.service import Service
 def svc(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
-    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(sys.path))
+    # The engine's own folder, so the MCP server Test connection starts imports this checkout. Not all of
+    # sys.path: on a Windows test worker it can outgrow the 32767 characters a variable may hold.
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
     return Service(root=tmp_path / "FabricDesktop")
 
 

@@ -179,6 +179,14 @@ class Client:
         """A cluster's spark_version and state (Clusters API). Reading never starts it."""
         return self._call("GET", "/api/2.1/clusters/get", params={"cluster_id": _checked_id(cluster_id, "cluster")})
 
+    def stop_warehouse(self, warehouse_id: str) -> None:
+        """Ask the warehouse to stop (SQL Warehouses API). Only the live test calls it."""
+        self._call("POST", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}/stop")
+
+    def terminate_cluster(self, cluster_id: str) -> None:
+        """Terminate the cluster, keeping its definition (Clusters API ``delete``). Only the live test calls it."""
+        self._call("POST", "/api/2.1/clusters/delete", json={"cluster_id": _checked_id(cluster_id, "cluster")})
+
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
 

@@ -71,6 +71,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import jsonfile
 from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
@@ -168,12 +169,23 @@ class Mailbox:
                  entities: list[str] | None = None, allow_backfill: bool = False, retention_days: float = 14,
                  known_entities: Callable[[], set[str]] | None = None, log: logging.Logger | None = None,
                  claim: str = "always", take_over: bool = False, max_attempts: int = 3,
-                 verify_run: Callable[[str, str, str], dict[str, Any]] | None = None, require_run: bool = False):
+                 verify_run: Callable[[str, str, str], dict[str, Any]] | None = None, require_run: bool = False,
+                 runs_file: Path | None = None):
         self.agent, self.environments = agent, list(environments)
         self.claim = claim  # "when_free": leave new requests for an agent with a worker free
         self.take_over, self.max_attempts = take_over, max(1, int(max_attempts))
         # verify_run(env, item_id, run_id) returns Fabric's job instance (Runtime.verify_pipeline_run)
         self.verify_run, self.require_run = verify_run, require_run
+        # With require_run, the pipeline runs already accepted, {env: {run_id: {"request_id", "at"}}}, kept
+        # on this PC for RUN_MAX_AGE so one run vouches for one request only (#969)
+        self._runs_file = runs_file
+        self._runs: dict[str, dict[str, dict[str, Any]]] = {}
+        self._runs_lock = threading.Lock()  # _claim runs under self._lock already
+        if runs_file is not None:
+            loaded = jsonfile.read_json(runs_file, {})
+            self._runs = {env: {run: dict(e) for run, e in runs.items()  # a hand-edited entry without a time is dropped
+                                if isinstance(e, dict) and isinstance(e.get("at"), (int, float)) and not isinstance(e["at"], bool)}
+                          for env, runs in loaded.items() if isinstance(runs, dict)} if isinstance(loaded, dict) else {}
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
         self.retention = retention_days * 86400
@@ -309,6 +321,10 @@ class Mailbox:
                 if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
                     return  # Fabric couldn't answer just then; ask again next poll
                 reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
+            elif self.require_run:
+                other = self._run_used(env, request["pipeline_run"]["run_id"], rid, now)
+                if other:
+                    reason = f"pipeline run {request['pipeline_run']['run_id']} already asked for request {other}"
         if reason:
             status = base | {"state": "rejected", "reason": reason}
         elif self.control(env).read(f"cancel/{rid}.json") is not None:
@@ -319,9 +335,29 @@ class Mailbox:
             status = base | {"state": "accepted"}
         if not self._write_status(env, rid, status, None):
             return  # another agent claimed it first
+        if self.require_run and status["state"] == "accepted" and request.get("pipeline_run"):
+            self._run_taken(env, request["pipeline_run"]["run_id"], rid, now)
         self.log.info(f"pipeline request {status['state']}", extra=fields(env=env, request_id=rid, reason=status.get("reason")))
         if status["state"] == "accepted":
             self._sync(env, rid, *self._read(env, f"status/{rid}.json"))  # type: ignore[arg-type]
+
+    def _run_used(self, env: str, run_id: str, rid: str, now: float) -> str | None:
+        """The other request ``run_id`` already vouched for within RUN_MAX_AGE, or None. The same
+        request id asking again is the same request."""
+        with self._runs_lock:
+            entry = self._runs.get(env, {}).get(run_id)
+        if entry and now - float(entry.get("at") or 0) <= RUN_MAX_AGE and entry.get("request_id") != rid:
+            return str(entry.get("request_id"))
+        return None
+
+    def _run_taken(self, env: str, run_id: str, rid: str, now: float) -> None:
+        with self._runs_lock:
+            for runs in self._runs.values():  # drop what's past RUN_MAX_AGE as we go
+                for old in [r for r, e in runs.items() if now - float(e.get("at") or 0) > RUN_MAX_AGE]:
+                    del runs[old]
+            self._runs.setdefault(env, {})[run_id] = {"request_id": rid, "at": now}
+            if self._runs_file is not None:
+                jsonfile.write_json(self._runs_file, self._runs)
 
     def _parse(self, env: str, rid: str, data: bytes) -> tuple[dict[str, Any], str]:
         if len(data) > MAX_REQUEST_BYTES:

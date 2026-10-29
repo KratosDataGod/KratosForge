@@ -1,7 +1,7 @@
 # Engines and connection profiles (Preview)
 
 KratosForge is growing from "this PC or Fabric" into one place to develop for Microsoft Fabric,
-Azure Databricks, or both. This page describes the two foundations that work is built on, what
+Azure Databricks and Snowflake, alone or together. This page describes the two foundations that work is built on, what
 they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
 is the engine underneath, built and tested first so the screens can't promise more than it does.
 
@@ -40,6 +40,9 @@ client, and stay Preview until they have.
 | Fabric Spark (remote) | Fabric capacity | none yet | none yet | | | | Fabric capacity | Planned, Preview |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
+| Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
+| Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
+| Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
 Fabric capacity**, so "runs on this PC" never means "uses no capacity".
@@ -140,17 +143,18 @@ A profile can also forbid remote compute altogether.
 
 Every run records what it used, labeled as one of: **measured** on this PC, **billed** by the
 platform (with where the bill came from), or **estimated** (with its assumptions). Fabric capacity
-unit seconds and Databricks DBUs are different units, priced differently: KratosForge never adds
-them together or converts one into the other. Comparing money needs your pricing, in Optimize.
+unit seconds, Databricks DBUs and Snowflake credits are different units, priced differently:
+KratosForge never adds them together or converts one into the other. Comparing money needs your pricing, in Optimize.
 
 ## Connection profiles
 
 A profile needs only a name and a kind: **This PC only**, **Microsoft Fabric**, **Azure
-Databricks**, or **Fabric and Databricks**. Everything else has a sensible default:
+Databricks**, **Snowflake**, or **Two or more platforms** (hybrid). Everything else has a sensible
+default:
 
 | Part | Default | What it's for |
 | --- | --- | --- |
-| Connections | The app's own Fabric sign-in | One per platform: Fabric workspace; Databricks workspace address, catalog and schema |
+| Connections | The app's own Fabric sign-in | One per platform: Fabric workspace; Databricks workspace address, catalog and schema; Snowflake account, user, role, warehouse, database and schema |
 | Default engine | DuckDB on this PC | What a new notebook runs on |
 | Environments | Dev, Test, Staging, Prod, all empty | Which workspace, catalog or schema each environment uses, per connection |
 | Deploy targets | none | Where each environment deploys, per connection (a Fabric workspace, a Databricks bundle target) |
@@ -168,13 +172,25 @@ A profile never holds a password, token or key. It holds a *reference* to one:
 | --- | --- |
 | Fabric | The app's own sign-in (default); a service principal, managed identity or workload identity for automation |
 | Databricks | A profile from the Databricks CLI's config file; browser sign-in (OAuth); a service principal (OAuth machine-to-machine) |
+| Snowflake (planned) | Browser sign-in through Snowflake's built-in local application (default); a key pair (the private key file's path, and its passphrase as a reference); a programmatic access token (as a reference); a connection from the Snowflake CLI |
 
 A service principal's secret is named as `env:NAME` (an environment variable) or `credman:TARGET`
 (Windows Credential Manager). KratosForge refuses to save or import a profile with anything that
 looks like a token, key or password in it, and it never repeats the value in its error.
 
-For Fabric and Databricks together, each platform keeps its own sign-in, workspaces and deploy
-targets, and the two can't share a secret.
+In a hybrid profile, each platform keeps its own sign-in, workspaces and deploy targets, and no two
+platforms can share a secret.
+
+A Snowflake connection names the account by its identifier (`myorg-myaccount`, or a legacy locator
+such as `xy12345.east-us-2.azure`), never by a URL; the address is always
+`https://<account>.snowflakecomputing.com`. On Windows a private key file must be a full path on a
+drive (`C:\keys\snowflake.p8`): a network share path is refused, so reading the key never reaches
+another computer. Nothing signs in to Snowflake yet; the sign-in methods are recorded so a profile
+made now keeps working when they arrive.
+
+Profiles that use only Fabric and Databricks are still saved in the format older versions of
+KratosForge read, so a profile shared with someone who hasn't updated still opens for them. A
+profile with Snowflake, or any other mix of platforms, needs this version or later.
 
 ### Databricks CLI profiles
 
@@ -183,10 +199,22 @@ in `~/.databrickscfg` (or `DATABRICKS_CONFIG_FILE`) so you can pick one. It neve
 client secrets. A profile that keeps a personal access token in that file gets a warning, because
 `databricks auth login` keeps tokens out of plain text. Only Azure Databricks is supported for now.
 
+### Snowflake CLI connections
+
+If you already use the Snowflake CLI, KratosForge reads its connection names, accounts, users,
+roles, warehouses, databases and schemas so you can pick one. It looks where the CLI does:
+`SNOWFLAKE_HOME` if it's set (if that folder doesn't exist it finds nothing, as the CLI does), else
+`~/.snowflake`, else `%USERPROFILE%\AppData\Local\snowflake`, and `connections.toml` there wins
+over the connections in `config.toml`. It never reads out passwords, tokens, private keys or
+passphrases. A connection that keeps one in the file gets a warning, and a file it can't read says
+only that, never which line was wrong. A connection that signs in with browser single sign-on is
+listed but can't be used yet.
+
 ### Sharing a profile
 
 Export writes a profile without anything tied to your PC: secret references, the Databricks CLI
-profile name and the last check are removed. Whoever imports it adds their own sign-in; the
+profile name, the Snowflake CLI connection name, the private key file's path and the last check are
+removed. Whoever imports it adds their own sign-in; the
 imported profile says what's missing.
 
 ### Switching profiles
@@ -197,6 +225,10 @@ and outputs stay. A notebook with unsaved changes must be saved or discarded fir
 ## Not yet
 
 - No screens: the notebook's engine picker and profile setup come next, after a mockup.
+- Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
+  Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
+  will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's
+  local testing framework, which can't run `session.sql` and implements only some functions.
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
   through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
   Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.

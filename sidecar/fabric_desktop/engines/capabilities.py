@@ -29,9 +29,9 @@ from typing import Any
 LEVELS = ("native", "partial", "simulated", "translated", "unsupported")
 EVIDENCE = ("none", "unit_tests", "live_verified")
 LOCATIONS = ("local", "remote")
-PLATFORMS = ("local", "fabric", "databricks")
+PLATFORMS = ("local", "fabric", "databricks", "snowflake")
 # How running on the engine is paid for. Never converted into each other (ADR-006).
-BILLING = ("none", "fabric_capacity", "databricks_dbu")
+BILLING = ("none", "fabric_capacity", "databricks_dbu", "snowflake_credits")
 CAPABILITIES = {
     "session": "Start and dispose a session",
     "execute": "Run a cell",

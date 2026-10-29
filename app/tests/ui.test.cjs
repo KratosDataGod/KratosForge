@@ -5377,6 +5377,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Fabric Spark": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],

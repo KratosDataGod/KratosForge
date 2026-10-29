@@ -96,7 +96,7 @@ def check() -> tuple[list[str], list[str]]:
             if sid not in backlog and sid not in queues.get("new_stories", {}):
                 errors.append(f"{key}: backlog story {sid} doesn't exist")
     errors += _check_side(queues, seen)
-    short += [f"side program {sp['key']}: {n} stories at review, over its cap of {sp['review_cap']}"
+    short += [f"side program {sp.get('key') or '?'}: {n} stories at review, over its cap of {sp['review_cap']}"
               for sp in queues.get("side_programs", [])
               if isinstance(sp.get("review_cap"), int)
               and (n := sum(1 for st in sp.get("stories", []) if st.get("status") == "review")) > sp["review_cap"]]

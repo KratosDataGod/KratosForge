@@ -138,6 +138,13 @@ class SideProgramTest(_Base):
         self.assertEqual(errors, [])
         self.assertIn("side program pbe: 2 stories at review, over its cap of 1", short)
 
+    def test_missing_key_is_an_error_not_a_crash(self) -> None:
+        sp = _side() | {"key": "", "review_cap": 1}
+        sp["stories"] = [{"issue": 1127, "title": "Host", "status": "review"}, {"issue": 1128, "title": "Token", "status": "review"}]
+        errors, short = self.run_check(_queues() | {"side_programs": [sp]})
+        self.assertIn("side program ?: no key", errors)
+        self.assertIn("side program ?: 2 stories at review, over its cap of 1", short)
+
     def test_issue_in_a_queue_and_a_side_program_is_an_error(self) -> None:
         sp = _side()
         sp["stories"].append({"issue": 900, "title": "Issue-only slot", "status": "ready"})

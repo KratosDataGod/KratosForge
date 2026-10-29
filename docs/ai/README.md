@@ -7,6 +7,7 @@ KratosForge is **AI-ready, not AI-dependent**. It has no AI of its own: no chat,
 | This page | Connecting a tool, step by step, with the setup for each one |
 | [Workflows](workflows.md) | Step-by-step workflows your tool can follow (also served as MCP prompts) |
 | [Instructions for your AI tool](agent-instructions.md) | Text to paste into `AGENTS.md`, `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` |
+| [Use with Microsoft's Fabric skills](microsoft-fabric-skills.md) | The KratosForge skill for Claude Code and GitHub Copilot CLI, and how it works beside Microsoft's Fabric skills |
 | [Architecture](../architecture/ai-integration.md), [security](../product/ai-integration-security.md), [compatibility](../product/ai-integration-compatibility.md) | Developers and IT |
 
 ## Which tools have been tried

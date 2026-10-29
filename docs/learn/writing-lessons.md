@@ -27,14 +27,39 @@ Each module or lab is a folder under `sidecar/fabric_desktop/learn/content/`, na
 | `objectives` | What the learner can do afterwards, one line each |
 | `prerequisites` | Module ids to do first |
 | `platforms`, `engines` | Where the lesson applies; the engines its exercises run on (`duckdb`, `polars`, `pandas`, `delta`, `kernel`, `pipeline`, `model`) |
-| `lesson`, `datasets` | Usually `lesson.md`; generated datasets it uses (the lab runner adds them) |
-| `exercises` | Each with `id`, `prompt`, `engine`, optional `setup` and `starter`, `solution`, `checks` and, for SQL, `expected` (`columns` and `rows`) |
+| `lesson`, `datasets`, `size` | Usually `lesson.md`; generated datasets it uses (`shop`); their size, `S` (1,000 orders), `M` (100,000) or `L` (2,000,000), `S` if left out |
+| `exercises` | Each with `id`, `prompt`, `engine`, optional `setup` and `starter`, `solution`, `hints` (a nudge first, nearly the answer last), `checks` and, for SQL, `expected` (`columns` and `rows`) |
 | `rules` | Best-practice rule ids the lesson teaches, such as `SQ002`. A finding of that rule links here |
 | `docs` | Pages in this guide (`sql-best-practices.md#sq002`) or the platform's own documentation |
 | `version`, `status`, `reviewed` | Bump `version` when the content changes; `draft`, `live` or `retired`; the last review date, required when live |
 
-A check is one of `result_matches` (with `ordered` when order matters), `table_shape`,
-`integrity`, `no_findings` (with `rules`), `faster_than` and `defects_found`.
+## Checks
+
+Every check says in words why it passed or failed, so the learner knows what to change.
+
+| Check | Passes when | Settings |
+| --- | --- | --- |
+| `result_matches` | The answer gives the reference answer: `expected` if given, else the solution's | `ordered`: the order counts too |
+| `table_shape` | A table the answer makes has these columns and types, unique keys and no empty values | `table`, `columns` (`{name: type}`), `unique`, `not_null` |
+| `integrity` | Every row of a child table finds its parent | `child`, `column`, `parent`, `parent_column` |
+| `no_findings` | The answer has no finding of these best-practice rules | `rules` |
+| `faster_than` | Same answer as the baseline, at least `factor` times faster (median of `runs` runs on this PC) | `baseline` (a file), `factor` (2), `runs` (3) |
+| `defects_found` | The answer lists (table, key) for every seeded defect | `kinds`: only these defect kinds |
+
+## Datasets
+
+`shop` has `customers`, `stores`, `products` and `orders`, made on this PC from a seed: the same seed
+always gives the same rows. Unless a lab turns them off, six defects are put in on purpose, one of
+each kind: a customer listed twice, a missing email, a region in lower case, a negative amount, an
+order dated in the future, and an order from a store that doesn't exist. The lab records which rows
+they are, so `defects_found` knows the answer.
+
+## How a lab runs
+
+A lab lives in its own folder, `learn/<id>` in the app's data folder, with a DuckDB database of its
+datasets and setup tables and the learner's answers. The answer runs with no access to files or the
+network, inside a transaction that is always undone, so checking it never changes the lab. The lab
+code doesn't talk to Fabric or OneLake at all. **Reset** deletes the folder and starts again.
 
 ## Rules for content
 
@@ -50,11 +75,12 @@ A check is one of `result_matches` (with `ordered` when order matters), `table_s
 `sidecar/tests/test_learn_content.py` runs in CI. It fails when a module names something that
 doesn't exist (a rule, a prerequisite, a path, a file, a dataset, a check), when prerequisites go
 round in a circle, when a live module has no review date, when a lesson has raw HTML, or when a SQL
-reference solution doesn't give its `expected` answer. Run it with:
+reference solution doesn't give its `expected` answer. `test_learn_labs.py` starts every DuckDB
+module as a lab and checks that each reference solution passes all of its own checks. Run them with:
 
 ```
 cd sidecar
-python -m pytest -q tests/test_learn_content.py
+python -m pytest -q tests/test_learn_content.py tests/test_learn_labs.py
 ```
 
 A reviewer also checks that the lesson is technically accurate for the platforms it names, that it

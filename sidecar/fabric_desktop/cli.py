@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -70,6 +70,17 @@ def main(argv: list[str] | None = None) -> None:
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    dbx = sub.add_parser("live-test-databricks", help="check sign-in, Unity Catalog, a SQL warehouse and Databricks "
+                         "Connect against a test warehouse and cluster")
+    dbx.add_argument("--profile", help="the Databricks CLI profile to sign in with (in ~/.databrickscfg)")
+    dbx.add_argument("--host", help="the workspace address, signing in with databricks auth login instead of a profile")
+    dbx.add_argument("--warehouse", help="the test SQL warehouse's id; it needs the fabric-desktop-live-test tag")
+    dbx.add_argument("--cluster", default="", help="also test Databricks Connect on this cluster; it needs the tag too")
+    dbx.add_argument("--stop-compute", action="store_true",
+                     help="afterwards, stop the warehouse and terminate the cluster if they were stopped before the run")
+    dbx.add_argument("--dry-run", action="store_true", help="say what it would do; signs in to nothing")
+    dbx.add_argument("--yes", action="store_true", help="run without asking first (it may start billable compute)")
+    dbx.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
     smoke = sub.add_parser("smoke-test", help="the ten-flow tenant smoke test (PB-002): its automated parts, "
                            "and a checklist for the rest")
     smoke.add_argument("--workspace", required=True,
@@ -241,6 +252,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_databricks_discover(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
+    if args.command == "live-test-databricks":
+        raise SystemExit(_live_test_databricks(args))
     if args.command == "smoke-test":
         raise SystemExit(_smoke_test(args))
     if args.command == "support-bundle":
@@ -476,6 +489,51 @@ def _live_test(args: argparse.Namespace) -> int:
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
 
 
+def _live_test_databricks(args: argparse.Namespace) -> int:
+    """0 every check passed, 1 a check failed, 2 refused or not started."""
+    from pathlib import Path
+
+    from . import dbx_livetest
+    from .engines import databricks_auth, databricks_sql, dbconnect
+
+    if not args.warehouse or bool(args.profile) == bool(args.host):
+        print("Name the test SQL warehouse with --warehouse <id>, and either --profile <cli profile> or --host <url>.")
+        return 2
+    credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
+    connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    if args.dry_run:
+        print("The Databricks live test will:")
+        for step in dbx_livetest.DatabricksLiveTest(connection, args.warehouse, None, None, None, Path(args.out),
+                                                    cluster_id=args.cluster, stop_compute=args.stop_compute,
+                                                    bad_token_client=object()).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, started or written.")
+        return 0
+    try:
+        tokens = databricks_auth.provider_for(connection)
+    except databricks_auth.DatabricksAuthError as exc:
+        print(exc)
+        return 2
+    connection["host"] = tokens.host
+    client = databricks_sql.Client(tokens)
+    sql = databricks_sql.DatabricksSqlAdapter(client_for=lambda conn: databricks_sql.Client(tokens))
+    connect = dbconnect.DatabricksConnectAdapter() if args.cluster else None
+    test = dbx_livetest.DatabricksLiveTest(connection, args.warehouse, tokens, client, sql, Path(args.out),
+                                           cluster_id=args.cluster, connect_adapter=connect,
+                                           stop_compute=args.stop_compute)
+    print("The Databricks live test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? It may start the warehouse or cluster, which bills DBUs. [y/N] ").strip().lower() \
+            not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(dbx_livetest.summary(result))
+    print("\n".join(result["files"]))
+    return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
 def _path_arg(args: argparse.Namespace) -> str:
     """The file an `nb` command names: its argument, or the variable --path-from-env names (VS Code's
     tasks pass ${file} that way, so cmd.exe never reads a name such as a&b.ipynb)."""
@@ -653,6 +711,8 @@ def _pipeline(args: argparse.Namespace) -> int:
             if s["needs_fabric_capacity"]:
                 print("these can't run on this PC yet, and Fabric meters every activity run"
                       + (f"; Fabric only: {', '.join(s['fabric_only'])}" if s["fabric_only"] else ""))
+            from .orchestration.gotchas import CODES
+            _print_fabric_differences([d for d in result["diagnostics"] if d["code"] in CODES])
             c = result["counts"]
             print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
             return 0 if result["ok"] else 1
@@ -688,6 +748,11 @@ def _pipeline_schedule(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_fabric_differences(found: list[dict]) -> None:
+    for d in found:
+        print(f"in Fabric: {d['message']} {d['hint']}".rstrip())
+
+
 def _pipeline_run(args: argparse.Namespace) -> int:
     from .orchestration import load
     from .orchestration.definition import DefinitionError
@@ -718,6 +783,9 @@ def _pipeline_run(args: argparse.Namespace) -> int:
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
+    if not args.json:
+        from .orchestration.gotchas import check as fabric_differences
+        _print_fabric_differences(fabric_differences(imp))
     try:
         problems = run.check()
         acts = imp.pipeline.all_activities()

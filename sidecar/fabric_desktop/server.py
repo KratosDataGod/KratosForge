@@ -133,6 +133,11 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# The notebook's Engine picker (engines_service.py, Preview).
+from .engines_service import METHODS as ENGINE_METHODS  # noqa: E402
+
+METHODS |= ENGINE_METHODS
+
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 
@@ -238,6 +243,7 @@ QUICK = frozenset({
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
+    "engine_state", "engine_poll_cell", "engine_cancel",
 })
 
 
@@ -404,6 +410,9 @@ def main() -> None:
         runs = getattr(service, "_sql_runs", None)
         if runs is not None:
             runs.shutdown()  # end the SQL page's query processes with the engine
+        engines = getattr(service, "_engines", None)
+        if engines is not None:
+            engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
 
 
 def _start_integration_http(service: Service) -> None:

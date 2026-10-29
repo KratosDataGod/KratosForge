@@ -2,8 +2,9 @@
 
 KratosForge is growing from "this PC or Fabric" into one place to develop for Microsoft Fabric,
 Azure Databricks and Snowflake, alone or together. This page describes the two foundations that work is built on, what
-they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
-is the engine underneath, built and tested first so the screens can't promise more than it does.
+they can do today, and what is planned. With Preview features shown, a notebook picks its engine
+from the [engine picker](#engine-picker-preview); connection profiles have no screen of their own
+yet, and a Databricks connection comes from a saved profile or the Databricks CLI.
 
 - An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
   as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
@@ -143,6 +144,34 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
 
+### Databricks SQL functions on this PC
+
+Of 130 commonly used Databricks SQL built-in functions, these are the ones the DuckDB engine
+doesn't answer the same way, checked by running each one through the engine's own translation
+(sqlglot, then DuckDB) against the value Databricks gives: its documented example, or one worked by
+hand where the reference gives none. A test runs them again, so the table
+changes when an upgrade fixes or breaks one. A function not listed here or below hasn't been checked.
+
+| Function | Group | On this PC | What to know |
+| --- | --- | --- | --- |
+| `format_number` | String | Doesn't run | DuckDB has no format_number; use printf or format. |
+| `soundex` | String | Doesn't run | DuckDB has no soundex. |
+| `bround` | Math | Doesn't run | DuckDB has no banker's rounding function. |
+| `pmod` | Math | Doesn't run | DuckDB has no pmod; use ((a % b) + b) % b. |
+| `conv` | Math | Doesn't run | DuckDB has no base conversion function. |
+| `last_day` | Date and time | Doesn't run | Needs a DATE, not a string: last_day(DATE'2009-01-12') runs. |
+| `dayofweek` | Date and time | Different result | DuckDB counts from Sunday = 0, Databricks from Sunday = 1. |
+| `next_day` | Date and time | Doesn't run | DuckDB has no next_day for this argument type. |
+| `array_distinct` | Array and map | Can differ | Same items, but the order depends on the machine, not first-seen order. |
+| `sort_array` | Array and map | Different result | Ascending puts NULL last here, first on Databricks. |
+| `arrays_overlap` | Array and map | Doesn't run | DuckDB names it array_has_any. |
+| `array_union` | Array and map | Doesn't run | Not translated to a DuckDB equivalent. |
+| `exists` | Array and map | Doesn't run | The lambda isn't translated to DuckDB's syntax. |
+| `percentile` | Aggregate | Different result | Translated to a discrete quantile; Databricks interpolates. |
+| `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
+
+These 115 answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `year`, `month`, `dayofmonth`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_sort`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `approx_count_distinct`, `stddev`, `variance`, `any_value`.
+
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
@@ -235,6 +264,40 @@ A remote engine can start compute that is billed. It opens only when:
 - the connection profile's execution policy allows that engine without asking.
 
 A profile can also forbid remote compute altogether.
+
+## Engine picker (Preview)
+
+With Preview features shown (Settings), **Engine** replaces **Runs on** in the notebook ribbon,
+beside **Run all**, which stays the main button. Nothing else in the ribbon moves. With Preview
+hidden, Runs on works as before.
+
+- **Badge.** Beside the engine, *This PC* or *Remote* says where cells run; a remote engine also
+  says how it bills ("bills DBUs" for Databricks, "uses Fabric capacity" for Fabric).
+- **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
+  Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
+  stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
+- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
+  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
+  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+  planned but not built are listed under **More** as information only; they can't be chosen.
+  Hover ⓘ for what each engine runs and how it differs from the platform.
+- **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the
+  warehouse, cluster or lakehouse, the connection, how it bills, and what the 60-minute grant
+  allows. It runs a risk check first: the policy, whether the warehouse or cluster is running and
+  its auto-stop, cells that write data, and cells the engine can't run. The check is advice only
+  and never blocks; when it can't read something it says "Couldn't run" and why. A profile whose
+  policy already allows the engine skips the confirm. Nothing remote starts without one or the
+  other, and KratosForge never falls back to remote compute on its own.
+- **Switching.** Leaving an engine with a session lists what is lost (its variables) and kept
+  (cells and outputs). **Switch and close session** is red; **Keep both** keeps a local session in
+  the background. Going back to Python from another engine also closes that engine's session.
+- **Cells.** The status line under a cell names the engine that ran it. A cell the engine can't
+  run is flagged before anything runs, with the reason and **Run this cell on Python**, which runs
+  that one cell in the Python kernel on this PC; the notebook stays on its engine.
+
+The choice lasts while the app is open; it isn't saved in the notebook file yet. Engine sessions
+close when the app quits or the notebook switches back to Python, not when its tab closes. Remote
+engines have run against fakes only, not a live Fabric tenant or Databricks workspace.
 
 ## Usage figures
 
@@ -336,7 +399,7 @@ adapter has one.
 
 ## Not yet
 
-- No screens: the notebook's engine picker and profile setup come next, after a mockup.
+- No profile setup screen: connection profiles are read, not edited, by the engine picker.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

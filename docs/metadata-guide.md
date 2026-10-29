@@ -11,7 +11,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 | Idea | What it means |
 | --- | --- |
 | **Project** | A folder you keep in Git. Every table is a file in it. |
-| **Layer** | A stage of your data (Bronze, Silver, Gold). Each layer is its own schema-enabled lakehouse, `LH_<Layer>`, in every environment. Layers never mix. |
+| **Layer** | A stage of your data (Bronze, Silver, Gold). Each layer is its own schema-enabled lakehouse, `LH_<Layer>`, in every environment. Layers never mix. Microsoft's medallion guidance uses one lakehouse with a schema per layer instead ([how the two differ](ai/microsoft-fabric-skills.md)). |
 | **Entity** | One managed table, described by `metadata/entities/<layer>.<table>.toml`. |
 | **Environment** | Dev, Test and Prod. Each has its own workspace (Dev can stay on your PC). |
 | **Run** | Reading, checking and writing one or more entities in one environment. Every run goes through the same steps: read, contract, surrogate keys, clean, derive, hooks, lookups, checks, write, log. |

@@ -2508,6 +2508,30 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .platform-env { gap: 8px; }
 .platform-pages + .platform-env { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }
 
+/* Notebook engine picker (Preview): engine button, This PC / Remote badge, menu rows, confirm and switch dialogs, wrong-engine flag. */
+.engine-btn { display: inline-flex; align-items: center; gap: 6px; }
+.engine-key { color: var(--muted); font-size: 12px; }
+.engine-where { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.engine-where.local { background: var(--border-soft); color: var(--text-2); }
+.engine-where.remote { background: #fff4e5; color: #8a4b00; box-shadow: inset 0 0 0 1px var(--brand-orange); }
+.engine-scope { color: var(--muted); font-size: 12px; }
+.engine-info { display: inline-flex; color: var(--muted); cursor: help; margin-left: 4px; }
+.engine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; justify-content: flex-start; }
+.engine-bills { flex-basis: 100%; padding-left: 22px; text-align: left; color: var(--muted); font-size: 12px; }
+.engine-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 12px; }
+.engine-facts dt { color: var(--muted); }
+.engine-facts dd { margin: 0; }
+.engine-risk { margin: 4px 0 0; padding-left: 18px; }
+.engine-risk li[data-outcome="warning"] { color: #8a4b00; }
+.engine-risk li[data-outcome="unknown"] { color: var(--muted); }
+.engine-note { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.engine-switch-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+.engine-lost, .engine-kept { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.engine-lost { border-color: var(--danger); background: var(--danger-soft); }
+.engine-lost h3, .engine-kept h3 { margin: 0 0 4px; font-size: 13px; }
+.engine-lost ul, .engine-kept ul { margin: 0; padding-left: 18px; }
+.engine-flag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; padding: 6px 10px; border-radius: 6px; background: #fff4e5; color: #8a4b00; font-size: 13px; }
+
 /* A tab row whose tablist sits beside other things (Learn more): the tabs keep the row's spacing (#961). */
 .subtabs .tab-group { display: flex; gap: 4px; }
 

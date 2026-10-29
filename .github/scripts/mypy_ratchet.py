@@ -54,11 +54,24 @@ def compare(now: dict[str, dict[str, int]], baseline: dict[str, dict[str, int]])
     return worse, better
 
 
+def problem(returncode: int, stdout: str, stderr: str) -> str:
+    """Why mypy's run can't be counted, or "" when it can. Exit 1 means type errors, so an exit 1
+    with none of them is mypy not running at all, such as "No module named mypy" when it isn't
+    installed; counting that as 0 errors would pass the check without checking anything."""
+    if returncode == 0 or (returncode == 1 and count(stdout)):
+        return ""
+    if "No module named mypy" in stderr:
+        return (f"mypy isn't installed for {sys.executable}. Install the pinned version: "
+                "pip install -c sidecar/constraints.txt -c sidecar/ci-constraints.txt mypy")
+    # 2: mypy itself failed (bad settings, a crash), not type errors
+    return f"mypy failed (exit {returncode}) without reporting type errors:\n{stdout}{stderr}"
+
+
 def run_mypy() -> str:
     done = subprocess.run([sys.executable, "-m", "mypy", "--no-error-summary"], cwd=SIDECAR,
                           capture_output=True, text=True)
-    if done.returncode not in (0, 1):  # 2: mypy itself failed (bad settings, a crash), not type errors
-        sys.exit(f"mypy failed (exit {done.returncode}):\n{done.stdout}{done.stderr}")
+    if why := problem(done.returncode, done.stdout, done.stderr):
+        sys.exit(why)
     return done.stdout
 
 

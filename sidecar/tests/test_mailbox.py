@@ -525,3 +525,71 @@ def test_a_run_that_starts_in_the_future_doesnt_check_out(setup):
     done, _ = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "InProgress",
                               "startTimeUtc": fabric_time(-3600)})
     assert done["pipeline_run"]["verified"] is False and "in the future" in done["pipeline_run"]["detail"]
+
+
+# ---- #969: under require_run, one pipeline run vouches for one request
+
+GOING = {"jobType": "Pipeline", "itemId": ITEM, "status": "InProgress", "startTimeUtc": fabric_time(120)}
+
+
+def required(setup, agent=None):
+    agent = agent or Agent(setup)
+    agent.mailbox.verify_run, agent.mailbox.require_run = (lambda env, item_id, run_id: GOING), True
+    return agent
+
+
+def ask(setup, agent, rid):
+    write_request(setup, rid, {"env": "dev", "entities": ["bronze.orders"], "pipeline_run": {"item_id": ITEM, "run_id": RUN}})
+    one_pass(agent)
+    return status(setup, rid)
+
+
+def test_with_require_run_a_second_request_naming_the_same_run_is_rejected(setup):
+    agent = required(setup)
+    assert ask(setup, agent, "r1")["state"] == "succeeded"
+    second = ask(setup, agent, "r2")
+    assert second["state"] == "rejected" and second["reason"] == f"pipeline run {RUN} already asked for request r1"
+    assert "job_id" not in second
+
+
+def test_the_same_request_seen_twice_stays_one_job(setup):
+    agent = required(setup)
+    assert ask(setup, agent, "r1")["state"] == "succeeded"
+    one_pass(agent)
+    assert status(setup, "r1")["attempts"] == 1
+    assert agent.mailbox._run_used("dev", RUN, "r1", time.time()) is None, "a retry of r1 is still r1"
+
+
+def test_a_restarted_agent_keeps_the_runs_it_accepted(setup):
+    assert ask(setup, required(setup), "r1")["state"] == "succeeded"
+    again = required(setup)  # a new Agent reads home/pipeline-runs.json
+    assert ask(setup, again, "r2")["state"] == "rejected"
+
+
+def test_an_accepted_run_is_forgotten_after_run_max_age(setup):
+    from fabric_desktop import jsonfile, mailbox
+    old = time.time() - mailbox.RUN_MAX_AGE - 60
+    jsonfile.write_json(setup.home / "pipeline-runs.json", {"dev": {RUN: {"request_id": "r0", "at": old}}})
+    agent = required(setup)
+    assert ask(setup, agent, "r1")["state"] == "succeeded"
+    runs = jsonfile.read_json(setup.home / "pipeline-runs.json", {})
+    assert runs["dev"][RUN]["request_id"] == "r1" and len(runs["dev"]) == 1
+
+
+def test_without_require_run_one_run_can_still_name_many_requests(setup):
+    agent = Agent(setup)
+    agent.mailbox.verify_run = lambda env, item_id, run_id: GOING
+    assert ask(setup, agent, "r1")["state"] == "succeeded" and ask(setup, agent, "r2")["state"] == "succeeded"
+    assert not (setup.home / "pipeline-runs.json").exists()
+
+
+def test_a_damaged_runs_file_is_read_as_empty(setup):
+    (setup.home).mkdir(parents=True, exist_ok=True)
+    (setup.home / "pipeline-runs.json").write_text('{"dev": ["not", "a", "map"]}', encoding="utf-8")
+    assert ask(setup, required(setup), "r1")["state"] == "succeeded"
+
+
+def test_an_entry_with_no_usable_time_is_dropped(setup):
+    from fabric_desktop import jsonfile
+    jsonfile.write_json(setup.home / "pipeline-runs.json", {"dev": {RUN: {"request_id": "r0", "at": "yesterday"}}})
+    assert ask(setup, required(setup), "r1")["state"] == "succeeded"

@@ -75,6 +75,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
 | [notebook-editor/select-and-run-parts.md](notebook-editor/select-and-run-parts.md) | Engineers, analysts | Select several cells and act on them; run selected cells or selected text |
 | [notebook-editor/organise-cells.md](notebook-editor/organise-cells.md) | Engineers, analysts | Collapse heading sections, cell titles and tags, duplicate and drag cells |
+| [platforms.md](platforms.md) | Engineers | What KratosForge supports on Fabric, Databricks, Snowflake and this PC, at which level, and the evidence behind each level |
 | [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
@@ -101,7 +102,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [incidents.md](incidents.md) | Team leads, platform owners, IT | Incidents (Preview): numbers, priorities, SLAs, reported incidents, Who's affected, where incidents are kept, your service desk |
 | [release-management/README.md](release-management/README.md) | Maintainers, platform owners | How builds reach Preview and Stable, who approves each step, the integration cycle for parallel PRs, promoting, per-build releases, rollback and pinning, versioning ([status](release-management/release-status.md), [history](release-management/release-history.md)) |
-| [live-testing.md](live-testing.md) | Admins, maintainers | The live test: checking sign-in, the Fabric API, OneLake and Delta against a workspace set aside for tests, with cleanup and a report |
+| [live-testing.md](live-testing.md) | Admins, maintainers | The live test: checking sign-in, the Fabric API, OneLake and Delta against a workspace set aside for tests, with cleanup and a report; and the Databricks live test on a warehouse and cluster tagged for tests |
 | [product/smoke-test/README.md](product/smoke-test/README.md) | Maintainers | The tenant smoke test: ten core flows on a workspace set aside for tests, part automated (`fabric-desktop smoke-test`) and part by hand, and how to record the results |
 | [ideas.md](ideas.md) | Everyone | Posting ideas, voting, and how ideas are prioritized and shipped |
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
@@ -155,6 +156,7 @@ KratosForge is new, and it's honest about what has been proven.
 | --- | --- |
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
+| Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |

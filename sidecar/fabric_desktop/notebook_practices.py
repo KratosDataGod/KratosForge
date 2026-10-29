@@ -61,6 +61,16 @@ RULES: tuple[Rule, ...] = (
          "Each count() runs the whole query again. Keep the count in a variable, or cache the DataFrame."),
     Rule("NB012", "Warning", "Reliability", "Error caught and ignored",
          "except ...: pass hides failures, so a run looks fine when it isn't. Log the error, or let it fail."),
+    # NB018 to NB020 are based on guidance in microsoft/skills-for-fabric (MIT), written in our own words.
+    Rule("NB018", "Info", "Performance", "Python UDF in Spark code",
+         "A Python UDF moves every row out of Spark and back. Use a built-in function from "
+         "pyspark.sql.functions, or a pandas_udf when no built-in fits."),
+    Rule("NB019", "Warning", "Reliability", "Spark reads straight from a web address",
+         "Spark can't read http(s) addresses reliably, and the file can change or vanish between runs. "
+         "Copy it into the lakehouse's Files once, then read it from there."),
+    Rule("NB020", "Warning", "Reliability", "VACUUM keeps less than 7 days of history",
+         "Files a running reader or writer still needs can be deleted, and time travel to those versions "
+         "stops working. Keep the default 168 hours unless nothing else uses the table."),
 )
 _BY_ID = {r.id: r for r in RULES}
 
@@ -72,6 +82,8 @@ _PIP = re.compile(r"^\s*[%!]\s*pip\s+install\b(.*)$", re.MULTILINE)
 _PIP_VALUE_OPTS = {"-r", "--requirement", "-c", "--constraint", "-i", "--index-url", "--extra-index-url",
                    "-f", "--find-links", "-t", "--target", "--platform", "--python-version", "-e", "--editable"}
 _WRITES = {"saveAsTable", "insertInto", "save", "write_deltalake"}
+_VACUUM = re.compile(r"(?is)\bvacuum\b[^;]*?\bretain\s+(\d+(?:\.\d+)?)\s+hours?\b")
+_SAFE_HOURS = 168
 
 
 def rules() -> list[dict[str, Any]]:
@@ -133,6 +145,8 @@ def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]]
     if first.startswith("%%") and first.split()[0] not in {"%%pyspark", "%%python"}:  # those cells are Python
         if first.startswith("%%sql") and _SELECT_STAR.search(source):
             yield "NB006", _line_of(source, _SELECT_STAR.search(source).start())  # type: ignore[union-attr]
+        if first.startswith("%%sql"):
+            yield from (("NB020", _line_of(source, at)) for at in _short_vacuums(source))
         return
     try:
         tree = ast.parse(_without_magics(source))
@@ -171,7 +185,11 @@ def _unpinned(args: str) -> bool:
 def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]],
             n: int) -> Iterator[tuple[str, int]]:
     in_loop: set[int] = set()
+    decorators: set[int] = set()  # @udf(...) is found on its function, not again as a call
     for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(_is_udf(d) for d in node.decorator_list):
+            decorators.update(id(d) for d in node.decorator_list)
+            yield "NB018", node.lineno
         if isinstance(node, ast.ExceptHandler) and all(isinstance(s, ast.Pass) for s in node.body):
             yield "NB012", node.lineno
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
@@ -183,6 +201,8 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
             continue
         name = _called(node)
         chain = _chain(node)
+        if chain & {"read", "readStream"} and any(a.lower().startswith(("http://", "https://")) for a in _str_args(node)):
+            yield "NB019", node.lineno
         if name in {"collect", "toPandas"} and not chain & {"limit", "head", "take", "sample", "tail"}:
             yield "NB003", node.lineno
         elif name == "display" and scheduled and node.args and not (_chain(node.args[0]) & {"limit", "head", "sample"}):
@@ -194,6 +214,12 @@ def _python(tree: ast.AST, source: str, scheduled: bool, counts: dict[str, list[
         elif name == "sql" and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
             if _SELECT_STAR.search(node.args[0].value):
                 yield "NB006", node.lineno
+            if any(True for _ in _short_vacuums(node.args[0].value)):
+                yield "NB020", node.lineno
+        elif (_is_udf(node) and id(node) not in decorators) or (name == "register" and "udf" in _chain(node) and len(node.args) >= 2):
+            yield "NB018", node.lineno
+        elif name == "vacuum" and _short_hours(node):
+            yield "NB020", node.lineno
         elif name in {"saveAsTable", "save"} and _overwrites(node) and not _filtered(node):
             yield "NB007", node.lineno
         elif name == "count" and not node.args and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
@@ -266,3 +292,29 @@ def _filtered(call: ast.Call) -> bool:
         if _called(c) == "partitionBy":
             return True
     return False
+
+
+def _is_udf(node: ast.AST) -> bool:
+    """udf(...), F.udf(...), or a bare @udf: a scalar Python UDF. pandas_udf is vectorised, and Fabric's own
+    User Data Functions (@udf.function()) aren't Spark UDFs."""
+    if isinstance(node, ast.Name):
+        return node.id == "udf"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "udf" and _chain(node) & {"F", "functions", "sql", "pyspark"} != set()
+    if isinstance(node, ast.Call):
+        return _is_udf(node.func)
+    return False
+
+
+def _short_vacuums(sql: str) -> Iterator[int]:
+    """Where a VACUUM keeps less than 7 days of history, as offsets into the SQL."""
+    for m in _VACUUM.finditer(sql):
+        if float(m.group(1)) < _SAFE_HOURS:
+            yield m.start()
+
+
+def _short_hours(call: ast.Call) -> bool:
+    """DeltaTable.vacuum(0) or delta-rs vacuum(retention_hours=0): fewer hours than the 7-day default."""
+    given = [*call.args[:1], *(k.value for k in call.keywords if k.arg in {"retentionHours", "retention_hours"})]
+    return any(isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) and not isinstance(v.value, bool)
+               and v.value < _SAFE_HOURS for v in given)

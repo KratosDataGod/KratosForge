@@ -40,6 +40,10 @@ class StepError(RuntimeError):
     """A step of carrying out a request failed: the request is still waiting."""
 
 
+def _rank(role: str) -> int:
+    return core.WORKSPACE_ROLES.index(role)
+
+
 def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     """Call a platform operation that came with an update. A UDF_Platform made before it has no such
     function (Fabric answers 404, read as LookupError), or refuses a request kind it doesn't know:
@@ -235,7 +239,8 @@ class RequestsMixin:
         who, role, wid = d["principal"], d["role"], d["workspace_id"]
         label = who.get("name") or who.get("email") or who.get("id")
 
-        def give() -> None:
+        def give() -> str:
+            """The role they already had and kept, or "" when this gave or raised it."""
             current = None
             for r in api.list_role_assignments(wid):
                 p = access_mod.principal(r.get("principal") or {})
@@ -244,9 +249,19 @@ class RequestsMixin:
                     current = r
             if current is None:
                 self._rq_add(api, wid, who, role)
-            elif current.get("role") != role:
-                api.update_role_assignment(wid, current["id"], role)
+                return ""
+            have = str(current.get("role") or "")
+            # A request asks for access, so approving one never lowers a role: a higher one is kept.
+            if have in core.WORKSPACE_ROLES and _rank(have) >= _rank(role):
+                return have
+            api.update_role_assignment(wid, current["id"], role)
+            return ""
 
-        self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
+        kept = self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
         self._rq_progress(req, {"assigned": True})
-        return {"assigned": True}
+        if not kept:
+            return {"assigned": True}
+        whom = f"the group {label}" if who.get("type") == "Group" else label
+        # The same role may be this approval's own work on a retry, so that only says where things stand.
+        note = f"{whom} has {kept} there" if kept == role else f"{whom} already had {kept}, so it was kept"
+        return {"assigned": True, "kept": kept, "next": [note]}

@@ -19,6 +19,14 @@ CAP = "11111111-2222-3333-4444-555555555555"
 GROUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 WS = "99999999-8888-7777-6666-555555555555"
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # the platform's date is UTC's (UDF_Platform runs in UTC)
+
+
+@pytest.fixture(autouse=True)
+def _same_day(monkeypatch):
+    """The platform's clock stays on TODAY, so a run that crosses midnight UTC can't put setup and checks on
+    different days. policy.py imports _today by name, so it is pinned there too."""
+    for module in (core, policy):
+        monkeypatch.setattr(module, "_today", lambda: TODAY)
 NO_PII = {"id": "no-pii-in-dev", "name": "No PII in Dev", "category": "classification", "severity": "high",
           "enforcement": "block", "rule": "no_pii_dev"}
 

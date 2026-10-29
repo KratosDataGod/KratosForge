@@ -4,8 +4,9 @@ import datetime as dt
 import json
 
 import polars as pl
+import pyarrow as pa
 import pytest
-from deltalake import DeltaTable
+from deltalake import DeltaTable, write_deltalake
 from test_large_tables import DAY1, DAY2, Setup, entity, rows
 
 from fabric_desktop.meta import Engine, Project, batches
@@ -298,3 +299,50 @@ def test_a_run_that_lost_the_tables_lease_removes_nothing(tmp_path, monkeypatch)
             s, [pa.record_batch([pa.array([3])], schema=s)]), read_version=0)
     assert store.last_cleanup["removed"] == 0 and "lease" in store.last_cleanup["note"]
     assert (folder / theirs).exists()
+
+
+# --------------------------------------------------------------------------- a kept column the first batch leaves empty (#1004)
+
+
+def _scored(scores: list) -> pl.DataFrame:
+    """Three days of 100 rows; ``scores`` gives each day's extra (undeclared) score column."""
+    days = [rows(range(i * 100, i * 100 + 100), day, amount=i) for i, day in enumerate(DAYS[:3])]
+    dtype = pl.String if any(isinstance(v, str) or v is None for v in scores) else pl.Int64
+    return pl.concat([d.with_columns(pl.lit(v, dtype=dtype).alias("score")) for d, v in zip(days, scores)])
+
+
+def _batched(s: Setup) -> Engine:
+    engine = Engine(Project(s.root), s.store, DAY1)
+    engine.batch_rows = 100
+    return engine
+
+
+def _scored_table(tmp_path) -> Setup:
+    s = Setup(tmp_path, True)
+    full_entity(s, 'batch_by = "modified"')
+    write_deltalake(str(s.src), _scored([1, 2, 3]).to_arrow(), mode="overwrite", schema_mode="overwrite")
+    res = _batched(s).run("bronze.events")
+    assert res.status == "ok", res.message
+    assert DeltaTable(s.store.uri("LH_Bronze", "dbo", "events")).schema().to_arrow().field("score").type == pa.int64()
+    return s
+
+
+def test_a_batched_load_that_leaves_a_kept_column_empty_keeps_the_table_s_type(tmp_path):
+    s = _scored_table(tmp_path)
+    write_deltalake(str(s.src), _scored([None, None, None]).to_arrow(), mode="overwrite", schema_mode="overwrite")
+    res = _batched(s).run("bronze.events")
+    assert res.status == "ok", res.message
+    table = DeltaTable(s.store.uri("LH_Bronze", "dbo", "events"))
+    assert table.schema().to_arrow().field("score").type == pa.int64()
+    assert pl.from_arrow(table.to_pyarrow_table())["score"].null_count() == 300
+
+
+@pytest.mark.parametrize("later", ["x", "7"])
+def test_a_later_batch_of_another_kind_is_still_refused_and_nothing_is_written(tmp_path, later):
+    s = _scored_table(tmp_path)
+    version = DeltaTable(s.store.uri("LH_Bronze", "dbo", "events")).version()
+    write_deltalake(str(s.src), _scored([None, later, later]).to_arrow(), mode="overwrite", schema_mode="overwrite")
+    res = _batched(s).run("bronze.events")
+    assert res.status == "failed" and "schema change refused: score int64 to string" in res.message, res.message
+    assert "overwrite_schema = true" in res.message
+    assert DeltaTable(s.store.uri("LH_Bronze", "dbo", "events")).version() == version

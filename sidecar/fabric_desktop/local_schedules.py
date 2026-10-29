@@ -160,6 +160,9 @@ def task_xml(schedule: dict[str, Any], executable: str, workdir: str) -> str:
 """
 
 
+SCHTASKS_SECONDS = 60
+
+
 class TaskScheduler:
     """``schtasks.exe``. On other systems schedules are saved but nothing starts them."""
 
@@ -167,7 +170,14 @@ class TaskScheduler:
 
     def _run(self, *args: str) -> None:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags)
+        try:
+            # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
+            # otherwise hold every page's engine calls behind it, with no Stop to reach.
+            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags,
+                                 timeout=SCHTASKS_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "
+                               "Task Scheduler service is running, then try again.") from None
         if res.returncode != 0:
             raise RuntimeError(f"Task Scheduler: {(res.stderr or res.stdout).strip()}")
 
@@ -269,6 +279,19 @@ class LocalSchedules:
         for s in data["schedules"]:
             if s["id"] == schedule_id:
                 s["enabled"] = bool(enabled)
+                self.scheduler.register(s, self.executable, str(self.root))
+                self._save(data)
+                return s
+        raise LookupError(f"There is no schedule {schedule_id} on this PC")
+
+    def update(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+        """New times for an existing schedule. Its Windows task is replaced under the same id, so its run
+        history stays, and a paused schedule stays paused."""
+        config = local_configuration(schedule)  # checks the times before anything changes
+        data = self._load()
+        for s in data["schedules"]:
+            if s["id"] == schedule_id:
+                s["config"] = config
                 self.scheduler.register(s, self.executable, str(self.root))
                 self._save(data)
                 return s

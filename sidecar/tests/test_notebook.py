@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import polars as pl
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
@@ -188,7 +187,7 @@ def test_schema_layout_comes_from_the_lakehouse_default_schema(tmp_path):
     import fabric_desktop.service as service_mod
 
     class Client:
-        def __init__(self, token):
+        def __init__(self, token, refresh=None):
             pass
 
         def get_lakehouse(self, ws, lh):

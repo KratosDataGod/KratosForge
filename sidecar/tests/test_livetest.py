@@ -1,11 +1,12 @@
 """The live test harness (FD-101), with Fabric and OneLake faked and Delta on local disk."""
 
 import json
+import re
 
 import pytest
 import requests
 
-from fabric_desktop import cli, livetest
+from fabric_desktop import cli, leases, livetest
 from fabric_desktop.fabric_api import FabricError
 
 WS = "11111111-1111-1111-1111-111111111111"
@@ -102,7 +103,7 @@ def test_every_check_passes_and_everything_created_is_deleted(tmp_path):
     assert result["left_behind"] == []
     saved = (tmp_path / "out" / "run1" / "result.json").read_text()
     assert json.loads(saved)["schema"] == "live-test-result@1"
-    assert TOKEN not in saved
+    assert TOKEN not in saved and "tenant-1" not in saved  # results get shared: never the tenant id
     assert "Outcome: **passed**" in (tmp_path / "out" / "run1" / "summary.md").read_text()
 
 
@@ -288,11 +289,11 @@ def local_writer(tmp_path, fail_once=None, drop=None):
     failed = set()
 
     def write(ref, data, mode):
-        who = data.column("writer")[0].as_py()
-        if who == fail_once and who not in failed:
+        who = data.column("writer")[0].as_py() if "writer" in data.column_names else None
+        if fail_once and who == fail_once and who not in failed:
             failed.add(who)
             raise RuntimeError("CommitFailedError: Transaction failed: version already exists")
-        if who == drop:
+        if drop and who == drop:
             return
         write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
     return write
@@ -302,7 +303,9 @@ def extra_harness(tmp_path, fabric=None, extra=livetest.ALL_CHECKS, files=None, 
     return livetest.LiveTest(WS, fabric or ItemFabric(), files or Files(), Credential(), tmp_path / "out",
                              table_access=lambda ref: (str(tmp_path / "delta" / ref.lakehouse_id / ref.table), {}),
                              bad_token_files=BadTokenFiles(), run_id="run1", extra=extra,
-                             write_table=writer or local_writer(tmp_path), sleep=lambda s: None, **kw)
+                             write_table=writer or local_writer(tmp_path), sleep=lambda s: None,
+                             lease_backend=kw.pop("lease_backend", None) or (lambda: leases.LocalBackend(tmp_path / "leases")),
+                             **kw)
 
 
 def by_id(result):
@@ -343,7 +346,9 @@ def test_a_writer_that_lost_the_commit_race_is_reported_as_retried(tmp_path):
     result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=local_writer(tmp_path, fail_once="B")).run()
     check = by_id(result)["delta.concurrent"]
     assert check["status"] == "passed", check
-    assert "writer B retried (2 attempts)" in check["detail"]
+    # The forced failure costs B one attempt; the two writers can also really collide, which costs more.
+    retried = re.search(r"writer B retried \((\d+) attempts\)", check["detail"])
+    assert retried and int(retried[1]) >= 2, check
 
 
 def test_lost_rows_fail_the_concurrent_check(tmp_path):
@@ -506,3 +511,88 @@ def test_cleanup_checks_the_live_item_before_deleting_it(tmp_path):
     assert {"nb1", "pl1", "nb2"} <= set(fabric.items) and "lh-x" in fabric.lakehouses
     left = {r["id"] for r in done["left_behind"]}
     assert left == {"nb1", "pl1", "nb2", "lh-x"}  # refused ones stay listed for a person to look at
+
+
+# ---- PB-003: a lease on OneLake refuses a second writer; a MERGE stays in the Fabric-safe profile
+
+def merge_writer(tmp_path):
+    def write(ref, data, mode):
+        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode)
+    return write
+
+
+def test_lease_and_merge_checks_pass(tmp_path):
+    result = extra_harness(tmp_path, extra={"lease.onelake", "delta.merge_profile"}, writer=merge_writer(tmp_path)).run()
+    checks = by_id(result)
+    assert checks["lease.onelake"]["status"] == "passed", checks["lease.onelake"]
+    assert "writer B's create was refused" in checks["lease.onelake"]["detail"]
+    assert checks["delta.merge_profile"]["status"] == "passed", checks["delta.merge_profile"]
+    assert "updated 1 and inserted 1" in checks["delta.merge_profile"]["detail"]
+    assert "reader 1, writer 2" in checks["delta.merge_profile"]["detail"]
+    assert not list((tmp_path / "leases").glob("*.json")), "every lease was released"
+
+
+class IgnoresConditions(leases.LocalBackend):
+    """A store that ignores If-None-Match and If-Match, as a OneLake that didn't honour them would."""
+
+    def create(self, key, data):
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return self._etag(data)
+
+    def replace(self, key, data, etag):
+        return self.create(key, data)
+
+
+def test_a_store_that_ignores_conditional_requests_fails_the_lease_check(tmp_path):
+    result = extra_harness(tmp_path, extra={"lease.onelake"},
+                           lease_backend=lambda: IgnoresConditions(tmp_path / "leases")).run()
+    check = by_id(result)["lease.onelake"]
+    assert check["status"] == "failed"
+    # The failure is the wrongly granted lease, not the lost lease A's release would report after it.
+    assert "A second writer got the lease" in check["detail"] and "If-None-Match" in check["detail"]
+    assert not list((tmp_path / "leases").glob("**/*.json")), "B's wrongly granted lease was released"
+
+
+class IgnoresIfMatch(leases.LocalBackend):
+    """A store that refuses a second create but replaces a file whatever its ETag."""
+
+    def replace(self, key, data, etag):
+        path = self._path(key)
+        if not path.exists():
+            return None
+        path.write_bytes(data)
+        return self._etag(data)
+
+
+def test_the_lease_check_fails_on_a_store_that_ignores_if_match(tmp_path):
+    result = extra_harness(tmp_path, extra={"lease.onelake"},
+                           lease_backend=lambda: IgnoresIfMatch(tmp_path / "leases")).run()
+    check = by_id(result)["lease.onelake"]
+    assert check["status"] == "failed" and "ignored If-Match" in check["detail"]
+
+
+def test_a_merge_into_a_table_outside_the_profile_is_refused_before_writing(tmp_path):
+    def deletion_vectors(ref, data, mode):
+        write_deltalake(str(tmp_path / "delta" / ref.lakehouse_id / ref.table), data, mode=mode,
+                        configuration={"delta.enableDeletionVectors": "true"})
+    result = extra_harness(tmp_path, extra={"delta.merge_profile"}, writer=deletion_vectors).run()
+    check = by_id(result)["delta.merge_profile"]
+    assert check["status"] == "failed"
+    assert "outside the Fabric-safe Delta profile" in check["detail"]
+    from deltalake import DeltaTable
+    table = DeltaTable(str(tmp_path / "delta" / "lh-1" / "livetest_merge"))
+    assert table.version() == 0, "nothing was merged"
+
+
+def test_lease_and_merge_checks_need_the_lakehouse(tmp_path):
+    class NoLakehouse(ItemFabric):
+        def create_lakehouse(self, ws, name, description=""):
+            raise FabricError("Capacity is paused", "CapacityNotActive")
+    built = []
+    result = extra_harness(tmp_path, NoLakehouse(), extra={"lease.onelake", "delta.merge_profile"},
+                           lease_backend=lambda: built.append(1)).run()
+    assert built == [], "no lease store is touched without the run's own lakehouse"
+    assert by_id(result)["lease.onelake"]["status"] == "skipped"
+    assert by_id(result)["delta.merge_profile"]["status"] == "skipped"

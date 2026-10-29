@@ -61,6 +61,21 @@ test("Enter edits the selected cell and Esc goes back to command mode", { skip }
   assert.deepStrictEqual((await sources())[1], "code:b = 2 + 1");
 });
 
+test("Tab after Esc moves on to the next cell, not back into the same one; editors are named", { skip }, async () => {
+  await reset(0);
+  await page().keyboard.press("Enter");
+  assert.strictEqual(await editing(true), true);
+  await page().keyboard.press("Escape");
+  assert.strictEqual(await editing(false), false);
+  await page().keyboard.press("Tab");
+  const at = await page().evaluate(() => document.activeElement.closest(".cell")?.dataset.cell === String(state.notebook.cells[1].id));
+  assert.strictEqual(at, true, "focus lands in the next cell");
+  const named = await page().evaluate(() => [...document.querySelectorAll(".cell .cm-content")]
+    .map((c) => [c.closest(".cell").classList.contains("markdown") ? "Markdown cell" : "Code cell", c.getAttribute("aria-label")]));
+  assert.ok(named.length >= 2);
+  for (const [want, got] of named) assert.strictEqual(got, want);
+});
+
 test("Esc with suggestions on screen closes them first, and a second Esc leaves the cell", { skip }, async () => {
   await reset(1);
   await page().keyboard.press("Enter");

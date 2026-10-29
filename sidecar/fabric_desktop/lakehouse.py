@@ -38,6 +38,8 @@ from .retrying import data_upload_dropped
 _log = logging.getLogger(__name__)
 
 MODES = ("overwrite", "append")
+# The write history names a notebook's table write "Notebook write to <lakehouse>"; costs.py tells it from a job run by this.
+WRITE_JOB_PREFIX = "Notebook write to "
 
 
 @dataclass(frozen=True)
@@ -375,6 +377,20 @@ def files(directory: str = "Files") -> list[str]:
     return [e["path"] for e in FileStore(lh.storage_token).list(lh.workspace_id, lh.lakehouse_id, directory)]
 
 
+def _delta_safe(schema: pa.Schema, table: str, mode: str) -> pa.Schema:
+    """``schema`` with each column delta-rs can't write in the type Fabric reads, or a plain error
+    (localdata.delta.delta_safe). An all-NULL column appended to a table that has it takes the
+    table's type."""
+    from .localdata import delta as local_delta
+
+    def existing() -> dict[str, pa.DataType]:
+        try:
+            return {f.name.lower(): f.type for f in pa.schema(open_table(table).schema().to_arrow())}
+        except TableNotFoundError:
+            return {}
+    return local_delta.delta_safe(schema, existing if mode == "append" else None)
+
+
 def _to_arrow(data: Any) -> pa.Table:
     if isinstance(data, pa.Table):
         return data
@@ -479,9 +495,13 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     arrow, spill = None, None
     if streamed is None:
         arrow = _to_arrow(data)
-        schema = arrow.schema
+        schema = _delta_safe(arrow.schema, table, mode)
+        if schema != arrow.schema:
+            arrow = arrow.cast(schema)
     else:
-        schema = streamed[0]
+        schema = _delta_safe(streamed[0], table, mode)
+        if schema != streamed[0]:
+            streamed = (schema, (part.cast(schema) for part in streamed[1]))
     stage_locally(schema.empty_table(), lh.work_dir / "staging", lh.lakehouse_id, ref.schema, ref.table)
     if (p := _proof()) is not None:
         if arrow is None:
@@ -539,7 +559,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         _record_table(ref, result.delta_version if skipped else
                       result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
         if lh.history_file:
-            record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
+            record = {"job": f"{WRITE_JOB_PREFIX}{lh.name}", "table_uri": ref.uri, "mode": mode,
                       "rows": result.rows, "delta_version": result.delta_version,
                       "seconds": round(time.monotonic() - started, 2),
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

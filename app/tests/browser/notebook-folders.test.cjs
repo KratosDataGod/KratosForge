@@ -121,7 +121,7 @@ test("the notebook explorer's Notebooks tab groups by folder", { skip }, async (
   await page().evaluate(() => openNotebook("Sales EMEA/Daily load"));
   await page().waitForFunction(() => state.view === "notebook" && state.notebook?.name === "Sales EMEA/Daily load");
   await page().evaluate(() => { state.showExplorer = true; renderNotebook(); });
-  await page().locator(".explorer-tabs").getByRole("button", { name: "Notebooks" }).click();
+  await page().locator(".explorer-tabs").getByRole("tab", { name: "Notebooks" }).click();
   const folder = page().locator(".nb-explorer-folder", { hasText: "Sales EMEA" });
   await folder.waitFor();
   assert.strictEqual((await folder.locator(".nbf-count").innerText()).trim(), "2");

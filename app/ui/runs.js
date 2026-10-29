@@ -142,8 +142,8 @@ function runRow(nb, run) {
     status === "failed" && run.message ? h("div", { class: "reason" }, run.message) : null,
     action,
     open ? h("dl", { class: "nbrun-detail" },
-      h("dt", {}, "Started"), h("dd", {}, run.started ? new Date(run.started).toLocaleString() : ""),
-      h("dt", {}, "Ended"), h("dd", {}, run.ended ? new Date(run.ended).toLocaleString() : "Not recorded"),
+      h("dt", {}, "Started"), h("dd", {}, dateTimeText(run.started, { seconds: true })),
+      h("dt", {}, "Ended"), h("dd", {}, dateTimeText(run.ended, { seconds: true, empty: "Not recorded" })),
       run.cells != null ? [h("dt", {}, "Cells run"), h("dd", {}, String(run.cells))] : null,
       h("dt", {}, "Result"), h("dd", {}, run.message || statusPill(status).textContent),
       run.alert_error ? [h("dt", {}, "Teams alert"), h("dd", {}, run.alert_error)] : null) : null);

@@ -316,8 +316,9 @@ def test_registry_lookup():
 
 
 def test_methods_are_allowlisted_and_read_only():
-    for name in ("pipeline_compatibility", "pipeline_activity_registry"):
-        assert name in server.METHODS and name in audit.READ_ONLY
+    assert "pipeline_compatibility" in server.METHODS and "pipeline_compatibility" in audit.READ_ONLY
+    # The registry is read in-process by the MCP tool only (HD-050 slice 4).
+    assert "pipeline_activity_registry" not in server.METHODS
 
 
 def test_capabilities():

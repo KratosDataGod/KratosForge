@@ -272,7 +272,7 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert out["inputs"]["equivalent"] is True
     # Both environments recorded; Fabric's packages remembered for the dependency check.
     assert out["environment"]["fabric"]["packages"]["polars"] and out["environment"]["pc"]["python"]
-    env = call(svc, "notebook_environment", **payload())
+    env = svc.notebook_environment(**payload())
     assert next(m for m in env["modules"] if m["module"] == "polars")["fabric"]["status"] == "observed"
     # Measured on this PC; Fabric times from the job; cost an estimate with its assumptions.
     assert out["pc"]["cpu_seconds"] is not None and out["pc"]["seconds"] > 0

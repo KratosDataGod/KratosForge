@@ -167,14 +167,14 @@ def test_rpcs(tmp_path):
     svc = Service(root=tmp_path)
     payload = {"name": "NB", "cells": [{"type": "code", "source": "import polars", "meta": {}, "cell_id": "x1"}],
                "lakehouse_ref": None, "compute": "default", "workspace": None}
-    env = call(svc, "notebook_environment", **payload)
+    env = svc.notebook_environment(**payload)  # in-process: the MCP tool calls it, no screen does
     assert env["modules"][0]["module"] == "polars" and env["cells"][0]["cell_id"] == "x1"
     rid = svc.receipts.put(body())
-    assert call(svc, "receipts_list", name="Sales")[0]["id"] == rid
-    assert call(svc, "receipts_list", name="Other") == []
+    assert svc.receipts_list(name="Sales")[0]["id"] == rid
+    assert svc.receipts_list(name="Other") == []
     assert call(svc, "receipt_get", id=rid)["receipt"]["kind"] == "proof"
-    page = call(svc, "receipt_export", id=rid, format="html", hide=["identity"])
+    page = svc.receipt_export(id=rid, format="html", hide=["identity"])
     assert page["format"] == "html" and rid in page["text"]
-    raw = call(svc, "receipt_export", id=rid, format="json")["text"]
+    raw = svc.receipt_export(id=rid, format="json")["text"]
     assert receipts.receipt_id(json.loads(raw)) == rid
     assert "identity" in call(svc, "receipt_redactions")

@@ -22,8 +22,6 @@ from fabric_desktop import server
 
 UI = Path(__file__).resolve().parents[2] / "app" / "ui"
 
-_MCP = "MCP/HTTP tool calls the same Service method in-process (integrations/services.py); no screen"
-_CLI = "CLI or headless agent calls the same Service method in-process (cli.py, agent.py); no screen"
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
@@ -43,23 +41,10 @@ _SQL_PRACTICES = "the SQL rules list, for a template editor to list them; the SQ
 NO_UI_CALLER: dict[str, str] = {
     "notebook_practice_rules": _PRACTICES,
     "sql_practice_rules": _SQL_PRACTICES,
-    # MCP / local HTTP API tools (in-process).
-    "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
-    "notebook_environment": _MCP,
-    "pipeline_activity_registry": _MCP,
-    "pipeline_inspect": _MCP,
-    "pipeline_validate": _MCP,
-    "receipt_export": _MCP,
-    "receipts_list": _MCP,
-    "run_sql": _MCP,
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
     "model_bpa_check": _BPA,
-    # CLI and headless agent (in-process).
-    "preview_job": _CLI,
-    "run_job": _CLI,
-    "environment_fabric_drift": _CLI + " yet (`fabric-desktop env-drift`, docs/notebooks.md)",
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -142,7 +127,13 @@ REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_pat
            "list_shortcuts",
            # Slice 3 (#965): the app runs cells with start_cell / poll_cell, and so do the engine tests
            # (test_prove.run_cell). Service.run_cell stays for in-process tests and scripts.
-           "run_cell")
+           "run_cell",
+           # Slice 4 (#1049): only the MCP tools, the local HTTP API, the CLI and the headless agent
+           # used these, and they call the Service methods in-process (integrations/services.py,
+           # cli.py, agent.py), never by RPC name.
+           "placement_advice", "notebook_environment", "pipeline_activity_registry", "pipeline_inspect",
+           "pipeline_validate", "receipt_export", "receipts_list", "run_sql", "preview_job", "run_job",
+           "environment_fabric_drift")
 
 
 def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):

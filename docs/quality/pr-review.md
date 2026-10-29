@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1028 9898359d (retargeted to main after #933 merged) | UPDATE and DELETE on this PC: RM's main merge | PASS 9.3 (carry) | Carry from d41c0929. The diff against main is line for line the same as #1028's own diff over #933 (fd8b4cdc..d41c0929), 13 files +158 -79. It merges clean. test_spark_merge, fabric_run and silent_except passed, and the mypy ratchet is 903 against 903. |
+
 | 2026-10-29 | #1091 50ed593b (fixes #1090) | Engine updates say why the whole engine downloads, pin pip, and name the first start | PASS 9.1 | Three files against main. The other branch commits are #821's already-merged head, which adds nothing. main.rs says why the full download happens only when an engine is already installed, and still falls through to the full download. app.js shows 'Starting the new engine for the first time…' before the re-check. constraints.txt pins pip 26.2.2, which exists on PyPI and has no known advisories (pip-audit). test_updater: 48 passed. ui.test 306 passed. Merges clean. The Rust change wasn't compiled here; CI's shell build covers it. |
 
 | 2026-10-29 | #891 729dbb01 | Fabric Spark (Livy) Preview engine: docs check entry | PASS 9.1 (carry) | Carry from 6e42a2f7. One line in ui.test.cjs adds Fabric Spark to the docs check's no-screen list, and engines.md has the sentence it matches. ui.test 303 passed at the head and 306 on a trial merge with main, which merges clean. |

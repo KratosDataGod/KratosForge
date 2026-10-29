@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #1006 938bc7d8 | Batched loads: an empty kept column takes the table's type (#1004) | PASS | 9.2 | Second quality reviewer. Matches _fit_to_table for unbatched loads; later batches of another kind are refused inside the stream, with the version unchanged. 58 passed with main merged; reverting to first.schema fails the new test. Nit: share the refusal text with _refuse_type_changes. |
+
 | #914 22af3979 | Late rows and source deletes, conflict resolution with #979 | PASS at 22af3979 (from b1475f4b) | 9.1 | Second quality reviewer. Remerge-diff: the fit and type refusal moved before the delete handling, and both NO_ID entries are kept. Reversing the order fails the new test. 74 passed; ui 301/0. Needs Chris's go. |
 
 | #989 4bc9f0ed | UDF parity, 3.12 test fix | PASS at 4bc9f0ed (from a6c3480c) | 9.2 | Second quality reviewer. Test-only change: the test compares _run args as (kind, name/value). 10/10 on 3.12 and 3.13; mutating audit's _run name still fails the test. |

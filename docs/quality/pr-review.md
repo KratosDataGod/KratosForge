@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1104 08b9f303 | Databricks refusals per API (Fixes #1102, on #1101) | PASS 9.2 | Over #1101 557c36fd: `refusal_hint(status, path, error_code)` picks a hint by API prefix (metastore_summary before unity-catalog; 401/429 the same everywhere; METASTORE_DOES_NOT_EXIST named from any UC call); every Client._call path is a relative /api/... path, so the prefixes match. Message redaction unchanged (redact.secrets on body message). Queue edit passes `queues.py check`. Merges clean; on the merge result databricks_sql + discovery + conformance + dbx_livetest + silent_except 147 passed, ui.test 307/307, ratchet 901/903, ruff clean. |
+
 | 2026-10-29 | #1059 9d9ddeb4 | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into 16e5e6d3; three-dot diff identical to 16e5e6d3's own change. Merges clean; its tests + silent_except 75 passed. |
 | 2026-10-29 | #1083 46658df5 | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into ec4bbf6a; three-dot diff identical. Merges clean. |
 | 2026-10-29 | #1054 1f0f4aec | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into 4807ed51; three-dot diff identical. Merges clean; its tests + silent_except 45 passed. |

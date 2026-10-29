@@ -23,7 +23,7 @@
   const KINDS = ["report", "visual", "dashboard", "tile"];
   // What the SDK raises for each kind (powerbi-client 2.25.0). Q&A isn't here: Microsoft retires it in December 2026.
   const EVENTS = {
-    report: ["loaded", "rendered", "error", "pageChanged", "dataSelected", "buttonClicked", "saved"],
+    report: ["loaded", "rendered", "error", "pageChanged", "dataSelected", "buttonClicked", "dataHyperlinkClicked", "saved"],
     visual: ["loaded", "rendered", "error", "dataSelected"],
     dashboard: ["loaded", "error", "tileClicked"],
     tile: ["tileLoaded", "tileClicked", "error"],
@@ -78,7 +78,9 @@
     const config = {
       type: kind, id: msg.id, embedUrl: msg.embedUrl, accessToken: msg.accessToken,
       tokenType: models.TokenType.Aad,
-      settings: { panes: { pageNavigation: { visible: false } } },
+      // Power BI's own page list is hidden (the screen has its own), and a link in the report is raised as an
+      // event for the app to open in the default browser: the frame itself can't open windows.
+      settings: { panes: { pageNavigation: { visible: false } }, hyperlinkClickBehavior: models.HyperlinkClickBehavior.RaiseEvent },
     };
     if (kind === "report" && typeof msg.pageName === "string" && msg.pageName) config.pageName = msg.pageName;
     if (kind === "visual") {

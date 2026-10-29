@@ -1160,7 +1160,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "powerbi", "embedstudio"\]/);
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1628,6 +1628,8 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
+    // Embed Studio: the shell's fixed embed host page on its own origin, no data (PBE-06).
+    "powerbi.js: src: `${pbiHostOrigin()}/host.html`,",
   ]);
   const found = [];
   const walk = (dir) => {
@@ -5499,6 +5501,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
+    embedStudio: ["Embed Studio"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

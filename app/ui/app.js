@@ -438,6 +438,7 @@ const NAV_FIELDS = {
   lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
   entity: () => [[state.meta, "entity"]],
   workload: () => [[wlPage, "id"]],
+  embedstudio: () => [[pbiStudio, "item"]],
   incident: () => [[incPage, "id"], [incPage, "env_of"]],
   agent: () => [[agPage, "name"]],
 };
@@ -1386,12 +1387,15 @@ function openInFabric(page) {
   }
 }
 
-// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal; with preview features shown,
+// a third lists Power BI content for Embed Studio (powerbi.js).
 function workspacesTabs(active) {
+  const tabs = [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]];
+  if (previewShown()) tabs.push(["powerbi", "Power BI"]);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
+    tabs.map(([view, label]) =>
       h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-        onclick: () => go(view) }, label)));
+        onclick: () => go(view) }, label, view === "powerbi" ? previewTag() : null)));
 }
 
 // Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
@@ -2780,7 +2784,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "powerbi", "embedstudio"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
 });
 registerFeature({

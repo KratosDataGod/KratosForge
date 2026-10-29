@@ -47,11 +47,11 @@ test("embed addresses off app.powerbi.com are refused", () => {
 });
 
 test("only known fields reach the SDK, with an Entra token and Power BI's page list hidden", () => {
-  const models = { TokenType: { Aad: 0, Embed: 1 } };
+  const models = { TokenType: { Aad: 0, Embed: 1 }, HyperlinkClickBehavior: { Navigate: 0, NavigateAndRaiseEvent: 1, RaiseEvent: 2 } };
   const config = host.embedConfig({ kind: "report", id: "r1", embedUrl: EMBED, accessToken: "t", pageName: "P1",
     tokenType: "Embed", settings: { hyperlinkClickBehavior: 2 }, eventHooks: { x: 1 } }, models);
   assert.deepStrictEqual(config, { type: "report", id: "r1", embedUrl: EMBED, accessToken: "t", tokenType: 0, pageName: "P1",
-    settings: { panes: { pageNavigation: { visible: false } } } });
+    settings: { panes: { pageNavigation: { visible: false } }, hyperlinkClickBehavior: 2 } });
   assert.throws(() => host.embedConfig({ kind: "qna", id: "x", embedUrl: EMBED, accessToken: "t" }, models), /reports, visuals/);
   assert.throws(() => host.embedConfig({ kind: "report", id: "x", embedUrl: "https://evil.example/r", accessToken: "t" }, models), /only opens/);
   assert.throws(() => host.embedConfig({ kind: "report", id: "x", embedUrl: EMBED }, models), /token/);

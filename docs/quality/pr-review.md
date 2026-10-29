@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #989 4bc9f0ed | UDF parity, 3.12 test fix | PASS at 4bc9f0ed (from a6c3480c) | 9.2 | Second quality reviewer. Test-only change: the test compares _run args as (kind, name/value). 10/10 on 3.12 and 3.13; mutating audit's _run name still fails the test. |
+
 | #993 105a5276 | SF-00 Snowflake connection profiles, main merge | PASS at 105a5276 (carried from 3e2f0b50) | 9.2 | Second quality reviewer. The change set against main is identical. Needs Chris's go. |
 
 | #995 8a4bd0da | SF-04 Snowflake SQL on this PC, main merge | PASS at 8a4bd0da (carried from d7990305) | 9.1 | Second quality reviewer. The change set against main is identical. Needs Chris's go. |

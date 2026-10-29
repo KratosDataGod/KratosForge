@@ -57,7 +57,7 @@ session ran for 23 seconds and was closed, and nothing was written to the lakeho
 | --- | --- |
 | Literals, GROUP BY, integer division, dates, strings, NULLs, a window, `explode(sequence())` | Match |
 | Decimal division (`CAST(1 AS DECIMAL(10,2)) / 3`) | Differs: Spark keeps 6 decimal places, DuckDB more. A real difference between the engines. |
-| `date_trunc` on a Spark `TIMESTAMP` literal | Differs: a local bug. The translation made it a time-zone timestamp in the PC's zone, so it was 6 hours off. Fixed by #1144. |
+| `date_trunc` on a Spark `TIMESTAMP` literal | Differs: a local bug. The translation made it a time-zone timestamp in the PC's zone, so it was 6 hours off. The fix is #1144. |
 
 On this PC each query took about 2 ms. On Fabric Spark each took about 1.4 s, after 5 s to start the
 session. That is run time only, not cost.

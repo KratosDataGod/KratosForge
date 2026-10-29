@@ -7,7 +7,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
-- 53 PRs merged since the evening check (#973 to #1050). The tenant smoke-test harness (#884) and its
+- 82 PRs merged since the evening check's commit (b19b7456), 63 of them numbered #973 to #1050. The tenant smoke-test harness (#884) and its
   central platform flows (#919) are in, and so are the OneLake lease and MERGE live-test checks (#892)
   and the pipeline mailbox's run check (#931). None of these has run on a tenant yet. Also merged:
   - Snowflake as a Preview engine (#993, #995).

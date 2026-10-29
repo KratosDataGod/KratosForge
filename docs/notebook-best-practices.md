@@ -34,6 +34,12 @@ built, and the panel says so. The panel doesn't check NB004 and NB008, which are
 | NB010 | Warning | Table written inside a loop | Collect the rows and write once |
 | NB011 | Info | `count()` called three or more times on one DataFrame | Keep the count in a variable, or cache |
 | NB012 | Warning | Error caught and ignored (`except ...: pass`) | Log the error, or let it fail |
+| NB018 | Info | Python UDF in Spark code (`udf`, `@udf`, `spark.udf.register`) | Use a built-in function, or a `pandas_udf` |
+| NB019 | Warning | Spark reads straight from an `http(s)` address | Copy the file into the lakehouse's `Files` first |
+| NB020 | Warning | `VACUUM` keeps less than 7 days (168 hours) of history | Keep the default retention |
+
+NB013 to NB017 are kept for rules the Learn plan names next. NB018 to NB020 are based on guidance in
+Microsoft's [skills-for-fabric](https://github.com/microsoft/skills-for-fabric) (MIT), written in our own words.
 
 Secrets are found with the same patterns the Git page uses before a commit. Rules NB004 and NB008
 apply only when the check is told the notebook runs on a schedule. A cell that doesn't parse is
@@ -230,6 +236,63 @@ try:
 except FileNotFoundError:
     print(f"No file for {day}; skipped")   # catch only what you expect, and say so
 ```
+
+### NB018
+
+**Python UDF in Spark code** · Info · Performance
+
+Why: a Python UDF sends every row from Spark to a Python process and back, one row at a time. A
+built-in function runs inside Spark and is usually many times faster. When nothing built in fits, a
+`pandas_udf` works on whole batches. `pandas_udf` and Fabric User Data Functions (`@udf.function()`)
+aren't flagged.
+
+```python
+# Before
+upper = F.udf(lambda s: s.upper())
+df = df.withColumn("name", upper("name"))
+# After
+df = df.withColumn("name", F.upper("name"))
+```
+
+Safe to leave: logic no built-in function can express, on a small table.
+Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
+
+### NB019
+
+**Spark reads straight from a web address** · Warning · Reliability
+
+Why: Spark's readers expect storage paths, so an `http(s)` address fails or reads differently from
+run to run, and the file behind it can change or disappear. A copy in the lakehouse gives every run
+the same input.
+
+```python
+# Before
+df = spark.read.option("header", True).csv("https://example.com/sales.csv")
+# After: copy it once (a pipeline Copy activity, for example), then read the copy
+df = spark.read.option("header", True).csv("Files/landing/sales.csv")
+```
+
+Reading a web address with pandas (`pd.read_csv(url)`) isn't flagged.
+Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
+
+### NB020
+
+**`VACUUM` keeps less than 7 days of history** · Warning · Reliability
+
+Why: `VACUUM` deletes files that older table versions use. With less than the default 168 hours,
+it can delete files a running query or write still needs, and time travel to those versions stops
+working. Found in `%%sql` cells, `spark.sql(...)`, `DeltaTable.vacuum(hours)` and delta-rs
+`vacuum(retention_hours=...)`.
+
+```sql
+-- Before
+VACUUM sales RETAIN 0 HOURS
+-- After
+VACUUM sales RETAIN 168 HOURS
+```
+
+Safe to leave: a table nothing else reads or writes, such as a scratch table in a test.
+Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
 
 ## Settings
 

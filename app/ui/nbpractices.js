@@ -1,4 +1,4 @@
-// The notebook's Best practices panel (Preview): the notebook rules NB001 to NB012
+// The notebook's Best practices panel (Preview): the notebook rules (NB001 to NB012, NB018 to NB020)
 // (notebook_practices.py) on this notebook's code cells, read on this PC as you type. Nothing runs
 // and no capacity is used. The policies in force for the open project tune the rules
 // (governance_practice_settings): one a policy turns off isn't shown, and a policy can change a

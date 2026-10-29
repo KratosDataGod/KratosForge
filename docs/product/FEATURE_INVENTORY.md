@@ -2500,7 +2500,7 @@ on quality.
 
 ### FEAT-GOV-09
 
-**Best-practice checks and templates.** Notebook rules NB001-NB012 and T-SQL rules SQ001-SQ010 read on this PC without running anything; governance policies name the rules they check, people add their own templates, and Check now runs them with a product checklist (Preview). Naming checks use RE2, so no pattern can stall a check.
+**Best-practice checks and templates.** Notebook rules NB001-NB012 and NB018-NB020, T-SQL rules SQ001-SQ010 read on this PC without running anything; governance policies name the rules they check, people add their own templates, and Check now runs them with a product checklist (Preview). Naming checks use RE2, so no pattern can stall a check.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.

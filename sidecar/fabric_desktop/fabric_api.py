@@ -70,7 +70,8 @@ def _error_body(resp: requests.Response) -> dict[str, Any]:
         return {}
     if not isinstance(body, dict):
         return {}
-    inner = body.get("error") if isinstance(body.get("error"), dict) else {}
+    raw = body.get("error")
+    inner: dict[str, Any] = raw if isinstance(raw, dict) else {}
     return {"code": body.get("errorCode") or inner.get("code") or inner.get("errorCode"),
             "message": body.get("message") or inner.get("message"),
             "details": body.get("moreDetails") or inner.get("details") or [],
@@ -102,10 +103,12 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
 
 def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     """A failed long-running operation, in Fabric's words: its error code and message, never the raw body."""
-    error = state.get("error") if isinstance(state.get("error"), dict) else {}
+    raw = state.get("error")
+    error: dict[str, Any] = raw if isinstance(raw, dict) else {}
     code = str(error.get("errorCode") or "") or None
     message = str(error.get("message") or "").strip().rstrip(".")
-    more = error.get("moreDetails") if isinstance(error.get("moreDetails"), list) else []
+    raw_more = error.get("moreDetails")
+    more: list[Any] = raw_more if isinstance(raw_more, list) else []
     details = [str(d.get("message")).strip().rstrip(".") for d in more if isinstance(d, dict) and d.get("message")]
     if code == "CapacityNotActive":
         message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "

@@ -174,6 +174,9 @@ CASES: tuple[Case, ...] = (
     Case('array_union (NULLs)', 'Array and map', 'SELECT array_union(array(1, NULL), array(NULL, 2))', [1, None, 2], 'same'),
     Case('pmod (negative divisor)', 'Math', 'SELECT pmod(7, -3)', -2, 'same'),
     Case('dayofweek (Sunday)', 'Date and time', "SELECT dayofweek(DATE'2009-07-26')", 1, 'same'),
+    Case('array_intersect (order and NULL)', 'Array and map', 'SELECT array_intersect(array(5, 1, NULL, 3, 5), array(3, NULL, 5))', [5, None, 3], 'same'),
+    Case('array_except (order and NULL)', 'Array and map', 'SELECT array_except(array(9, 5, 1, NULL, 3, 1, NULL), array(3))', [9, 5, 1, None], 'same'),
+    Case('array_distinct (order and NULL)', 'Array and map', 'SELECT array_distinct(array(3, NULL, 1, 3, NULL))', [3, None, 1], 'same'),
 )
 
 

@@ -105,6 +105,11 @@ _ANON_TEMPLATES = {
                    "(kf_v, kf_i) -> LIST_POSITION(LIST_CONCAT({0}, {1}), kf_v) = kf_i) END",
 }
 _DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
+# array_intersect and array_except: first-seen order of the first array, each value once, NULL included.
+_INTERSECT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
+              "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NOT NULL) END")
+_EXCEPT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
+           "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NULL) END")
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
@@ -114,12 +119,12 @@ def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
 def _spark_functions(statement: exp.Expression) -> exp.Expression:
     """Spark functions DuckDB answers differently, rewritten to answer as Spark does (#1105):
     dayofweek counts Sunday as 1, sort_array puts NULL first ascending and last descending,
-    array_sort puts NULL last, percentile interpolates, array_distinct and array_union keep
-    first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
+    array_sort puts NULL last, percentile interpolates, array_distinct, array_union, array_intersect
+    and array_except keep first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
     next_day take text, and pmod is never negative. Deepest first, so a rewritten argument is
     written out already rewritten."""
     found = list(statement.find_all(exp.DayOfWeek, exp.SortArray, exp.ArraySort, exp.Quantile, exp.ArrayDistinct,
-                                    exp.LastDay, exp.NextDay, exp.Anonymous))
+                                    exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Anonymous))
     for node in reversed(found):
         if isinstance(node, exp.DayOfWeek):
             node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
@@ -138,6 +143,10 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
             node.replace(exp.Anonymous(this="QUANTILE_CONT", expressions=[node.this, node.args["quantile"]]))
         elif isinstance(node, exp.ArrayDistinct):
             node.replace(_from_template(_DISTINCT, [node.this]))
+        elif isinstance(node, exp.ArrayIntersect) and len(node.expressions) == 2:
+            node.replace(_from_template(_INTERSECT, list(node.expressions)))
+        elif isinstance(node, exp.ArrayExcept):
+            node.replace(_from_template(_EXCEPT, [node.this, node.expression]))
         elif isinstance(node, (exp.LastDay, exp.NextDay)):
             node.set("this", exp.cast(node.this, exp.DataType.Type.DATE))
         elif isinstance(node, exp.Anonymous) and str(node.this).upper() in _ANON_TEMPLATES and len(node.expressions) == 2:
@@ -208,7 +217,7 @@ _SLICE_LENGTH = "Unexpected value for length in function slice: length must be g
 # Functions this module rewrites into longer DuckDB SQL; a select of one keeps the name Spark gives it.
 _REWRITTEN = (exp.IgnoreNulls, exp.AddMonths, exp.StrToUnix, exp.Substring, exp.ArraySlice, exp.MonthsBetween,
               exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.DayOfWeek, exp.SortArray, exp.ArraySort,
-              exp.Quantile, exp.ArrayDistinct, exp.LastDay, exp.NextDay)
+              exp.Quantile, exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay)
 
 
 def _spark_names(statement: exp.Expression) -> exp.Expression:

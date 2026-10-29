@@ -34,6 +34,7 @@ NOT_CALLED: dict[str, str] = {
     "schemas.microsoft.com": _SCHEMA,  # Task Scheduler XML namespace
     "schemas.openxmlformats.org": _SCHEMA,  # Excel export XML namespaces
     "docs.databricks.com": _LINK,
+    "docs.snowflake.com": _LINK,  # snowflake_sql: SQL reference links in its conversion notes
     "duckdb.org": _LINK,
     "learn.microsoft.com": _LINK,
     "spark.apache.org": _LINK,

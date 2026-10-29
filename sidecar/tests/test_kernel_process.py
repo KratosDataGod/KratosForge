@@ -437,3 +437,29 @@ def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kerne
         assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
     kernel.run("x = 2")
     assert kernel.live_pid == kernel.pid != pid
+
+
+def test_a_job_with_more_processes_than_the_list_holds_is_read_again_bigger(monkeypatch):
+    """QueryInformationJobObject fails with ERROR_MORE_DATA when the list is too small, but says how
+    many processes the job has: the list is read again that big rather than given up on."""
+    from fabric_desktop import kernel_proc
+    pids = list(range(1, kernel_proc.JOB_PIDS + 51))
+    calls = []
+
+    class Kernel32:
+        @staticmethod
+        def QueryInformationJobObject(job, kind, buffer, size, _returned):  # noqa: N802
+            listed = buffer._obj  # the JOBOBJECT_BASIC_PROCESS_ID_LIST passed by reference
+            room = len(listed.ProcessIdList)
+            calls.append(room)
+            listed.NumberOfAssignedProcesses = len(pids)
+            if room < len(pids):
+                return False  # ERROR_MORE_DATA
+            listed.NumberOfProcessIdsInList = len(pids)
+            for i, pid in enumerate(pids):
+                listed.ProcessIdList[i] = pid
+            return True
+
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: Kernel32)
+    assert kernel_proc._job_pids(1) == pids
+    assert calls[0] == kernel_proc.JOB_PIDS and calls[1] >= len(pids)

@@ -764,18 +764,24 @@ def _job_for(proc: subprocess.Popen[str]) -> int | None:
 
 
 def _job_pids(job: int) -> list[int] | None:
-    """The processes in the Job Object, or None if the list can't be read (more than JOB_PIDS of them)."""
+    """The processes in the Job Object, or None if the list can't be read. A list too small for them
+    all fails with ERROR_MORE_DATA but still says how many there are, so it is read again that big."""
     import ctypes
     from ctypes import wintypes
 
-    class Listed(ctypes.Structure):  # JOBOBJECT_BASIC_PROCESS_ID_LIST
-        _fields_ = [("NumberOfAssignedProcesses", wintypes.DWORD), ("NumberOfProcessIdsInList", wintypes.DWORD),
-                    ("ProcessIdList", ctypes.c_size_t * JOB_PIDS)]
+    size = JOB_PIDS
+    for _ in range(3):
+        class Listed(ctypes.Structure):  # JOBOBJECT_BASIC_PROCESS_ID_LIST
+            _fields_ = [("NumberOfAssignedProcesses", wintypes.DWORD), ("NumberOfProcessIdsInList", wintypes.DWORD),
+                        ("ProcessIdList", ctypes.c_size_t * size)]
 
-    listed = Listed()
-    if not _kernel32().QueryInformationJobObject(job, 3, ctypes.byref(listed), ctypes.sizeof(listed), None):
-        return None  # JobObjectBasicProcessIdList
-    return [int(listed.ProcessIdList[i]) for i in range(min(listed.NumberOfProcessIdsInList, JOB_PIDS))]
+        listed = Listed()
+        if _kernel32().QueryInformationJobObject(job, 3, ctypes.byref(listed), ctypes.sizeof(listed), None):
+            return [int(listed.ProcessIdList[i]) for i in range(min(listed.NumberOfProcessIdsInList, size))]
+        if listed.NumberOfAssignedProcesses <= size:
+            return None  # failed for another reason
+        size = listed.NumberOfAssignedProcesses + JOB_PIDS  # room for the ones started meanwhile
+    return None
 
 
 JOB_PIDS = 1024

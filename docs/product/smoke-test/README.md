@@ -41,7 +41,7 @@ It writes `smoke-test-results/<run id>/summary.md` and `smoke.json`, with the li
 | 6 | Publish the notebook and Run in Fabric; see it in Monitor | FEAT-FAB-06, FEAT-FAB-07 | Publish a notebook and read its cells back; with `--run-in-fabric`, run it in Fabric | Publish and Run in Fabric from the app; the run shows in Monitor › Runs |
 | 7 | Prove the notebook on the PC and in Fabric | FEAT-PRV-01 | Nothing | Prove on the notebook from flow 5 |
 | 8 | Metadata project: run Dev on the PC, promote to Test | FEAT-META-02, FEAT-META-09, FEAT-META-14 | Nothing | Run Dev on This PC; promote to Test mapped to the test workspace |
-| 9 | The live test: dry run, run, cleanup | FEAT-OPS-04, FEAT-FAB-01 | The whole live test with every opt-in check; it must pass and leave nothing behind | Optional: `live-test --agent-config` as the agent's identity (FEAT-AUTH-04) |
+| 9 | The live test: dry run, run, cleanup | FEAT-OPS-04, FEAT-FAB-01, FEAT-ORC-04 | The whole live test with every opt-in check, including the pipeline mailbox; it must pass and leave nothing behind | Optional: `live-test --agent-config` as the agent's identity (FEAT-AUTH-04) |
 | 10 | Report a problem and save a support bundle; nothing personal in either | FEAT-SHL-10, FEAT-SHL-11 | A support bundle holds no token, user name, tenant id or workspace id | Read the Report a problem draft |
 
 A flow counts as passed only when its automated part passed **and** every by-hand box is ticked. Flows 7 and 8 are by hand only.

@@ -17,7 +17,18 @@ Request, contract 1::
 
 ``env`` is required. ``entities`` empty means every entity (refused when the agent has an entity
 allowlist). ``deadline`` is the latest time the run may start; past it the request expires.
-``submitted_by`` is free text the pipeline sets, recorded as given.
+``submitted_by`` is free text the pipeline sets, recorded as given: nothing checks it, and OneLake
+doesn't say who wrote a file (its owner is always ``$superuser``). What can be checked is the run:
+
+    "pipeline_run": {"item_id": "<@pipeline().Pipeline>", "run_id": "<@pipeline().RunId>"}
+
+The agent looks that job up in the environment's workspace with the Fabric API and records the
+answer as the status's ``pipeline_run``: ``verified`` is true only for a Pipeline job of that item,
+started within ``RUN_MAX_AGE`` and not in the future. With ``[pipeline] require_run = true`` a request
+that doesn't name a run, or whose run doesn't check out or has already finished (the notebook that
+writes a request waits for its answer, so its run is still going), is rejected. A lookup Fabric
+couldn't answer just then (429, 5xx, no connection) is tried again on the next poll for up to
+``RUN_LOOKUP_GRACE`` before it counts. Untested on a Fabric tenant (PB-049).
 
 Each request is claimed by creating its status file with ``If-None-Match: *``, so one agent takes
 it however many poll the mailbox (with ``[pipeline] claim = "when_free"``, only while it has a worker
@@ -73,9 +84,15 @@ CONTROL_DIR = "Files/_fabric_desktop"
 FINAL = ("succeeded", "failed", "cancelled", "expired", "rejected")
 MAX_REQUEST_BYTES = 64 * 1024
 WRITING_GRACE = 60  # seconds an unreadable request gets before it is rejected
+RUN_MAX_AGE = 24 * 3600  # seconds: an older pipeline run can't vouch for a new request
+RUN_CLOCK_SKEW = 300  # seconds a run's start time may be ahead of this PC's clock
+RUN_LOOKUP_GRACE = 15 * 60  # seconds a request waits for a run lookup Fabric couldn't answer
+RUN_GOING = ("InProgress", "NotStarted")  # a run that wrote a request and waits for its answer
+_TRANSIENT = (408, 429, 500, 502, 503, 504)
 TAKEOVER_GRACE = 60  # seconds past an agent's stale_after before its requests are taken over (clock differences)
 _RUN_FIELDS = ("job_id", "attempts", "started_at", "finished_at", "result", "error", "last_error", "cancel")
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+_GUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 _JOB_STATE = {"queued": "accepted", "running": "running", "succeeded": "succeeded", "failed": "failed",
               "dead": "failed", "cancelled": "cancelled"}
 
@@ -130,6 +147,16 @@ def _epoch(text: str) -> float:
     return when.timestamp()
 
 
+def _fabric_utc(text: Any) -> float:
+    """A Fabric time such as ``2026-10-28T06:35:00.7812154`` (UTC, up to seven decimals, often no zone)."""
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?", str(text or ""))
+    if not m:
+        raise ValueError(f"not a time: {text!r}")
+    when = dt.datetime.fromisoformat(m.group(1) + (f".{m.group(2)[:6]}" if m.group(2) else "")
+                                     + (m.group(3) or "Z").replace("Z", "+00:00"))
+    return when.timestamp()
+
+
 class Mailbox:
     """The agent's side of the contract, for every environment it takes pipeline requests for.
 
@@ -140,10 +167,13 @@ class Mailbox:
     def __init__(self, agent: Any, control: Callable[[str], Any], environments: list[str],
                  entities: list[str] | None = None, allow_backfill: bool = False, retention_days: float = 14,
                  known_entities: Callable[[], set[str]] | None = None, log: logging.Logger | None = None,
-                 claim: str = "always", take_over: bool = False, max_attempts: int = 3):
+                 claim: str = "always", take_over: bool = False, max_attempts: int = 3,
+                 verify_run: Callable[[str, str, str], dict[str, Any]] | None = None, require_run: bool = False):
         self.agent, self.environments = agent, list(environments)
         self.claim = claim  # "when_free": leave new requests for an agent with a worker free
         self.take_over, self.max_attempts = take_over, max(1, int(max_attempts))
+        # verify_run(env, item_id, run_id) returns Fabric's job instance (Runtime.verify_pipeline_run)
+        self.verify_run, self.require_run = verify_run, require_run
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
         self.retention = retention_days * 86400
@@ -273,6 +303,12 @@ class Mailbox:
                 "env": env, "received_at": _iso(now), "updated_at": _iso(now), "agents": [self.agent.config.name]}
         if request:
             base |= {k: request[k] for k in ("entities", "backfill", "cascade", "deadline", "submitted_by") if k in request}
+        if request.get("pipeline_run") and not reason:
+            base["pipeline_run"] = self._check_run(env, request["pipeline_run"], now)
+            if self.require_run and not base["pipeline_run"]["verified"]:
+                if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
+                    return  # Fabric couldn't answer just then; ask again next poll
+                reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
         if reason:
             status = base | {"state": "rejected", "reason": reason}
         elif self.control(env).read(f"cancel/{rid}.json") is not None:
@@ -328,6 +364,14 @@ class Mailbox:
         submitted_by = raw.get("submitted_by", "")
         if not isinstance(submitted_by, str) or len(submitted_by) > 200:
             problems.append("submitted_by is text of at most 200 characters")
+        run = raw.get("pipeline_run")
+        if run is not None and not (isinstance(run, dict) and all(isinstance(run.get(k), str) and _GUID.fullmatch(run[k])
+                                                                  for k in ("item_id", "run_id"))):
+            problems.append("pipeline_run is {\"item_id\": <pipeline id>, \"run_id\": <run id>}, both GUIDs")
+            run = None
+        if run is None and self.require_run:
+            problems.append("this agent only takes requests that name the pipeline run that wrote them "
+                            "(pipeline_run; pipeline.require_run in agent.toml)")
         if env not in self.environments:
             problems.append(f"this agent doesn't take pipeline requests for {env}")
         known = self._known() if self._known else None
@@ -345,7 +389,42 @@ class Mailbox:
                    "submitted_by": submitted_by if isinstance(submitted_by, str) else ""}
         if deadline is not None:
             request["deadline"] = str(deadline)
+        if run is not None:
+            request["pipeline_run"] = {"item_id": run["item_id"].lower(), "run_id": run["run_id"].lower()}
         return request, "; ".join(problems)
+
+    def _check_run(self, env: str, run: dict[str, str], now: float) -> dict[str, Any]:
+        """What Fabric says about the pipeline run a request names. Never raises: a run that can't be
+        found or read is recorded as not verified, with why."""
+        out: dict[str, Any] = dict(run, verified=False)
+        if self.verify_run is None:
+            return out | {"detail": "this agent doesn't check pipeline runs"}
+        try:
+            job = self.verify_run(env, run["item_id"], run["run_id"])
+        except Exception as exc:  # recorded on the status; require_run decides whether it matters
+            if getattr(exc, "status", None) in _TRANSIENT or isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+                return out | {"detail": f"couldn't look it up in the {env} workspace just now: {describe(exc)}",
+                              "transient": True}
+            return out | {"detail": f"couldn't find it in the {env} workspace: {describe(exc)}"}
+        problems = []
+        if str(job.get("jobType") or "") != "Pipeline":
+            problems.append(f"it is a {job.get('jobType') or 'job of unknown type'}, not a pipeline run")
+        if str(job.get("itemId") or "").lower() != run["item_id"]:
+            problems.append("Fabric names a different item for it")
+        try:
+            age = now - _fabric_utc(job.get("startTimeUtc"))
+            if age > RUN_MAX_AGE:
+                problems.append(f"it started {age / 3600:.0f} hours ago; the most is {RUN_MAX_AGE // 3600}")
+            elif age < -RUN_CLOCK_SKEW:
+                problems.append("Fabric gives it a start time in the future")
+        except ValueError:
+            problems.append("Fabric gave no start time for it")
+        out |= {"status": str(job.get("status") or ""), "started_at": str(job.get("startTimeUtc") or "")}
+        if self.require_run and out["status"] not in RUN_GOING:
+            problems.append(f"it has already finished ({out['status'] or 'no status'}); the run that asks is still going")
+        if problems:
+            return out | {"detail": "; ".join(problems)}
+        return out | {"verified": True, "detail": f"pipeline run {run['run_id']} of item {run['item_id']}, {out['status']}"}
 
     def _sync(self, env: str, rid: str, status: dict[str, Any], stored: Stored) -> None:
         """Make the status say what the agent's queue says, queueing the job if a crash left it unqueued."""

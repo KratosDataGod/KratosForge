@@ -62,11 +62,11 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
     live.add_argument("--all", action="store_true", help="also run the opt-in checks (concurrent Delta writers, "
-                      "notebook publish, pipeline definition, OneLake lease, MERGE profile); they create items and "
-                      "use capacity")
+                      "notebook publish, pipeline definition, pipeline mailbox, OneLake lease, MERGE profile); they "
+                      "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
-                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "lease.onelake",
-                               "delta.merge_profile"],
+                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
+                               "lease.onelake", "delta.merge_profile"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")

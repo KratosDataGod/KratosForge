@@ -5576,3 +5576,37 @@ test("every folder box on this PC has a Browse… button", () => {
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
 });
+
+// #1108: a waiting workspace access request says the role its person or group has today, as drawn.
+test("workspace access requests show today's role, and the confirm says what approving changes", async () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const seen = [];
+  const box = { WORKSPACE_ROLES: ["Viewer", "Contributor", "Member", "Admin"], h: (tag, attrs, text) => text,
+    confirmDialog: async (title, text, ok) => { seen.push({ title, text, ok }); return true; }, result: null };
+  vm.runInNewContext(`${fn("accessToday")}${fn("accessTodayLine")}${fn("confirmApproval")}
+    result = { accessTodayLine, confirmApproval };`, box);
+  const { accessTodayLine, confirmApproval } = box.result;
+  const req = (role, today) => ({ kind: "workspace_access", target: "Sales Prod", today,
+    detail: { role, principal: { type: "Group", name: "Sales Engineers", id: "g" } } });
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Admin" })), "Sales Engineers has Admin in Sales Prod today, so approving keeps Admin.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today, so approving keeps Viewer.");
+  assert.strictEqual(accessTodayLine(req("Contributor", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today; approving raises it to Contributor.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "" })), "Sales Engineers has no role of its own in Sales Prod today. A role through another group isn't counted.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { checked: false })), "Couldn't check today's role: Fabric didn't answer. Approving never lowers a role either way.");
+  assert.strictEqual(accessTodayLine(req("Viewer", undefined)), null, "nothing for a row the viewer can't decide");
+  for (const today of [{ role: "Admin" }, { role: "Viewer" }, { role: "" }, { checked: false }, undefined]) {
+    assert.strictEqual(JSON.stringify(await confirmApproval(req(today?.role === "Viewer" ? "Contributor" : "Viewer", today))), "{}");
+  }
+  const after = " Then the request is approved. If any step fails, it stays waiting and says which.";
+  assert.deepStrictEqual(seen.map((s) => [s.text, s.ok]), [
+    ["Sales Engineers already has Admin in Sales Prod, which is higher than Viewer. Approving keeps Admin and marks the request approved. Nothing changes in Fabric." + after, "Approve"],
+    ["As you, KratosForge raises the group Sales Engineers from Viewer to Contributor in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"]]);
+  seen.length = 0;
+  await confirmApproval(req("Member", { role: "Member" }));
+  assert.deepStrictEqual([seen[0].text, seen[0].ok], ["Sales Engineers already has Member in Sales Prod, which is the role asked for. Approving keeps Member and marks the request approved. Nothing changes in Fabric." + after, "Approve"]);
+  assert.match(src, /r\.kind === "workspace_access" \? accessTodayLine\(r\) : null/, "the line sits under the reason");
+});

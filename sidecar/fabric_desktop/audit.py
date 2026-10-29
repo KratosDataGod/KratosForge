@@ -84,6 +84,7 @@ notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing n
 notebook_formats_import_check
 profile_get profile_report
 notebook_comments_list
+engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

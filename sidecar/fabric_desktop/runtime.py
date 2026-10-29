@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .agent_config import AgentConfig
-from .auth import EXECUTE_SCOPES
+from .auth import EXECUTE_SCOPES, ONELAKE_SCOPES
 from .cloud_service import CloudMixin
 from .credentials import Credential, from_config
 from .dataops_service import DataOpsMixin
@@ -46,6 +46,14 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
     @property
     def fabric(self) -> FabricClient:
         return FabricClient(self.auth.fabric_token)
+
+    def onelake_token(self) -> str:
+        """A token for OneLake's Fabric APIs (listing shortcuts and data access roles)."""
+        return self.auth._token(ONELAKE_SCOPES)
+
+    def environment_config(self, env: str) -> dict[str, Any]:
+        """An environment's settings in the project (workspace ids and the rest); {} when it has none."""
+        return dict(self._project().environments.get(env, {}))
 
     @property
     def fabric_jobs(self) -> FabricClient:

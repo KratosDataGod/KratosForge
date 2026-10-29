@@ -880,7 +880,7 @@ function localWritesRow() {
     status.textContent = localWritesText(w);
     clear.disabled = !w.files && !w.tpch.length;
     extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
-      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${sizeText(t.bytes)}, ${t.folder}`),
       btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
   }).catch(() => { status.textContent = "Couldn't read the folder."; });
   return settingRow("Files on this PC",
@@ -894,19 +894,19 @@ async function clearLocalWrites() {
   const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
   const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
     ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
-  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${sizeText(total)} from this PC: ${what.join("; ")}. ` +
     "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
   "Delete", { danger: true }))) return;
   const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
   if (!res) return;
-  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  toast(`Deleted ${sizeText(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
   render();
 }
 
 function localWritesText(w) {
   if (!w.files) return `Empty · ${w.folder}`;
-  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
-  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${sizeText(w.uploading.bytes)})` : "";
+  return `${sizeText(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the

@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1096 3d00e389 | Engine picker, retargeted to main after #1058 | PASS 9.2 (carry) | Patch-id of `origin/main...3d00e389` equals 6eae302d..36a435ff (16 files, +1112/−16; only hunk offsets differ). Merges clean; on the merge result ui.test 308/308, engines_service + conformance + server_lanes + silent_except 103 passed. |
+
 | 2026-10-29 | #1100 2c55f197 | update-branch onto main ce24b7c6 | PASS 9.2 (carry) | Clean merge of main into 52c5a142; three-dot diff identical. Merges clean; test_platform + test_shared_keys + silent_except 111 passed. |
 | 2026-10-29 | #1097 d8b12dac | update-branch onto main ce24b7c6 | PASS 9.2 (carry) | Clean merge of main into 648cc489; three-dot diff identical. Merges clean. |
 

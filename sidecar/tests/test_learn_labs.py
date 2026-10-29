@@ -146,7 +146,7 @@ def test_start_check_hint_and_reset(tmp_path):
     assert labs.state(tmp_path, "LM-01")["answers"]["north-big-orders"] == content.file_text("LM-01", "starter.sql")
     assert labs.hint("LAB-02", "store-revenue-2026", 1)["of"] == 3
     assert labs.hint("LAB-02", "store-revenue-2026", 99)["level"] == 3
-    assert labs.hint("LM-01", "north-big-orders", 1)["of"] == 0
+    assert labs.hint("LM-01", "north-big-orders", 1)["of"] == 3
     with pytest.raises(ValueError):
         labs.save_answer(tmp_path, "LM-01", "nope", "x")
 

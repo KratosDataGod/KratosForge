@@ -9,6 +9,7 @@ import pytest
 
 from fabric_desktop import agent_config
 from fabric_desktop.agent import Agent
+from fabric_desktop.errors import NotSetUp
 from fabric_desktop.leases import LocalBackend
 from fabric_desktop.meta import objectives
 from fabric_desktop.meta.project import ENVIRONMENTS
@@ -341,7 +342,7 @@ def test_an_environment_that_isnt_set_up_opens_no_incident_and_clears_a_cant_che
     assert {i["kind"] for i in svc.incidents_list("dev")["incidents"] if i["state"] != "resolved"} == {"run_failed", "cant_evaluate"}
 
     def not_set_up(env, limit):
-        raise LookupError("Assign a workspace to Dev first (Data mesh > Environments).")
+        raise NotSetUp("Assign a workspace to Dev first (Data mesh > Environments).")
 
     monkeypatch.setattr(svc, "meta_runs", not_set_up)
     out = svc.incidents_evaluate("dev")
@@ -356,7 +357,7 @@ def test_the_agent_opens_no_incident_for_an_environment_that_isnt_set_up(agent_s
     agent = Agent(agent_setup, clock=Clock())
 
     def not_set_up(env, limit):
-        raise LookupError("Assign a workspace to Dev first.")
+        raise NotSetUp("Assign a workspace to Dev first.")
 
     monkeypatch.setattr(agent.runtime, "meta_runs", not_set_up)
     assert agent.evaluate_incidents() == {"dev": []}

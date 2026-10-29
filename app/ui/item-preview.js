@@ -112,7 +112,7 @@ async function drawPreview(panel) {
     btn("Open in notebook", null, () => newNotebook(t.ref), "tool small outline")]
     : t.kind === "item" ? [preview("fabricEdit", btn("Edit on this PC", "desktop", () => nbEditFromFabric(t.item), "tool small primary")),
       btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(t.item)), "tool small outline")] : [];
-  panel.replaceChildren(previewHead(title, type, t.kind === "item" ? t.item.workspace_name : t.kind === "file" ? formatSize(t.size) : "", actions), body);
+  panel.replaceChildren(previewHead(title, type, t.kind === "item" ? t.item.workspace_name : t.kind === "file" ? sizeText(t.size) : "", actions), body);
 
   const result = await loadPreview(t);
   if (!itemPreview.target || previewKey(itemPreview.target) !== key || !panel.isConnected) return;
@@ -125,7 +125,7 @@ async function drawPreview(panel) {
   const d = result.data;
   if (t.kind === "item") return drawNotebookPreview(panel, body, d);
   if (d.kind === "other") { body.replaceChildren(h("p", { class: "muted-text" }, "This kind of file can't be previewed. Data files (CSV, Parquet, JSON) and text files can.")); return; }
-  if (d.kind === "too_big") { body.replaceChildren(h("p", { class: "muted-text" }, `This file is ${formatSize(d.size)}, too big to download for a preview.`)); return; }
+  if (d.kind === "too_big") { body.replaceChildren(h("p", { class: "muted-text" }, `This file is ${sizeText(d.size)}, too big to download for a preview.`)); return; }
   if (d.kind === "text") {
     body.replaceChildren(h("pre", { class: "preview-text" }, d.text), d.truncated ? h("p", { class: "muted-text" }, "Showing the start of the file.") : null);
     return;

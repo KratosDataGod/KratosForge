@@ -225,6 +225,9 @@ def test_a_proof_runs_the_pc_side_in_the_kernel_process(svc):  # noqa: F811
         assert out["pc"]["cells"]["4"]["outputs"][0]["text"].strip() == "5"
         # The time zone was fixed in the kernel's process only; the engine's is as it was.
         assert os.environ.get("TZ") == tz_before
+        # PB-094: the PC side's CPU and memory are the kernel process's, not the engine's.
+        assert out["pc"]["measured"] == "the notebook's own kernel process on this PC"
+        assert "kernel process" in " ".join(out["scorecard"]["notes"])
     finally:
         kernel.close()
 
@@ -364,3 +367,45 @@ def test_stop_restart_and_close_delete_the_processs_output_files(kernel):
     kernel.run(big)
     kernel.close()
     assert not folder.exists() and kernel.output_dir is None
+
+
+def test_the_run_meter_measures_the_kernel_process_not_the_engine(kernel):
+    """PB-094: with notebooks in their own process, a run's CPU and memory are that process's."""
+    from fabric_desktop.measure import RunMeter, cpu_seconds
+    kernel.run("x = 1")  # started, so its start-up isn't part of this run
+    before = cpu_seconds(kernel.pid)
+    engine_before = time.process_time()
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+        out = kernel.run("import time\nheld = bytearray(300 * 1024 * 1024)\n"
+                         "end = time.process_time() + 1.5\nwhile time.process_time() < end:\n    pass\nprint('ok')")
+    after = cpu_seconds(kernel.pid)
+    assert text(out).strip() == "ok"
+    result = meter.result()
+    # The kernel's own CPU time, as the process reports it, and none of the engine's.
+    assert result["cpu_seconds"] >= 1.4 and abs(result["cpu_seconds"] - (after - before)) < 0.2
+    assert time.process_time() - engine_before < 1.0
+    assert result["peak_memory_mb"] >= 300 and result["measured"] == "the notebook's own kernel process on this PC"
+
+
+def test_a_kernel_that_starts_during_the_run_counts_from_its_start(kernel):
+    from fabric_desktop.measure import RunMeter, cpu_seconds
+    kernel.restart()
+    with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+        kernel.run("end = __import__('time').process_time() + 0.5\nwhile __import__('time').process_time() < end:\n    pass")
+    assert meter.processes == 1 and meter.cpu >= 0.5 and meter.cpu <= cpu_seconds(kernel.pid) + 0.05
+
+
+def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kernel):
+    """The id of an ended process (which the OS may give another process) is never measured."""
+    from fabric_desktop.measure import RunMeter
+    kernel.run("x = 1")
+    pid = kernel.pid
+    assert kernel.live_pid == pid
+    for end in (kernel.stop, kernel.restart):
+        end()
+        assert kernel.live_pid is None and kernel.pid == pid  # the last id is still there, not measured
+        with RunMeter(interval=0.05, process=lambda: kernel.live_pid) as meter:
+            time.sleep(0.2)
+        assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
+    kernel.run("x = 2")
+    assert kernel.live_pid == kernel.pid != pid

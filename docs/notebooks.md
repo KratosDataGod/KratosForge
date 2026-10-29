@@ -341,7 +341,7 @@ The note has a button to switch when the other place would work.
 - **On this PC:** Windows Task Scheduler runs the saved notebook in a fresh kernel of its own (not the one open in the app), every code cell in order with its attached lakehouse. Frozen cells are skipped, as Run all skips them, and the run record says how many were. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
-For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
+For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and, for Fabric, the **Time zone**: every Windows time zone, your PC's first, with a search box (a schedule on this PC runs in the PC's own time zone). The same dialog lists the notebook's schedules; **Edit** changes one in place, keeping its runs and whether it is paused, and **Remove** asks first. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 
 ### Recent runs (Preview)
 
@@ -420,4 +420,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.

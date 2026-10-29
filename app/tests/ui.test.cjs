@@ -1361,6 +1361,17 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
 });
 
+test("Monitor > Runs calls a job file's run a job run, not a notebook write (PB-079)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function historyKind\([\s\S]*?\n}\n/)[0]}; this.historyKind = historyKind;`, ctx);
+  assert.strictEqual(ctx.historyKind({ job: "Notebook write to Sales" }), "Notebook write");
+  assert.strictEqual(ctx.historyKind({ job: "daily_sales" }), "Job run");
+  assert.strictEqual(ctx.historyKind({}), "Job run");
+  assert.match(src, /activity: r\.job, kind: historyKind\(r\)/);
+  assert.doesNotMatch(src, /kind: "Notebook write"/);
+});
+
 test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const monitor = app.slice(app.indexOf("async function renderMonitor()"), app.indexOf("\n}\n", app.indexOf("async function renderMonitor()")));
@@ -3240,6 +3251,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
+test("sizes read the same on every page", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function sizeText\([\s\S]*?\n}\n/)[0]}; this.f = sizeText;`, ctx);
+  const cases = [[0, "0 B"], [17, "17 B"], [1023, "1023 B"], [1024, "1.0 KB"], [2048, "2.0 KB"], [1.5 * 1024 ** 2, "1.5 MB"],
+    [99.5 * 1024 ** 2, "99.5 MB"], [212 * 1024 ** 2, "212 MB"], [1023.97 * 1024, "1.0 MB"], [1.1 * 1024 ** 3, "1.1 GB"],
+    [5 * 1024 ** 4, "5.0 TB"], ["2048", "2.0 KB"], [-1, ""], [null, ""], [undefined, ""], ["", ""], [NaN, ""]];
+  for (const [n, want] of cases) assert.strictEqual(ctx.f(n), want, String(n));
+  // Side by side keeps decimal sizes for uploads, beside the decimal MB/s of the line they went over.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
+    assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
 // L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
 // red, and the Resources tab keeps its snippets under the files.
 test("notebook resource names, sizes and the Resources tab", () => {
@@ -3247,8 +3274,8 @@ test("notebook resource names, sizes and the Resources tab", () => {
   const ctx = {};
   vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
 ${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
-${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
-this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = sizeText;`, ctx);
   for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
   for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
     assert.notStrictEqual(ctx.problem(bad), "", bad);
@@ -4671,7 +4698,8 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0] + src +
+    "\nthis.api = { renderQueryProfile, qprofileText, sizeText };", ctx);
   const o = { frame: "f", spark: true };
   const box = ctx.api.renderQueryProfile(o);
   assert.strictEqual(calls.length, 0, "nothing runs until asked");
@@ -4703,7 +4731,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
   allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
   assert.match(text(box), /Run the cell again/);
-  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  assert.strictEqual(ctx.api.sizeText(1.1 * 1024 ** 3), "1.1 GB");
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
   assert.match(nb, /previewMarked\("queryProfile"/);
@@ -4759,7 +4787,7 @@ test("Share adds another notebook to this session, and a notebook that shares on
     { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
   const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
-    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    when: String, sizeText: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
     closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
     confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
     openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
@@ -5136,7 +5164,7 @@ test("Files on this PC says what local writes hold and where", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
   assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
   assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
     "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
@@ -5284,7 +5312,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
@@ -5298,6 +5326,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const NO_ID = {
     "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
+    "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],

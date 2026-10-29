@@ -90,3 +90,19 @@ def test_a_stream_is_made_safe_too(lake):
     lakehouse.write_table(reader, "dbo.t")
     assert schema(lake, "t").field("u").type == pa.int64()
     assert DeltaTable(str(lake / "dbo" / "t")).to_pyarrow_table().num_rows == 3
+
+
+def test_a_timestamp_without_a_time_zone_gets_a_plain_message(lake):
+    """#966: delta-rs would write timestampNtz (reader 3), which Fabric can't read."""
+    import pandas as pd
+    import polars as pl
+    naive = dt.datetime(2026, 1, 1, 12)
+    frames = [pl.DataFrame({"id": [1], "at": [naive]}), pd.DataFrame({"id": [1], "at": [pd.Timestamp(naive)]}),
+              pa.table({"id": [1], "s": pa.array([{"at": naive}])})]
+    for frame, column in zip(frames, ["at", "at", "s.at"]):
+        with pytest.raises(ValueError, match=f"Column {column} holds timestamps without a time zone") as err:
+            lakehouse.write_table(frame, "dbo.t")
+        assert "replace_time_zone" in str(err.value) and "Nothing was written" in str(err.value)
+    assert not (lake / "dbo" / "t" / "_delta_log").exists()
+    lakehouse.write_table(pl.DataFrame({"at": [naive]}).with_columns(pl.col("at").dt.replace_time_zone("UTC")), "dbo.t")
+    assert schema(lake, "t").field("at").type == pa.timestamp("us", tz="UTC")

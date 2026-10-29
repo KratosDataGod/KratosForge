@@ -19,6 +19,9 @@ on:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    # Stable reaches every PC that hasn't chosen Preview, so a promote waits here until a reviewer
+    # set on this environment (Settings > Environments > stable > Required reviewers) approves it.
+    environment: stable
     # Waits for a Preview publish in progress, so it never copies a half-replaced release.
     concurrency:
       group: release-assets
@@ -31,6 +34,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           NOTES: ${{ inputs.notes }}
           BUILD: ${{ inputs.build }}
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' }}
         run: |
           BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]' | tr 'A-F' 'a-f')
           WANT=""
@@ -49,7 +53,8 @@ jobs:
           gh release download "$SOURCE" --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           # The exe is kratosforge.exe, published beside fabric-desktop.exe (the name builds before it
           # download). A build from before kratosforge.exe has only the old name: Stable gets both.
-          if gh release view "$SOURCE" --json assets --jq '.assets[].name' | grep -qx kratosforge.exe; then
+          ASSETS=$(gh release view "$SOURCE" --json assets --jq '.assets[].name')
+          if grep -qx kratosforge.exe <<< "$ASSETS"; then
             gh release download "$SOURCE" --pattern kratosforge.exe
           else
             cp fabric-desktop.exe kratosforge.exe
@@ -60,6 +65,17 @@ jobs:
             gh release download "$SOURCE" --pattern fabric-desktop-engine-update.zip
             UPDATE_ZIP=(fabric-desktop-engine-update.zip)
           fi
+          # The build's software bills of materials, so Stable carries the list of what it ships.
+          # A build from before SBOMs were published goes without them.
+          SBOMS=()
+          for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
+            if grep -qx "$sbom" <<< "$ASSETS"; then
+              gh release download "$SOURCE" --pattern "$sbom"
+              SBOMS+=("$sbom")
+            else
+              echo "::notice::$SOURCE has no $sbom, so Stable is promoted without it."
+            fi
+          done
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The $SOURCE release has no build commit"; exit 1; }
           if [ "$SOURCE" != latest ] && [ "build-${COMMIT::12}" != "$SOURCE" ]; then
@@ -82,6 +98,12 @@ jobs:
               exit 1
             fi
           done
+          # Once signing is set up, only a build CI signed goes to Stable. Builds from before then say
+          # nothing ("signed" missing), which counts as unsigned.
+          if [ "$SIGNING" = true ] && [ "$(jq -r '.signed // false' version.json)" != true ]; then
+            echo "Build $COMMIT isn't signed, and signing is set up, so it can't go to Stable. Promote a signed build."
+            exit 1
+          fi
           echo "Promoting build $COMMIT from $SOURCE"
           # Keep the build's checksums and its month of history; only the notes and the publish time
           # change. The app refuses a version.json published before one it already saw (HD-022), so
@@ -91,7 +113,17 @@ jobs:
           if gh release view stable > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release: while it was missing,
             # Stable PCs fell back to Preview and could be offered an untested build.
-            gh release upload stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" --clobber
+            gh release upload stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS[@]}" --clobber
+            # Nor may an earlier build's SBOM stay beside this build's files.
+            STABLE_ASSETS=$(gh release view stable --json assets --jq '.assets[].name') \
+              || { echo "::warning::Couldn't list stable's files; check by hand that no earlier SBOM is left."; STABLE_ASSETS=""; }
+            for sbom in sbom-app.cdx.json sbom-engine.cdx.json; do
+              [[ " ${SBOMS[*]} " == *" $sbom "* ]] && continue
+              if grep -qx "$sbom" <<< "$STABLE_ASSETS"; then
+                gh release delete-asset stable "$sbom" --yes \
+                  || echo "::warning::Couldn't remove the earlier build's $sbom from stable; delete it by hand."
+              fi
+            done
             # A build without an update zip mustn't sit next to an earlier build's (the app only uses
             # one its version.json names, but a stale file there misleads people).
             if [ ${#UPDATE_ZIP[@]} -eq 0 ]; then
@@ -101,7 +133,7 @@ jobs:
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/stable" -f sha="$COMMIT" -F force=true
             gh release edit stable --notes "$NOTES" --latest
           else
-            gh release create stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" version.json \
+            gh release create stable kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip "${UPDATE_ZIP[@]}" "${SBOMS[@]}" version.json \
               --title "KratosForge (stable)" \
               --notes "$NOTES" \
               --target "$COMMIT" \

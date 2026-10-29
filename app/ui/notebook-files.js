@@ -600,7 +600,7 @@ async function nbOpenFileDialog(file, content, check) {
   };
   showDialog("Open a notebook file", h("div", { class: "nbf-form" },
     h("p", { class: "muted-text" }, "KratosForge adds a copy to your notebooks and opens it. The file you picked isn't changed or moved."),
-    h("div", { class: "nbf-file" }, icon("document", 20), h("div", {}, h("b", {}, file.name), h("div", { class: "muted-text small" }, formatSize(file.size)))),
+    h("div", { class: "nbf-file" }, icon("document", 20), h("div", {}, h("b", {}, file.name), h("div", { class: "muted-text small" }, sizeText(file.size)))),
     h("label", { class: "field" }, "Name", nameInput),
     check.taken ? h("p", { class: "muted-text small" }, `You already have a notebook named ${check.file_name}, so this name is suggested.`) : null,
     places.length > 1 ? h("label", { class: "field" }, "Save in", select) : null,

@@ -73,6 +73,11 @@ POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.
 # Tenant.Read.All as above, asked for Power BI's address). Only a Fabric administrator can use it, and
 # only they are asked for it, when they choose Scan now on a data product (Preview).
 POWERBI_TENANT_READ_SCOPES = ["https://analysis.windows.net/powerbi/api/Tenant.Read.All"]
+# Embedding Power BI content in Embed Studio (Preview): the token the embed frame hands to Power BI, and
+# reading a report's or dashboard's embed URL, pages and tiles. Reads only. Asked the first time it opens.
+POWERBI_EMBED_SCOPES = ["https://analysis.windows.net/powerbi/api/Report.Read.All",
+                        "https://analysis.windows.net/powerbi/api/Dashboard.Read.All",
+                        "https://analysis.windows.net/powerbi/api/Dataset.Read.All"]
 # Queries on a Data warehouse or SQL analytics endpoint (SQL-004): its SQL connection takes a token for
 # Azure SQL's resource. Asked for the first time you run a query on a warehouse.
 WAREHOUSE_SCOPES = ["https://database.windows.net/user_impersonation"]

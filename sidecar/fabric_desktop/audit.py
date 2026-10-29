@@ -85,6 +85,7 @@ notebook_formats_import_check
 profile_get profile_report
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
+pbi_embed_token pbi_embed_content
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

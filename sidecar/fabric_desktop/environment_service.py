@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import app_settings
+from . import app_settings, fabric_environment
 from .environments import Environments
 from .kernel_proc import ProcessKernel
 
@@ -29,6 +29,16 @@ class EnvironmentMixin:
         return {"environments": self.environments.list(), "current": self.environments.of(notebook) if notebook else None,
                 "process": bool(app_settings.value("kernel_process")),
                 "allowed": app_settings.value("allow_notebook_packages") is not False}
+
+    def environment_fabric_drift(self, workspace_id: str, environment_id: str, notebook: str | None = None) -> dict[str, Any]:
+        """How the packages ``notebook`` finds on this PC differ from a Fabric Environment item's
+        published libraries and runtime (fabric_environment.py). Two read-only calls; an item that
+        can't be read gives status "couldnt_read", never an error."""
+        env = self.environments.of(notebook) if notebook else None
+        item = fabric_environment.read(self.fabric, workspace_id, environment_id)  # type: ignore[attr-defined]
+        here = fabric_environment.on_this_pc(self.environments.installed(env) if env else None)
+        return fabric_environment.drift(item, here) | {"environment": env, "workspace_id": workspace_id,
+                                                        "environment_id": environment_id}
 
     def environment_create(self, name: str) -> dict[str, Any]:
         return self.environments.create(name)

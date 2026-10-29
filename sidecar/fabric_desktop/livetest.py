@@ -568,8 +568,7 @@ class LiveTest:
             "schema": SCHEMA, "run_id": self.run_id, "outcome": outcome, "started_at": started,
             "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "workspace": {"id": self.workspace_id, "name": self.workspace.get("displayName", "")},
-            "identity": {"name": getattr(self.credential, "name", "") or "signed-in user",
-                         "tenant": _safe(lambda: self.credential.signed_in_tenant())},
+            "identity": {"name": getattr(self.credential, "name", "") or "signed-in user"},  # never the tenant id
             "refused": refused, "counts": counts, "checks": [asdict(c) for c in self.checks],
             "opt_in": {"checks": sorted(self.extra), "run_in_fabric": self.run_in_fabric},
             "left_behind": self.ledger.created,

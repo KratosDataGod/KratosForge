@@ -65,7 +65,7 @@ async function renderDfConnections() {
   if (out.error) { fill(body, h("p", { class: "error-text" }, `Could not read connections: ${out.error}`)); return; }
   const envs = out.workspaces || [];
   const missing = out.missing || [];
-  const notes = [`As of ${new Date(out.scanned).toLocaleTimeString()} · ${out.items} pipelines, copy jobs and dataflows read in ${envs.map((w) => `${w.name}${w.env ? ` (${dfEnvLabel(w)})` : ""}`).join(", ") || "no workspaces"}`];
+  const notes = [`As of ${timeText(out.scanned)} · ${out.items} pipelines, copy jobs and dataflows read in ${envs.map((w) => `${w.name}${w.env ? ` (${dfEnvLabel(w)})` : ""}`).join(", ") || "no workspaces"}`];
   if (out.missed) notes.push(`${out.missed} couldn't be read`);
   if (out.skipped) notes.push(`${out.skipped} more not read (limit reached)`);
   if (out.gateways_error) notes.push("Gateway names couldn't be read (they need permission to read gateways)");

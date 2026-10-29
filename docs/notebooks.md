@@ -54,7 +54,7 @@ Each cell keeps a stable id (the standard `id` of notebook format 4.5) through e
 | --- | --- |
 | `lakehouse.read_csv(path)`, `read_parquet(path)`, `read_json(path)` | Read a file. `Files/...` paths read from the attached lakehouse; any other path is a file on this PC. Returns a Polars DataFrame. |
 | `lakehouse.read_table("schema.table")` | Read a Delta table. The schema defaults to `dbo`. |
-| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. While it writes, it holds the table's write lease, a small file in the lakehouse's `Files/_fabric_desktop/leases/`. If another notebook, job, metadata run or agent is writing the table, it waits up to 90 seconds, then stops with who is writing it ([agent.md](agent.md)). `df` can also be a stream of batches (a `RecordBatchReader` or DuckDB's `fetch_record_batch`), written as one commit without holding it all in memory. In a notebook that writes **here, then uploads** (the default), it returns at once and the upload runs in the background; the cell ends when its writes are in OneLake ([Writing to OneLake](architecture.md#writing-to-onelake)). A write that fails fails the cell at its end, after the rest of the cell has run; a notebook set to write **straight to OneLake** stops at the failed write instead. An overwrite of the same rows uploads nothing. In Fabric, a stream is written batch by batch too. |
+| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. While it writes, it holds the table's write lease, a small file in the lakehouse's `Files/_fabric_desktop/leases/`. If another notebook, job, metadata run or agent is writing the table, it waits up to 90 seconds, then stops with who is writing it ([agent.md](agent.md)). `df` can also be a stream of batches (a `RecordBatchReader` or DuckDB's `fetch_record_batch`), written as one commit without holding it all in memory. In a notebook that writes **here, then uploads** (the default), it returns at once and the upload runs in the background; the cell ends when its writes are in OneLake ([Writing to OneLake](architecture.md#writing-to-onelake)). A write that fails fails the cell at its end, after the rest of the cell has run; a notebook set to write **straight to OneLake** stops at the failed write instead. An overwrite of the same rows uploads nothing. In Fabric, a stream is written batch by batch too. Column types Delta can't hold are written as Fabric reads them, as a Local data project writes them: unsigned integers as the next larger signed type (UInt64 as DECIMAL(20, 0)) and float16 as float. A TIME, an INTERVAL, a decimal of more than 38 digits, or a column that is NULL in every row (with no type) stops the write with a message saying how to cast it. When you append, a column that is NULL in every row takes the table's type for that column. Every other type is written as it is. |
 | `lakehouse.sql("SELECT ...")` | Run Spark SQL over the attached lakehouse's tables, on this PC, and return a Polars DataFrame. |
 | `lakehouse.has_schemas()` | `False` when the attached lakehouse was created without schemas. |
 
@@ -198,6 +198,24 @@ An environment adds Python packages to a notebook, like a Fabric Environment ite
 - Your organization can turn installs off (`allow_notebook_packages` in the policy file, [azure-setup.md](azure-setup.md)); notebooks then use the app's packages only.
 
 Environments are kept on this PC under the app's data folder, in `environments\`. They aren't published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
+
+#### Compare with a Fabric Environment item (Preview)
+
+Before running in Fabric, check that the Fabric Environment item the notebook will use has the same packages as this PC. It's a command, with no screen in the app yet:
+
+```
+fabric-desktop env-drift --workspace <workspace id> --environment <Environment item id> [--notebook <name>] [--json]
+```
+
+It reads the item's published libraries and its Spark runtime with your sign-in, and the libraries and runtime saved in the item but not yet published. All four calls are read-only, and no Spark session starts. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
+
+- **Missing here**: published to the item, not installed on this PC;
+- **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same, and a version like `>=1.4` is met by any version it allows);
+- **Only here**: in the notebook's environment, not published to the item. Fabric's runtime may still ship it, which the item's libraries don't say.
+
+It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC's engine runs, and when it doesn't know a runtime's Python. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
+
+When the item has **unpublished changes**, the report lists what publishing it would add, remove or change, including a runtime change. Fabric runs what's published, so unpublished changes don't count as drift and don't change the exit code. They do show what the next publish brings in. If the unpublished changes can't be read, the report says so and the comparison with the published libraries stands.
 
 Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 
@@ -420,4 +438,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.

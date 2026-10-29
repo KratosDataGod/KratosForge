@@ -84,8 +84,8 @@ function platformGroup() {
 
 function platformTabBar() {
   const [here] = platformGroup();
-  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
-    h("button", { class: `tab${here === id ? " active" : ""}`, "aria-current": here === id ? "page" : null,
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Platform" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
+    h("button", { class: `tab${here === id ? " active" : ""}`, role: "tab", "aria-selected": String(here === id),
       onclick: () => platformOpen(items ? items[0] : id) }, text)));
 }
 

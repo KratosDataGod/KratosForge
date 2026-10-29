@@ -4,7 +4,7 @@
 // (central/policy.py) enforces all of it; this page only hides buttons a person can't use.
 
 const GOV_STATUS = { draft: ["Draft", "neu"], published: ["Published", "pass"], deprecated: ["Deprecated", "wrn"], retired: ["Retired", "neu"] };
-const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block (not enforced yet)", "fail"] };
+const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block", "fail"] };  // Block stops promote (GOV-003)
 const GOV_STRICTER = { higher: "Higher", lower: "Lower", superset: "More items", subset: "Fewer items", true: "On", fixed: "Fixed" };
 const GOV_SCOPE = { enterprise: "Enterprise", domain: "Domain", project: "Project", entity: "Entity" };
 const govPage = { query: "", category: "", status: "", open: null, sub: "definition", version: null, explain: null, view: "policies" };
@@ -15,7 +15,7 @@ function govPill(map, key) {
 }
 
 function govDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString() : "";
+  return dateText(iso);
 }
 
 function govValue(v) {
@@ -130,7 +130,8 @@ async function governancePolicy(body, id) {
       btn("Edit (new draft)", null, () => policyDialog(o.options, p, rerender), "tool outline small")) : null,
     previewShown() && (can.admin || can.domains.length) ? h("div", { class: "row" }, h("span", { class: "grow" }),
       btn("Save as template", null, () => saveAsTemplateDialog(p), "tool outline small")) : null,
-    h("div", { class: "subtabs" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`, onclick: () => { govPage.sub = t; rerender(); } }, label))),
+    h("div", { class: "subtabs", role: "tablist", "aria-label": "Policy" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`,
+      role: "tab", "aria-selected": String(govPage.sub === t), onclick: () => { govPage.sub = t; rerender(); } }, label))),
     sub].filter(Boolean));
   if (govPage.sub === "applies") return governanceApplies(sub, p, o, can, rerender);
   if (govPage.sub === "history") {

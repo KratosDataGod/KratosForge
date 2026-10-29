@@ -102,6 +102,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [incidents.md](incidents.md) | Team leads, platform owners, IT | Incidents (Preview): numbers, priorities, SLAs, reported incidents, Who's affected, where incidents are kept, your service desk |
 | [release-management/README.md](release-management/README.md) | Maintainers, platform owners | How builds reach Preview and Stable, who approves each step, the integration cycle for parallel PRs, promoting, per-build releases, rollback and pinning, versioning ([status](release-management/release-status.md), [history](release-management/release-history.md)) |
 | [live-testing.md](live-testing.md) | Admins, maintainers | The live test: checking sign-in, the Fabric API, OneLake and Delta against a workspace set aside for tests, with cleanup and a report |
+| [product/smoke-test/README.md](product/smoke-test/README.md) | Maintainers | The tenant smoke test: ten core flows on a workspace set aside for tests, part automated (`fabric-desktop smoke-test`) and part by hand, and how to record the results |
 | [ideas.md](ideas.md) | Everyone | Posting ideas, voting, and how ideas are prioritized and shipped |
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
 | [agent.md](agent.md) | Platform owners | The headless agent on Windows or Linux servers |
@@ -164,6 +165,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
 | Pipeline runs in Monitor | Monitor > Runs, pipeline runs on this PC and in Fabric with their activities ([user-guide.md](user-guide.md#pipeline-runs-in-monitor-preview)) |
+| Cancel a Fabric run | Monitor > Runs and the bell, Cancel on a running Fabric job this app started ([user-guide.md](user-guide.md#cancel-a-fabric-run-preview)) |
 | Publishing notebooks from folders | All notebooks > Move to folder; Publish names the item without its folder ([notebook-folders.md](notebook-folders.md)) |
 | New notebook wizard | Create > Notebook from a template |
 | Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Share > Export ([notebook-import-export.md](notebook-import-export.md)) |

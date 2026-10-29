@@ -63,6 +63,53 @@ def test_compare_with_an_earlier_version_of_the_same_table(svc):
     assert out["rows"]["left"] - out["rows"]["right"] == 1
 
 
+def test_compare_of_a_table_above_the_row_limit_streams_a_checksum(svc, monkeypatch):
+    # PB-069: a table larger than memory is never loaded; the result says it was a hashed compare.
+    from fabric_desktop.meta import compare as compare_mod
+    svc.meta_set_environment("test", target="local")
+    svc.meta_promote("dev", "test")
+    data = svc._project().local_data
+    shutil.copytree(data / "dev" / "LH_Bronze" / "Files", data / "test" / "LH_Bronze" / "Files")
+    assert all(r["status"] == "ok" for r in svc.meta_run(env="test"))
+    monkeypatch.setattr(compare_mod, "LIMIT_ROWS", 1)
+    monkeypatch.setattr(compare_mod, "compare", lambda *a: pytest.fail("the full compare loads both tables"))
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+
+    same = svc.meta_compare("silver.orders", "test", "dev")
+    assert same["method"] == "hashed" and same["checksum"]["match"] and not same["compared_on_keys"]
+    assert same["rows"]["left"] == same["rows"]["right"] > 1
+    assert "checksums match" in same["note"]
+    assert all(t["diff"] == 0 for t in same["totals"]) and "order_id" not in {t["column"] for t in same["totals"]}
+
+    edit_entity(svc, "silver.orders", 'expr = "amount - coalesce(discount, 0)"', 'expr = "amount"')
+    svc.meta_run(["silver.orders"], backfill="full")
+    moved = svc.meta_compare("silver.orders", "test", "dev")
+    assert moved["method"] == "hashed" and not moved["checksum"]["match"]
+    assert {t["column"]: t for t in moved["totals"]}["net_amount"]["diff"] > 0
+    assert "checksums differ" in moved["note"]
+
+
+def test_hashed_compare_matches_equal_numbers_of_another_type_and_skips_old_versions(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    left = pa.table({key: ["1", "2", "3"], "amount": pa.array([10, 20, 30], pa.int64()), "is_current": [True] * 3})
+    right = pa.table({key: ["3", "1", "2", "2"], "amount": pa.array([30.0, 10.0, 99.0, 20.0]),
+                      "is_current": [True, True, False, True]})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["checksum"]["match"] and out["rows"] == {"left": 3, "right": 3}
+    assert [c["column"] for c in out["columns"]["type_changed"]] == ["amount"] and out["totals"][0]["diff"] == 0
+    changed = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right.set_column(1, "amount", pa.array([30.0, 11.0, 99.0, 20.0]))))
+    assert not changed["checksum"]["match"] and changed["totals"][0]["diff"] == 1
+
+
+def test_compare_below_the_row_limit_says_every_row_was_compared(svc):
+    out = svc.meta_compare("silver.customers", "dev", "dev")
+    assert out["method"] == "full" and out["compared_on_keys"]
+
+
 # ---- quarantine replay
 
 def test_fix_and_replay_a_quarantined_row(svc):
@@ -267,3 +314,49 @@ def test_no_project_yet_is_still_just_empty(tmp_path):
     s = Service(root=tmp_path / "app")
     assert s.meta_runs_all() == {"runs": [], "unavailable": {}}
     assert "project_error" not in s.meta_freshness()
+
+
+def test_drift_on_an_entity_source_reads_its_columns_not_its_rows(svc, monkeypatch):
+    from fabric_desktop.meta.store import LocalStore
+    project = svc._project()
+    up = project.entities["silver.orders"].spec["source"]["entity"]
+    upstream = (project.entities[up].schema, project.entities[up].table)
+    reads, real = [], LocalStore.read
+    monkeypatch.setattr(LocalStore, "read", lambda self, lh, schema, table, *a, **k:
+                        reads.append((schema, table)) or real(self, lh, schema, table, *a, **k))
+    d = svc.meta_drift("silver.orders")
+    assert d["checked"] and d["problem"] is None and upstream not in reads
+
+
+def test_hashed_totals_of_floats_added_in_another_order_are_the_same(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    key = e.keys[0]
+    import random
+    values = [random.Random(i).uniform(0, 1000) for i in range(5000)]
+    left = pa.table({key: [str(i) for i in range(len(values))], "amount": pa.array(values)})
+    right = pa.table({key: [str(i) for i in reversed(range(len(values)))], "amount": pa.array(list(reversed(values)))})
+    out = compare_mod.hashed(e, pads.dataset(left), pads.dataset(right))
+    assert out["totals"][0]["diff"] == 0
+    assert compare_mod._diff(1e-12, -1e-12) == 0 and compare_mod._diff(0.1 + 0.2, 0.3) == 0 and compare_mod._diff(1.0, 1.5) == 0.5 and compare_mod._diff(3, 4) == 1
+
+
+def test_hashed_compare_with_no_shared_columns_still_counts_rows(svc):
+    import pyarrow as pa
+    import pyarrow.dataset as pads
+    from fabric_desktop.meta import compare as compare_mod
+    e = svc._project().entities["silver.customers"]
+    out = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1]})))
+    assert out["rows"] == {"left": 2, "right": 1} and out["columns"]["only_left"] == ["a"]
+    even = compare_mod.hashed(e, pads.dataset(pa.table({"a": [1, 2]})), pads.dataset(pa.table({"b": [1, 2]})))
+    assert even["checksum"]["match"] is None and "share no columns, so no rows could be compared" in even["note"]
+    assert "the rows are the same" not in even["note"]
+
+
+def test_a_table_missing_on_one_side_isnt_loaded_on_the_other(svc, monkeypatch):
+    svc.meta_set_environment("test", target="local")
+    monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
+    out = svc.meta_compare("silver.orders", "dev", "test")
+    assert out["rows"]["right"] is None and out["rows"]["left"] > 0 and "the right" in out["note"]

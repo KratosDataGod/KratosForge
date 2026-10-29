@@ -32,6 +32,7 @@ from .redact import describe as describe_error
 from .jsonfile import read_json, write_json, write_text
 
 _log = logging.getLogger(__name__)
+_seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
 
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -109,8 +110,10 @@ class MetaMixin:
         if sealed_settings.needs_sealing(settings):  # saved in the clear by an earlier version
             try:
                 write_json(self.settings_file, sealed_settings.seal(settings))
-            except OSError as exc:
-                _log.warning("Couldn't encrypt the saved alert address: %s", describe_error(exc))
+            except OSError as exc:  # tried again on each read, but said once per process
+                if not _seal_failed:
+                    _seal_failed.append(True)
+                    _log.warning("Couldn't encrypt the saved Teams addresses: %s", describe_error(exc))
         return sealed_settings.unseal(settings)
 
     def _save_settings(self, **changes: Any) -> None:

@@ -587,3 +587,9 @@ def test_a_damaged_runs_file_is_read_as_empty(setup):
     (setup.home).mkdir(parents=True, exist_ok=True)
     (setup.home / "pipeline-runs.json").write_text('{"dev": ["not", "a", "map"]}', encoding="utf-8")
     assert ask(setup, required(setup), "r1")["state"] == "succeeded"
+
+
+def test_an_entry_with_no_usable_time_is_dropped(setup):
+    from fabric_desktop import jsonfile
+    jsonfile.write_json(setup.home / "pipeline-runs.json", {"dev": {RUN: {"request_id": "r0", "at": "yesterday"}}})
+    assert ask(setup, required(setup), "r1")["state"] == "succeeded"

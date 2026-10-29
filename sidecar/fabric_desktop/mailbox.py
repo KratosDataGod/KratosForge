@@ -183,7 +183,8 @@ class Mailbox:
         self._runs_lock = threading.Lock()  # _claim runs under self._lock already
         if runs_file is not None:
             loaded = jsonfile.read_json(runs_file, {})
-            self._runs = {env: {run: dict(e) for run, e in runs.items() if isinstance(e, dict)}
+            self._runs = {env: {run: dict(e) for run, e in runs.items()  # a hand-edited entry without a time is dropped
+                                if isinstance(e, dict) and isinstance(e.get("at"), (int, float)) and not isinstance(e["at"], bool)}
                           for env, runs in loaded.items() if isinstance(runs, dict)} if isinstance(loaded, dict) else {}
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill

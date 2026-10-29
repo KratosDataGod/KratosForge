@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #799 d0dd3481 | Leftover staging lakehouses, permissions.md conflict with #906 | PASS at d0dd3481 (carried from f7c12c3c) | 9.0 | Release management merged main. Against main, the Item.ReadWrite.All row differs only in #799's deleting clause (live test, and confirming Remove on a leftover Dataflow Gen2 staging lakehouse); #906's env-drift clause is kept as on main. Otherwise the PR's own delta is identical to f7c12c3c, and it merges main cleanly. RM: ui.test 301/0; xray/docs tests 41 passed. |
+
 | #1012 b9f5890d | exportrace PR opened | PASS (carried) | 9.3 | The PR head is the reviewed branch head b9f5890d. |
 
 | (no PR yet) exportrace b9f5890d (Codebase audit) | Plus: test_onelake_writes cancel flake | PASS | 9.3 | a32d4255 plus one test-only commit. In test_cancel_drops_writes_that_havent_started, the first write sets started before it waits on the gate, and the test waits for started before cancelling. Without that, a late worker thread meant both writes were dropped, as the queue promises (two notices, the flake on #889 and #986). Reproduced here by delaying write_queue.Queue._work 0.3 s: fails at a32d4255, passes at head. onelake_writes + silent_except 45 passed. |

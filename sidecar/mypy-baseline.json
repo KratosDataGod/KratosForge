@@ -37,6 +37,7 @@
   "arg-type": 2,
   "assignment": 1,
   "index": 1,
+  "misc": 3,
   "union-attr": 2
  },
  "fabric_desktop/central/client.py": {
@@ -93,6 +94,10 @@
  },
  "fabric_desktop/comments_service.py": {
   "union-attr": 1
+ },
+ "fabric_desktop/connprofiles.py": {
+  "arg-type": 1,
+  "assignment": 1
  },
  "fabric_desktop/costs.py": {
   "arg-type": 2,
@@ -160,10 +165,14 @@
   "union-attr": 1
  },
  "fabric_desktop/fabric_api.py": {
-  "arg-type": 1
+  "arg-type": 1,
+  "union-attr": 5
  },
  "fabric_desktop/fabric_compute.py": {
   "arg-type": 2,
+  "assignment": 1
+ },
+ "fabric_desktop/fabric_environment.py": {
   "assignment": 1
  },
  "fabric_desktop/fabric_pipeline_runs_service.py": {
@@ -225,6 +234,9 @@
  },
  "fabric_desktop/integrations/http_server.py": {
   "attr-defined": 3
+ },
+ "fabric_desktop/integrations/peer.py": {
+  "attr-defined": 8
  },
  "fabric_desktop/intellisense.py": {
   "assignment": 1,
@@ -289,6 +301,7 @@
   "var-annotated": 3
  },
  "fabric_desktop/meta/compare.py": {
+  "index": 1,
   "operator": 2
  },
  "fabric_desktop/meta/diff.py": {
@@ -296,11 +309,12 @@
  },
  "fabric_desktop/meta/drift.py": {
   "arg-type": 1,
-  "index": 1,
+  "call-overload": 1,
+  "index": 4,
   "union-attr": 1
  },
  "fabric_desktop/meta/engine.py": {
-  "arg-type": 16,
+  "arg-type": 18,
   "assignment": 3,
   "attr-defined": 2,
   "call-arg": 1,
@@ -308,14 +322,14 @@
   "index": 3,
   "misc": 4,
   "return-value": 1,
-  "union-attr": 3
+  "union-attr": 7
  },
  "fabric_desktop/meta/freshness.py": {
   "operator": 2,
   "union-attr": 5
  },
  "fabric_desktop/meta/keys.py": {
-  "arg-type": 4,
+  "arg-type": 2,
   "attr-defined": 3,
   "dict-item": 4,
   "misc": 1
@@ -350,7 +364,7 @@
   "union-attr": 1
  },
  "fabric_desktop/meta/store.py": {
-  "dict-item": 72,
+  "dict-item": 76,
   "return-value": 2
  },
  "fabric_desktop/meta/varlib.py": {
@@ -496,6 +510,14 @@
  },
  "fabric_desktop/side_by_side.py": {
   "misc": 2
+ },
+ "fabric_desktop/smoketest.py": {
+  "assignment": 1,
+  "misc": 1
+ },
+ "fabric_desktop/snowflake_sql.py": {
+  "assignment": 2,
+  "return-value": 1
  },
  "fabric_desktop/spark_api.py": {
   "arg-type": 3,

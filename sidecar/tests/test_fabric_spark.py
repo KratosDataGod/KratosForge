@@ -306,9 +306,11 @@ def _run_result_code(code, fields, rows):
     seen = {"selected": []}
     F = types.ModuleType("pyspark.sql.functions")
     F.col = lambda c: ("col", c)
-    for name, mod in (("pyspark", types.ModuleType("pyspark")), ("pyspark.sql", types.ModuleType("pyspark.sql"))):
-        sys.modules.setdefault(name, mod)
-    sys.modules["pyspark.sql"].functions = F
+    # Fresh fakes for all three modules, put back afterwards: a real pyspark (or the PySpark API
+    # stand-in other tests load) must never see these.
+    sql_mod = types.ModuleType("pyspark.sql")
+    sql_mod.functions = F
+    fakes = {"pyspark": types.ModuleType("pyspark"), "pyspark.sql": sql_mod, "pyspark.sql.functions": F}
 
     class Field:
         def __init__(self, name, t):
@@ -348,15 +350,16 @@ def _run_result_code(code, fields, rows):
 
     printed = []
     scope = {"spark": Spark(), "print": printed.append}
-    old = sys.modules.get("pyspark.sql.functions")
-    sys.modules["pyspark.sql.functions"] = F
+    saved = {name: sys.modules.get(name) for name in fakes}
+    sys.modules.update(fakes)
     try:
         exec(code, scope)   # noqa: S102 - the generated statement, on fakes
     finally:
-        if old is None:
-            sys.modules.pop("pyspark.sql.functions", None)
-        else:
-            sys.modules["pyspark.sql.functions"] = old
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
     return seen, json.loads(printed[0]), scope
 
 

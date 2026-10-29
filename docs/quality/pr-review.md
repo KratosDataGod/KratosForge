@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #1018 943776f2 | test_livetest: a writer that lost the commit race may take more than 2 attempts | PASS | 9.2 | Test only. The check must still pass and still name writer B as retried, now with at least 2 attempts instead of exactly 2: the forced failure costs one, and a real collision between the two writers can cost more. The assertion stays meaningful (B must have retried at least once). Merges main cleanly. The test passed 5 of 5 runs; livetest + silent_except 51 passed. |
+
 | #998 7880a0a7 | README rewrite, main merge (License section) | PASS at 7880a0a7 (carried from 92ff1702) | 9.3 | Release management's README union keeps the PR's short guide and Build from source, plus main's License section at the end. The PR's own delta is identical to 92ff1702 (sorted +/- lines compared against the merge-base), and it merges main cleanly. |
 
 | #987 a8be34c6 | Main merge (styles.css union with #990) | PASS at a8be34c6 (carried from 166b09bd) | 9.2 | Second reviewer's PR, carried by me at Release management's ask. The styles.css union keeps the PR's .folder-field rules and main's forced-colors block. The PR's own delta is identical to 166b09bd, and it merges main cleanly. RM: ui.test 304/304. |

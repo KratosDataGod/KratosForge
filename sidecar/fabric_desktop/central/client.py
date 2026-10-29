@@ -79,22 +79,60 @@ class FabricPlatform:
         return f"{API}/workspaces/{self.workspace_id}/userDataFunctions/{self.functions_id}/functions/{op}/invoke"
 
     def call(self, op: str, **kwargs: Any) -> Any:
+        """Run one operation. The status is read before the body: a 5xx or 429 (a gateway's HTML page
+        included) raises ``requests.HTTPError``, which the "can't be reached" fallbacks catch as a
+        ``requests.RequestException``; any other answer that isn't a JSON object is a PlatformError."""
         if op not in core.OPERATIONS:
             raise ValueError(f"the platform has no operation {op!r}")
         kwargs.pop("by", None)
         resp = self._http.post(self.url(op), json=kwargs, timeout=300,
                                headers={"Authorization": f"Bearer {self._token()}"})
+        what = op.replace("_", " ")
         if resp.status_code in (401, 403):
             raise PermissionError("The platform refused this call. Ask your platform team for at least Viewer "
                                   "on the Platform workspace and Execute on UDF_Platform.")
         if resp.status_code == 404:
             raise LookupError("UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace.")
-        body = resp.json() if resp.content else {}
+        if resp.status_code == 429 or resp.status_code >= 500:
+            reason = f" {resp.reason}" if getattr(resp, "reason", "") else ""
+            raise requests.HTTPError(f"UDF_Platform couldn't be reached to {what}: Fabric answered "
+                                     f"{resp.status_code}{reason}. Try again in a few minutes.", response=resp)
+        body = _body(resp)
+        if body is _NOT_JSON:
+            raise core.PlatformError(f"The platform couldn't {what}: UDF_Platform answered {resp.status_code} "
+                                     f"with something that isn't JSON: {_start(resp)}")
+        if not isinstance(body, dict):
+            raise core.PlatformError(f"The platform couldn't {what}: UDF_Platform answered {resp.status_code} "
+                                     f"with JSON that isn't an object: {_start(resp)}")
         if resp.status_code >= 400 or body.get("status") == "Failed" or body.get("errors"):
-            errors = body.get("errors") or [{"message": resp.text[:300]}]
-            message = "; ".join(str(e.get("message", e)) for e in errors)
-            raise core.PlatformError(f"The platform couldn't {op.replace('_', ' ')}: {message}")
+            errors = body.get("errors") or [{"message": _start(resp)}]
+            if not isinstance(errors, list):
+                errors = [errors]
+            message = "; ".join(str(e.get("message", e) if isinstance(e, dict) else e) for e in errors)
+            raise core.PlatformError(f"The platform couldn't {what}: {message}")
         return body.get("output", body)
+
+
+# What _body returns for a body that isn't JSON (None is JSON's null).
+_NOT_JSON = object()
+
+
+def _body(resp: requests.Response) -> Any:
+    """A response's JSON, ``{}`` when it has no body, or _NOT_JSON."""
+    if not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except ValueError:  # requests' JSONDecodeError is a ValueError; the caller raises PlatformError
+        return _NOT_JSON
+
+
+def _start(resp: requests.Response) -> str:
+    """The start of a response's text on one line, for a message (a gateway's HTML page included)."""
+    text = getattr(resp, "text", None)
+    if not isinstance(text, str):
+        text = bytes(resp.content or b"").decode("utf-8", "replace")
+    return " ".join(text.split())[:300]
 
 
 class PlatformKeys:

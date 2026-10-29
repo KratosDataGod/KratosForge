@@ -1195,7 +1195,7 @@ function gettingStarted() {
     return tile;
   }));
   const learn = PREVIEW_FEATURES.learn && previewShown()
-    ? btn("New to Fabric? Try the lessons in Learn", "beaker", () => go("learn"), "tool link small") : null;
+    ? btn("New to SQL or data work? Try the lessons in Learn", "beaker", () => go("learn"), "tool link small") : null;
   const el = foldable("home.getstarted",
     h("h2", {}, "Getting started with KratosForge"),
     h("div", { class: "gs-body" }, grid,

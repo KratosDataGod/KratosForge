@@ -1,10 +1,13 @@
 """Regenerate central_shapes.json: every distinct SQLite shape the platform's database had on main.
 
-For each commit on main that changed central/core.py or central/policy.py, oldest first, this runs
-that commit's own ensure_schema (core.py with policy.py, both standard-library only) on an empty
+For each commit in this branch's history (main's, plus the branch's own) that changed central/core.py
+or central/policy.py, oldest first, this runs that commit's own ensure_schema (core.py with policy.py, both standard-library only) on an empty
 SQLite file and records the tables and columns it made. Consecutive identical shapes are kept once.
 
-    python sidecar/tests/fixtures/central_shapes.py      (in a full clone, with origin/main fetched)
+    python sidecar/tests/fixtures/central_shapes.py      (in a full clone, on the branch, committed)
+
+A PR that changes the platform's tables commits its change, then runs this and commits the fixture, so
+the fixture's newest shape is the one the PR makes (test_the_fixture_s_newest_shape_is_today_s).
 """
 
 import json
@@ -46,7 +49,7 @@ def _shape(path):
 
 def main():
     shapes = []
-    for line in _git("log", "--reverse", "--abbrev=8", "--format=%h %ad", "--date=short", "origin/main", "--", *FILES).splitlines():
+    for line in _git("log", "--reverse", "--abbrev=8", "--format=%h %ad", "--date=short", "HEAD", "--", *FILES).splitlines():
         commit, date = line.split()
         with tempfile.TemporaryDirectory() as tmp:
             pkg = Path(tmp) / "old"

@@ -22,10 +22,10 @@ A lesson marked **Draft** is still being written and may change.
 | --- | --- | --- | --- |
 | LM-01 | Your first query on this PC | Data Fundamentals | SQ002 |
 | LM-02 | Data types, and why decimals beat floats for money | Data Fundamentals | SM003 |
+| LM-03 | Joins without surprise row counts | Data Fundamentals | SQ006 |
+| LM-04 | Grouping and aggregation | Data Fundamentals | SQ009 |
 | LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
 | LAB-01 | From raw data to a checked answer: find six planted problems, then a clean answer | Data Fundamentals | |
-| LM-03 | Joins without surprise row counts | SQL Development | SQ006 |
-| LM-04 | Grouping and aggregation | SQL Development | SQ009 |
 | LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
 
 More lessons and the other paths (Python, Fabric, Databricks, Snowflake, Enterprise Architecture)

@@ -19,7 +19,7 @@ refers to the dimension by its surrogate key.
 ## Why a surrogate key
 
 Business keys change format, get reused, or clash when two sources are merged. A surrogate key is
-small, stays the same, and joins quickly. When a customer's details change over time, a dimension
+small, stays the same, and can join faster than a long text key. When a customer's details change over time, a dimension
 can keep one row per version, each with its own surrogate key and the same business key.
 
 ## Unique, and found

@@ -3,7 +3,7 @@
   "id": "LM-03",
   "kind": "module",
   "title": "Joins without surprise row counts",
-  "path": "sql-development",
+  "path": "data-fundamentals",
   "level": "beginner",
   "minutes": 12,
   "objectives": [

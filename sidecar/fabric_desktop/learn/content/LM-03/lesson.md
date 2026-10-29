@@ -5,8 +5,8 @@ the wrong number of rows, so count them before and after.
 
 ## Match on the key
 
-`JOIN ... ON` keeps the pairs of rows whose keys match. Without `ON`, or with `CROSS JOIN`, every
-row meets every other row: 1,000 orders and 1,000 customers become a million rows. Rule SQ006 flags
+`JOIN ... ON` keeps the pairs of rows whose keys match. With `CROSS JOIN`, or a comma between tables
+and no condition linking them, every row meets every other row: 1,000 orders and 1,000 customers become a million rows. Rule SQ006 flags
 that, because it is rarely what the question needs.
 
 ```sql

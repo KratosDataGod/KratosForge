@@ -3,7 +3,7 @@
   "id": "LM-04",
   "kind": "module",
   "title": "Grouping and aggregation",
-  "path": "sql-development",
+  "path": "data-fundamentals",
   "level": "beginner",
   "minutes": 10,
   "objectives": [

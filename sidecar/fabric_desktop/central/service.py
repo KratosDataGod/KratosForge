@@ -193,7 +193,8 @@ class PlatformMixin:
         admins = {a["user_name"] for a in shared.call("list_admins")}
         for _, client in sources:  # the platform admins come along, so they can still add key tables
             for admin in client.call("list_admins"):
-                if admin["user_name"] not in admins:
+                # An entry that isn't a sign-in name never matched anyone, so it stays behind.
+                if admin["user_name"] not in admins and core.is_sign_in_name(admin["user_name"]):
                     shared.call("add_admin", user=admin["user_name"])
                     admins.add(admin["user_name"])
         where = cfg.get("workspace_name") or "the keys database on this PC"

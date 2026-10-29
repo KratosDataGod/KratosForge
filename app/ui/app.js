@@ -1116,7 +1116,7 @@ async function renderMonitor() {
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
-      at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
+      at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
   ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
@@ -1159,12 +1159,18 @@ function monitorHubButtons() {
     btn("Open in browser", "publish", () => action("browser"), "tool outline")];
 }
 
+// This PC's write history holds two kinds of record: a notebook's table writes (named "Notebook
+// write to <lakehouse>") and runs of a job file (`fabric-desktop run JOB`, named after the job).
+function historyKind(r) {
+  return String(r.job || "").startsWith("Notebook write to ") ? "Notebook write" : "Job run";
+}
+
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
   const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment");
+    : "Notebook writes, job runs and this PC's schedules aren't tied to an environment");
   return h("span", { class: "muted-text", title: why }, "No environment");
 }
 

@@ -13,7 +13,7 @@ from fabric_desktop.central import core, requests_service
 from fabric_desktop.central.client import LocalPlatform
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.service import Service
-from test_requests_core_four import ADMIN, DEV, GROUP, WS, _same_day, as_user, ask_workspace, svc, who  # noqa: F401
+from test_requests_core_four import ADMIN, CAP, DEV, GROUP, WS, _same_day, as_user, ask_workspace, svc, who  # noqa: F401
 
 LEE = "lee@contoso.com"
 
@@ -76,6 +76,21 @@ def test_a_workspace_approval_failing_at_a_fabric_step_finishes_on_retry_making_
     as_user(who, ADMIN)
     setattr(svc.api, step, fail_once(svc.api, step, when))
     assert approve_until_done(svc, req["id"])["status"] == "approved"
+    made_once(svc)
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_a_retry_failing_to_put_the_workspace_back_on_its_capacity_finishes_on_the_next(svc, who, when):
+    as_user(who, DEV)
+    req = ask_workspace(svc, domain_id="")
+    as_user(who, ADMIN)
+    svc.api.add_role_assignment = fail_once(svc.api, "add_role_assignment", "before")
+    with pytest.raises(requests_service.StepError):
+        svc.platform_decide(req["id"], True)
+    svc.api.workspaces[0]["capacityId"] = "moved"  # someone moved it before the retry
+    svc.api.assign_to_capacity = fail_once(svc.api, "assign_to_capacity", when)
+    assert approve_until_done(svc, req["id"])["status"] == "approved"
+    assert svc.api.workspaces[0]["capacityId"] == CAP
     made_once(svc)
 
 

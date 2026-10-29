@@ -400,8 +400,9 @@ class TrustBehindAGateway:
             return self.platform.call(op, **kwargs)
         resp = requests.Response()
         resp.status_code, resp._content, resp.reason = 502, self.content, "Bad Gateway"
+        resp._content_consumed = True  # read in full, as requests leaves a response it has read
         session = type("Session", (), {"post": lambda self, url, **kw: resp})()
-        return FabricPlatform(lambda: "tok", "ws", "fn", session=session).call(op, **kwargs)
+        return FabricPlatform(lambda: "tok", "ws", "fn", session=session, sleep=lambda _s: None).call(op, **kwargs)
 
 
 @pytest.mark.parametrize("content", [b"<html><title>502 Bad Gateway</title></html>",

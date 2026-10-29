@@ -211,12 +211,13 @@ def answering(status, content=b"", reason=""):
     """A FabricPlatform whose UDF_Platform answers every call with this status and body."""
     resp = requests.Response()
     resp.status_code, resp._content, resp.reason, resp.encoding = status, content, reason, "utf-8"
+    resp._content_consumed = True  # read in full, as requests leaves a response it has read
 
     class Session:
         def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
             return resp
 
-    return FabricPlatform(lambda: "tok", "ws", "fn", session=Session())
+    return FabricPlatform(lambda: "tok", "ws", "fn", session=Session(), sleep=lambda _s: None)
 
 
 @pytest.mark.parametrize("status,content,reason", [

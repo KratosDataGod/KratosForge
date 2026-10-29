@@ -541,6 +541,29 @@ def test_delete_outputs_removes_the_proof_folder_only(svc):
     assert call(svc, "prove_status", id=out["id"])["outputs_deleted_at"]
 
 
+def test_proof_records_saved_at_once_from_two_threads_all_land(svc):
+    """A proof's own thread saves its record as it ends while a request (Delete outputs) may save too.
+    On Windows, two writers of one fixed temporary file failed with PermissionError (seen in CI)."""
+    import threading
+    errors, start = [], threading.Barrier(8)
+
+    def save(n):
+        start.wait()
+        try:
+            for i in range(25):
+                svc._proof_save({"id": f"p{n}-{i}", "state": "done", "pc": {}})
+        except Exception as exc:  # noqa: BLE001 - collected for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert errors == []
+    assert len(svc._proofs_saved()) == 200, "every save kept the rows the others wrote (the newest 200)"
+
+
 # ---- what can be proven
 
 

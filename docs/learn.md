@@ -39,14 +39,14 @@ first. **Leave** goes back to Learn and keeps your answers.
 
 ## Guidance
 
-**Guidance**, at the top right of Learn and in **Settings > Appearance > Layout > Learning
+**Learning guidance**, at the top right of Learn and in **Settings > Appearance > Layout > Learning
 guidance**, sets how much the app suggests lessons. You can change it at any time; an organization
 policy can set it, and then it can't be changed here.
 
 | Mode | What it adds |
 | --- | --- |
 | Focus (the default) | Nothing: a best-practice finding shows its rule and **About** link |
-| Guided | **Lesson: <id>** beside a notebook or SQL finding whose rule a lesson covers. It opens that lesson |
+| Guided | **Lesson: <title>** beside a notebook or SQL finding whose rule a published lesson covers. It opens that lesson. Draft lessons are linked only from Learn |
 | Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
 
 The checks themselves run the same in every mode; guidance only adds links. Guidance shows only

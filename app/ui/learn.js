@@ -80,11 +80,10 @@ function learnHome(cat, byId, next, inOrder) {
   const after = next ? inOrder.slice(inOrder.indexOf(next) + 1) : [];
   const suggest = learnMode() === "learning" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
   return [suggest ? h("div", { class: "learn-home-top" }, cont, h("section", { class: "card pad learn-suggest" },
-    h("div", { class: "learn-eyebrow" }, "Suggested next"),
+    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Learning mode: the next lesson you haven't started.")),
     h("b", {}, `${suggest.id} · ${suggest.title}`),
     h("span", { class: "muted-text small" }, learnMeta(suggest)),
-    h("div", { class: "row" }, btn("Open", null, () => learnOpen(suggest.id), "tool outline")),
-    h("p", { class: "muted-text small" }, "Shown in Learning mode: the next lesson you haven't started."))) : cont,
+    h("div", { class: "row" }, btn("Open", null, () => learnOpen(suggest.id), "tool outline")))) : cont,
     h("h2", { class: "learn-section" }, "Practice labs"),
     learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."),
     h("p", { class: "muted-text small" }, LEARN_LOCAL)];
@@ -133,7 +132,7 @@ const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "focus");
 function learnGuidancePicker() {
   const key = "learn_mode";
   const locked = typeof fixedBy === "function" && fixedBy(state.settings, key) !== null;
-  return h("label", { class: "row learn-guidance" }, "Guidance ",
+  return h("label", { class: "row learn-guidance" }, "Learning guidance ",
     h("select", { disabled: locked ? true : null, title: locked ? "Set by your organization's policy" : null,
       onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
     LAYOUT_CHOICES[key][2].map(([value, label]) => h("option", { value, selected: learnMode() === value ? true : null }, label))));
@@ -146,15 +145,16 @@ function learnCatalogCached() {
 }
 
 // Guided and Learning: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers.
-// Focus shows nothing extra. Live before draft, and a lesson before a lab: the lesson explains the rule.
+// Focus shows nothing extra. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
+// lesson explains the rule.
 function learnFindingLink(ruleId) {
   if (learnMode() === "focus") return null;
   const slot = h("span", { class: "learn-finding" });
   learnCatalogCached().then((cat) => {
-    const covering = (cat?.modules || []).filter((m) => (m.rules || []).includes(ruleId));
-    const rank = (x) => (x.status === "live" ? 0 : 2) + (x.kind === "module" ? 0 : 1);
-    const m = covering.sort((a, b) => rank(a) - rank(b))[0];
-    if (m) fill(slot, h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); learnOpen(m.id); } }, `Lesson: ${m.id}`));
+    const covering = (cat?.modules || []).filter((m) => m.status === "live" && (m.rules || []).includes(ruleId));
+    const m = covering.find((x) => x.kind === "module") || covering[0];
+    if (m) fill(slot, h("a", { href: "#", class: "learn-more", title: `${m.id} on Learn`,
+      onclick: (e) => { e.preventDefault(); learnOpen(m.id); } }, `Lesson: ${m.title}`));
   });
   return slot;
 }

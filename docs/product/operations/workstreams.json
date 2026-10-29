@@ -105,10 +105,15 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1099,
-        "title": "Read-only Databricks workspace discovery (KF-DBX-DISCOVER)"
+        "issue": 1102,
+        "title": "Databricks refusals say what to check for the API that refused (KF-DBX-ERRORS)"
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1103,
+          "title": "Databricks SQL function parity table for DuckDB on this PC (KF-DBX-SQLPARITY)"
+        }
+      ],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -117,8 +122,8 @@
       "blockers": [
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#854 conversion loss report merged (#1053); #893 runtimes (#1056), #894 live test (#1058) and the engine picker (#1096) passed review",
-      "next_action": "Workspace discovery (#1099), engine and CLI only. The live Databricks run waits on Chris's yes."
+      "last_completed": "#1056 runtimes merged; #1058 live test, #1096 engine picker and #1101 workspace discovery (#1099) passed review",
+      "next_action": "Per-API refusal hints (#1102), then the SQL parity table (#1103). The live Databricks run waits on Chris's yes; a discovery RPC waits until the picker UI needs it."
     },
     {
       "key": "enterprise",

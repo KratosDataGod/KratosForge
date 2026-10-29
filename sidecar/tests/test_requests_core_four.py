@@ -302,6 +302,10 @@ class FabricDomains:
         self.created.append((self.me(), name, parent_id))
         return {"id": f"f-{name.lower()}", "displayName": name}
 
+    def list_admin_domains(self):
+        # what a 409 meets: a domain of that name someone made by hand, with no request's marker
+        return [{"id": "f-hr", "displayName": "HR", "description": "", "parentDomainId": ""}]
+
 
 @pytest.fixture
 def fabric_domains(monkeypatch, who):

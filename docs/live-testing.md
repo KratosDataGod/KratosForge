@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run the first three, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -60,8 +60,11 @@ fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric       
 | Check id | What it does and writes | What it proves |
 | --- | --- | --- |
 | `delta.concurrent` | Two writers append 50 rows each at the same moment to `dbo.livetest_concurrent` in the test lakehouse, through the same write path notebooks and jobs use. Writes to OneLake, which uses capacity. | Both commits land (version 2), the row count is the sum, no row is lost. The detail says which writer had to retry after losing the commit race, if either did. |
+| `lease.onelake` | Holds a table write lease on `dbo.livetest_lease` (a small file under `Files/_fabric_desktop/leases` in the test lakehouse) and, while it is held, has a second writer try to take it, replace it with a stale ETag and wait for it. A few small OneLake writes, which use capacity. | OneLake honours the conditional requests (`If-None-Match: *`, `If-Match`) that per-table write leases rely on, so two KratosForge writers never write one table at once. If it fails, two writers can overlap on that tenant. |
+| `delta.merge_profile` | Writes `dbo.livetest_merge`, then runs `MERGE INTO ... WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *` on it the way the app's SQL does, under the table's lease. Writes 4 rows to OneLake, which uses capacity. | The MERGE lands (one row updated, one inserted) and the table stays in the Fabric-safe Delta profile (reader 1, writer 2, no deletion vectors), so Fabric's SQL analytics endpoint and Direct Lake still read it. |
 | `notebook.publish` | Publishes a two-cell notebook item `fdlt_<run id>_nb` the way **Publish to Fabric** does, reads its definition back and compares the cells. Creating an item uses capacity. | Publishing and reading notebook definitions work with your tenant. |
 | `pipeline.definition` | Creates a DataPipeline item `fdlt_<run id>_pl` with one Wait activity, reads its definition back, parses it and exports it again. Creating an item uses capacity. | The app reads Fabric's pipeline definitions and round-trips them without loss. |
+| `pipeline.mailbox` | Writes a run request under `Files/_fabric_desktop` in the test lakehouse. Two in-memory agents read it: the first takes it, the second must leave it alone, and a cancel file ends it `cancelled`. The request names a pipeline run that doesn't exist, which must be reported as not found. Nothing is run. Writes a few small files to OneLake, which uses capacity. | The [pipeline mailbox](agent.md#run-from-a-fabric-pipeline)'s conditional writes (`If-None-Match`, `If-Match`) work on OneLake, and the run lookup works with your sign-in. |
 | `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |
 
 `notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. It also stays skipped when `notebook.publish` failed, for example when the cells read back differ, so no capacity is spent running a notebook that wasn't published as written. Your organization's policy can block runs in Fabric; the check then fails with that reason.
@@ -89,6 +92,10 @@ fabric-desktop live-test --cleanup live-test-results\<run id>\ledger.json
 It deletes only what that ledger lists, only in that workspace, and only things named `fdlt_<run id>` or `fdlt_<run id>_...`. Before each delete it reads the item from Fabric and skips it, leaving it in the ledger, unless its type and name still match. You can also delete a `fdlt_...` lakehouse, notebook or pipeline in Fabric by hand.
 
 If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse recoverable for a while; it still counts toward the workspace's item limit until it is purged.
+
+## The tenant smoke test
+
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
 ## What it doesn't check yet
 

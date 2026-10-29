@@ -53,7 +53,7 @@ The interface is consistent; its use isn't (QA-014): the private `_token(scopes)
 
 | Surface | Module | Retry and errors |
 | --- | --- | --- |
-| Fabric REST (`api.fabric.microsoft.com`) | `fabric_api.FabricClient`, 41 methods; also `central/client.py` with its own `API` constant | `retrying.send_with_retry`: 429 on any method; 5xx and dropped connections on GETs only; `Retry-After` in seconds or as an HTTP date, capped at 60 s (HD-039); `FabricError(code, status)`. `central/client.py` posts once |
+| Fabric REST (`api.fabric.microsoft.com`) | `fabric_api.FabricClient`, 41 methods; also `central/client.py` with its own `API` constant | `retrying.send_with_retry`: 429 on any method; 5xx and dropped connections on GETs only; `Retry-After` in seconds or as an HTTP date, capped at 60 s (HD-039); `FabricError(code, status)`. `central/client.py` retries reads and repeatable operations (`ensure_schema`, `issue_keys`) the same way, and sends other changes through `call_once` with one call id per change, so a retry after a timeout replays the first answer instead of applying the change twice; against a platform without `call_once` (404) it sends the change once, retrying only on 429 |
 | OneLake DFS | `onelake.FileStore`; `leases.py` builds its own headers | reads (list, read, download, lease and mailbox reads) through `retrying.send_with_retry`; uploads, deletes and lease writes are sent once |
 | Delta tables | delta-rs via `storage_options`, opened directly in five mixins | Delta optimistic concurrency, `retrying.py` |
 | Power BI and Graph | raw `requests` in `estate_service.py` | Graph user lookups (GET) through `retrying.send_with_retry`; the Power BI role POST is sent once |

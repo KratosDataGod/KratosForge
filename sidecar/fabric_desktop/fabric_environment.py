@@ -15,6 +15,11 @@ A library is:
 
 An item the person can't read (no access, deleted, a typo in its id) gives ``couldnt_read`` with
 the reason, never an error, so a check before a run never stops the run.
+
+``staged`` says what publishing the item would change: libraries and a runtime saved in the item
+but not yet published. Fabric runs the published ones, so staged changes aren't drift, but the next
+publish brings them in; ``pending`` is true when there are any. A staging read that fails is
+reported there and changes nothing else.
 """
 
 from __future__ import annotations
@@ -53,6 +58,16 @@ def read(fabric: Any, workspace_id: str, environment_id: str) -> dict[str, Any]:
         runtime, why = None, _reason(exc)
     else:
         why = None
+    external, custom = _split(libraries)
+    out = {"status": "read", "libraries": external, "custom": custom, "runtime": runtime,
+           "python": RUNTIME_PYTHON.get(str(runtime)) if runtime else None,
+           "staged": _staged(fabric, workspace_id, environment_id, libraries, runtime)}
+    if why:
+        out["runtime_problem"] = why
+    return out
+
+
+def _split(libraries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     external, custom = [], []
     for lib in libraries:
         if not isinstance(lib, dict):
@@ -63,10 +78,40 @@ def read(fabric: Any, workspace_id: str, environment_id: str) -> dict[str, Any]:
             external.append({"name": name, "version": str(lib.get("version") or "") or None})
         elif name:
             custom.append(_custom(name))
-    out = {"status": "read", "libraries": external, "custom": custom, "runtime": runtime,
-           "python": RUNTIME_PYTHON.get(str(runtime)) if runtime else None}
-    if why:
-        out["runtime_problem"] = why
+    return external, custom
+
+
+def _keyed(libraries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """{key: {"name", "version"}}: an external library by its normalized name, a file by its file name."""
+    external, custom = _split(libraries)
+    out = {f"pypi:{canonicalize_name(lib['name'])}": lib for lib in external if lib["name"]}
+    out.update({f"file:{c['file']}": {"name": c["file"], "version": None} for c in custom})
+    return out
+
+
+def _staged(fabric: Any, workspace_id: str, environment_id: str, published: list[dict[str, Any]],
+            runtime: str | None) -> dict[str, Any]:
+    """What publishing the item would change: {"status": "read", "added", "removed", "changed", "runtime",
+    "pending"}, or {"status": "couldnt_read", "reason"}. ``pending`` is true when publishing changes anything."""
+    try:
+        staged = fabric.environment_libraries(workspace_id, environment_id, staged=True)
+    except Exception as exc:  # noqa: BLE001 - the published comparison stands without it
+        return {"status": "couldnt_read", "reason": _reason(exc)}
+    before, after = _keyed(published), _keyed(staged)
+    added = [{"name": after[k]["name"], "version": after[k]["version"]} for k in sorted(after) if k not in before]
+    removed = [{"name": before[k]["name"], "version": before[k]["version"]} for k in sorted(before) if k not in after]
+    changed = [{"name": after[k]["name"], "published": before[k]["version"], "staged": after[k]["version"]}
+               for k in sorted(after) if k in before
+               and _version(str(before[k]["version"] or "")) != _version(str(after[k]["version"] or ""))]
+    out: dict[str, Any] = {"status": "read", "added": added, "removed": removed, "changed": changed, "runtime": None}
+    try:
+        staged_runtime = (fabric.environment_spark_compute(workspace_id, environment_id, staged=True) or {}).get("runtimeVersion")
+    except Exception as exc:  # noqa: BLE001 - the staged libraries are still worth reporting
+        out["runtime_problem"] = _reason(exc)
+    else:
+        if staged_runtime and str(staged_runtime) != str(runtime):  # also when the published one wasn't read
+            out["runtime"] = {"published": runtime, "staged": staged_runtime}
+    out["pending"] = bool(added or removed or changed or (out["runtime"] and out["runtime"]["published"]))
     return out
 
 
@@ -130,6 +175,8 @@ def drift(item: dict[str, Any], here: dict[str, dict[str, str]], python: str | N
            "drifted": bool(missing or different or local_only or python_differs)}
     if item.get("runtime_problem"):
         out["runtime_problem"] = item["runtime_problem"]
+    if item.get("staged"):
+        out["staged"] = item["staged"]
     return out
 
 
@@ -177,4 +224,21 @@ def summary(result: dict[str, Any]) -> str:
     if not result["drifted"]:
         lines.insert(0, f"No drift: {result['same']} published librar{'y' if result['same'] == 1 else 'ies'} "
                         "match this PC.")
+    staged = result.get("staged") or {}
+    if staged.get("status") == "couldnt_read":
+        lines.append(f"Couldn't read the item's unpublished changes: {_plain(staged['reason'])}")
+    elif staged.get("pending"):
+        changes = [f"adds {_named(d)}" for d in staged["added"]] + [f"removes {_named(d)}" for d in staged["removed"]]
+        changes += [f"changes {_plain(d['name'])} {_plain(d['published'])} to {_plain(d['staged'])}" for d in staged["changed"]]
+        if staged["runtime"] and staged["runtime"]["published"]:
+            changes.append(f"changes the runtime {_plain(staged['runtime']['published'])} to {_plain(staged['runtime']['staged'])}")
+        lines.append("The Environment item has unpublished changes; publishing it " + ", ".join(changes) + ".")
+    if staged.get("runtime") and not staged["runtime"]["published"]:
+        lines.append(f"Unpublished runtime: {_plain(staged['runtime']['staged'])} (the published runtime wasn't read).")
+    if staged.get("runtime_problem"):
+        lines.append(f"Unpublished runtime not read: {_plain(staged['runtime_problem'])}")
     return "\n".join(lines)
+
+
+def _named(lib: dict[str, Any]) -> str:
+    return _plain(lib["name"]) + (f"=={_plain(lib['version'])}" if lib.get("version") else "")

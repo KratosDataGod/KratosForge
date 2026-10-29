@@ -773,9 +773,9 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
-  const tabs = previewShown() ? h("div", { class: "subtabs" },
+  const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
     [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
-      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+      h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
@@ -930,7 +930,7 @@ function sqlSettingsSection(s, locked) {
   const temp = h("input", { value: s.sql_temp_dir.value || "", spellcheck: "false", "aria-label": "Temp folder",
     placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
-    temp, fixedBy(s, "sql_temp_dir")));
+    folderField(temp, "the temp folder"), fixedBy(s, "sql_temp_dir")));
   // WH-10: off, the Warehouse page only reads; on, each change still asks first (sql_exec.py).
   rows.push(settingRow("Warehouse changes", "Lets the Warehouse page change a warehouse (create, alter, insert, update, delete, run procedures) after you see what it changes and confirm. Off, every warehouse only reads.",
     h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.sql_warehouse_writes.value ? true : null, disabled: locked("sql_warehouse_writes") ? true : null,

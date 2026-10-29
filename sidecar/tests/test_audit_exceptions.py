@@ -59,8 +59,8 @@ def test_a_failed_audit_names_each_advisory_and_the_line_that_would_let_it_throu
     assert line.startswith("RUSTSEC-2020-0071 in time 0.2.7 (fixed in >=0.2.23).")
     # The suggested line, pasted with its placeholder, is refused until someone says why.
     pasted = line.rsplit(": ", 1)[1]
-    assert audit_exceptions.parse(pasted, TODAY)[1] == [f"line 1: say why RUSTSEC-2020-0071 is accepted instead of "
-                                                       f"'<why it is accepted>'"]
+    assert audit_exceptions.parse(pasted, TODAY)[1] == ["line 1: say why RUSTSEC-2020-0071 is accepted instead of "
+                                                       "'<why it is accepted>'"]
     assert audit_exceptions.parse(pasted.replace("<why it is accepted>", "not reachable"), TODAY) == (["RUSTSEC-2020-0071"], [])
 
 

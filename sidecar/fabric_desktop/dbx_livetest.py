@@ -26,6 +26,7 @@ Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import threading
@@ -349,7 +350,7 @@ class DatabricksLiveTest:
         for target in self.started_by_run:
             kind, id = target["kind"], target["id"]
             title = "Stop the warehouse" if kind == "warehouse" else "Terminate the cluster"
-            check = self._check(f"stop.{kind}", title, lambda k=kind, i=id: self._stop_one(k, i))
+            check = self._check(f"stop.{kind}", title, functools.partial(self._stop_one, kind, id))
             if check.status == "passed":
                 self.stopped.append(target)
 

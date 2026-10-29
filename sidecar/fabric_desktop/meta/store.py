@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import fnmatch
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,9 +21,14 @@ from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
 from ..errors import NotSetUp
-from ..leases import check_held
+from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
+from ..redact import describe
+
+_log = logging.getLogger(__name__)
+_LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
+                                     "left for VACUUM"}
 
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
@@ -204,6 +210,24 @@ class Store:
     def exists(self, lakehouse: str, schema: str, table: str) -> bool:
         return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
 
+    def _committed(self, uri: str, table: DeltaTable) -> int:
+        """After a write's commit: the table's new version. Its schema is kept too, read from the log
+        this write already opened, so the run that wrote it needn't read the log again (written_schema)."""
+        delta_profile.note_after_write(table)
+        version = table.version()
+        try:
+            kept = (version, lazy(table, uri, self.options()).collect_schema())
+            self._written = {**getattr(self, "_written", {}), uri: kept}
+        except Exception as exc:  # noqa: BLE001  silent-ok: the commit stands; written_schema then reads the log
+            _log.debug("Couldn't keep the schema of %s after writing it: %s", uri, describe(exc))
+        return version
+
+    def written_schema(self, lakehouse: str, schema: str, table: str, version: int) -> pl.Schema | None:
+        """The table's schema at ``version`` when this store's last write to it made that version,
+        else None (read it from the log instead)."""
+        kept = getattr(self, "_written", {}).get(self.uri(lakehouse, schema, table))
+        return kept[1] if kept and kept[0] == version else None
+
     def version(self, lakehouse: str, schema: str, table: str) -> int | None:
         try:
             return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
@@ -232,6 +256,10 @@ class Store:
         never drops another writer's rows. False (the default) writes whatever is there."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, mode == "append")
+        if safe != data.schema:
+            data = data.cast(safe)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -248,16 +276,14 @@ class Store:
         try:
             how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
-            write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
+            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
                             schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
                      metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
@@ -266,6 +292,9 @@ class Store:
         no table), so another writer committing meanwhile makes it fail instead of being lost."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        safe = self._delta_safe(uri, schema, table, rows.schema, False)
+        if safe != rows.schema:
+            rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -274,18 +303,100 @@ class Store:
         if read_version is not None:
             target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
             extra = {"mode": "overwrite", "predicate": "true"}
+        self.last_cleanup = None
+        before: set[str] | None = None
+        if self.removes_unwritten:
+            try:
+                before = self._data_files(lakehouse, schema, table)
+            except Exception as exc:  # noqa: BLE001 - the write goes ahead; only its cleanup is lost
+                _log.warning("Couldn't list %s.%s before writing it: %s", schema, table, describe(exc))
         try:
             check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
                             schema_mode="overwrite" if read_version is not None else None,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
+            if not self.removes_unwritten:
+                self.last_cleanup = {"removed": 0, "note": "the files this write left are left for VACUUM: in OneLake "
+                                                           "another writer's files that aren't committed yet can't be "
+                                                           "told apart from them"}
+            elif isinstance(exc, LeaseLost):
+                self.last_cleanup = dict(_LEASE_LOST)
+            elif before is None:
+                self.last_cleanup = {"removed": 0, "note": "couldn't list the table's files before the write, so any "
+                                                           "it left are left for VACUUM"}
+            else:
+                self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
+
+    def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool) -> pa.Schema:
+        """``columns`` with each type delta-rs can't write made Fabric-safe, or a plain error naming the
+        table and column (localdata.delta.delta_safe), before anything is written (#954)."""
+        from ..localdata import delta as local_delta
+
+        def existing() -> dict[str, pa.DataType]:
+            current = open_table(uri, self.options())
+            return {} if current is None else \
+                {f.name.lower(): f.type for f in pa.schema(current.schema().to_arrow())}
+        try:
+            return local_delta.delta_safe(columns, existing if append else None)
+        except ValueError as exc:
+            raise ValueError(f"Table {schema}.{table}: {exc}") from None
+
+    def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame) -> pa.Table:
+        """``df`` as Arrow a MERGE can take: types made Fabric-safe as for an append, so a TIME column
+        stops with a plain message and a UInt32 isn't narrowed to INT (#954)."""
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, True)
+        return data.cast(safe) if safe != data.schema else data
+
+    # ---- files a write that didn't commit left behind (PB-067)
+
+    # What the last write_stream that failed did about its files: {"removed": n, "note": text}, or None.
+    last_cleanup: dict[str, Any] | None = None
+    # Only on this PC: the run's lease covers every writer of a local table. In OneLake a Fabric job can
+    # be writing the same table, and its uncommitted files look just like this write's, so they're
+    # all left for VACUUM there.
+    removes_unwritten = False
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        """The table folder's files outside _delta_log, as paths relative to the folder."""
+        raise NotImplementedError
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        raise NotImplementedError
+
+    def _remove_unwritten(self, lakehouse: str, schema: str, table: str, before: set[str],
+                          read_version: int | None) -> dict[str, Any]:
+        """After a stream that didn't commit: remove the data files it wrote. Those are the files that
+        weren't in the folder when it started and that no version of the table's log names. Only
+        while the log is still at ``read_version``: a commit by another writer meanwhile means
+        another writer was at work, and its files can't be told from these, so they are all left
+        for VACUUM. The run holds the table's lease (leases.py), so no other run of this app writes it;
+        a run that no longer holds it (expired, taken over) removes nothing, since the new holder's
+        files can't be told from these either."""
+        try:
+            check_held()
+        except LeaseLost:
+            return dict(_LEASE_LOST)
+        try:
+            current = open_table(self.uri(lakehouse, schema, table), self.options())
+            if (current.version() if current is not None else None) != read_version:
+                return {"removed": 0, "note": "another writer committed to the table meanwhile, so the files this "
+                                              "write left are left for VACUUM"}
+            # With no commit since the write started, no version of the log can name a file that wasn't
+            # there then; the latest version's files are left out anyway, to be sure.
+            named = set(pa.table(current.get_add_actions()).column("path").to_pylist()) if current is not None else set()
+            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if p not in named)
+            self._delete_data_files(lakehouse, schema, table, new)
+            return {"removed": len(new), "note": f"removed {len(new)} data file{'' if len(new) == 1 else 's'} this write left"}
+        except Exception as exc:  # noqa: BLE001 - the write's own error is what the run reports
+            _log.warning("Couldn't remove the files a failed write left in %s.%s: %s", schema, table, describe(exc))
+            return {"removed": 0, "note": f"couldn't remove the files this write left ({describe(exc)}); VACUUM "
+                                          "removes them later"}
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a
@@ -353,13 +464,14 @@ class Store:
         """
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         try:
             target = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(df.schema))
+            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)
@@ -367,11 +479,9 @@ class Store:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         check_held()
-        target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
+        target.merge(data, predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
@@ -393,6 +503,7 @@ class Store:
         in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         delta_profile.check_target(uri, self.options())
         target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
@@ -405,7 +516,7 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        merger = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         if delete_flag:
             # Rows flagged in df remove their match from the table; the flag itself is never written.
@@ -416,9 +527,7 @@ class Store:
         else:
             merger = merger.when_matched_update_all().when_not_matched_insert_all()
         metrics = merger.execute()
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version(), metrics
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options())), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:
@@ -478,6 +587,15 @@ class Store:
         order = _ORDER.get(table)
         return df.sort(order, maintain_order=True) if order else df
 
+    def meta_where(self, table: str, where: pl.Expr) -> pl.DataFrame:
+        """The rows of a meta table that match ``where``, in meta()'s order: meta(table).filter(where)
+        without reading the whole table (files whose statistics rule ``where`` out are skipped)."""
+        df, _ = self.read_where(META_LAKEHOUSE, "meta", table, where)
+        if df is None:
+            return pl.DataFrame(schema=META_SCHEMAS[table])
+        order = _ORDER.get(table)
+        return df.sort(order, maintain_order=True) if order else df
+
 
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""
@@ -496,6 +614,9 @@ class LocalStore(Store):
     # that landed inserts nothing, and one pinned to a version fails with CommitFailedError instead).
     def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
         return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
+
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        return local_retry(lambda: super(LocalStore, self).scan(lakehouse, schema, table, version))
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
@@ -519,6 +640,20 @@ class LocalStore(Store):
 
     def landing_lakehouse(self, zone: dict[str, Any]) -> str:
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
+
+    removes_unwritten = True
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        root = Path(self.uri(lakehouse, schema, table))
+        if not root.is_dir():
+            return set()
+        return {p.relative_to(root).as_posix() for p in root.rglob("*")
+                if p.is_file() and p.relative_to(root).parts[0] != "_delta_log"}
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        root = Path(self.uri(lakehouse, schema, table))
+        for rel in paths:
+            (root / rel).unlink(missing_ok=True)
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:

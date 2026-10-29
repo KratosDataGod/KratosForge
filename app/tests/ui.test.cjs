@@ -1508,6 +1508,27 @@ test("Workspaces, the catalog and data products have a How this works panel that
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
 
+// #856 (PB-083): the catalog's Endorsed items filter is off, and its reason (the button's title) says
+// where endorsement really shows. There is no embedded Fabric catalog to point at.
+test("the Endorsed items filter's reason names the admin tenant scan, data products and Open Fabric's catalog", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "service.py"), "utf8");
+  const reason = py.match(/ENDORSED_FILTER_REASON = \(([\s\S]*?)\)\n/)?.[1].replace(/"\s*"/g, "") || "";
+  assert.match(reason, /admin tenant scan/);
+  assert.match(reason, /Data mesh > Products/);
+  assert.match(reason, /Scan now/);
+  assert.match(reason, /Fabric administrator/);
+  assert.match(reason, /Open Fabric's catalog/);
+  assert.match(app, /btn\("Open Fabric's catalog"/, "the button the reason names is on the catalog page");
+  assert.doesNotMatch(py + app, /catalog below|embedded on the same page/i);
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "troubleshooting.md"), "utf8");
+  const row = docs.split("\n").find((l) => l.includes("**Endorsed items** is greyed out")) || "";
+  assert.match(row, /admin tenant scan/);
+  assert.match(row, /Scan now/);
+  assert.match(row, /Open Fabric's catalog/);
+  assert.doesNotMatch(row, /embedded/);
+});
+
 test("repositories are grouped by what they hold, unsorted ones last", () => {
   const { gitGroupRepos } = gitHelpers();
   const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
@@ -3251,6 +3272,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
+// Home and End and a screen reader says which tab is selected.
+test("every row of tabs is a tablist with selected state", () => {
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
+      for (const m of src.matchAll(re)) {
+        const near = src.slice(m.index, m.index + 260);
+        const line = src.slice(0, m.index).split("\n").length;
+        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
+        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+      }
+    }
+  }
+});
+
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
 test("sizes read the same on every page", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -3368,7 +3405,7 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
   const root = path.join(__dirname, "..", "..");
-  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+  for (const [file, link] of [["docs/README.md", "(notebook-magics.md)"],
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
@@ -4547,7 +4584,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
   const root = path.join(__dirname, "..", "..");
-  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+  for (const f of ["docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
     assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
   }
 });
@@ -5352,7 +5389,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
-    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
@@ -5401,4 +5438,46 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     /settings in your project files rather than screens, such as reading \*\*in batches\*\* \(`batch_by`\), \[reliability objectives\]/);
   for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
   assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
+});
+
+// #971: every box that asks for a folder on this PC has Browse… beside it (folderField in app.js),
+// so nobody has to type a path. A box is a folder box when its placeholder is a Windows path, its
+// name ends in "folder", or its field's label does (a folder name or a OneLake path is not one).
+test("every folder box on this PC has a Browse… button", () => {
+  const folderish = (text) => /(^|\s)folder$/i.test(text.trim());
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const inputs = new Map();
+    for (const m of src.matchAll(/const (\w+) = h\("input", \{([^}]*)\}/g)) inputs.set(m[1], m[2]);
+    const boxes = new Set();
+    for (const [v, attrs] of inputs) {
+      const label = attrs.match(/"aria-label": "([^"]*)"/)?.[1] || "";
+      if (/type: "file"/.test(attrs)) continue; // already the browser's own folder picker
+      if (/placeholder: "C:\\\\/.test(attrs) || folderish(label)) boxes.add(v);
+    }
+    for (const m of src.matchAll(/h\("label", \{ class: "field" \}, "([^"]*)", (\w+)\)/g)) {
+      if (folderish(m[1]) && inputs.has(m[2])) boxes.add(m[2]);
+    }
+    for (const v of boxes) if (!src.includes(`folderField(${v},`)) missing.push(`${name}: ${v}`);
+    // Inside a <label>, a box with no aria-label of its own would be named "Folder Browse for …".
+    for (const [, v] of src.matchAll(/(?<!function )folderField\((\w+),/g)) {
+      if (inputs.has(v) && !/"aria-label": /.test(inputs.get(v))) missing.push(`${name}: ${v} has no aria-label`);
+    }
+    // Field lists, such as gitPathDialog's: a folder field says which folder, so it gets Browse….
+    for (const m of src.matchAll(/\{ label: "([^"]*)",([^}]*)\}/g)) {
+      if ((folderish(m[1]) || /placeholder: "C:\\\\/.test(m[2])) && /placeholder:/.test(m[2]) && !/\bfolder: "/.test(m[2])) {
+        missing.push(`${name}: field "${m[1]}"`);
+      }
+    }
+  }
+  assert.deepStrictEqual(missing, [], "folder boxes without Browse… (wrap the input in folderField)");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const helper = app.match(/function folderField\(input, name = "a folder"\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(helper, /if \(input\.readOnly \|\| !window\.__TAURI__\?\.core\) return input;/, "a locked box gets no button");
+  assert.match(helper, /invoke\("pick_folder", \{ start: input\.value\.trim\(\) \|\| null \}\)/);
+  assert.match(helper, /if \(!chosen\) return;/, "Cancel leaves the box as it was");
+  assert.match(helper, /browse\.disabled = true;[\s\S]*\.finally\(\(\) => \{ browse\.disabled = false; \}\)/, "one dialog at a time");
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
 });

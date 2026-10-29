@@ -17,21 +17,29 @@ HERE = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
 class Fabric:
-    def __init__(self, libraries=(), runtime="1.3", fail=None, runtime_fail=None):
+    def __init__(self, libraries=(), runtime="1.3", fail=None, runtime_fail=None, staged=None, staged_runtime=None,
+                 staged_fail=None):
         self.libraries, self.runtime, self.fail, self.runtime_fail = list(libraries), runtime, fail, runtime_fail
+        # Unpublished changes: none unless a test stages some (staged = the item's saved library list)
+        self.staged = list(staged) if staged is not None else None
+        self.staged_runtime, self.staged_fail = staged_runtime, staged_fail
         self.calls = []
 
-    def environment_libraries(self, ws, env):
-        self.calls.append(("libraries", ws, env))
+    def environment_libraries(self, ws, env, staged=False):
+        self.calls.append(("staging/libraries" if staged else "libraries", ws, env))
         if self.fail:
             raise self.fail
+        if staged:
+            if self.staged_fail:
+                raise self.staged_fail
+            return self.libraries if self.staged is None else self.staged
         return self.libraries
 
-    def environment_spark_compute(self, ws, env):
-        self.calls.append(("sparkcompute", ws, env))
+    def environment_spark_compute(self, ws, env, staged=False):
+        self.calls.append(("staging/sparkcompute" if staged else "sparkcompute", ws, env))
         if self.runtime_fail:
             raise self.runtime_fail
-        return {"runtimeVersion": self.runtime, "driverCores": 4}
+        return {"runtimeVersion": (self.staged_runtime or self.runtime) if staged else self.runtime, "driverCores": 4}
 
 
 def test_the_client_reads_published_libraries_and_runtime_with_the_users_token():
@@ -132,8 +140,70 @@ def test_the_cli_exits_by_outcome(tmp_path, monkeypatch, capsys):
 
 def test_the_check_is_read_only_and_listed():
     from fabric_desktop import audit, server
-    assert "environment_fabric_drift" in server.METHODS and "environment_fabric_drift" in audit.READ_ONLY
+    # The CLI calls it in-process; no screen does, so the RPC doesn't take it (HD-050 slice 4).
+    assert "environment_fabric_drift" not in server.METHODS and "environment_fabric_drift" not in audit.READ_ONLY
     json.dumps(fabric_environment.drift(fabric_environment.read(Fabric(), WS, ENV), fabric_environment.on_this_pc()))
+
+
+# ---- unpublished (staged) changes (#941)
+
+def test_the_client_reads_staged_libraries_and_runtime_from_the_staging_paths():
+    c, s = client([Resp(200, {"libraries": [], "continuationUri": "null"}), Resp(200, {"runtimeVersion": "1.3"})])
+    c.environment_libraries(WS, ENV, staged=True)
+    c.environment_spark_compute(WS, ENV, staged=True)
+    assert [u for _, u, _ in s.calls] == [
+        f"https://api.fabric.microsoft.com/v1/workspaces/{WS}/environments/{ENV}/staging/libraries?beta=False",
+        f"https://api.fabric.microsoft.com/v1/workspaces/{WS}/environments/{ENV}/staging/sparkcompute?beta=False"]
+
+
+PUBLISHED = [{"name": "rich", "libraryType": "External", "version": "13.7.1"},
+             {"name": "fuzzywuzzy", "libraryType": "External", "version": "0.18.0"},
+             {"name": "old_tool-1.0-py3-none-any.whl", "libraryType": "Custom"}]
+
+
+def test_staged_changes_list_what_publishing_would_add_remove_and_change():
+    staged = [{"name": "Rich", "libraryType": "External", "version": "14.0.0"},
+              {"name": "fuzzywuzzy", "libraryType": "External", "version": "0.18"},
+              {"name": "httpx", "libraryType": "External", "version": "0.27.0"},
+              {"name": "new_tool-2.0-py3-none-any.whl", "libraryType": "Custom"}]
+    item = fabric_environment.read(Fabric(PUBLISHED, staged=staged, staged_runtime="1.4"), WS, ENV)
+    got = item["staged"]
+    assert got["status"] == "read" and got["pending"] is True
+    assert got["added"] == [{"name": "new_tool-2.0-py3-none-any.whl", "version": None}, {"name": "httpx", "version": "0.27.0"}]
+    assert got["removed"] == [{"name": "old_tool-1.0-py3-none-any.whl", "version": None}]
+    assert got["changed"] == [{"name": "Rich", "published": "13.7.1", "staged": "14.0.0"}], "0.18 and 0.18.0 are the same"
+    assert got["runtime"] == {"published": "1.3", "staged": "1.4"}
+    text = fabric_environment.summary(fabric_environment.drift(item, fabric_environment.on_this_pc(), python="3.11"))
+    assert ("The Environment item has unpublished changes; publishing it adds new_tool-2.0-py3-none-any.whl, "
+            "adds httpx==0.27.0, removes old_tool-1.0-py3-none-any.whl, changes Rich 13.7.1 to 14.0.0, "
+            "changes the runtime 1.3 to 1.4.") in text
+
+
+def test_nothing_staged_says_nothing_and_staged_changes_are_not_drift():
+    item = fabric_environment.read(Fabric([{"name": "rich", "libraryType": "External", "version": "13.7.1"}]), WS, ENV)
+    assert item["staged"] == {"status": "read", "added": [], "removed": [], "changed": [], "runtime": None, "pending": False}
+    out = fabric_environment.drift(item, fabric_environment.on_this_pc([{"name": "rich", "version": "13.7.1"}]), python="3.11")
+    assert fabric_environment.summary(out) == "No drift: 1 published library match this PC."
+    pending = fabric_environment.read(Fabric([{"name": "rich", "libraryType": "External", "version": "13.7.1"}],
+                                             staged=[]), WS, ENV)
+    out = fabric_environment.drift(pending, fabric_environment.on_this_pc([{"name": "rich", "version": "13.7.1"}]), python="3.11")
+    assert out["drifted"] is False and out["staged"]["removed"] == [{"name": "rich", "version": "13.7.1"}]
+
+
+def test_a_staging_read_that_fails_is_reported_and_the_published_comparison_stands():
+    item = fabric_environment.read(Fabric(PUBLISHED, staged_fail=FabricError("refused", "Forbidden", 403)), WS, ENV)
+    assert item["status"] == "read" and len(item["libraries"]) == 2
+    assert item["staged"] == {"status": "couldnt_read",
+                              "reason": "You can't read this Environment item: ask its workspace admin for at least Viewer access."}
+    text = fabric_environment.summary(fabric_environment.drift(item, fabric_environment.on_this_pc(), python="3.11"))
+    assert "Couldn't read the item's unpublished changes: You can't read" in text
+
+
+def test_a_staged_runtime_that_cant_be_read_still_reports_the_staged_libraries():
+    item = fabric_environment.read(Fabric(PUBLISHED, staged=PUBLISHED[:2], runtime_fail=FabricError("boom", status=500)),
+                                   WS, ENV)
+    assert item["staged"]["removed"] == [{"name": "old_tool-1.0-py3-none-any.whl", "version": None}]
+    assert "boom" in item["staged"]["runtime_problem"] and item["staged"]["runtime"] is None
 
 
 def test_an_item_with_no_libraries_is_an_empty_list_not_an_error():
@@ -173,3 +243,27 @@ def test_the_summary_drops_control_characters_from_fabric_names():
                                    WS, ENV)
     text = fabric_environment.summary(fabric_environment.drift(item, {}, python="3.11"))
     assert "Missing here: evil[2Jpkg==1" in text and not any(ord(ch) < 32 and ch != "\n" for ch in text)
+
+
+def test_an_empty_staging_list_shows_every_published_library_as_removed():
+    c, _ = client([Resp(404, {"errorCode": "EnvironmentLibrariesNotFound", "message": "none staged"})])
+    assert c.environment_libraries(WS, ENV, staged=True) == []
+    published = [{"name": "rich", "libraryType": "External", "version": "13.7.1"},
+                 {"name": "tool.jar", "libraryType": "Custom"}]
+    staged = fabric_environment.read(Fabric(published, staged=[]), WS, ENV)["staged"]
+    assert staged["pending"] and staged["added"] == [] and staged["changed"] == []
+    assert staged["removed"] == [{"name": "tool.jar", "version": None}, {"name": "rich", "version": "13.7.1"}]
+
+
+def test_the_staged_runtime_is_reported_when_the_published_one_wasnt_read():
+    class PublishedRuntimeFails(Fabric):
+        def environment_spark_compute(self, ws, env, staged=False):
+            if not staged:
+                raise FabricError("x", None, 500)
+            return {"runtimeVersion": "1.3"}
+
+    item = fabric_environment.read(PublishedRuntimeFails([]), WS, ENV)
+    assert item["runtime"] is None and item["staged"]["runtime"] == {"published": None, "staged": "1.3"}
+    assert item["staged"]["pending"] is False
+    text = fabric_environment.summary(fabric_environment.drift(item, {}, python="3.11"))
+    assert "Unpublished runtime: 1.3 (the published runtime wasn't read)." in text

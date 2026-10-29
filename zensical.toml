@@ -87,6 +87,7 @@ nav = [
     { "Running pipelines on your PC" = "orchestration/local-runs.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
+    { "Tenant smoke test" = "product/smoke-test/README.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
     { "Your AI tool" = [
       { "Connect your AI tool" = "ai/README.md" },
@@ -125,6 +126,7 @@ nav = [
       { "Findings register" = "hardening/findings.md" },
       { "Hardening backlog" = "hardening/backlog.md" },
       { "Readiness checklist" = "hardening/readiness-checklist.md" },
+      { "Engine call limits" = "hardening/engine-call-limits.md" },
     ] },
     { "Release management" = [
       { "Process" = "release-management/README.md" },

@@ -9,5 +9,6 @@ PAGE = b"<html>\n<head><title>502 Bad Gateway</title></head>\n<body>Bad Gateway<
 def gateway(svc, status, content, reason=""):
     resp = requests.Response()
     resp.status_code, resp._content, resp.reason = status, content, reason
+    resp._content_consumed = True  # read in full, as requests leaves a response it has read
     session = type("Session", (), {"post": lambda self, url, **kw: resp})()
-    svc._catalog = lambda: FabricPlatform(lambda: "tok", "ws", "fn", session=session)
+    svc._catalog = lambda: FabricPlatform(lambda: "tok", "ws", "fn", session=session, sleep=lambda _s: None)

@@ -283,6 +283,29 @@ def test_workspace_marks_keep_favorites_and_pin_order(tmp_path):
         svc.set_workspace_mark("w1", "bogus", True)
 
 
+def test_a_browser_sign_in_left_open_gives_up_instead_of_holding_the_engine(tmp_path):
+    import msal
+
+    from fabric_desktop.auth import FABRIC_SCOPES, SIGN_IN_SECONDS, Authenticator, SignInError
+
+    class App:
+        asked = {}
+
+        def get_accounts(self):
+            return []
+
+        def acquire_token_interactive(self, scopes, **kw):
+            App.asked = kw
+            raise msal.BrowserInteractionTimeoutError("User did not complete the flow in time")
+
+    auth = Authenticator("11111111-2222-3333-4444-555555555555", cache_path=tmp_path / "cache.bin")
+    assert not auth.broker  # an organization's own app signs in in the browser
+    auth.app = App()
+    with pytest.raises(SignInError, match="wasn't finished within 10 minutes. Sign in again."):
+        auth._token(FABRIC_SCOPES)
+    assert App.asked["timeout"] == SIGN_IN_SECONDS
+
+
 def test_a_refreshed_token_skips_msals_cache_and_falls_back_to_a_normal_sign_in(tmp_path):
     from fabric_desktop.auth import FABRIC_SCOPES, Authenticator
 

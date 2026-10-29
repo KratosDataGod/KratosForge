@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import hashlib
 import logging
 import re
 import struct
@@ -307,6 +308,68 @@ def open_connection(server: str, database: str, token: Callable[[], str],
             sleep(wait)
 
 
+# ---- deploy preconditions (#947): a change runs only against the object its preview saw
+
+PRECONDITION_KINDS = ("schema", "table", "view", "procedure", "function")
+PRECONDITION_KEYS = ("kind", "schema", "name", "exists", "definition", "columns")
+_MODULE_TYPES = {"view": ("V",), "procedure": ("P",), "function": ("FN", "IF", "TF")}
+_FINGERPRINT = re.compile(r"[0-9a-f]{64}")
+_TRAILING_GO = re.compile(r"\n[ \t]*GO[ \t]*;?[ \t]*\s*$", re.IGNORECASE)
+
+
+def definition_fingerprint(text: str) -> str:
+    """A view's, procedure's or function's definition as one hash: the text the catalog gives
+    (sys.sql_modules), without a trailing GO and the blank space around it."""
+    body = _TRAILING_GO.sub("", "\n" + str(text).replace("\r\n", "\n")).strip()
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def precondition_problem(p: Any) -> str | None:
+    """Why ``p`` isn't a precondition a deploy change can carry, or None:
+    {"kind", "schema", "name", "exists"} plus, when it exists, "definition" (a view, procedure or
+    function's fingerprint) or "columns" (a table's column names, in order)."""
+    if not isinstance(p, dict) or p.get("kind") not in PRECONDITION_KINDS or not isinstance(p.get("exists"), bool):
+        return "a precondition names the object's kind and whether it exists"
+    if not all(isinstance(p.get(k), str) and 0 < len(p[k]) <= 128 for k in ("schema", "name")):
+        return "a precondition names the object's schema and name"
+    if p["exists"] and p["kind"] in _MODULE_TYPES and not (isinstance(p.get("definition"), str)
+                                                          and _FINGERPRINT.fullmatch(p["definition"])):
+        return "a precondition on an existing view, procedure or function gives its definition's fingerprint"
+    if p["exists"] and p["kind"] == "table" and not (isinstance(p.get("columns"), list) and 0 < len(p["columns"]) <= 1024
+                                                      and all(isinstance(c, str) and 0 < len(c) <= 128 for c in p["columns"])):
+        return "a precondition on an existing table gives its column names"
+    return None
+
+
+def _bracket(name: str) -> str:
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _now(cursor: Any, sql: str, value: str) -> list[Any]:
+    cursor.execute(sql, value)
+    return [row[0] for row in cursor.fetchall()]
+
+
+def object_changed(cursor: Any, p: dict[str, Any]) -> bool:
+    """Whether the object ``p`` names is no longer as the preview saw it. Reads the catalog in the
+    change's own transaction, so what it reads is what the change runs against."""
+    full = f"{_bracket(p['schema'])}.{_bracket(p['name'])}"
+    if p["kind"] == "schema":
+        found = _now(cursor, "SELECT s.name FROM sys.schemas AS s WHERE s.name = ?", p["name"])
+        return bool(found) != p["exists"]
+    types = _now(cursor, "SELECT RTRIM(o.type) FROM sys.objects AS o WHERE o.object_id = OBJECT_ID(?)", full)
+    wanted = ("U",) if p["kind"] == "table" else _MODULE_TYPES[p["kind"]]
+    if not p["exists"]:
+        return bool(types)  # someone made it since the preview
+    if not types or str(types[0]) not in wanted:
+        return True
+    if p["kind"] == "table":
+        names = _now(cursor, "SELECT c.name FROM sys.columns AS c WHERE c.object_id = OBJECT_ID(?) ORDER BY c.column_id", full)
+        return [str(n) for n in names] != list(p["columns"])
+    definition = _now(cursor, "SELECT m.definition FROM sys.sql_modules AS m WHERE m.object_id = OBJECT_ID(?)", full)
+    return not definition or definition_fingerprint(str(definition[0] or "")) != p["definition"]
+
+
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
     with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
@@ -334,6 +397,13 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
         result: tuple[int, list[int], Any] | None = None
         affected = 0
         plan = bool(job.get("plan")) and not writes
+        precondition = job.get("precondition") if writes else None
+        if precondition and object_changed(cursor, precondition):
+            say("error", kind="changed", message=f"{job.get('warehouse', {}).get('database') or 'The warehouse'}'s "
+                f"{precondition['schema']}.{precondition['name']} changed since the preview, so nothing was sent. "
+                "Compare again." if precondition["kind"] != "schema" else
+                f"Schema {precondition['name']} changed since the preview, so nothing was sent. Compare again.")
+            return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
         for batch in (batches(job["query"]) if writes else [job["query"]]):

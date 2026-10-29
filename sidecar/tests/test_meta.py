@@ -197,7 +197,11 @@ def test_02_source_adds_a_column(repo):
     assert "channel" in repo.table("bronze.orders").columns
     assert "add them to the contract" in bronze.steps[1].detail
     assert "channel" not in repo.table("silver.orders").columns
-    assert repo.dev.meta("schema_history")["columns"].to_list() == ["channel"]
+    changed = repo.dev.meta("schema_history").filter(pl.col("change") != "created")  # each table's first schema
+    assert changed["columns"].to_list() == ["channel"]
+    assert changed.row(0, named=True) | {"at": None} == {
+        "entity": "bronze.orders", "run_id": bronze.run_id, "change": "added", "columns": "channel", "at": None,
+        "detail": "channel string", "breaking": False, "delta_version": bronze.delta_version, "schema_version": 2}
     assert silver.status == "ok"
 
     edit_entity(root, "silver.orders", 'net_amount = "float64"', 'net_amount = "float64"\nchannel = "string"')

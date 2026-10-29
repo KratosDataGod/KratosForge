@@ -1,6 +1,6 @@
-"""Errors that say what kind of failure happened, so callers decide by type, never by wording.
+"""``NotSetUp``, the error for a step nobody has taken yet, so callers decide by type, never by wording.
 
-A leaf module: it imports nothing from the package, so anything can raise these without a cycle.
+A leaf module: it imports nothing from the package, so anything can raise it without a cycle.
 """
 
 from __future__ import annotations

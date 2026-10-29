@@ -21,6 +21,7 @@ from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
 from .central import core
+from .errors import NotSetUp
 from .fabric_api import FabricClient
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
@@ -323,6 +324,8 @@ class ShortcutMixin:
         missing = f"The platform can't keep accepted shortcut risks yet: UDF_Platform has no {op} function. {RISKS_REPAIR}"
         try:
             return self._catalog().call(op, **kwargs)  # type: ignore[attr-defined]
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             _log.info("%s: %s", op, describe(exc))
             raise LookupError(missing) from exc

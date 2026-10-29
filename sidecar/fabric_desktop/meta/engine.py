@@ -700,12 +700,28 @@ class Engine:
         worker.start()
         try:
             first = take()
-            schema = first.schema
             before = None if read_version is None else \
                 self.store.scan(lh, e.schema, e.table, read_version).collect_schema()
+            schema, kept_types = _first_batch_schema(e, first, before)
             self._refuse_type_changes(e, before, pl.from_arrow(schema.empty_table()).schema)
 
             def fit(t: pa.Table) -> pa.Table:  # every batch in the first one's columns and types
+                for name, old in kept_types.items():
+                    # A column the first batch left empty took the table's type. A later batch with
+                    # values of another kind is the change an unbatched load refuses: refuse it too.
+                    col_ = t.column(name) if name in t.column_names else None
+                    if col_ is None or col_.null_count == t.num_rows:
+                        continue
+                    new_ = pl.from_arrow(t.select([name]).slice(0, 0)).schema[name]
+                    if new_ != old and not (name not in e.columns and drift_mod.widens(new_, old)):
+                        stop_ = CheckStop(
+                            f"schema change refused: {name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)} "
+                            "would narrow a column's type or change its kind, which breaks readers of the table. "
+                            f"Nothing was written. Change the source back, or, to rewrite {e.name} with the new "
+                            "types, add this line under [contract] in its entity file: overwrite_schema = true "
+                            "(and take it out again after the run)")
+                        failure.append(stop_)
+                        raise stop_
                 cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
                         for f in schema]
                 return pa.Table.from_arrays(cols, schema=schema)
@@ -1386,6 +1402,25 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     sk = e.surrogate_key
     return df.select([sk] + [c for c in df.columns if c != sk])
+
+
+def _first_batch_schema(e: Entity, first: pa.Table, table: pl.Schema | None) -> tuple[pa.Schema, dict[str, Any]]:
+    """The schema every batch of a batched load is written in: the first batch's, except that a
+    column the first batch leaves empty takes the table's type (a file that left it empty reads as
+    text), as _fit_to_table does for a load in one go. Also returns those columns and their types."""
+    schema = first.schema
+    if table is None or not first.num_rows or e.spec.get("contract", {}).get("overwrite_schema") is True:
+        return schema, {}
+    kept: dict[str, Any] = {}
+    for i, f in enumerate(schema):
+        old = table.get(f.name)
+        if old is None or first.column(f.name).null_count != first.num_rows:
+            continue
+        typed = pl.DataFrame(schema={f.name: old}).to_arrow().schema.field(f.name).type
+        if typed != f.type:
+            schema = schema.set(i, f.with_type(typed))
+            kept[f.name] = old
+    return schema, kept
 
 
 def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.DataFrame:

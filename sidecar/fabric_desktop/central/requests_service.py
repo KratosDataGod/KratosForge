@@ -23,6 +23,7 @@ retry finds it instead of making it twice. Nothing here posts anything but gover
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from .. import access as access_mod
@@ -33,6 +34,24 @@ from . import core
 _log = logging.getLogger(__name__)
 
 NEW_KINDS = ("workspace", "workspace_access", "domain", "exception", "data")
+
+# Fabric's longest description for what an approval makes: a workspace, and a domain or an item (Copy job)
+WORKSPACE_DESCRIPTION, DOMAIN_DESCRIPTION, ITEM_DESCRIPTION = 4000, 256, 256
+_MARKER_WORDS = re.compile(r"kratosforge\s*request", re.I)
+
+
+def request_marker(req: dict[str, Any]) -> str:
+    """What an approval puts in the description of what it makes, so approving again finds it."""
+    return f"(KratosForge request {req['id']})"
+
+
+def marked(typed: str, mark: str, limit: int) -> str:
+    """A description for Fabric: the typed text, cut to fit ``limit`` with ``mark`` kept whole at its end.
+    The typed text never keeps marker words, so no request's marker can be planted in it (#1069)."""
+    while _MARKER_WORDS.search(typed):  # until none is left, so removing one can't leave another behind
+        typed = _MARKER_WORDS.sub("", typed)
+    typed = typed.strip()[:max(0, limit - len(mark) - 1)].rstrip()
+    return f"{typed} {mark}".strip()
 REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
@@ -155,7 +174,7 @@ class RequestsMixin:
                                       "create it in Fabric) and approve it again.") from exc
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
-        marker = f"(KratosForge request {req['id']})"
+        marker = request_marker(req)
         _, adopted = self._rq_step(step, create)
         if adopted:
             return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
@@ -171,7 +190,7 @@ class RequestsMixin:
         capacity = (d.get("capacity_id") or capacity_id or "").strip()
         if not capacity:
             raise core.PlatformError("Pick a capacity for the workspace: the request didn't name one")
-        marker = f"(KratosForge request {req['id']})"
+        marker = request_marker(req)
 
         def find_or_create() -> tuple[dict[str, Any], bool]:
             same = [w for w in api.list_workspaces() if str(w.get("displayName") or "").lower() == name.lower()]
@@ -183,7 +202,7 @@ class RequestsMixin:
                 raise core.PlatformError(f"A workspace named {name} already exists and this request didn't make "
                                          "it. Decline the request, or ask for another name.")
             why = str(req.get("reason") or "").strip()
-            return api.create_workspace(name, capacity, f"{why} {marker}".strip()[:4000]), True
+            return api.create_workspace(name, capacity, marked(why, marker, WORKSPACE_DESCRIPTION)), True
 
         ws, created = self._rq_step(f"Create the workspace {name}", find_or_create)
         wid = ws["id"]

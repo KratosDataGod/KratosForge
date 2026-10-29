@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -32,13 +31,9 @@ from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
 from .migrate import migrate
-from .requests_service import call_or_repair
+from .requests_service import DOMAIN_DESCRIPTION, call_or_repair, marked
 
 _log = logging.getLogger(__name__)
-FABRIC_DOMAIN_DESCRIPTION = 256  # Fabric's Create Domain refuses a longer description
-# The words a request's approval marks what it makes with, "(KratosForge request <id>)": a requester's own
-# text never keeps them, in any case
-_MARKER_WORDS = re.compile(r"kratosforge\s*request", re.I)
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
@@ -341,13 +336,8 @@ class PlatformMixin:
         admin = self._fabric_admin(write=True)
         parent_fid = str((parent or {}).get("fabric_domain") or "")
         description = str(domain.get("description") or "")
-        if marker:  # a requester can't plant another request's marker in the description they typed
-            # Fabric takes at most 256 characters: the typed text is cut so the marker stays whole
-            typed = description
-            while _MARKER_WORDS.search(typed):  # until none is left, so removing one can't leave another behind
-                typed = _MARKER_WORDS.sub("", typed)
-            typed = typed.strip()[:FABRIC_DOMAIN_DESCRIPTION - len(marker) - 1].rstrip()
-            description = f"{typed} {marker}".strip()
+        if marker:  # cut to Fabric's 256 characters with the marker whole, and no marker words typed
+            description = marked(description, marker, DOMAIN_DESCRIPTION)
         adopted = False
         try:
             created = admin.create_admin_domain(name, description, parent_fid)

@@ -66,14 +66,25 @@ def target(source: dict[str, Any]) -> dict[str, Any]:
 
 
 def same_target(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    """Whether two REST targets point at the same place: the same kind, ids (any case), path and
-    connection; slashes at either end of a path don't count."""
+    """Whether two REST targets point at the same place: the same kind, ids and connection in any case,
+    and the same paths exactly (they're case-sensitive in OneLake, ADLS and S3); slashes at either end
+    of a path don't count, and a location's scheme and host are compared in any case."""
     da, db = describe({"target": a}), describe({"target": b})
-    keys = ("target_type", "workspace_id", "item_id", "target_path", "location", "subpath", "connection_id")
 
-    def norm(v: Any) -> str:
-        return str(v or "").strip().strip("/").lower()
-    return bool(da["rest_target"]) and all(norm(da.get(k)) == norm(db.get(k)) for k in keys)
+    def ids(v: Any) -> str:
+        return str(v or "").strip().lower()
+
+    def path(v: Any) -> str:
+        return str(v or "").strip().strip("/")
+
+    def location(v: Any) -> str:
+        scheme, sep, rest = path(v).partition("://")
+        host, slash, tail = rest.partition("/")
+        return f"{scheme.lower()}{sep}{host.lower()}{slash}{tail}" if sep else path(v)
+    return (bool(da["rest_target"])
+            and all(ids(da.get(k)) == ids(db.get(k)) for k in ("target_type", "workspace_id", "item_id", "connection_id"))
+            and all(path(da.get(k)) == path(db.get(k)) for k in ("target_path", "subpath"))
+            and location(da.get("location")) == location(db.get("location")))
 
 
 def check_name(name: str) -> str:

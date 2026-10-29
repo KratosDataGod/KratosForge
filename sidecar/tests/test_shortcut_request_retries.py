@@ -95,7 +95,8 @@ def test_a_shortcut_whose_approval_failed_after_it_was_made_is_kept_with_one_his
     {"oneLake": {"workspaceId": "ws-prod", "itemId": "lh-gold-dev", "path": "Tables/dbo/supplier"}},  # another workspace
     {"amazonS3": {"location": "https://bucket.s3.amazonaws.com", "subpath": "/Tables/dbo/supplier", "connectionId": "c1"}},
     {},  # a target Fabric didn't say
-], ids=["table", "lakehouse", "workspace", "s3", "none"])
+    {"oneLake": {"workspaceId": "ws-dev2", "itemId": "lh-gold-dev", "path": "Tables/dbo/SUPPLIER"}},  # another case
+], ids=["table", "lakehouse", "workspace", "s3", "none", "case"])
 def test_a_shortcut_pointing_anywhere_else_keeps_the_request_waiting(svc, api, there):
     req = ask(svc)
     api.items["lh-1"].append({"name": "supplier", "path": "Tables/dbo", "target": there})
@@ -131,6 +132,13 @@ def test_another_fabric_error_is_raised_as_today(svc, api):
 
 @pytest.mark.parametrize("a,b,same", [
     (WANTED, {"oneLake": {"workspaceId": "WS-DEV2", "itemId": "LH-GOLD-DEV", "path": "/Tables/dbo/supplier/"}}, True),
+    (WANTED, {"oneLake": {"workspaceId": "ws-dev2", "itemId": "lh-gold-dev", "path": "Tables/dbo/Supplier"}}, False),
+    ({"amazonS3": {"location": "HTTPS://B.S3.amazonaws.com/Finance", "subpath": "/Payroll", "connectionId": "C1"}},
+     {"amazonS3": {"location": "https://b.s3.amazonaws.com/Finance", "subpath": "Payroll/", "connectionId": "c1"}}, True),
+    ({"amazonS3": {"location": "https://b.s3.amazonaws.com", "subpath": "/Finance/Payroll", "connectionId": "c1"}},
+     {"amazonS3": {"location": "https://b.s3.amazonaws.com", "subpath": "/finance/payroll", "connectionId": "c1"}}, False),
+    ({"adlsGen2": {"location": "https://acct.dfs.core.windows.net/Data", "subpath": "/x", "connectionId": "c1"}},
+     {"adlsGen2": {"location": "https://acct.dfs.core.windows.net/data", "subpath": "/x", "connectionId": "c1"}}, False),
     (WANTED, {"oneLake": {"workspaceId": "ws-dev2", "itemId": "lh-gold-dev", "path": "Tables/dbo/supplier2"}}, False),
     ({"amazonS3": {"location": "https://b.s3.amazonaws.com/", "subpath": "/e", "connectionId": "c1"}},
      {"amazonS3": {"location": "https://b.s3.amazonaws.com", "subpath": "e", "connectionId": "c1"}}, True),

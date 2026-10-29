@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, shared_version, svc, wait  # noqa: F401
+from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
 from fabric_desktop import app_settings, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
@@ -204,7 +204,7 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))
         assert call(s, "stop_kernel_process") == {"stopped": True}
         assert call(s, "poll_cell", version=-1)["status"] == "cancelled"
-        assert call(s, "run_cell", code="2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
+        assert run_cell(s, "2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
     finally:
         s.kernel.close()
 
@@ -307,8 +307,10 @@ def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, qui
     launcher = kernel._proc.pid
     kernel.pid = interpreter = launcher + 100_000  # what a venv launcher's child would report
     monkeypatch.setattr(kernel_proc, "memory_used", lambda pid: 10 * 1024 ** 3 if pid == interpreter else 5 * 1024 ** 2)
-    kernel.memory_limit = 1024 ** 3
+    # The limit goes on once the cell is running: set before, the watcher could end the process before
+    # start, which would then run the cell in a fresh process under its real pid and never hit the limit.
     kernel.start("import time\ntime.sleep(30)")
+    kernel.memory_limit = 1024 ** 3
     snap = until_done(kernel)
     assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
 

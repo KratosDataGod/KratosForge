@@ -24,10 +24,22 @@ const SCHEMES = ["light", "dark"];
 
 // Findings this audit recorded that are filed to be fixed (#905): "page: rule @ element" and "page: element".
 // A new one fails; remove a line when its fix lands (the test then keeps it fixed).
-const KNOWN_RULES = new Set(['notebook: aria-input-field-name @ div[data-language="python"]', 'notebook: aria-input-field-name @ div[data-language="sql"]',
-  "sql: aria-required-children @ .sql-tabs", "command-bar: aria-input-field-name @ .palette-list"]);
-const KNOWN_KEYBOARD = new Set(['notebook: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached']);
-const KNOWN_FOCUS = new Set(['sql: div.cm-content "SQL query"']);
+const KNOWN_RULES = new Set([]);
+const KNOWN_KEYBOARD = new Set([]);
+const KNOWN_FOCUS = new Set([]);
+
+// Checks axe can't decide by itself, judged by a person (#945): "page: rule @ element" patterns and the verdict,
+// measured in the browser with the app's colors. A new undecided item fails until it's judged here.
+const JUDGED = [
+  [/^home: color-contrast @ .*\.chev$/, "Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic)."],
+  [/^workspaces: color-contrast @ .*\.star\[/, "Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named."],
+  [/^notebook: color-contrast @ .*\.cell-grip/, "Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard."],
+  [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
+  [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
+  [/^(entity|data-mesh|mesh\w*): color-contrast @ \.arrow\[aria-hidden="true"\]/, "Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text)."],
+  [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
+];
+const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
 
 // Every page on the rail is found at run time; these open the screens that aren't rail pages.
 const EXTRA = [
@@ -90,7 +102,12 @@ function keyboardScan(scope) {
     const text = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30);
     return `${el.tagName.toLowerCase()}${cls}${text ? ` "${text}"` : ""}`;
   };
-  const focusable = "button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex=\"-1\"]), [contenteditable=true], .cm-editor";
+  const focusable = ["button", "a[href]", "input", "select", "textarea", "summary", "[tabindex]", "[contenteditable=true]", ".cm-editor"]
+    .map((s) => `${s}:not([tabindex="-1"])`).join(", ");
+  // A mouse-only control the keyboard reaches another way: out of the Tab order and hidden from assistive
+  // tech, beside a Tab stop that names its key (a tab's ×, closed with Delete on the tab).
+  const keyedElsewhere = (el) => el.closest("[aria-hidden=true]") && el.closest("[tabindex='-1']") &&
+    [...(el.parentElement?.querySelectorAll("[aria-keyshortcuts]") || [])].some((k) => k.tabIndex >= 0 && k !== el);
   const unreachable = [];
   for (const el of [...roots].flatMap((r) => [...r.querySelectorAll("*")])) {
     const rect = el.getBoundingClientRect();
@@ -100,7 +117,7 @@ function keyboardScan(scope) {
     // controls draw the pointer on the whole group). A page can't see click listeners, so a pointer card
     // that does something of its own beside the button it holds isn't caught here.
     const label = el.closest("label");
-    if (el.closest(focusable) || el.querySelector(focusable) || (label?.control && label.control.tabIndex >= 0)) continue;
+    if (el.closest(focusable) || el.querySelector(focusable) || (label?.control && label.control.tabIndex >= 0) || keyedElsewhere(el)) continue;
     unreachable.push(css(el));
   }
   return { unreachable };
@@ -160,8 +177,8 @@ async function tabStops(page, scope) {
     const at = await page.evaluate(focusNow, scope);
     if (!at) break;
     if (seen.has(at.stop)) {
-      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`:is(${scope}) :is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), .cm-content)`)]
-        .filter((e) => !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden" && !e.closest("[inert], [hidden]"))
+      const left = await page.evaluate(([scope, seenIds]) => [...document.querySelectorAll(`:is(${scope}) :is(button, a[href], input, select, textarea, summary, [tabindex], .cm-content):not([tabindex="-1"])`)]
+        .filter((e) => !e.disabled && e.checkVisibility({ visibilityProperty: true }) && !e.closest("[inert], [hidden]"))  // a closed <details> menu's items aren't shown
         .filter((e) => !seenIds.includes(e.dataset.a11yStop)).length, [scope, [...seen]]);
       if (left) trap = { key: at.key, left };
       break;
@@ -246,6 +263,12 @@ test("everything clickable is reached with Tab, and every Tab stop shows focus",
   assert.ok(light.filter((r) => r.stops.length).length >= light.length - 1, "Tab reached the pages' controls");
 });
 
+test("every check axe couldn't decide has a person's verdict", { skip }, async () => {
+  const open = results.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.flatMap((v) =>
+    v.nodes.filter((n) => !judged(`${r.id}: ${v.id} @ ${n}`)).map((n) => `${r.id}: ${v.id} @ ${n}`)));
+  assert.deepStrictEqual(open, [], "judge these and add them to JUDGED");
+});
+
 test("the audit catches a violation put into a page", { skip }, async () => {
   const page = app.page;
   const before = results.length;
@@ -306,12 +329,14 @@ function report(rows) {
       : `- **${r.page}**: \`${k}\` looks clickable but isn't reached with Tab`)) : []),
     ...(r.scheme === "light" ? r.noRing.map((k) => `- **${r.page}**: \`${k}\` shows no focus ring`) : []),
   ]);
-  const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) =>
-    `- **${r.page}**: ${v.id}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}`));
+  const looks = rows.filter((r) => r.scheme === "light").flatMap((r) => r.incomplete.map((v) => {
+    const verdicts = [...new Set(v.nodes.map((n) => judged(`${r.id}: ${v.id} @ ${n}`) || "Not judged yet."))];
+    return `- **${r.page}**: ${v.id}: ${v.help}. At ${v.nodes.map((n) => `\`${n}\``).join(", ")}. ${verdicts.join(" ")}`;
+  }));
   lines.push("", "## Findings", "", "Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.", "",
     ...(findings.length ? findings : ["None."]));
   lines.push("", "## Needs a look", "",
-    "Checks axe couldn't decide by itself (for example text over a gradient or an image). Each needs a person to judge.", "",
+    "Checks axe couldn't decide by itself (for example a glyph, a line number, or text over a gradient or an image), each with a person's verdict and the measured contrast.", "",
     ...(looks.length ? looks : ["None."]), "");
   return lines.join("\n");
 }

@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -62,12 +62,31 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
     live.add_argument("--all", action="store_true", help="also run the opt-in checks (concurrent Delta writers, "
-                      "notebook publish, pipeline definition); they create items and use capacity")
+                      "notebook publish, pipeline definition, pipeline mailbox, OneLake lease, MERGE profile); they "
+                      "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
-                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition"],
+                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
+                               "lease.onelake", "delta.merge_profile"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    smoke = sub.add_parser("smoke-test", help="the ten-flow tenant smoke test (PB-002): its automated parts, "
+                           "and a checklist for the rest")
+    smoke.add_argument("--workspace", required=True,
+                       help="the test workspace's id; its description must contain fabric-desktop-live-test")
+    smoke.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
+    smoke.add_argument("--yes", action="store_true", help="run without asking first")
+    smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
+    smoke.add_argument("--run-in-fabric", action="store_true",
+                       help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
+    smoke.add_argument("--platform", action="store_true",
+                       help="also run the central platform flows 11-16 (PB-052): make a platform in the test workspace, "
+                            "use it and delete it again")
+    smoke.add_argument("--platform-upgrade", action="store_true",
+                       help="with --platform: start from the platform a previous build made in the test workspace; "
+                            "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--platform-keep", action="store_true",
+                       help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
                                             "with this PC's packages (read only)")
     drift.add_argument("--workspace", required=True, help="the workspace id")
@@ -214,6 +233,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_env_drift(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
+    if args.command == "smoke-test":
+        raise SystemExit(_smoke_test(args))
     if args.command == "support-bundle":
         from pathlib import Path
 
@@ -307,6 +328,69 @@ def _backup(args: argparse.Namespace) -> int:
         print(exc)
         return 1
     return 0
+
+
+def _smoke_test(args: argparse.Namespace) -> int:
+    """0 every automated step passed, 1 one failed, 2 not started."""
+    from pathlib import Path
+
+    from . import app_settings, livetest, platformtest, smoketest
+    from .auth import Authenticator
+    from .fabric_api import FabricClient
+    from .onelake import FileStore
+
+    if args.dry_run:
+        print("The smoke test will:")
+        dry_platform = (lambda out: None) if args.platform else None
+        dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
+                                  platform_test=dry_platform)
+        for step in dry.plan():
+            print(f"  - {step}")
+        if args.platform:
+            print("The platform flows will:")
+            for step in platformtest.PlatformTest(args.workspace, None, lambda: "", dry.dir / "platform",
+                                                  client=lambda ws, fid: None, run_id=dry.run_id,
+                                                  upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
+                print(f"  - {step}")
+        print("The live test it runs will:")
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
+                                      extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, created or written.")
+        return 0
+    client_id = app_settings.value("client_id")
+    credential = Authenticator(client_id)
+    fabric = FabricClient(credential.fabric_token)
+
+    def live(out: Path) -> livetest.LiveTest:
+        return livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, out,
+                                 protected_ids=livetest.policy_workspace_ids(), extra=set(livetest.ALL_CHECKS),
+                                 run_in_fabric=args.run_in_fabric)
+
+    def platform(out: Path) -> platformtest.PlatformTest:
+        from .auth import EXECUTE_SCOPES
+        from .central.client import FabricPlatform
+        execute = lambda: credential._token(EXECUTE_SCOPES)  # noqa: E731 - UDF_Platform runs as the signed-in person
+        return platformtest.PlatformTest(args.workspace, fabric, execute, out,
+                                         client=lambda ws, fid: FabricPlatform(execute, ws, fid),
+                                         user=lambda: credential.signed_in_user() or "",
+                                         protected_ids=livetest.policy_workspace_ids(), upgrade=args.platform_upgrade,
+                                         keep=args.platform_keep,
+                                         pause=None if args.yes else lambda text: input(f"{text}\n"))
+
+    test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
+                               run_in_fabric=args.run_in_fabric, client_id=client_id,
+                               platform_test=platform if args.platform else None)
+    print("The smoke test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(smoketest.summary(result))
+    print("\n".join(result["files"]))
+    return 1 if result["outcome"] == "failed" else 0
 
 
 def _env_drift(args: argparse.Namespace) -> int:

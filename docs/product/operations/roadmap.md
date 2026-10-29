@@ -43,3 +43,4 @@ Exit: PB-002 run with defects filed; no P0 or P1 reliability item open without a
 | Week of | Change | Why |
 | --- | --- | --- |
 | 2026-10-28 | First version | Orchestrator brief; built from the backlog, inventory and open PRs on main d0747a6 |
+| 2026-10-28 (evening) | Queues refreshed after the first day's work; a limit of four PRs waiting for review per workstream | Review and CI became the bottleneck: about 20 drafts waited for review and CI queued over 100 runs |

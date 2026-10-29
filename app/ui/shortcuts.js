@@ -187,8 +187,8 @@ async function renderShortcuts() {
   // ---- one shortcut, in the panel on the right
 
   function drawPanel(panel, s) {
-    const tabs = h("div", { class: "subtabs" }, [["overview", "Overview"], ["readers", "Who can read"], ["history", "History"]].map(([id, label]) =>
-      h("button", { class: `tab${sp.panelTab === id ? " active" : ""}`, onclick: () => { sp.panelTab = id; drawPanel(panel, s); } }, label)));
+    const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Shortcut" }, [["overview", "Overview"], ["readers", "Who can read"], ["history", "History"]].map(([id, label]) =>
+      h("button", { class: `tab${sp.panelTab === id ? " active" : ""}`, role: "tab", "aria-selected": String(sp.panelTab === id), onclick: () => { sp.panelTab = id; drawPanel(panel, s); } }, label)));
     const inner = h("div", { class: "preview-body" }, tabs);
     const host = { type: "Lakehouse", workspace_id: s.host_workspace_id, item_id: s.lakehouse_id };
     fill(panel,
@@ -637,7 +637,7 @@ function scChangeList(changes, after, showWhere) {
         c.note ? h("div", { class: "muted-text small" }, c.note) : null),
       h("span", { class: "small" }, c.how === "app" ? (c.by_user || "KratosForge") : c.how === "check" ? "Health check" : "Seen at scan",
         c.how === "scan" ? h("div", { class: "muted-text small" }, "made outside the app") : null),
-      ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
+      c.undoable && ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
         ? btn(c.kind === "removed" ? "Recreate" : "Undo", null, () => undo(c), "tool link small") : h("span", {})));
   }
   return h("div", { class: "sc-changes" }, out);

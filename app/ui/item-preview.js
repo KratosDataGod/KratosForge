@@ -137,9 +137,9 @@ function drawRowsPreview(panel, body, d) {
   const meta = panel.querySelector(".preview-meta");
   const count = d.row_count == null ? "" : `${Number(d.row_count).toLocaleString()} rows  ·  `;
   if (meta) meta.textContent = `${count}${d.columns.length} columns  ·  read on this PC`;
-  const tab = (id, label) => h("button", { class: `tab${itemPreview.tab === id ? " active" : ""}`,
+  const tab = (id, label) => h("button", { class: `tab${itemPreview.tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(itemPreview.tab === id),
     onclick: () => { itemPreview.tab = id; drawRowsPreview(panel, body, d); } }, label);
-  const tabs = h("div", { class: "subtabs" }, tab("data", "Data"), tab("schema", "Schema"));
+  const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Preview" }, tab("data", "Data"), tab("schema", "Schema"));
   if (itemPreview.tab === "schema") {
     body.replaceChildren(tabs, h("table", { class: "list preview-grid" },
       h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Type"))),

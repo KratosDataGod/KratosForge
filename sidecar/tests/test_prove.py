@@ -214,6 +214,20 @@ def call(svc, method, **params):
     return out["result"]
 
 
+def run_cell(svc, code, **params):
+    """Run a cell over the RPC the way the app does, start_cell then poll_cell, and return its result."""
+    call(svc, "start_cell", code=code, **params)
+    notebook = {"notebook": params["notebook"]} if "notebook" in params else {}
+    version, deadline = -1, time.monotonic() + 600
+    while time.monotonic() < deadline:
+        # Passing the last version makes poll_cell wait (up to 2 s) for news instead of answering at once.
+        out = call(svc, "poll_cell", version=version, wait=2, **notebook)
+        if out["status"] != "running":
+            return call(svc, "poll_cell", version=-1, **notebook)  # -1: all of the finished cell's outputs
+        version = out["version"]
+    raise AssertionError("the cell didn't finish")
+
+
 def wait(svc, pid):
     for _ in range(1200):
         status = call(svc, "prove_status", id=pid)
@@ -258,7 +272,7 @@ def test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tabl
     assert out["inputs"]["equivalent"] is True
     # Both environments recorded; Fabric's packages remembered for the dependency check.
     assert out["environment"]["fabric"]["packages"]["polars"] and out["environment"]["pc"]["python"]
-    env = call(svc, "notebook_environment", **payload())
+    env = svc.notebook_environment(**payload())
     assert next(m for m in env["modules"] if m["module"] == "polars")["fabric"]["status"] == "observed"
     # Measured on this PC; Fabric times from the job; cost an estimate with its assumptions.
     assert out["pc"]["cpu_seconds"] is not None and out["pc"]["seconds"] > 0
@@ -525,6 +539,29 @@ def test_delete_outputs_removes_the_proof_folder_only(svc):
     call(svc, "prove_delete_outputs", id=out["id"])
     assert not folder.exists() and (svc.lh_root / "Tables" / "dbo" / "orders").exists()
     assert call(svc, "prove_status", id=out["id"])["outputs_deleted_at"]
+
+
+def test_proof_records_saved_at_once_from_two_threads_all_land(svc):
+    """A proof's own thread saves its record as it ends while a request (Delete outputs) may save too.
+    On Windows, two writers of one fixed temporary file failed with PermissionError (seen in CI)."""
+    import threading
+    errors, start = [], threading.Barrier(8)
+
+    def save(n):
+        start.wait()
+        try:
+            for i in range(25):
+                svc._proof_save({"id": f"p{n}-{i}", "state": "done", "pc": {}})
+        except Exception as exc:  # noqa: BLE001 - collected for the assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert errors == []
+    assert len(svc._proofs_saved()) == 200, "every save kept the rows the others wrote (the newest 200)"
 
 
 # ---- what can be proven

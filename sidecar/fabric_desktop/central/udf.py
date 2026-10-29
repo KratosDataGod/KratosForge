@@ -404,9 +404,10 @@ def set_classification(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
     return f"{target} is now {classification}"
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcuts(sqlDB: fn.FabricSqlConnection, lakehouses: list, shortcuts: list) -> dict:
-    return _run(sqlDB, "record_shortcuts", lakehouses=lakehouses, shortcuts=shortcuts)
+def record_shortcuts(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, lakehouses: list, shortcuts: list) -> dict:
+    return _run(sqlDB, "record_shortcuts", ctx, lakehouses=lakehouses, shortcuts=shortcuts)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -418,9 +419,10 @@ def log_shortcut_change(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcut_health(sqlDB: fn.FabricSqlConnection, results: list) -> list:
-    return _run(sqlDB, "record_shortcut_health", results=results)
+def record_shortcut_health(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, results: list) -> list:
+    return _run(sqlDB, "record_shortcut_health", ctx, results=results)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -844,6 +846,14 @@ def add_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
                         item_id: str) -> list:
     return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def call_once(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, call_id: str, operation: str,
+              args: dict = None) -> dict:
+    return _run(sqlDB, "call_once", ctx, call_id=call_id, operation=operation, args=args or {})
 
 '''
 

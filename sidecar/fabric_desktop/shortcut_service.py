@@ -31,6 +31,13 @@ _log = logging.getLogger(__name__)
 RISKS_REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
+
+def _skipped_problem(skipped: list[dict[str, Any]]) -> str:
+    """What the platform didn't record from this PC, said once."""
+    return (f"The platform didn't record {len(skipped)} change{'' if len(skipped) == 1 else 's'} to shortcuts "
+            "(removed, repointed or no longer broken): only a platform admin, or a member of a project with a "
+            "product in that lakehouse, can. The next scan by one of them records it.")
+
 class ShortcutMixin:
 
     # ---- what the command center shows
@@ -90,7 +97,7 @@ class ShortcutMixin:
             scanned = [{"lakehouse_id": i, "workspace_id": refs.get(i, {}).get("workspace_id", ""),
                         "workspace_name": refs.get(i, {}).get("workspace_name", ""),
                         "lakehouse_name": refs.get(i, {}).get("name", "")} for i in inv["items"] if i in refs]
-            self._sc_call("record_shortcuts", problems, {}, lakehouses=scanned, shortcuts=[
+            recorded = self._sc_call("record_shortcuts", problems, {}, lakehouses=scanned, shortcuts=[
                 {"lakehouse_id": r["lakehouse_id"], "workspace_id": r["host_workspace_id"],
                  "workspace_name": r["workspace_name"], "lakehouse_name": r["lakehouse_name"], "path": r["path"],
                  "name": r["name"], "target": r["rest_target"],
@@ -98,6 +105,8 @@ class ShortcutMixin:
                  "target_workspace_name": names.get(r.get("workspace_id") or "", "") if r["target_type"] == "OneLake" else "",
                  "target_lakehouse_name": lh_names.get(r.get("item_id") or "", "") if r["target_type"] == "OneLake" else ""}
                 for r in rows])
+            if (recorded or {}).get("skipped"):
+                problems.append(_skipped_problem(recorded["skipped"]))
         seen = {s["id"]: s for s in self._sc_call("list_seen_shortcuts", problems, [])}
         products = center.port_index(self._sc_call("list_products", problems, []))
         for r in rows:
@@ -147,6 +156,10 @@ class ShortcutMixin:
         results = watch.probe(FileStore(lambda: token), items)  # the same check the agent's schedule makes
         problems: list[str] = []
         changes = self._sc_call("record_shortcut_health", problems, [], results=results)
+        skipped = [c for c in changes if c.get("kind") == "skipped"]
+        changes = [c for c in changes if c.get("kind") != "skipped"]
+        if skipped:
+            problems.append(_skipped_problem(skipped))
         problem = self._governance_notify(lambda: notices.shortcut_events(changes))  # type: ignore[attr-defined]
         if problem:
             problems.append(problem)
@@ -453,11 +466,29 @@ class ShortcutMixin:
         c = next((x for x in changes if x["id"] == change_id), None)
         if c is None:
             raise LookupError("That change isn't in the history any more")
+        if "undoable" not in c:
+            raise RuntimeError("Not undone: the platform needs Platform > Settings > Finish or repair once first.")
+        if not c["undoable"]:
+            raise RuntimeError("Not undone: only a change made by a platform admin, or by a member of a project "
+                               "with a product in that lakehouse, can be undone. Nothing was changed.")
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+
+        def now(d: dict[str, Any]) -> dict[str, Any] | None:
+            """The shortcut at that place in Fabric now, if there is one."""
+            return next((shortcuts_mod.describe(x) for x in api.list_shortcuts(d["workspace_id"], d["lakehouse_id"])
+                         if str(x.get("path") or "").strip("/") == d["path"] and x.get("name") == d["name"]), None)
+
+        def same(found: dict[str, Any] | None, target: Any) -> bool:
+            return found is not None and core._canon(found["rest_target"]) == core._canon(target)
+
+        # Undo changes only what the change made: a shortcut changed again since is left alone.
+        where = lambda d: f"{d['path']}/{d['name']}"  # noqa: E731
         if c["kind"] == "removed" and c.get("before"):
             b = c["before"]
             ref = {"workspace_id": b["workspace_id"], "lakehouse_id": b["lakehouse_id"], "path": b["path"],
                    "name": b["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
+            if now(b) is not None:
+                raise RuntimeError(f"Not undone: there's a shortcut at {where(b)} again, so nothing was changed.")
             api.create_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"], b["target"])
             self._all_shortcuts = None
             problem = self._sc_log("added", ref, None, b, f"Recreated (undo of change {change_id})")
@@ -465,8 +496,10 @@ class ShortcutMixin:
             b = c["before"]
             ref = {"workspace_id": b["workspace_id"], "lakehouse_id": b["lakehouse_id"], "path": b["path"],
                    "name": b["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
-            current = next((shortcuts_mod.describe(s) for s in api.list_shortcuts(b["workspace_id"], b["lakehouse_id"])
-                            if str(s.get("path") or "").strip("/") == b["path"] and s.get("name") == b["name"]), None)
+            current = now(b)
+            if not same(current, (c.get("after") or {}).get("target")):
+                raise RuntimeError(f"Not undone: {where(b)} " + ("is gone" if current is None else "points somewhere else")
+                                   + " since that change, so nothing was changed.")
             if current is not None:
                 api.delete_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"])
             try:
@@ -484,6 +517,10 @@ class ShortcutMixin:
             a = c["after"]
             ref = {"workspace_id": a["workspace_id"], "lakehouse_id": a["lakehouse_id"], "path": a["path"],
                    "name": a["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
+            current = now(a)
+            if not same(current, a.get("target")):
+                raise RuntimeError(f"Not undone: {where(a)} " + ("is already gone" if current is None else
+                                   "points somewhere else now") + ", so nothing was removed.")
             api.delete_shortcut(a["workspace_id"], a["lakehouse_id"], a["path"], a["name"])
             self._all_shortcuts = None
             problem = self._sc_log("removed", ref, a, None, f"Removed (undo of change {change_id})")

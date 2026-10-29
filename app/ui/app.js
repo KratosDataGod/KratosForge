@@ -60,6 +60,25 @@ function btn(label, iconName, onClick, cls = "tool", attrs = {}) {
   return h("button", { class: cls, onclick: onClick, ...attrs }, iconName ? icon(iconName, 16) : null, label);
 }
 
+// A folder box with Browse… beside it (#971): the Windows folder dialog (pick_folder in the shell)
+// fills the box, which stays editable for pasting. A box policy locks gets no button. `name` says
+// which folder, for a page with more than one box. The box needs its own aria-label: inside a
+// <label>, its name would otherwise take in the button's.
+function folderField(input, name = "a folder") {
+  if (input.readOnly || !window.__TAURI__?.core) return input;
+  const browse = btn("Browse…", "folderOpen", async () => {
+    browse.disabled = true; // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: input.value.trim() || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { browse.disabled = false; });
+    if (!chosen) return;
+    input.value = chosen;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  }, "tool outline", { type: "button", "aria-label": `Browse for ${name}` });
+  return h("div", { class: "folder-field" }, input, browse);
+}
+
 function hydrateIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((el) => {
     el.replaceWith(icon(el.dataset.icon, Number(el.dataset.size || 20)));
@@ -335,10 +354,23 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
+  const list = el.closest("[role=tablist]")?.getAttribute("aria-label");
   tab.click();
-  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
-  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
-  (now || (tab.isConnected ? tab : null))?.focus();
+  // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
+  // of the selected tab, in the same tablist when it's named (a count in the label may have changed),
+  // for up to a second, while focus is still nowhere else (#961).
+  const selected = () => (list
+    ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
+    : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
+  const refocus = (tries) => {
+    const found = selected();
+    const now = found === el ? null : found;  // a page that redraws later still shows the old selection
+    const lost = [document.body, el, tab].includes(document.activeElement) || !document.activeElement?.isConnected;
+    if (now && lost) now.focus();
+    else if (!now && tab.isConnected && lost) tab.focus();
+    if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);
+  };
+  refocus(20);
 });
 
 // ---------- account and data ----------
@@ -1007,8 +1039,8 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
-    h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "fabric"
     ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
@@ -1557,12 +1589,13 @@ const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) =
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
 function onelakeTabs() {
-  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
-    onclick: () => { catalogPage.tab = id; render(); } }, label);
-  return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
-    // Data products moved to Data mesh > Products; this tab takes you there.
-    preview("mesh", h("button", { class: "tab", onclick: () => openProducts() }, "Data products")),
-    preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
+  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
+  // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
+  // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
+    tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
+    preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
 

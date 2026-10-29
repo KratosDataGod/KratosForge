@@ -575,8 +575,11 @@ class MetaMixin:
         errors += unreleased
         duty_errors, duty_notes = self._duties_gate(project, source, target)
         errors += duty_errors
+        policies = self.governance_promote_gate(target)  # type: ignore[attr-defined]
+        errors += policies["errors"]
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
-                "notes": notes + more + duty_notes, "git": git}
+                "notes": notes + more + duty_notes + policies["notes"], "git": git,
+                "policy_exceptions": policies["excepted"]}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
@@ -593,6 +596,8 @@ class MetaMixin:
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
         errors += self._duties_gate(project, source, target, src)[0]
+        policies = self.governance_promote_gate(target)  # type: ignore[attr-defined]  # Block policies (GOV-003)
+        errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
@@ -613,6 +618,8 @@ class MetaMixin:
             result["breaking"] = notes
         if release_notes:
             result["release"]["notes"] = release_notes
+        if policies["excepted"] or policies["notes"]:
+            result["policies"] = {"excepted": policies["excepted"], "notes": policies["notes"]}
         if project.products:
             try:  # so other teams' links find this environment's tables
                 published = self.mesh_publish(target)  # type: ignore[attr-defined]
@@ -849,6 +856,8 @@ class MetaMixin:
     def _read_platform_sources(self) -> list[dict[str, Any]]:
         try:
             return self._catalog().call("list_sources")  # type: ignore[attr-defined]
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             raise LookupError(f"{exc} After an update, a platform admin runs Platform > Settings > Finish or repair.") from exc
 

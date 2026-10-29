@@ -7,7 +7,7 @@
 - A **policy** is a standard your organization writes once, like "table names are snake_case and at most 60 characters".
 - You **publish** it, which freezes that version, and **assign** it where it applies: the whole enterprise, a domain, a project or one table.
 - Each project works out which policies apply to it, and **Explain** shows why.
-- **Policies warn; nothing blocks yet.** **Check now** (Preview) checks the open project against its policies on your PC and lists what to look at, but it stops nothing. Blocking promote and deploy comes with GOV-003. Until then, a policy set to **Block** shows as **Block (not enforced yet)**.
+- **Block stops promote.** **Check now** (Preview) checks the open project against its policies on your PC and lists what to look at; it stops nothing itself. A promote does: a finding of a policy set to **Block** that no exception covers is one of the promote gate's reasons, and a promote to Prod stops when the policies can't be read. Warn and Advisory policies never stop it. Blocking deploy isn't built.
 - **It works offline.** Each Check now that reaches the platform keeps a hash-checked **policy package** of the project's policies on your PC; without the platform, Check now uses it and says how old it is. `fabric-desktop governance check` runs the same checks from the command line for CI, and fails on an Error finding no exception covers.
 - **Start from a template.** Four built-in templates (table names, product owners, sensitive column labels, a data contract) and your organization's own make a policy in a few clicks. See [a worked template](#4-from-a-template-a-data-contract).
 
@@ -22,7 +22,7 @@ Each step below is saved in the platform's catalog: the policy and its versions 
 3. **Assign it.** On the policy's **Where it applies** tab, choose **Assign** and pick a scope. An assignment can tighten the policy for that scope. If the policy is **Mandatory**, scopes below may only make it stricter.
 4. **See the result.** **Where it applies** lists every project the policy reaches. **Explain** next to a project shows each step: which scope introduced it, what each scope changed, and anything that was ignored and why.
 5. **Tighten it in a project.** A project can tighten or add policies in `governance.toml`, reviewed in Git like any other project file.
-6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It's warn only. Without the platform it uses the project's latest policy package on your PC, and says which and how old ([offline policy packages](governance.md#offline-policy-packages)). **(Coming with GOV-003)** A Block finding stops promote or deploy until it's fixed or an exception is approved.
+6. **Check the project.** Platform > Governance > **Check this project** > **Check now** runs each policy's **Checked by** rules on your PC and lists what to look at, with a fix or a link to where to fix it. It stops nothing itself. Without the platform it uses the project's latest policy package on your PC, and says which and how old ([offline policy packages](governance.md#offline-policy-packages)). A Block finding stops promote until it's fixed or an exception is approved ([Block stops promote](governance.md#block-stops-promote)).
 
 ## Worked examples
 
@@ -75,7 +75,7 @@ Your standard: every entity with custom code has an owner, and every data produc
 | Checked by | `ownership.entity_owner`, `ownership.product_owner` |
 | Exceptions | Allowed, with an approver and an expiry |
 
-The save gate already requires an owner for custom code (see the table below), so for that part the policy records the standard the app already holds. Check now checks both parts and warns; blocking comes with GOV-003.
+The save gate already requires an owner for custom code (see the table below), so for that part the policy records the standard the app already holds. Check now checks both parts, and because the policy is set to Block, a finding stops the project's promote until it's fixed or an exception is approved.
 
 ### 4. From a template: a data contract
 
@@ -104,17 +104,17 @@ There are three kinds of enforcement, and they differ in what each can stop:
 - **Detect and warn:** the app reads what's in Fabric and reports what breaks the standard, including items made outside the app. It can't prevent them.
 - **Fabric, Purview or Entra only:** only the Microsoft service can enforce it, for everyone. KratosForge can show the state and link to the right place.
 
-"Today" means what runs in the current build. "With policies" means what GOV-002 and GOV-003 add.
+"Today" means what runs in the current build. "With Block policies" means what a policy set to Block stops today: a promote, while a finding no exception covers stands (Prod also stops when the policies can't be read). "With policies" means rules no checker has yet, or deploy, which Block doesn't stop yet.
 
 | Category | KratosForge blocks | Detect and warn | Fabric, Purview or Entra only |
 | --- | --- | --- | --- |
-| **Naming** | Today: entity and key table names must be valid when saved. With policies: naming rules on entities, layers and products at save and promote | With policies: names of items made in Fabric outside the app | Workspace and item names in the Fabric portal |
+| **Naming** | Today: entity and key table names must be valid when saved. With Block policies: naming rules on entities stop promote. With policies: at save, and on layers and products | With policies: names of items made in Fabric outside the app | Workspace and item names in the Fabric portal |
 | **Schema** | Today: the save gate checks every column exists upstream and shows what a rename or delete breaks; drift settings per layer decide whether a new column is accepted | Today: schema drift is recorded in `meta.schema_history` and shown for review | Table schemas changed directly in a lakehouse |
 | **Data quality** | Today: checks run before every write and can stop it (`on_fail = "stop"`) or quarantine rows; promote needs a green last run and passing tests | Today: `warn` checks and Table health findings | Materialized lake view constraints, and Microsoft Purview Data Quality where you use it. Neither reads these policies |
-| **Classification** | With policies: block promote when a required classification is missing | With policies: tables without classification, and Restricted tables in open products | Sensitivity labels, label inheritance and DLP (Purview) |
-| **Ownership** | Today: custom code needs an owner and a test at save. With policies: owners on entities, products and domains | With policies: items and domains without owners | Workspace roles and item ownership (Fabric) |
+| **Classification** | With Block policies: promote stops when a required classification or a sensitive column's label is missing | With policies: tables without classification, and Restricted tables in open products | Sensitivity labels, label inheritance and DLP (Purview) |
+| **Ownership** | Today: custom code needs an owner and a test at save. With Block policies: promote stops on entities and products without owners. With policies: owners on domains | With policies: items and domains without owners | Workspace roles and item ownership (Fabric) |
 | **Data contracts** | With policies: block a promote that breaks a published product's port (a removed or renamed column) | Today: product deprecations carry a date, and the catalog lists every consumer. With policies: consumers reading outside a link | Access to the tables themselves (OneLake security roles, workspace roles) |
-| **Deployment readiness** | Today: the promote gate (save gate, tests, green last run) and, when set, a separate promoter for Prod; shortcut rules on shortcuts made in the app | Today: Health flags shortcuts that break the rules when made outside the app | Who may write to a workspace (Fabric workspace roles); tenant settings (Fabric admin) |
+| **Deployment readiness** | Today: the promote gate (save gate, tests, green last run, and the findings of Block policies no exception covers) and, when set, a separate promoter for Prod; shortcut rules on shortcuts made in the app | Today: Health flags shortcuts that break the rules when made outside the app | Who may write to a workspace (Fabric workspace roles); tenant settings (Fabric admin) |
 
 Two things no KratosForge setting can do: stop a workspace Contributor from making changes directly in the Fabric portal, and replace Fabric or Entra permissions. To make sure only release managers change Prod, give only them Contributor or higher on the Prod workspaces.
 

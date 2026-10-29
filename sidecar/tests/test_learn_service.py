@@ -88,3 +88,19 @@ def test_save_check_hint_and_reset(svc):
     assert svc.learn_lab_hint("LM-01", ex, 1)["of"] == 0  # LM-01 has no hints
     svc.learn_lab_reset("LM-01")
     assert svc.learn_module("LM-01")["lab"]["answers"][ex] != "SELECT 1 AS x"
+
+
+def test_a_runaway_query_is_stopped_and_memory_is_capped(svc, monkeypatch):
+    from fabric_desktop.learn import labs
+    monkeypatch.setattr(labs, "TIME_LIMIT", 1)
+    svc.learn_lab_start("LM-01")
+    huge = "SELECT count(*) FROM range(100000000) a, range(100000000) b"
+    with pytest.raises(ValueError, match="Stopped after 1 seconds"):
+        svc.learn_lab_run("LM-01", huge)
+    ex = svc.learn_module("LM-01")["exercises"][0]["id"]
+    out = svc.learn_lab_check("LM-01", ex, huge)
+    assert out["passed"] is False and "Stopped after 1 seconds" in out["results"][0]["detail"]
+    assert svc.learn_lab_run("LM-01", "SELECT count(*) AS n FROM orders")["rows"] == [[7]]  # the lab still works
+    assert "MiB" in svc.learn_lab_run("LM-01", "SELECT current_setting('memory_limit') AS m")["rows"][0][0]
+    with pytest.raises(Exception):
+        svc.learn_lab_run("LM-01", "SET memory_limit = '64GB'")

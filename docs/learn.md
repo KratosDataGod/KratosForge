@@ -28,6 +28,9 @@ Opening one shows its lesson on the left and **Checks** on the right.
    the reference, no best-practice findings, faster than the starting query, and so on.
 4. **Show a hint** gives one hint at a time, from a nudge to nearly the answer.
 
+A run or a check stops after 30 seconds, and a lab can use up to 1 GB of memory, so a runaway
+query can't hold up the app or the PC.
+
 Speed checks are measured on this PC only. A Fabric Warehouse or SQL analytics endpoint plans and
 runs the same query differently.
 

@@ -19,7 +19,9 @@ Safety, in order:
 Opt-in checks (KF-DE-005) run only when named (``--check``) or with ``--all``, so the default run
 is unchanged: two writers appending to one Delta table at once, a notebook publish round trip, a
 pipeline definition round trip, and (only with ``--run-in-fabric``, which spends capacity) running
-that notebook in Fabric. Each writes only ``fdlt_<run id>`` things that go in the ledger.
+that notebook in Fabric, a table write lease held on OneLake against a second writer (PB-003), and
+a MERGE that must keep the table in the Fabric-safe Delta profile. Each writes only
+``fdlt_<run id>`` things that go in the ledger, or files inside the test lakehouse.
 
 Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a token.
 """
@@ -39,7 +41,7 @@ from typing import Any, Callable
 
 import requests
 
-from . import redact
+from . import delta_dml, delta_profile, leases, redact
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
 
@@ -61,8 +63,15 @@ EXTRA_CHECKS = {
                         "doesn't exist. Writes a few small files to OneLake, which uses capacity.",
     "notebook.run": "Runs the published fdlt_<run id>_nb notebook in Fabric (Run in Fabric) and waits for it. "
                     "Spends Spark capacity, so it only runs with --run-in-fabric.",
+    "lease.onelake": "Holds a table write lease on OneLake (a small file under Files/_fabric_desktop/leases in the "
+                     "test lakehouse) and checks a second writer is refused until it is released. A few small "
+                     "OneLake writes, which use capacity.",
+    "delta.merge_profile": "Runs a MERGE INTO dbo.livetest_merge in the test lakehouse the way the app's SQL does "
+                           "(delta_dml), under the table's lease, and checks the table stays in the Fabric-safe "
+                           "Delta profile. Writes 4 rows to OneLake, which uses capacity.",
 }
-ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox")  # what --all selects
+ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox", "lease.onelake",
+              "delta.merge_profile")  # what --all selects
 ITEM_KINDS = {"notebook": "Notebook", "pipeline": "DataPipeline"}  # Fabric type; deleted before the lakehouse
 _RUN_TIMEOUT = 30 * 60
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
@@ -172,7 +181,8 @@ class LiveTest:
                  bad_token_files: Any | None = None, run_id: str = "", clock: Callable[[], float] = time.monotonic,
                  extra: set[str] | tuple[str, ...] = (), run_in_fabric: bool = False,
                  write_table: Callable[[TableRef, Any, str], Any] | None = None,
-                 sleep: Callable[[float], None] = time.sleep, mailbox_control: Callable[[], Any] | None = None):
+                 sleep: Callable[[float], None] = time.sleep, mailbox_control: Callable[[], Any] | None = None,
+                 lease_backend: Callable[[], leases.Backend] | None = None):
         self.workspace_id = workspace_id
         # The control files pipeline.mailbox writes: the test lakehouse's Files area; tests pass a local folder.
         self.mailbox_control = mailbox_control or self._onelake_control
@@ -192,6 +202,10 @@ class LiveTest:
         self.run_in_fabric = run_in_fabric
         # The write path notebooks and jobs use (publish.publish); tests pass one that writes to local disk.
         self.write_table = write_table or self._publish
+        # Where the lease checks keep lease files: the test lakehouse on OneLake; tests pass a local folder.
+        self.lease_backend = lease_backend or (lambda: leases.OneLakeBackend(
+            self.workspace_id, self.lakehouse_id, self.credential.storage_token,
+            timeout=leases.lease_timeout(leases.TABLE_LEASE_TTL)))
         self.checks: list[Check] = []
         self.workspace: dict[str, Any] = {}
         self.lakehouse_id = ""
@@ -418,6 +432,15 @@ class LiveTest:
             else:
                 self._skip("pipeline.mailbox", "A pipeline run request is taken, cancelled and kept to one agent",
                            "Needs the lakehouse, which couldn't be created.")
+        for id, title, fn in (("lease.onelake", "A second writer is refused while a lease is held", self._lease),
+                              ("delta.merge_profile", "A MERGE keeps the table in the Fabric-safe Delta profile",
+                               self._merge_profile)):
+            if id not in self.extra:
+                continue
+            if self.lakehouse_id:
+                self._check(id, title, fn)
+            else:
+                self._skip(id, title, "Needs the lakehouse, which couldn't be created.")
 
     def _publish(self, ref: TableRef, data: Any, mode: str) -> Any:
         from .publish import publish
@@ -473,6 +496,58 @@ class LiveTest:
         return (f"Both commits are there (version 2, {len(ids)} rows = 1 + {n} + {n}, none lost). "
                 + (", ".join(retried) + "." if retried else
                    "Neither writer had to retry; Delta resolved any commit race itself."))
+
+    def _lease(self) -> str:
+        backend = self.lease_backend()
+        key = "dbo.livetest_lease"
+        first = leases.Leases(backend, owner=f"live test {self.run_id} A", ttl=leases.TABLE_LEASE_TTL, wait=0)
+        second = leases.Leases(backend, owner=f"live test {self.run_id} B", ttl=leases.TABLE_LEASE_TTL, wait=0)
+        with first.hold(key):
+            if (stolen := second.try_acquire(key)) is not None:
+                backend.delete(key, stolen)  # B's copy, so leaving A's hold reports this, not a lost lease
+                raise RuntimeError("A second writer got the lease while the first held it: OneLake didn't refuse "
+                                   "a create with If-None-Match: *")
+            if backend.replace(key, b"{}", '"0x8D0000000000000"') is not None:
+                raise RuntimeError("OneLake replaced the lease file with a stale ETag: it ignored If-Match")
+            try:
+                with second.hold(key):
+                    raise RuntimeError("A second writer held the lease while the first held it")
+            except leases.LeaseBusy:
+                pass
+        if backend.read(key) is not None:
+            raise RuntimeError("The lease file was still there after the first writer released it")
+        etag = second.try_acquire(key)
+        if not etag:
+            raise RuntimeError("The second writer couldn't take the lease after the first released it")
+        if not backend.delete(key, etag):
+            raise RuntimeError("Releasing the second writer's lease failed")
+        return ("While writer A held the lease, writer B's create was refused (If-None-Match), a stale "
+                "replace was refused (If-Match) and B's wait ended busy; after A released it, B took it and released it.")
+
+    def _merge_profile(self) -> str:
+        import pyarrow as pa
+        from deltalake import DeltaTable
+        ref = TableRef(self.workspace_id, self.lakehouse_id, "dbo", "livetest_merge")
+        self.write_table(ref, pa.table({"id": [1, 2, 3], "amount": [10, 20, 30]}), "overwrite")
+        uri, opts = self.table_access(ref)
+        change = delta_dml.parse("MERGE INTO dbo.livetest_merge AS t USING s ON t.id = s.id "
+                                 "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *")
+        source = pa.table({"id": [2, 4], "amount": [200, 40]})
+        # The same lease the write path takes on this table, so no other KratosForge writer overlaps.
+        with leases.table_lease(self.lease_backend(), "dbo", "livetest_merge", owner=f"live test {self.run_id}"):
+            table = delta_profile.open_target(uri, opts)  # refuses a table outside the profile before writing
+            if table is None:
+                raise RuntimeError("The seeded table couldn't be opened")
+            changed = delta_dml.apply(change, table, source, source.column_names)
+        after = DeltaTable(uri, storage_options=opts)
+        delta_profile.check_table(after)
+        rows = {r["id"]: r["amount"] for r in after.to_pyarrow_table().to_pylist()}
+        if rows != {1: 10, 2: 200, 3: 30, 4: 40}:
+            raise RuntimeError(f"After the MERGE the table holds {rows}")
+        protocol = after.protocol()
+        return (f"MERGE updated {changed['rows_updated']} and inserted {changed['rows_inserted']} row(s) as "
+                f"version {after.version()}; the table stays in the profile (reader {protocol.min_reader_version}, "
+                f"writer {protocol.min_writer_version}, no deletion vectors).")
 
     def _new_item_name(self, suffix: str, item_type: str) -> str:
         name = f"{self.name}_{suffix}"

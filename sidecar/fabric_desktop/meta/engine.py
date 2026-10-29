@@ -35,7 +35,7 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -507,11 +507,11 @@ class Engine:
         res.steps.append(Step(name, rows, round(time.perf_counter() - t0, 3), detail))
 
     def _last_ok(self, e: Entity) -> dict[str, Any] | None:
-        log = self.store.meta("run_log").filter((pl.col("entity") == e.name) & (pl.col("status") == "ok"))
+        log = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("status") == "ok"))
         return log.row(-1, named=True) if log.height else None
 
     def _watermark(self, e: Entity) -> str | None:
-        w = self.store.meta("watermarks").filter(pl.col("entity") == e.name)
+        w = self.store.meta_where("watermarks", pl.col("entity") == e.name)
         saved = w["value"][-1] if w.height else None
         # Each write also carries its watermark in the Delta commit. If the newest such commit's run
         # never saved its watermark (the save failed after the commit), that commit's value is the
@@ -941,7 +941,7 @@ class Engine:
         return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
 
     def _loaded_files(self, e: Entity, lakehouse: str, res: RunResult) -> set[tuple[str, int, str]]:
-        m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
+        m = self.store.meta_where("loaded_files", (pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
         done = {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
         # Each write also carries the files it read in its Delta commit. If the run never saved its
         # list (the save failed after the commit), those files are loaded all the same: going by the
@@ -1285,6 +1285,11 @@ class Engine:
             self._advance_watermark(e, df, backfill, res)
 
     def _table_schema(self, e: Entity, version: int | None = None) -> pl.Schema | None:
+        if version is not None:  # the version this run's write made: the store kept its schema
+            kept = getattr(self.store, "written_schema", lambda *a: None)
+            written = kept(self.lakehouse(e), e.schema, e.table, version)
+            if written is not None:
+                return written
         lf = self.store.scan(self.lakehouse(e), e.schema, e.table, version)
         return None if lf is None else lf.collect_schema()
 
@@ -1304,7 +1309,10 @@ class Engine:
         changes = drift_mod.schema_changes(self._schema_from, self._table_schema(e, res.delta_version))
         if not changes:
             return []
-        seen = self.store.meta("schema_history").filter(pl.col("entity") == e.name)
+        # This entity's rows only: files whose statistics rule the entity out aren't read.
+        seen, _ = self.store.read_where(META_LAKEHOUSE, "meta", "schema_history", pl.col("entity") == e.name)
+        if seen is None:
+            seen = pl.DataFrame(schema=META_SCHEMAS["schema_history"])
         if "schema_version" not in seen.columns:
             seen = seen.with_columns(schema_version=pl.lit(None, pl.Int64))
         # Rows from before schema versions were recorded have none: each of their runs counts as one, so

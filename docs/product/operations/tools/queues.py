@@ -1,6 +1,6 @@
 """Work queues for the six workstreams (docs/product/operations/workstreams.json).
 
-    python docs/product/operations/tools/queues.py check    # the queues are complete and name real stories
+    python docs/product/operations/tools/queues.py check    # the queue file is well formed and names real stories
     python docs/product/operations/tools/queues.py render   # rewrite the generated table in README.md
     python docs/product/operations/tools/queues.py all      # render, then check
     python docs/product/operations/tools/queues.py body PB-072   # a story's GitHub issue body
@@ -49,44 +49,55 @@ def story(sid: str, queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) 
     raise KeyError(sid)
 
 
+def slot_story(slot: dict[str, Any], queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """A queue slot's story. A slot names a backlog or new story, or, for a story with no PB id yet, its issue and title."""
+    if slot.get("story"):
+        return story(slot["story"], queues, backlog)
+    if not (slot.get("issue") and slot.get("title")):
+        raise KeyError("a slot without a story needs an issue and a title")
+    return {"id": f"#{slot['issue']}", "title": slot["title"], "state": "Proposed"}
+
+
 def slots(ws: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     out = [("active", ws["active"])] if ws.get("active") else []
     return out + [("ready", r) for r in ws.get("ready", [])]
 
 
-def check() -> list[str]:
+def check() -> tuple[list[str], list[str]]:
+    """Errors (the file is wrong; the Docs workflow fails) and shortfalls (a queue is short; the weekly review refills it)."""
     queues, backlog = load()
-    rules, problems, seen = queues["rules"], [], {}
+    rules, errors, short, seen = queues["rules"], [], [], {}
     if len(queues["workstreams"]) != 6:
-        problems.append(f"expected 6 workstreams, found {len(queues['workstreams'])}")
+        errors.append(f"expected 6 workstreams, found {len(queues['workstreams'])}")
     for ws in queues["workstreams"]:
         key = ws["key"]
         for field in ("name", "scope", "lead", "next_action"):
             if not ws.get(field):
-                problems.append(f"{key}: no {field}")
-        if not (ws.get("active") or {}).get("story"):
-            problems.append(f"{key}: no active story")
+                errors.append(f"{key}: no {field}")
+        if not ws.get("active"):
+            short.append(f"{key}: no active story")
         if len(ws.get("ready", [])) < rules["ready_minimum"]:
-            problems.append(f"{key}: {len(ws.get('ready', []))} ready stories, needs {rules['ready_minimum']}")
+            short.append(f"{key}: {len(ws.get('ready', []))} ready stories, needs {rules['ready_minimum']}")
         for kind, slot in slots(ws):
-            sid = slot["story"]
             try:
-                s = story(sid, queues, backlog)
+                s = slot_story(slot, queues, backlog)
             except KeyError:
-                problems.append(f"{key}: {kind} story {sid} is in neither the backlog nor new_stories")
+                errors.append(f"{key}: {kind} story {slot.get('story') or slot.get('issue')} is in neither the backlog "
+                              "nor new_stories, and has no issue and title")
                 continue
+            sid = s["id"]
             if s["state"] == "Accepted":
-                problems.append(f"{key}: {sid} is Accepted; take it out of the queue")
+                errors.append(f"{key}: {sid} is Accepted; take it out of the queue")
             if sid in seen:
-                problems.append(f"{sid} is queued in both {seen[sid]} and {key}")
+                errors.append(f"{sid} is queued in both {seen[sid]} and {key}")
             seen[sid] = key
         for sid in ws.get("backlog", []):
             if sid not in backlog and sid not in queues.get("new_stories", {}):
-                problems.append(f"{key}: backlog story {sid} doesn't exist")
+                errors.append(f"{key}: backlog story {sid} doesn't exist")
     text = README.read_text(encoding="utf-8")
-    if BEGIN in text and text != _rendered(text, queues, backlog):
-        problems.append("README.md's queue table is out of date: run queues.py render")
-    return problems
+    if not errors and BEGIN in text and text != _rendered(text, queues, backlog):
+        errors.append("README.md's queue table is out of date: run queues.py render")
+    return errors, short
 
 
 def _issue_link(slot: dict[str, Any]) -> str:
@@ -98,8 +109,8 @@ def table(queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) -> str:
             "| --- | --- | --- | --- | --- | --- |"]
     for ws in queues["workstreams"]:
         def cell(slot: dict[str, Any]) -> str:
-            s = story(slot["story"], queues, backlog)
-            return f"{s['id']} {s['title']} ({_issue_link(slot)})"
+            s = slot_story(slot, queues, backlog)
+            return f"{s['title']} ({_issue_link(slot)})" if s["id"].startswith("#") else f"{s['id']} {s['title']} ({_issue_link(slot)})"
         active = cell(ws["active"]) if ws.get("active") else "none"
         ready = "<br>".join(cell(r) for r in ws.get("ready", []))
         blockers = "<br>".join(ws.get("blockers", [])) or "none"
@@ -122,7 +133,7 @@ def body(sid: str) -> str:
     """The GitHub issue body for a queued story. Never use it for security findings: issues are public."""
     queues, backlog = load()
     s = story(sid, queues, backlog)
-    ws = next((w for w in queues["workstreams"] if any(sl["story"] == sid for _, sl in slots(w))
+    ws = next((w for w in queues["workstreams"] if any(sl.get("story") == sid for _, sl in slots(w))
                or sid in w.get("backlog", [])), None)
     lines = [f"**Story:** {sid}" + (" (docs/product/PRODUCT_BACKLOG.json)" if sid in backlog else " (new; the product check adds a PB id)"),
              f"**Workstream:** {ws['name'] if ws else 'unassigned'}",
@@ -134,7 +145,7 @@ def body(sid: str) -> str:
              "## Technical requirements", s["capability"],
              "",
              *([f"**Orchestrator note:** {note}", ""] if (note := next((sl.get("note") for w in queues["workstreams"]
-                                                                      for _, sl in slots(w) if sl["story"] == sid), None)) else []),
+                                                                      for _, sl in slots(w) if sl.get("story") == sid), None)) else []),
              "First, check main for what is already built: several backlog items were partly done by later PRs. "
              "Record in this issue which acceptance criteria already hold, and build only the rest.", "",
              "## Acceptance criteria", *[f"- [ ] {a}" for a in s["acceptance"]], "",
@@ -203,7 +214,8 @@ def report(gh: dict[str, Any], today: dt.date) -> str:
               "Not measurable here: neither GitHub nor the Claude threads can read the subscription allocation, "
               "so no percentage is reported. Proxies: open story issues per status above, and workstreams "
               "with fewer than two ready stories (queues.py check)."]
-    problems = check()
+    errors, short = check()
+    problems = errors + short
     lines += ["", "## Queue check", *(f"- {p}" for p in problems)] if problems else ["", "## Queue check", "- Every workstream has an active story and two ready ones."]
     return "\n".join(lines) + "\n"
 
@@ -213,12 +225,14 @@ def main(argv: list[str]) -> int:
     if cmd in ("render", "all"):
         render()
     if cmd in ("check", "all"):
-        problems = check()
-        for p in problems:
+        errors, short = check()
+        for p in short:
+            print(f"short: {p}")
+        for p in errors:
             print(p)
-        if problems:
+        if errors:
             return 1
-        print("Work queues are consistent.")
+        print("Work queues are consistent." + (" Some queues are short; the weekly review refills them." if short else ""))
         return 0
     if cmd == "body":
         print(body(argv[2]))

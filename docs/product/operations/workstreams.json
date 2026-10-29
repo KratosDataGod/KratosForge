@@ -25,31 +25,32 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "story": "PB-094",
-        "issue": 846
+        "story": "PB-015",
+        "issue": 848,
+        "note": "MERGE is PR #933 (needs Chris's go: it runs MERGE on this PC). UPDATE and DELETE come in a second PR."
       },
       "ready": [
         {
-          "story": "PB-068",
-          "issue": 847
+          "issue": 953,
+          "title": "Notebook table writes give plain messages and Fabric-safe types for float16, time, uint64 and all-NULL columns"
         },
         {
-          "story": "PB-015",
-          "issue": 848
+          "issue": 954,
+          "title": "Metadata loads give plain messages for TIME, INTERVAL and float16 columns"
         }
       ],
       "backlog": [
         "PB-073",
-        "PB-067",
-        "PB-016",
         "PB-085"
       ],
       "dependencies": [
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
-      "blockers": [],
-      "last_completed": "#829 Cores on this PC (core cap), merged 2026-10-28",
-      "next_action": "Measure CPU and memory from the kernel process, not the engine (PB-094)."
+      "blockers": [
+        "#933 MERGE on this PC waits on Chris's go"
+      ],
+      "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
+      "next_action": "UPDATE and DELETE on this PC (PB-015 second PR) once #933 settles; #953 and #954 are built locally."
     },
     {
       "key": "fabric",
@@ -67,9 +68,8 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "PB-002",
-        "issue": 849,
-        "note": "Prepare first: the ten flows, the harness and a run plan in the throwaway kf_tenant_test workspace on Trial capacity (never the capacity that hosts Prod). The live run waits for Chris's typed yes because it spends capacity."
+        "issue": 947,
+        "title": "Hardening: a warehouse deploy change runs only if its object is still as the preview saw it"
       },
       "ready": [
         {
@@ -78,8 +78,7 @@
         },
         {
           "story": "PB-049",
-          "issue": 920,
-          "note": "Draft #931 (part 1) is open; its acceptance change needs Chris (product check 2026-10-28 23:42)."
+          "issue": 920
         }
       ],
       "backlog": [
@@ -89,12 +88,12 @@
       ],
       "dependencies": [],
       "blockers": [
-        "PB-002 live run waits on Chris's yes for Trial capacity; the plan and harness are prepared first",
+        "PB-002, PB-003, PB-052 and PB-049 live runs wait on Chris's yes for Trial capacity in kf_tenant_test; harnesses are built against fakes (#884, #919, #931)",
         "#755 WH-16 draft waits on Chris",
         "#799 staging cleaner held"
       ],
-      "last_completed": "#823 Warehouse full screen and Open in KratosForge",
-      "next_action": "Prepare the ten-flow tenant smoke test (PB-002) so it runs the moment Chris says yes."
+      "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
+      "next_action": "Work review findings first (eleven drafts at review), then #947; no further stacked drafts until the base PRs merge."
     },
     {
       "key": "dbx-snow",
@@ -106,19 +105,17 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "PB-116",
-        "issue": 852,
-        "note": "The built work is a saved patch in the project files (databricks/fabric-spark-wip). #782 has merged, so restart from main and apply it."
+        "story": "PB-118",
+        "issue": 854
       },
       "ready": [
         {
-          "story": "PB-117",
-          "issue": 853,
-          "note": "Research only. Output goes to docs and the project files; no Snowflake account or code without Chris's go."
+          "issue": 893,
+          "title": "Shared runtime hardening for separate-process engines (engines/runtimes.py) (KF-RT-00)"
         },
         {
-          "story": "PB-118",
-          "issue": 854
+          "issue": 894,
+          "title": "Databricks live verification harness, SQL warehouse and Databricks Connect, against fakes (KF-DBX-LIVE)"
         }
       ],
       "backlog": [],
@@ -127,10 +124,10 @@
         "Engine picker UI waits on Chris's mockup review"
       ],
       "blockers": [
-        "Engine picker mockup waits on Chris"
+        "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#782 Databricks Connect (Preview)",
-      "next_action": "Open the Fabric Spark (Livy) draft PR from the saved patch, restarted from main."
+      "last_completed": "#891 Fabric Spark (Livy) Preview engine at review; Snowflake research findings delivered",
+      "next_action": "Databricks conversion loss report (#854), then runtime hardening (#893)."
     },
     {
       "key": "enterprise",
@@ -143,25 +140,24 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "PB-057",
-        "issue": 855
+        "story": "PB-031",
+        "issue": 904,
+        "note": "Built locally. Widening still rewrites (delta-rs can't write type widening). Behaviour change: narrowing now fails unless overwrite_schema = true; Chris decides."
       },
       "ready": [
         {
-          "story": "PB-083",
-          "issue": 856
+          "issue": 935,
+          "title": "Platform client: a non-JSON or 5xx answer from UDF_Platform gives a clear, typed error"
         },
         {
-          "story": "PB-053",
-          "issue": 857
+          "issue": 936,
+          "title": "Test: every UDF_Platform function takes the same parameters as the platform operation it calls"
         }
       ],
       "backlog": [
         "PB-052",
         "PB-060",
-        "PB-092",
-        "PB-019",
-        "PB-031"
+        "PB-092"
       ],
       "dependencies": [
         "PB-057 builds on PB-056 (policy registry, In review)"
@@ -170,8 +166,8 @@
         "PB-052 tenant verification needs Chris's yes",
         "Workload pipelines mockup waits on Chris"
       ],
-      "last_completed": "#844 governance review follow-ups; #828 product groups",
-      "next_action": "Offline policy validation (PB-057), engine and CLI first, no new screen."
+      "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
+      "next_action": "Open #904 when CI clears, with the behaviour change at the top of the PR."
     },
     {
       "key": "devex",
@@ -185,17 +181,13 @@
         "Run continuous product management"
       ],
       "active": {
-        "story": "PB-078",
-        "issue": 858
+        "issue": 955,
+        "title": "KratosForge stays usable in Windows High Contrast"
       },
       "ready": [
         {
-          "story": "PB-077",
-          "issue": 859
-        },
-        {
-          "story": "PB-070",
-          "issue": 860
+          "issue": 948,
+          "title": "AI integration architecture page matches what shipped"
         }
       ],
       "backlog": [
@@ -206,8 +198,8 @@
       ],
       "dependencies": [],
       "blockers": [],
-      "last_completed": "#827 one page layout for Platform, Optimize and Monitor",
-      "next_action": "Every feature the docs call Preview gets a Preview id, with a UI test (PB-078)."
+      "last_completed": "#876 PB-077 docs match the code (merged); #879 PB-070, #885, #901, #917 PB-010 PASS",
+      "next_action": "#955 locally; #948 is built and opens when CI clears."
     },
     {
       "key": "platform",
@@ -222,35 +214,27 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "PB-074",
-        "issue": 861,
-        "note": "On main d0747a6 every third-party action is already pinned by commit SHA and zensical is pinned, so what remains is that the release job in ci.yml doesn't list the audit job in needs."
+        "story": "PB-061",
+        "issue": 960,
+        "note": "Docs and a guard test built locally. allowed_hosts and a three-way allowed_compute were never built: Chris decides drop or build."
       },
       "ready": [
         {
-          "story": "PB-072",
-          "issue": 862,
-          "note": "On main the engine already runs QUICK calls in their own lane (server.py, watchdog.rs), so a long call no longer blocks the quick list. Check what still lacks a limit or a Stop and finish only that, or show the item is done."
-        },
-        {
-          "story": "PB-051",
-          "issue": 863,
-          "note": "retrying.py already retries 408, 429 and 5xx. Check the 401 refresh-once rule, the 300-second long-running-operation limit and the no-duplicate-write test."
+          "issue": 959,
+          "title": "Test: the network host list stays in step with the code (PB-010 follow-up, after #917)"
         }
       ],
       "backlog": [
-        "PB-010",
-        "PB-063",
-        "PB-003",
-        "PB-061"
+        "PB-062"
       ],
       "dependencies": [],
       "blockers": [
         "PB-001 code signing waits on Microsoft identity validation",
-        "#744 HD-030 waits on Chris's fail-closed decision"
+        "#744 HD-030 waits on Chris's fail-closed decision",
+        "Rest of PB-072 needs a Stop design mockup"
       ],
-      "last_completed": "#843 links off by policy start no listener",
-      "next_action": "Make the release job wait for the audit job (PB-074 remainder)."
+      "last_completed": "#867 PB-074, #911 HD-023, #898 PB-072, #930 HD-050 slice 2, #938 conftest leak fix (PASS); #923 PB-051 at review",
+      "next_action": "Hosts-table guard test (#959, #917 has merged); then the next ready story."
     }
   ],
   "new_stories": {}

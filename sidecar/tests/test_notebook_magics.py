@@ -254,7 +254,9 @@ def test_cancel_ends_a_running_command():
         assert time.monotonic() < deadline
     started = time.monotonic()
     k.interrupt()
-    snap = k.poll(-1, wait=5)
+    # poll(-1) answers at once, so poll until the cancel lands: on a busy runner that takes a moment.
+    while (snap := k.poll(-1))["status"] == "running" and time.monotonic() - started < 6:
+        time.sleep(0.05)
     assert snap["status"] == "cancelled" and time.monotonic() - started < 6
 
 

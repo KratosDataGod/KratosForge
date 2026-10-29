@@ -22,7 +22,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import fabric_step, maintenance, notebook_files, profiling, semantic
+from . import fabric_step, maintenance, notebook_files, profiling, retrying, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
@@ -38,6 +38,8 @@ from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
 
 _log = logging.getLogger(__name__)
+# How long Monitor waits for Fabric to say how its open runs are doing before showing the rest as last known.
+RUNS_REFRESH_SECONDS = 30
 
 
 class FabricChanged(RuntimeError):
@@ -87,18 +89,38 @@ class CloudMixin:
                          and (job_ids is None or r.get("job_id") in job_ids)]
             fabric = self._quiet_fabric() if open_runs else None
             if fabric is not None:
-                for r in open_runs:
-                    try:
-                        job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
-                    except Exception as exc:  # offline or gone: keep the last known status
-                        r["message"] = r.get("message") or f"Status not available: {exc}"
-                        continue
-                    r["status"] = job.get("status", r["status"])
-                    r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
-                    reason = job.get("failureReason") or {}
-                    r["message"] = reason.get("message", "") if isinstance(reason, dict) else str(reason)
+                unchecked = self._refresh_fabric_runs(fabric, open_runs)
                 self._write_fabric_runs(runs)
+                if unchecked:
+                    # Said only in this answer, not saved: the next refresh may well reach them.
+                    note = "Status not checked this time: Fabric was slow or unreachable, so this is the last known status."
+                    return [dict(r, stale=True, message=" ".join(x for x in (r.get("message"), note) if x))
+                            if id(r) in unchecked else r for r in runs[-limit:][::-1]]
         return runs[-limit:][::-1]
+
+    def _refresh_fabric_runs(self, fabric: FabricClient, open_runs: list[dict[str, Any]]) -> set[int]:
+        """Ask Fabric how each open run is doing, newest first, and return the ones not asked (by id()).
+        Monitor opens with this, and every other page's calls wait behind it, so no new request starts
+        after RUNS_REFRESH_SECONDS, nor after two in a row found Fabric unreachable (a run Fabric no
+        longer knows doesn't count). One request can itself take a few minutes (5 tries of up to 60 s)."""
+        deadline, unreachable, unchecked = time.monotonic() + RUNS_REFRESH_SECONDS, 0, set()
+        for r in reversed(open_runs):
+            if time.monotonic() > deadline or unreachable >= 2:
+                unchecked.add(id(r))
+                continue
+            try:
+                job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
+            except Exception as exc:  # offline or gone: keep the last known status
+                r["message"] = r.get("message") or f"Status not available: {exc}"
+                status = retrying.status_of(exc)
+                unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
+                continue
+            unreachable = 0
+            r["status"] = job.get("status", r["status"])
+            r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
+            reason = job.get("failureReason") or {}
+            r["message"] = reason.get("message", "") if isinstance(reason, dict) else str(reason)
+        return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""

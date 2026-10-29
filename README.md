@@ -80,3 +80,7 @@ python -m pytest -q                   # every test runs without Fabric
 ```
 
 Running the desktop app from source, the repository layout and the rules for changes are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+KratosForge's source code is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 KratosBI LLC; see [NOTICE](NOTICE) for the third-party code it includes. The app you install also ships Microsoft's ODBC driver under Microsoft's own terms, which is why it will come with its own [end-user terms](docs/end-user-terms.md) (a draft, not in effect yet).

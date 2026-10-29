@@ -22,7 +22,8 @@ Results arrive when the statement finishes; none of these engines stream rows to
 What runs where, honestly (see each descriptor):
 
 - DuckDB runs DuckDB SQL natively, and Spark SQL and Databricks SQL translated by sqlglot (the same translation the SQL
-  page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark.
+  page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark. Snowflake SQL is translated too
+  (snowflake_sql.py), statement by statement with a label, and the label comes back as the cell's first output.
 - SQLite runs SQLite's SQL. Python's own sqlite3; nothing to install.
 - Polars runs the SQL subset Polars implements over its own tables; its plan is Polars' optimized plan.
 """
@@ -70,6 +71,7 @@ class _SqlSession:
         self._running = False
         self._cancelled = False
         self._closed = False
+        self._preamble: list[dict[str, Any]] = []   # outputs _run adds before the result (a translation report)
 
     @property
     def closed(self) -> bool:
@@ -86,6 +88,7 @@ class _SqlSession:
         if not self._lock.acquire(blocking=False):
             raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
         self._running, self._cancelled = True, False
+        self._preamble = []
         started = time.perf_counter()
         try:
             try:
@@ -95,14 +98,17 @@ class _SqlSession:
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
                        "evalue": "Cancelled." if self._cancelled else str(exc)}
+                outputs = [*self._preamble, out]
                 if on_output:
-                    on_output(out)
-                return CellResult(status, [out], seconds, None, self.engine)
+                    for o in outputs:
+                        on_output(o)
+                return CellResult(status, outputs, seconds, None, self.engine)
             seconds = time.perf_counter() - started
-            out = _table_output(table, total) if table is not None else _done(seconds)
+            outputs = [*self._preamble, _table_output(table, total) if table is not None else _done(seconds)]
             if on_output:
-                on_output(out)
-            return CellResult("ok", [out], seconds, total if table is not None else None, self.engine)
+                for o in outputs:
+                    on_output(o)
+            return CellResult("ok", outputs, seconds, total if table is not None else None, self.engine)
         finally:
             self._running = False
             self._lock.release()
@@ -161,7 +167,11 @@ DUCKDB = EngineDescriptor(
               "databricks": Support("translated", "Databricks SQL is rewritten for DuckDB by sqlglot, so warehouse "
                                     "queries can be written and tried on this PC without starting a warehouse. "
                                     "Most queries match; Unity Catalog three-part names need the catalog and schema "
-                                    "in the session, and Delta-only commands don't run.", _T)},
+                                    "in the session, and Delta-only commands don't run.", _T),
+              "snowflake": Support("translated", "Snowflake SQL is rewritten for DuckDB by sqlglot with KratosForge's "
+                                   "rules; each statement is labelled translated, runs with a known difference, or "
+                                   "runs only in Snowflake, and a cell runs only when every statement can. Results "
+                                   "are not checked against a Snowflake account.", _T)},
     capabilities={
         "session": Support("native", "An in-memory database per session; an existing file opens read-only.", _T),
         "execute": Support("native", evidence=_T),
@@ -194,9 +204,12 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
     """Refuse COPY, ATTACH, INSTALL and the rest before anything runs (sql_policy's fabric_mutation).
 
     A cell sqlglot can't read is left to DuckDB, whose closed connection still can't reach outside."""
-    from .. import sql, sql_policy
+    from .. import snowflake_sql, sql, sql_policy
     try:
-        statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
+        if dialect == "snowflake":
+            statements = snowflake_sql.parse(code)
+        else:
+            statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
     for verdict in sql_policy.classify(statements, "lakehouse"):
@@ -237,15 +250,28 @@ class DuckDBSession(_SqlSession):
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
             return code
+        if dialect == "snowflake":
+            from .. import snowflake_sql
+            translation = snowflake_sql.translate(code)
+            self._preamble = [translation.as_output()]
+            if not translation.runnable:
+                raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")
+            return translation.duckdb_sql
         if dialect not in ("spark", "databricks"):
-            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL or DuckDB SQL.")
+            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL, Snowflake SQL "
+                              "or DuckDB SQL.")
         from .. import sql
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         return ";\n".join(s.sql(dialect="duckdb") for s in statements)
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
-        _refuse_outside(request.code, request.dialect)
-        cur = self._con.execute(self._sql(request.code, request.dialect))
+        if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
+            code = self._sql(request.code, request.dialect)
+            _refuse_outside(request.code, request.dialect)
+        else:
+            _refuse_outside(request.code, request.dialect)
+            code = self._sql(request.code, request.dialect)
+        cur = self._con.execute(code)
         if cur.description is None:
             return None, 0
         reader = getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch
@@ -258,7 +284,10 @@ class DuckDBSession(_SqlSession):
         self._check_open()
         _refuse_outside(code, dialect)
         rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
-        return "\n".join(str(r[-1]) for r in rows)
+        text = "\n".join(str(r[-1]) for r in rows)
+        if dialect == "snowflake":
+            return "Plan of the DuckDB translation on this PC, not of Snowflake's plan.\n" + text
+        return text
 
     def catalog(self) -> list[dict[str, Any]]:
         self._check_open()

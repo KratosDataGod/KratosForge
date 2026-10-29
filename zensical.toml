@@ -8,7 +8,7 @@ site_name = "KratosForge"
 site_url = "https://kratosdatagod.github.io/kratosforge/"
 site_description = "Do your Microsoft Fabric data engineering on your own PC and write the results straight into OneLake."
 site_author = "KratosBI"
-copyright = "Copyright &copy; KratosBI"
+copyright = "Copyright &copy; 2026 KratosBI LLC. Source code under the <a href=\"https://github.com/KratosDataGod/KratosForge/blob/main/LICENSE\">Apache License 2.0</a>."
 
 repo_url = "https://github.com/KratosDataGod/KratosForge"
 repo_name = "KratosDataGod/KratosForge"
@@ -125,6 +125,7 @@ nav = [
       { "Findings register" = "hardening/findings.md" },
       { "Hardening backlog" = "hardening/backlog.md" },
       { "Readiness checklist" = "hardening/readiness-checklist.md" },
+      { "Engine call limits" = "hardening/engine-call-limits.md" },
     ] },
     { "Release management" = [
       { "Process" = "release-management/README.md" },

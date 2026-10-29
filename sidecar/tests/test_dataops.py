@@ -317,6 +317,18 @@ def test_no_project_yet_is_still_just_empty(tmp_path):
     assert "project_error" not in s.meta_freshness()
 
 
+def test_drift_on_an_entity_source_reads_its_columns_not_its_rows(svc, monkeypatch):
+    from fabric_desktop.meta.store import LocalStore
+    project = svc._project()
+    up = project.entities["silver.orders"].spec["source"]["entity"]
+    upstream = (project.entities[up].schema, project.entities[up].table)
+    reads, real = [], LocalStore.read
+    monkeypatch.setattr(LocalStore, "read", lambda self, lh, schema, table, *a, **k:
+                        reads.append((schema, table)) or real(self, lh, schema, table, *a, **k))
+    d = svc.meta_drift("silver.orders")
+    assert d["checked"] and d["problem"] is None and upstream not in reads
+
+
 def test_hashed_totals_of_floats_added_in_another_order_are_the_same(svc):
     import pyarrow as pa
     import pyarrow.dataset as pads

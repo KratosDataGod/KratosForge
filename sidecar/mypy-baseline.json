@@ -85,6 +85,7 @@
   "misc": 1
  },
  "fabric_desktop/cli.py": {
+  "arg-type": 1,
   "assignment": 1
  },
  "fabric_desktop/cloud_service.py": {
@@ -271,6 +272,7 @@
   "attr-defined": 4
  },
  "fabric_desktop/livetest.py": {
+  "arg-type": 1,
   "misc": 1
  },
  "fabric_desktop/localdata/delta.py": {
@@ -365,7 +367,8 @@
  },
  "fabric_desktop/meta/store.py": {
   "dict-item": 76,
-  "return-value": 2
+  "return-value": 2,
+  "union-attr": 1
  },
  "fabric_desktop/meta/varlib.py": {
   "operator": 1
@@ -458,6 +461,9 @@
  "fabric_desktop/pipeline_service.py": {
   "attr-defined": 4
  },
+ "fabric_desktop/platformtest.py": {
+  "assignment": 1
+ },
  "fabric_desktop/profiling.py": {
   "arg-type": 3
  },
@@ -513,7 +519,7 @@
  },
  "fabric_desktop/smoketest.py": {
   "assignment": 1,
-  "misc": 1
+  "misc": 2
  },
  "fabric_desktop/snowflake_sql.py": {
   "assignment": 2,

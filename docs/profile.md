@@ -64,7 +64,8 @@ default), the message also gets a brief reveal; see [Forge animations](forge-ani
 
 After the first, each **different** notebook that passes Validate for the first time earns 10 XP,
 and each different notebook proven after Proof Forged earns 20 XP, for up to three new notebooks a
-day. Finishing a Learn lesson or lab for the first time earns 25 XP, within the same three a day.
+day. Finishing a Learn lesson or lab for the first time earns 25 XP. Lessons and new notebooks share
+the same three a day, so finishing lessons can use a day's slots.
 A proof runs the notebook in Fabric, which uses some capacity, so Proof Forged is never needed
 to level up. New revisions of a notebook already counted earn no XP. Nothing rewards
 hours, run counts, lines of code or compute used.

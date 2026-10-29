@@ -122,22 +122,27 @@ def observation(source: str, state: str, collected_at: dt.datetime | str | None 
 def classify_error(exc: BaseException) -> tuple[str, str]:
     """(observation state, plain message) for a failure while reading a source."""
     text = f"{type(exc).__name__}: {exc}"
-    low = text.lower()
-    if isinstance(exc, PermissionError) or " 401" in low or " 403" in low or "forbidden" in low \
-            or "unauthorized" in low or "insufficientscopes" in low:
-        return "unauthorized", "Your sign-in can't read this. Ask for access, or sign in with an account that has it."
+    # Typed first: a step not taken (no workspace assigned, no metadata project, a lakehouse not
+    # promoted yet) is not a fault, whatever words its own message uses to say what to do.
+    if isinstance(exc, NotSetUp):
+        return "not_set_up", str(exc)
     status = status_of(exc)
-    if status == 429 or " 429" in low or "too many requests" in low:
+    if isinstance(exc, PermissionError) or status in (401, 403):
+        return "unauthorized", "Your sign-in can't read this. Ask for access, or sign in with an account that has it."
+    if status == 429:
         return "throttled", "Fabric asked to slow down. Try again in a few minutes."
     if status in TRANSIENT_STATUS:
         return "offline", "Fabric isn't answering right now. Try again in a few minutes."
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return "offline", "Couldn't reach Fabric. Check the network and try again."
+    # Untyped errors only: their wording is all there is to go on.
+    low = text.lower()
+    if " 401" in low or " 403" in low or "forbidden" in low or "unauthorized" in low or "insufficientscopes" in low:
+        return "unauthorized", "Your sign-in can't read this. Ask for access, or sign in with an account that has it."
+    if " 429" in low or "too many requests" in low:
+        return "throttled", "Fabric asked to slow down. Try again in a few minutes."
     if "sign in" in low or "no account" in low or "interaction_required" in low or "login" in low:
         return "signed_out", "Sign in to read this."
-    # No workspace assigned, no metadata project, a lakehouse not promoted yet: a step not taken, not a
-    # fault. Decided by type, never by wording; each raise site's own words say what to do.
-    if isinstance(exc, NotSetUp):
-        return "not_set_up", str(exc)
-    if isinstance(exc, (ConnectionError, TimeoutError)) or any(w in low for w in (
-            "connectionerror", "timed out", "timeout", "name resolution", "failed to establish", "network")):
+    if any(w in low for w in ("connectionerror", "timed out", "timeout", "name resolution", "failed to establish", "network")):
         return "offline", "Couldn't reach Fabric. Check the network and try again."
     return "error", text

@@ -107,7 +107,7 @@ class EmbedClient:
         ws, rid = _id(workspace_id, "workspace"), _id(report_id, "report")
         body = self._get(f"/groups/{ws}/reports/{rid}", "report")
         paginated = body.get("reportType") == "PaginatedReport"
-        out = {"kind": "paginated" if paginated else "report", "id": str(body.get("id") or rid),
+        out: dict[str, Any] = {"kind": "paginated" if paginated else "report", "id": str(body.get("id") or rid),
                "name": str(body.get("name") or ""), "workspace_id": ws, "embed_url": embed_url(body.get("embedUrl")),
                "dataset_id": str(body.get("datasetId") or ""), "pages": [], "tiles": []}
         if not paginated:

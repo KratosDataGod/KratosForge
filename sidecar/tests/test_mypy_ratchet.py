@@ -36,3 +36,12 @@ def test_the_baseline_is_a_count_per_file_and_code():
     baseline = json.loads((ROOT / "sidecar" / "mypy-baseline.json").read_text(encoding="utf-8"))
     assert baseline and all(f.startswith("fabric_desktop/") and "_vendor" not in f for f in baseline)
     assert all(isinstance(n, int) and n > 0 for codes in baseline.values() for n in codes.values())
+
+
+def test_a_run_that_reports_no_type_errors_but_exits_1_is_not_counted_as_clean():
+    missing = "/usr/bin/python3: No module named mypy\n"
+    assert "isn't installed" in mypy_ratchet.problem(1, "", missing)
+    assert "exit 2" in mypy_ratchet.problem(2, "", "mypy.ini: bad setting\n")
+    assert "exit 1" in mypy_ratchet.problem(1, "", "something else\n")
+    assert mypy_ratchet.problem(1, OUTPUT, "") == ""
+    assert mypy_ratchet.problem(0, "", "") == ""

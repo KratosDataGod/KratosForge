@@ -168,6 +168,16 @@ Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremen
 
 Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
 
+### Schema changes (Preview)
+
+This is how runs treat a table's schema, not a screen of its own, so **Settings > Preview features** has nothing to hide for it. A run changes a table's schema in one of three ways, and records every change.
+
+- **A new column goes in place.** A column the contract adds, or one the drift policy keeps, joins the table in the same MERGE or append as the rows: no Parquet file is rewritten, and older rows read it as empty.
+- **A wider type rewrites the table.** Widening a column in the contract (`int32` to `int64`, `float32` to `float64`, a decimal with more digits) reads the whole table and replaces it, and the write step says so. Delta has a type widening feature that would avoid the rewrite, but the Delta writer KratosForge uses can't write it yet, and it raises the table's Delta protocol beyond what Fabric's SQL analytics endpoint and Direct Lake are known to read, so it stays off.
+- **A narrower type, or a type of another kind, is refused.** As Delta refuses it without `overwriteSchema`, a run that would change `int64` to `int32`, or a number to text, stops before it writes anything, and the table stays as it was. To make the change anyway, set `overwrite_schema = true` under `[contract]` for that run: the table is rewritten with the new types, and every report and table that reads the column sees them. Remove the setting afterwards so the next change is checked again.
+
+Each change goes in `meta.schema_history` with the run, the **Delta version** that made it and the entity's **schema version** (1 for the table's first load, one more for each run that changes the schema). Its `change` is `created`, `added`, `widened`, `narrowed`, `retyped` or `dropped`, and `breaking` is true for the last three, the same rule promote's [breaking-change check](data-mesh.md#data-products) uses for a data product's ports. The **Schema drift** card lists the latest changes.
+
 ### Loads from files read only new files
 
 An incremental or dimension load from files (`files` or `landing`) remembers each file it loaded: its path, size and modified time, in `LH_Meta`'s `meta.loaded_files`. Each run then reads only files that are new or have changed since, instead of every file in the folder. The **read** step says so, for example *1 new file of 30*.
@@ -222,7 +232,7 @@ expires = "2026-11-01"
 | Button | What it does |
 | --- | --- |
 | **Profile** | Reads what the entity reads, every row, on your PC, before cleaning: nulls, distinct values, ranges, lengths, most common values and what looks wrong. It suggests `[[clean]]` rules (trim, turn `N/A` into nulls, fold `Shipped`/`SHIPPED`, parse dates stored as text) and `[[check]]` rules (not null, unique, accepted values, ranges). Tick cleaning rules to see rows before and after; **Add to entity** appends the ticked blocks through the save gate. **Profile its table instead** profiles what was written. |
-| **Compare** | Puts the table in two places side by side: Dev against Test or Prod, or now against an earlier Delta version. Row counts, keys only on one side, columns that changed value for the same key, and how each number column's total moved. |
+| **Compare** | Puts the table in two places side by side: Dev against Test or Prod, or now against an earlier Delta version. Row counts, keys only on one side, columns that changed value for the same key, and how each number column's total moved. A table with more than 5,000,000 rows on either side isn't loaded into memory: KratosForge streams both sides and compares row counts, totals and a checksum of every row instead, and the result says **Compared: counts, totals and a checksum** rather than **Compared: every row by key**. A checksum that differs says some rows differ, not which keys. |
 | **History** (Preview) | Every Delta version: when, what happened, which run. **Restore** brings back an earlier version (as a new version, so it can be undone too), moves an incremental table's watermark back, and offers to run the tables that read it. |
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
@@ -504,6 +514,7 @@ business_key = "order_id"
 | | `batch_by` | A source column: full loads and rebuilds read the source in batches of its values and replace the table in one commit ([Large tables](#large-tables)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
+| | `overwrite_schema` | `true` lets a run narrow a column's type or change it to another kind, rewriting the table (Preview; [Schema changes](#schema-changes-preview)) |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |
 | `[[clean]]` | `column` plus `trim`, `case` (`lower`, `upper`, `title`), `replace` (`{ "old" = "new" }`), `null_if` (a list), `parse_date` (formats like `"dd/MM/yyyy"`), `fill_null`, `round` | Cleaning rules, applied in order |
 | | `dedupe_keep` | `"newest:<column>"` or `"oldest:<column>"`: keep one row per key |

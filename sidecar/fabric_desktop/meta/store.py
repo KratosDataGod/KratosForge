@@ -48,8 +48,11 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "dq_results": {"run_id": pl.String, "entity": pl.String, "check": pl.String, "failed": pl.Int64,
                    "action": pl.String},
     "watermarks": {"entity": pl.String, "value": pl.String, "run_id": pl.String, "at": pl.String},
+    # One row per kind of change a commit made to an entity's table (meta/drift.py schema_changes):
+    # the Delta version that made it and the entity's schema version. Older rows don't have the last four.
     "schema_history": {"entity": pl.String, "run_id": pl.String, "change": pl.String, "columns": pl.String,
-                       "at": pl.String},
+                       "at": pl.String, "detail": pl.String, "breaking": pl.Boolean, "delta_version": pl.Int64,
+                       "schema_version": pl.Int64},
     # A promote's release record (meta/release.py): the commit, whether the files matched it, the
     # engine, and the full receipt. Older rows don't have these columns and read as empty.
     "deployments": {"env": pl.String, "version": pl.String, "source_env": pl.String, "at": pl.String,

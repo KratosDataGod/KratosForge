@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1059 9d9ddeb4 | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into 16e5e6d3; three-dot diff identical to 16e5e6d3's own change. Merges clean; its tests + silent_except 75 passed. |
+| 2026-10-29 | #1083 46658df5 | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into ec4bbf6a; three-dot diff identical. Merges clean. |
+| 2026-10-29 | #1054 1f0f4aec | update-branch onto main bebac600 | PASS 9.2 (carry) | Clean merge of main into 4807ed51; three-dot diff identical. Merges clean; its tests + silent_except 45 passed. |
+
 | 2026-10-29 | #1101 557c36fd | Read-only Databricks workspace discovery (Preview, Fixes #1099) | PASS 9.2 | Change identical to 8b9f788e (main merge only). New databricks_discovery.py + `databricks-discover` CLI: every request is a GET through databricks_sql.Client (paged `list`, new `get`), host checked by check_host before any token; parts read independently, a failed sign-in stops further calls; job clusters left out; Connect usability reuses dbconnect.check. workstreams.json/README queue edit passes `queues.py check` (dbx-snow now short, reported not failed). Merges clean; on the merge result discovery + databricks_sql + auth + cli + silent_except 63 passed, ui.test 307/307, ratchet 901/903, ruff clean. |
 | 2026-10-29 | #1058 bccc556c | Databricks live test, retargeted to main after #1056 | PASS 9.2 (carry) | `git diff origin/main...bccc556c` identical to 83892c55..6eae302d. Merges clean; conformance + runtimes + dbx_livetest + dbconnect + fabric_spark + silent_except 151 passed; ui.test 307/307. |
 

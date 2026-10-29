@@ -1361,6 +1361,17 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
 });
 
+test("Monitor > Runs calls a job file's run a job run, not a notebook write (PB-079)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function historyKind\([\s\S]*?\n}\n/)[0]}; this.historyKind = historyKind;`, ctx);
+  assert.strictEqual(ctx.historyKind({ job: "Notebook write to Sales" }), "Notebook write");
+  assert.strictEqual(ctx.historyKind({ job: "daily_sales" }), "Job run");
+  assert.strictEqual(ctx.historyKind({}), "Job run");
+  assert.match(src, /activity: r\.job, kind: historyKind\(r\)/);
+  assert.doesNotMatch(src, /kind: "Notebook write"/);
+});
+
 test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const monitor = app.slice(app.indexOf("async function renderMonitor()"), app.indexOf("\n}\n", app.indexOf("async function renderMonitor()")));
@@ -5286,7 +5297,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
-    pipelineRuns: ["Pipeline runs in Monitor"], sourceControl: ["Source control"], profile: ["Profile"],
+    pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
@@ -5299,7 +5310,9 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
     "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Schema changes": ["docs/metadata-guide.md", /how runs treat a table's schema, not a screen of its own/],
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
+    "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],

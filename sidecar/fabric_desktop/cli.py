@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -104,6 +104,12 @@ def main(argv: list[str] | None = None) -> None:
     drift.add_argument("--environment", required=True, help="the Environment item's id")
     drift.add_argument("--notebook", help="also count this notebook's environment on this PC")
     drift.add_argument("--json", action="store_true", help="print the result as JSON")
+    disc = sub.add_parser("databricks-discover", help="list an Azure Databricks workspace's SQL warehouses, clusters "
+                                                   "and Unity Catalog catalogs (read only: nothing starts)")
+    disc.add_argument("--profile", help="the Databricks CLI profile to sign in with")
+    disc.add_argument("--host", help="or the workspace URL, signing in with the Databricks CLI (databricks auth login)")
+    disc.add_argument("--no-catalogs", action="store_true", help="leave out the Unity Catalog catalogs")
+    disc.add_argument("--json", action="store_true", help="print the result as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -242,6 +248,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "env-drift":
         raise SystemExit(_env_drift(args))
+    if args.command == "databricks-discover":
+        raise SystemExit(_databricks_discover(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "live-test-databricks":
@@ -412,6 +420,27 @@ def _env_drift(args: argparse.Namespace) -> int:
     result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
     print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
     return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
+
+
+def _databricks_discover(args: argparse.Namespace) -> int:
+    """0 every part read, 1 a part couldn't be read, 2 refused or not signed in."""
+    from .engines import databricks_auth, databricks_discovery, databricks_sql
+
+    if bool(args.profile) == bool(args.host):
+        print("Name the workspace with either --profile <cli profile> or --host <url>.")
+        return 2
+    credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
+    connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    try:
+        client = databricks_sql.Client(databricks_auth.provider_for(connection))
+    except databricks_auth.DatabricksAuthError as exc:
+        print(exc)
+        return 2
+    result = databricks_discovery.Discovery(client, catalogs=not args.no_catalogs).run()
+    print(json.dumps(result, indent=2) if args.json else "\n".join(databricks_discovery.summary_lines(result)))
+    if not result["signed_in"]:
+        return 2
+    return 0 if all(p["ok"] or p.get("skipped") for p in result["parts"].values()) else 1
 
 
 def _live_test(args: argparse.Namespace) -> int:

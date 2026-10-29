@@ -105,19 +105,10 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "PB-118",
-        "issue": 854
+        "issue": 1099,
+        "title": "Read-only Databricks workspace discovery (KF-DBX-DISCOVER)"
       },
-      "ready": [
-        {
-          "issue": 893,
-          "title": "Shared runtime hardening for separate-process engines (engines/runtimes.py) (KF-RT-00)"
-        },
-        {
-          "issue": 894,
-          "title": "Databricks live verification harness, SQL warehouse and Databricks Connect, against fakes (KF-DBX-LIVE)"
-        }
-      ],
+      "ready": [],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -126,8 +117,8 @@
       "blockers": [
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#891 Fabric Spark (Livy) Preview engine at review; Snowflake research findings delivered",
-      "next_action": "Databricks conversion loss report (#854), then runtime hardening (#893)."
+      "last_completed": "#854 conversion loss report merged (#1053); #893 runtimes (#1056), #894 live test (#1058) and the engine picker (#1096) passed review",
+      "next_action": "Workspace discovery (#1099), engine and CLI only. The live Databricks run waits on Chris's yes."
     },
     {
       "key": "enterprise",

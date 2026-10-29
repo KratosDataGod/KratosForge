@@ -917,7 +917,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/fabric_run.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_fabric_compute.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Regex-based; flags variableLibrary notebooks as Fabric-only although they run on the PC. No 'unknown' outcome.
+- **Known limitations:** Regex-based. No 'unknown' outcome.
 - **Pull requests and issues:** [#29](https://github.com/KratosDataGod/KratosForge/pull/29), [#410](https://github.com/KratosDataGod/KratosForge/pull/410)
 - **Owning workstream:** Prove (FD-111)
 - **Backlog:** [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-014](PRODUCT_BACKLOG.md#pb-014), [PB-017](PRODUCT_BACKLOG.md#pb-017)
@@ -999,7 +999,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/sql.py`, `sidecar/fabric_desktop/service.py`, `app/ui/app.js`, `app/ui/sqleditor.js`, `sidecar/fabric_desktop/sql_exec.py`, `sidecar/fabric_desktop/sql_worker.py`, `sidecar/fabric_desktop/sql_format.py`
 - **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_sql_editor.py`, `sidecar/tests/test_sql_exec.py`, `app/tests/browser/sql-editor.test.cjs`
 - **Docs:** [docs/notebooks.md](../notebooks.md), [docs/sql-execution.md](../sql-execution.md)
-- **Known limitations:** Plain textarea, no autocomplete or formatting. Read-only. Download CSV re-runs the query. No cancel. Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run.
+- **Known limitations:** Read-only. Download CSV re-runs the query. Engine and browser tests run with Fabric faked.
 - **Pull requests and issues:** [#118](https://github.com/KratosDataGod/KratosForge/pull/118), [#134](https://github.com/KratosDataGod/KratosForge/pull/134), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#703](https://github.com/KratosDataGod/KratosForge/pull/703)
 - **Owning workstream:** SQL development sprint
 - **Backlog:** [PB-021](PRODUCT_BACKLOG.md#pb-021), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-023](PRODUCT_BACKLOG.md#pb-023), [PB-099](PRODUCT_BACKLOG.md#pb-099)
@@ -1016,7 +1016,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/notebook.py`, `sidecar/fabric_desktop/sql.py`
 - **Tests:** `sidecar/tests/test_notebook_parity.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** MERGE, UPDATE, DELETE print a note and report status ok, so Run all continues.
+- **Known limitations:** MERGE, UPDATE and DELETE in a %%sql cell stop the run and say they run in Fabric.
 - **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013)
 - **Recommended next action:** Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013).
 
@@ -1433,7 +1433,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/project.py`, `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_requests_core_four.py`, `app/tests/browser/policy-exceptions.test.cjs`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md), [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
-- **Known limitations:** Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner).
+- **Known limitations:** Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner). FD-129 narrowed to policy exceptions (Chris, 2026-10-28): exceptions.toml stays outside the request flow.
 - **Pull requests and issues:** [#603](https://github.com/KratosDataGod/KratosForge/pull/603), [#605](https://github.com/KratosDataGod/KratosForge/pull/605), [#838](https://github.com/KratosDataGod/KratosForge/pull/838)
 - **Owning workstream:** Enterprise governance foundation (FD-129)
 - **Backlog:** [PB-059](PRODUCT_BACKLOG.md#pb-059)
@@ -1896,7 +1896,7 @@ on quality.
 - **Evidence:** code: .github/workflows/ci.yml release job; code: .github/workflows/promote.yml
 - **Source:** `.github/workflows/ci.yml`, `.github/workflows/promote.yml`
 - **Docs:** [docs/install.md](../install.md)
-- **Known limitations:** Only the newest build per channel. Promote can't choose a build; SBOMs not copied. cargo test never runs.
+- **Known limitations:** No policy setting pins one build: IT turns off auto_update and installs the build-<commit> release it wants. SBOMs not copied on promote.
 - **Pull requests and issues:** [#111](https://github.com/KratosDataGod/KratosForge/pull/111)
 - **Backlog:** [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071)
 - **Recommended next action:** Per-build release assets for pinning and rollback (PB-064).

@@ -106,7 +106,7 @@ items are sequenced at the priority of the work that needs them:
 | [PB-035](PRODUCT_BACKLOG.md#pb-035) | Pipeline definition engine | P2 | P1 | [PB-036](PRODUCT_BACKLOG.md#pb-036) |
 | [PB-056](PRODUCT_BACKLOG.md#pb-056) | Enterprise policy registry | P2 | P1 | [PB-108](PRODUCT_BACKLOG.md#pb-108) |
 | [PB-095](PRODUCT_BACKLOG.md#pb-095) | MCP server and local API for external AI tools | P2 | P1 | [PB-096](PRODUCT_BACKLOG.md#pb-096) |
-| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | P3 | P2 | [PB-106](PRODUCT_BACKLOG.md#pb-106) |
+| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | P3 | P2 | [PB-106](PRODUCT_BACKLOG.md#pb-106) |
 <!-- END GENERATED: pulled -->
 
 ## Recommended sequence
@@ -184,7 +184,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (52 items)
+### P2 (53 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -240,8 +240,9 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 | [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
+| [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
 
-### P3 (13 items)
+### P3 (14 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -251,7 +252,8 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-110](PRODUCT_BACKLOG.md#pb-110) | Semantic model interchange (Apache Ossie) | 3 | 1 | 3 | 4 | 3 | 3 | 3 | 2.75 | 3.0 | 1.65 | none | M | Medium | none | TMDL and OSI semantic model conversion |
 | [PB-026](PRODUCT_BACKLOG.md#pb-026) | Notebook debugger | 5 | 2 | 2 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Medium | PB-073 | Prove |
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
-| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
+| [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
+| [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
@@ -278,3 +280,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-27 | Product check for PRs merged after #797, through #809. PB-111 (#798) and PB-082 (#701) moved to In review | Product management thread |
 | 2026-10-27 | Evening check for #811 to #826; inventory text the #815 implementation reviews named stale corrected; FEAT-FAB-05 to Partially Verified (cargo tests run in CI) | Product management thread |
 | 2026-10-28 | Product check for #827 and #829 to #838; fixed review findings (PB-025, PB-059, PB-082) taken off the inventory's limitations | Product management thread |
+| 2026-10-28 | Chris accepted the In review batch: 35 items Accepted (20 with documented limitations, PB-059 among them); PB-024 narrowed to warehouses (PB-114 split out) and PB-112's Fabric half split to PB-115; PB-005, PB-045, PB-084 and PB-024 stay In review | Product management thread |

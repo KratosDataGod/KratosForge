@@ -865,7 +865,8 @@
       "capability": "A lookback window and soft- or hard-delete handling per entity.",
       "evidence": [
         "meta/engine.py watermark comparison",
-        "docs/scale-and-operations-plan.md capability 3"
+        "docs/scale-and-operations-plan.md capability 3",
+        "Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509"
       ],
       "features": [
         "FEAT-META-02"
@@ -891,7 +892,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
@@ -2861,7 +2862,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
         "Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant"
@@ -5257,7 +5258,7 @@
       "evidence": [
         "No Snowflake code or docs on main",
         "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
-        "Drafts #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) are open"
+        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview"
       ],
       "features": [
         "FEAT-EXT-05"

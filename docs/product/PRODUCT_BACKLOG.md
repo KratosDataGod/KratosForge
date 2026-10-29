@@ -206,7 +206,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Snowflake is one of the three target platforms and has no work at all.
 - **Proposed capability:** An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.
-- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; Drafts #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) are open
+- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** No code and no Snowflake account spend before Chris's go
 - **Owner:** Fabric and Databricks unified development (KF-SNOWFLAKE-RESEARCH)
@@ -413,19 +413,19 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | In progress |
+| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | In review |
 | [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | In progress |
 | [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | In progress |
-| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In progress |
+| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In review |
 | [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | In progress |
 
 ### PB-019
 
-**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · In progress
+**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · In review
 
 - **Problem:** The watermark filter is strictly greater-than, so rows that arrive late are dropped, and deletes at the source never reach the table.
 - **Proposed capability:** A lookback window and soft- or hard-delete handling per entity.
-- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3
+- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3; Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509
 - **Inventory features:** [FEAT-META-02](FEATURE_INVENTORY.md#feat-meta-02)
 - **Dependencies:** Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Staged roadmap (FD-117)
@@ -470,7 +470,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-068
 
-**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · In progress
+**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · In review
 
 - **Problem:** Every keyed run reads the whole key table, which grows with the business.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.

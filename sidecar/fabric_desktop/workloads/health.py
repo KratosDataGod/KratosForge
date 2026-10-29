@@ -59,6 +59,10 @@ def findings(w: dict[str, Any]) -> list[dict[str, Any]]:
                     [{"action": "open_run", "label": "Open run"}], env)
             elif run["state"] == "cancelled":
                 add("attention", "run", f"Last run in {where} was cancelled", run.get("message") or "", ev, [], env)
+            elif run["state"] == "ok" and run.get("mocked"):
+                add("attention", "run", f"Last run in {where} used mocks",
+                    f"{run['mocked']} activit{'y was' if run['mocked'] == 1 else 'ies were'} mocked, so it doesn't show "
+                    "the pipeline works.", ev, [{"action": "open_run", "label": "Open run"}], env)
             elif run["state"] == "running":
                 add("notice", "run", f"Running in {where}", "", ev, [], env)
             elif run["state"] == "unknown":

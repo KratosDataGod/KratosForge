@@ -73,7 +73,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
   border-radius: 50%; border: 0; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
 }
-.avatar.signed-out { background: #8a8886; }
+.avatar.signed-out { background: var(--muted); }  /* white text at 6.2:1; #8a8886 was 3.5:1 */
 
 /* Layout */
 .body { flex: 1; display: flex; min-height: 0; }
@@ -2508,3 +2508,22 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field select { padding: 4px; min-height: 0; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
+
+/* Windows High Contrast (contrast themes): WebView2 applies forced colors, which repaint every color
+   with the theme's own and drop backgrounds and box-shadows. Selected and current items are marked
+   only by those, so here they take the theme's Highlight colors, and unselected tabs lose the
+   underline the theme would otherwise draw on every one. System colors are kept as given under
+   forced colors; forced-color-adjust: none stops the theme drawing its own backplate behind the
+   text of a highlighted item. */
+@media (forced-colors: active) {
+  .rail-item.active, .tab.active, .sql-view.on, .seg button.on, .seg.on, .chip.on, .catalog-scope.on, .sql-tab.on, .tool.toggled,
+  .outline-item.active, .sqlt-group.on, .wh-p-file.on, .wh-cmp-chip.on, .wh-cmp-item.on, .wh-dep-item.on,
+  .choice-row.selected, .type-button.on, .bell.on, [aria-pressed="true"], [aria-current="page"] {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  .tab:not(.active), .sql-view:not(.on) { border-bottom-color: Canvas; }
+  .cell.selected .cell-box, .sqlt-card.on, .mesh-node.me, .card.pad.mf-domain.me { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -2px; }
+  .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
+  :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
+  .avatar { border: 1px solid CanvasText; }
+}

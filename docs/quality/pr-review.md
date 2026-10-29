@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1101 e727af85 | Workspace discovery, merged with main after #1054 | PASS 9.2 (carry) | Outside cli.py the three-dot patch-id equals 557c36fd's; the only conflict was cli.py's module docstring, resolved (remerge-diff) as the union of live-test-databricks and databricks-discover; both subcommands parse and dispatch. Merges clean; discovery + dbx_livetest + databricks_sql + silent_except 74 passed. |
+
 | 2026-10-29 | #1106 0ad9416e | Databricks SQL function parity table for DuckDB (Fixes #1103) | PASS 9.2 | 130 cases run each Databricks example through the engine's own path (local_sql._databricks, then DuckDB) and pin the outcome; `same()` keeps bool/int and str/int apart; the docs table is generated (`table_markdown`) and checked against docs/engines.md. duckdb 1.5.6 and sqlglot 30.23.0 are pinned in constraints.txt, so the test catches an upgrade. Spot-checked notes (dayofweek Sunday=1, sort_array NULLs first, percentile interpolates) match Databricks. Merges clean; on the merge result parity + silent_except 151 passed, ui.test 307/307, ratchet 901/903, ruff clean. Nit: the prose count "130" sits outside the generated text, so the docs test won't catch it drifting. |
 
 | 2026-10-29 | #1096 3d00e389 | Engine picker, retargeted to main after #1058 | PASS 9.2 (carry) | Patch-id of `origin/main...3d00e389` equals 6eae302d..36a435ff (16 files, +1112/−16; only hunk offsets differ). Merges clean; on the merge result ui.test 308/308, engines_service + conformance + server_lanes + silent_except 103 passed. |

@@ -19,7 +19,7 @@ You need Windows for the desktop app. The Python engine and its tests also run o
 git clone https://github.com/KratosDataGod/KratosForge
 cd fabric-desktop\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
-python -m pytest -q                   # every test runs without Fabric
+python -m pytest -q                   # every test runs without Fabric or the internet
 python -m pytest -q -n auto --dist loadfile   # the same, one worker per core, as CI runs it
 ```
 

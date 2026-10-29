@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that pull request's older run, so the
+# queue holds only current heads. Pushes to main each get their own group and
+# are never cancelled, so every main batch still publishes a Preview.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     # What a pull request touches decides which of the slower jobs it needs. Pushes to main run every
@@ -137,6 +144,8 @@ jobs:
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
       PLAYWRIGHT_VERSION: "1.56.1"
+      # The accessibility audit's rules (a11y-audit.test.cjs); a new version can add rules, so change it on its own.
+      AXE_CORE_VERSION: "4.10.2"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -151,10 +160,10 @@ jobs:
         working-directory: sidecar
       - name: Install Playwright and Chromium
         run: |
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION"
+          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
           "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
           # The tests skip when Playwright can't be loaded; here that must fail instead.
-          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright')"
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
       # a small runner made engine replies miss the tests' 10 s waits.
       - run: node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"
@@ -354,6 +363,8 @@ jobs:
     runs-on: windows-latest
     # After the engine, whose zips' checksums the exe carries.
     needs: engine
+    outputs:
+      signed: ${{ steps.signature.outputs.signed }}
     defaults:
       run:
         working-directory: app/src-tauri
@@ -399,6 +410,19 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      # Once signing is set up, a build of main that comes out unsigned stops here instead of being
+      # published: signed apps refuse unsigned updates (signature.rs), and Promote refuses them.
+      - name: Check the exe's signature
+        id: signature
+        shell: pwsh
+        env:
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          $sig = Get-AuthenticodeSignature target\release\kratosforge.exe
+          "The exe's signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          $signed = $sig.Status -eq 'Valid'
+          if ($env:SIGNING -eq 'true' -and -not $signed) { throw "Signing is set up, but the exe isn't validly signed ($($sig.Status)), so it isn't published." }
+          "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
@@ -478,8 +502,9 @@ jobs:
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
+            --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published}' > version.json
+              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.

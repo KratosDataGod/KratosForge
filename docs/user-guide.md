@@ -69,7 +69,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 
-Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces; press **Esc**, then **Tab**, to move on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
 ### The bell: activity
 
@@ -433,7 +433,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
 
-**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. Check now stops nothing; a promote stops on a finding of a **Block** policy that no exception covers. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
 
 ## Fabric
 

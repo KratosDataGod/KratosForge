@@ -154,7 +154,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 
 | Id | Status | What | Cx |
 | --- | --- | --- | --- |
-| HD-050 | Partly fixed (#305) | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). | L |
+| HD-050 | Partly fixed (#305, #927) | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). Second slice: the RPC no longer accepts `export_sql_csv`, `integrations_approvals`, `all_shortcuts`, `list_shortcuts`, `git_path_info` and `git_repos`, which no screen called (the `Service` methods stay for in-process callers). `run_cell` stays while engine tests drive it, and `meta_preflight` stays for the PB-067 run dialog. | L |
 | HD-055 | Fixed (#263) | AR-4: lint rule against new silent `except Exception`; clear the 53 existing ones | M |
 | HD-056 | Partly fixed (#274) | Split `app.js` along `registerFeature` boundaries | L |
 | HD-057 | Open | Registry (ADMX) policy alongside `policy.json` | M |

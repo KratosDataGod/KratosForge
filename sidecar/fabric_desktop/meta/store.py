@@ -547,6 +547,15 @@ class Store:
         order = _ORDER.get(table)
         return df.sort(order, maintain_order=True) if order else df
 
+    def meta_where(self, table: str, where: pl.Expr) -> pl.DataFrame:
+        """The rows of a meta table that match ``where``, in meta()'s order: meta(table).filter(where)
+        without reading the whole table (files whose statistics rule ``where`` out are skipped)."""
+        df, _ = self.read_where(META_LAKEHOUSE, "meta", table, where)
+        if df is None:
+            return pl.DataFrame(schema=META_SCHEMAS[table])
+        order = _ORDER.get(table)
+        return df.sort(order, maintain_order=True) if order else df
+
 
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""

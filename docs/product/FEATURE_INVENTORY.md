@@ -200,7 +200,7 @@ on quality.
 | [FEAT-ONE-04](#feat-one-04) | OneLake access review and data access roles | Implemented | Partially Verified | OneLake > Access (Preview) | Include in the tenant smoke test. |
 | [FEAT-PRV-02](#feat-prv-02) | Output verification rules | Implemented | Partially Verified | Prove panel (Preview) | Reuse for SQL and metadata compare (one comparison engine). |
 | [FEAT-META-03](#feat-meta-03) | Checks, quarantine and replay | Implemented | Partially Verified | Entity page > Quarantine | QA-002: replay open and compute change now check the save first (#661). |
-| [FEAT-META-07](#feat-meta-07) | Schema drift review | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read). |
+| [FEAT-META-07](#feat-meta-07) | Schema drift review and schema evolution | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table. |
 | [FEAT-META-16](#feat-meta-16) | Profiling and rule suggestions | Implemented | Partially Verified | Entity > Profile | Keep. |
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
@@ -1209,18 +1209,18 @@ on quality.
 
 ### FEAT-META-07
 
-**Schema drift review.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate.
+**Schema drift review and schema evolution.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate. Runs add new columns in place, rewrite the table to widen a type, refuse a narrowing or a change of kind unless [contract] overwrite_schema = true (Preview), and record each schema change in meta.schema_history with its Delta version and schema version (Preview).
 
 - **Pillar and category:** Local development; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Entity page > Drift
-- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped))
-- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
-- **Tests:** `sidecar/tests/test_dataops.py`
+- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schema_evolution.py (PB-031: added columns in place, widening rewrite inside the Fabric-safe profile, narrowing refused without overwrite_schema, versioned schema history; on this PC only)
+- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
+- **Tests:** `sidecar/tests/test_dataops.py`, `sidecar/tests/test_schema_evolution.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** landing and link sources not checked (inference).
+- **Known limitations:** landing and link sources not checked (inference). widening a type still rewrites the table: the installed delta-rs (1.6.6) can't write Delta type widening, and Fabric reader support for it is unproven. not run against OneLake or read by Fabric's SQL analytics endpoint, Direct Lake or Spark.
 - **Backlog:** [PB-031](PRODUCT_BACKLOG.md#pb-031)
-- **Recommended next action:** Cover landing and link sources (inference: not read).
+- **Recommended next action:** Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table.
 
 ### FEAT-META-08
 

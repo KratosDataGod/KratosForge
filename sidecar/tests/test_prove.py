@@ -214,6 +214,20 @@ def call(svc, method, **params):
     return out["result"]
 
 
+def run_cell(svc, code, **params):
+    """Run a cell over the RPC the way the app does, start_cell then poll_cell, and return its result."""
+    call(svc, "start_cell", code=code, **params)
+    notebook = {"notebook": params["notebook"]} if "notebook" in params else {}
+    version, deadline = -1, time.monotonic() + 600
+    while time.monotonic() < deadline:
+        # Passing the last version makes poll_cell wait (up to 2 s) for news instead of answering at once.
+        out = call(svc, "poll_cell", version=version, wait=2, **notebook)
+        if out["status"] != "running":
+            return call(svc, "poll_cell", version=-1, **notebook)  # -1: all of the finished cell's outputs
+        version = out["version"]
+    raise AssertionError("the cell didn't finish")
+
+
 def wait(svc, pid):
     for _ in range(1200):
         status = call(svc, "prove_status", id=pid)

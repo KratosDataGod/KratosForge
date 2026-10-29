@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, shared_version, svc, wait  # noqa: F401
+from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
 from fabric_desktop import app_settings, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
@@ -204,7 +204,7 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))
         assert call(s, "stop_kernel_process") == {"stopped": True}
         assert call(s, "poll_cell", version=-1)["status"] == "cancelled"
-        assert call(s, "run_cell", code="2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
+        assert run_cell(s, "2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
     finally:
         s.kernel.close()
 

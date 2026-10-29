@@ -29,7 +29,6 @@ _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
-_SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 
@@ -102,8 +101,6 @@ NO_UI_CALLER: dict[str, str] = {
     "usage_imports": _NO_SCREEN,
     "usage_reconciliation": _NO_SCREEN,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
-    # Superseded on screen.
-    "run_cell": _SUPERSEDED,  # notebooks use start_cell / poll_cell; engine tests still drive it as one call
     # Listed by QA-017 as having no screen.
     "audit_log": _QA017,
     "delete_notebook": _QA017,
@@ -141,7 +138,10 @@ def test_the_exception_list_stays_honest():
 # HD-050 slice 2 (#927): names no screen called, taken out of METHODS. The Service methods stay, because
 # git_service, shortcut_service and pipeline_service still call git_path_info, all_shortcuts and git_repos.
 REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_path_info", "git_repos",
-           "list_shortcuts")
+           "list_shortcuts",
+           # Slice 3 (#965): the app runs cells with start_cell / poll_cell, and so do the engine tests
+           # (test_prove.run_cell). Service.run_cell stays for in-process tests and scripts.
+           "run_cell")
 
 
 def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):

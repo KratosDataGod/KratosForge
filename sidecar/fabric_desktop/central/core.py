@@ -2471,7 +2471,7 @@ def _definition(s: dict[str, Any]) -> dict[str, Any]:
             "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": s.get("target") or {}}
 
 
-def _shortcut_changer(db: Db, by: str) -> Callable[[str], bool]:
+def _shortcut_changer(db: Db, by: str) -> Callable[[Any], bool]:
     """Who may change what the inventory says about a lakehouse's shortcuts in a way that could hide a
     problem (a removal, a repoint, a healthy mark): a platform admin, or a member of a project with a
     product port in that lakehouse. Anyone may report a new shortcut or a broken one."""
@@ -2479,7 +2479,7 @@ def _shortcut_changer(db: Db, by: str) -> Callable[[str], bool]:
         return lambda lakehouse_id: True
     who, seen = _who(by), {}
 
-    def may(lakehouse_id: str) -> bool:
+    def may(lakehouse_id: Any) -> bool:
         lakehouse_id = str(lakehouse_id or "")
         if lakehouse_id not in seen:
             projects = {r["project"] for r in db.rows(

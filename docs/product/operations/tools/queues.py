@@ -96,6 +96,10 @@ def check() -> tuple[list[str], list[str]]:
             if sid not in backlog and sid not in queues.get("new_stories", {}):
                 errors.append(f"{key}: backlog story {sid} doesn't exist")
     errors += _check_side(queues, seen)
+    short += [f"side program {sp['key']}: {n} stories at review, over its cap of {sp['review_cap']}"
+              for sp in queues.get("side_programs", [])
+              if isinstance(sp.get("review_cap"), int)
+              and (n := sum(1 for st in sp.get("stories", []) if st.get("status") == "review")) > sp["review_cap"]]
     text = README.read_text(encoding="utf-8")
     if not errors and (BEGIN in text or SIDE_BEGIN in text) and text != _rendered(text, queues, backlog):
         errors.append("README.md's queue table is out of date: run queues.py render")
@@ -114,7 +118,8 @@ def _check_side(queues: dict[str, Any], seen: dict[str, str]) -> list[str]:
                 errors.append(f"side program {key}: no {field}")
         if sp.get("workstream") not in keys:
             errors.append(f"side program {key}: workstream {sp.get('workstream')} doesn't exist")
-        if not isinstance(sp.get("review_cap"), int) or not 1 <= sp["review_cap"] <= 4:
+        cap = sp.get("review_cap")
+        if isinstance(cap, bool) or not isinstance(cap, int) or not 1 <= cap <= 4:
             errors.append(f"side program {key}: review_cap must be 1 to 4")
         if not sp.get("stories"):
             errors.append(f"side program {key}: no stories")

@@ -127,6 +127,17 @@ class SideProgramTest(_Base):
         self.assertTrue(any("#1127 has status doing" in e for e in errors), errors)
         self.assertIn("side program pbe: a story needs an issue number and a title", errors)
 
+    def test_boolean_cap_is_an_error(self) -> None:
+        errors, _ = self.run_check(_queues() | {"side_programs": [_side() | {"review_cap": True}]})
+        self.assertIn("side program pbe: review_cap must be 1 to 4", errors)
+
+    def test_over_cap_is_reported_not_failed(self) -> None:
+        sp = _side() | {"review_cap": 1}
+        sp["stories"] = [{"issue": 1127, "title": "Host", "status": "review"}, {"issue": 1128, "title": "Token", "status": "review"}]
+        errors, short = self.run_check(_queues() | {"side_programs": [sp]})
+        self.assertEqual(errors, [])
+        self.assertIn("side program pbe: 2 stories at review, over its cap of 1", short)
+
     def test_issue_in_a_queue_and_a_side_program_is_an_error(self) -> None:
         sp = _side()
         sp["stories"].append({"issue": 900, "title": "Issue-only slot", "status": "ready"})

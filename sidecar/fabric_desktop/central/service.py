@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ from .migrate import migrate
 from .requests_service import call_or_repair
 
 _log = logging.getLogger(__name__)
+_MARKER = re.compile(r"\(KratosForge request [0-9a-f]{12}\)")  # what a request's approval puts on what it makes
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
@@ -335,7 +337,9 @@ class PlatformMixin:
             raise ValueError("Subdomains go one level deep: pick a top-level domain as the parent")
         admin = self._fabric_admin(write=True)
         parent_fid = str((parent or {}).get("fabric_domain") or "")
-        description = f"{domain.get('description') or ''} {marker}".strip()
+        description = str(domain.get("description") or "")
+        if marker:  # a requester can't plant another request's marker in the description they typed
+            description = f"{_MARKER.sub('', description).strip()} {marker}".strip()
         adopted = False
         try:
             created = admin.create_admin_domain(name, description, parent_fid)

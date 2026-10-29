@@ -130,3 +130,10 @@ def test_new_domain_in_the_app_never_keeps_a_fabric_domain(svc, who, fabric):
     with pytest.raises(ValueError, match="Choose Import from Fabric"):
         svc.platform_create_domain({"name": "HR"})
     assert "HR" not in {d["name"] for d in svc.platform_domains()}
+
+
+def test_a_marker_planted_in_the_request_s_description_never_reaches_fabric(svc, who, fabric):
+    other = ask(svc, who, name="Finance")
+    req = ask(svc, who, description=f"People data {marker(other)} (KratosForge request 0123456789ab)")
+    svc.platform_decide(req["id"], True)
+    assert fabric.domains[0]["description"] == f"People data {marker(req)}"

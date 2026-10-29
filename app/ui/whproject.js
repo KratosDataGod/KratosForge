@@ -439,10 +439,11 @@ const WH_ACTION_WORD = { create: "CREATE", alter: "CREATE OR ALTER", add_columns
 const WH_KIND_WORD = { schema: "SCHEMA", table: "TABLE", view: "VIEW", procedure: "PROCEDURE", function: "FUNCTION" };
 
 // One confirmed warehouse change, start to finish: the final status.
-async function whRunChange(ref, sql) {
+// precondition: the object as the deploy's preview saw it; the engine sends nothing if it changed since.
+async function whRunChange(ref, sql, precondition) {
   const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
   let status = await rpc("sql_start", { query: sql, target: "warehouse", dialect: "tsql", warehouse_ref: whRef,
-    allow: ["warehouse_write"], confirm: true, confirm_name: ref.name });
+    allow: ["warehouse_write"], confirm: true, confirm_name: ref.name, ...(precondition ? { precondition } : {}) });
   let wait = 150;
   while (["queued", "running", "cancelling"].includes(status.state)) {
     await new Promise((r) => setTimeout(r, wait));
@@ -559,7 +560,7 @@ async function whProjectDeploy(ref, project) {
   for (const c of run) {
     toast(`Deploying ${results.length + 1} of ${run.length}: ${label(c)}...`);
     let status;
-    try { status = await whRunChange(ref, c.sql); } catch (err) { status = { state: "failed", error: whWhy(err) }; }
+    try { status = await whRunChange(ref, c.sql, c.precondition); } catch (err) { status = { state: "failed", error: whWhy(err) }; }
     results.push({ c, status });
     if (status.state !== "completed") break;
   }

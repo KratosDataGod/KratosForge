@@ -1508,6 +1508,27 @@ test("Workspaces, the catalog and data products have a How this works panel that
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
 
+// #856 (PB-083): the catalog's Endorsed items filter is off, and its reason (the button's title) says
+// where endorsement really shows. There is no embedded Fabric catalog to point at.
+test("the Endorsed items filter's reason names the admin tenant scan, data products and Open Fabric's catalog", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "service.py"), "utf8");
+  const reason = py.match(/ENDORSED_FILTER_REASON = \(([\s\S]*?)\)\n/)?.[1].replace(/"\s*"/g, "") || "";
+  assert.match(reason, /admin tenant scan/);
+  assert.match(reason, /Data mesh > Products/);
+  assert.match(reason, /Scan now/);
+  assert.match(reason, /Fabric administrator/);
+  assert.match(reason, /Open Fabric's catalog/);
+  assert.match(app, /btn\("Open Fabric's catalog"/, "the button the reason names is on the catalog page");
+  assert.doesNotMatch(py + app, /catalog below|embedded on the same page/i);
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "troubleshooting.md"), "utf8");
+  const row = docs.split("\n").find((l) => l.includes("**Endorsed items** is greyed out")) || "";
+  assert.match(row, /admin tenant scan/);
+  assert.match(row, /Scan now/);
+  assert.match(row, /Open Fabric's catalog/);
+  assert.doesNotMatch(row, /embedded/);
+});
+
 test("repositories are grouped by what they hold, unsorted ones last", () => {
   const { gitGroupRepos } = gitHelpers();
   const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
@@ -3249,6 +3270,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   const boot = app.slice(app.lastIndexOf("hydrateIcons();"));
   assert.ok(boot.indexOf("renderHome()") < boot.indexOf("checkComponents()"), "Home must draw before the check starts");
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
+});
+
+// UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
+// Home and End and a screen reader says which tab is selected.
+test("every row of tabs is a tablist with selected state", () => {
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
+      for (const m of src.matchAll(re)) {
+        const near = src.slice(m.index, m.index + 260);
+        const line = src.slice(0, m.index).split("\n").length;
+        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
+        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+      }
+    }
+  }
 });
 
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.

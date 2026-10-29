@@ -217,6 +217,7 @@ class ProcessKernel:
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
             threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
+            self.pid = None  # until this process reports its own (the watcher reads proc.pid meanwhile)
             self._proc = proc
             self._attached = object()
             if not ready.wait(60):
@@ -254,7 +255,10 @@ class ProcessKernel:
             time.sleep(WATCH_SECONDS)
             if proc is not self._proc:
                 return
-            if self.memory_limit and (memory_used(proc.pid) or 0) > self.memory_limit:
+            # The interpreter's own pid, as it reported it: from a Windows venv, proc is the venv's
+            # python.exe launcher, a few MB, and the real interpreter is its child (#896).
+            pid = self.pid if proc is self._proc and self.pid else proc.pid
+            if self.memory_limit and (memory_used(pid) or 0) > self.memory_limit:
                 self.limit_hit = "memory"
                 self._end(proc, f"Stopped: the notebook used more than {_size(self.memory_limit)}, the memory limit "
                                 "set in Settings. Its process was ended, so variables were cleared.")

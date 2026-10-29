@@ -61,9 +61,12 @@ def test_a_failed_write_fails_the_writes_after_it_to_the_same_table():
 
 
 def test_cancel_drops_writes_that_havent_started():
-    q, gate = Queue(workers=1), threading.Event()
-    q.submit("a", "dbo.a", 0, gate.wait)
+    q, gate, started = Queue(workers=1), threading.Event(), threading.Event()
+    q.submit("a", "dbo.a", 0, lambda: (started.set(), gate.wait()))
     q.submit("a", "dbo.a", 0, lambda: "never")
+    # The first write must be running before the cancel: on a busy runner its thread can start late,
+    # and a write that hasn't started is dropped too (two notices, not one).
+    assert started.wait(5)
     threading.Timer(0.2, gate.set).start()
     assert q.flush(cancel=True) == ["dbo.a: not written (the cell was cancelled)"]
 

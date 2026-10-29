@@ -160,7 +160,7 @@ function vscodeRunCard(status, refresh) {
         h("thead", {}, h("tr", {}, h("th", {}, "Paired window"), h("th", {}, "Kept"), h("th", {}, "Last used"), h("th", {}, ""))),
         h("tbody", {}, rows.map((p) => h("tr", {},
           h("td", {}, h("code", {}, p.window), h("div", { class: "muted-text small" }, p.client)),
-          h("td", {}, p.expires ? `Until ${new Date(p.expires * 1000).toLocaleString()}` : KEEP_LABEL.session),
+          h("td", {}, p.expires ? `Until ${dateTimeText(p.expires * 1000)}` : KEEP_LABEL.session),
           h("td", {}, p.last_used ? integWhen(p.last_used) : "Not yet"),
           h("td", { class: "n" }, btn("End", null, () => end(p), "tool outline small", { "aria-label": `End pairing with ${p.window}` }))))))
       : h("p", { class: "muted-text" }, "No VS Code window is paired. In VS Code, pick KratosForge as a notebook's kernel to pair it.")) : null,

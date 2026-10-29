@@ -49,7 +49,8 @@ function lastRunText(run) {
   if (!run) return h("span", { class: "muted-text" }, "No runs recorded");
   const label = { ok: "OK", failed: "Failed", running: "Running", needs_decision: "Needs a decision", skipped: "Skipped",
     cancelled: "Cancelled" }[run.state] || "Unknown";
-  return h("span", {}, h("span", { class: run.state === "failed" ? "reason" : null }, label), " ",
+  return h("span", {}, h("span", { class: run.state === "failed" ? "reason" : null }, label),
+    run.state === "ok" && run.mocked ? [" ", h("span", { class: "pill-s wrn", title: "Some activities were mocked, so this isn't a real run of the whole pipeline" }, "with mocks")] : null, " ",
     h("span", { class: "muted-text small" }, relTime(run.started_at)));
 }
 
@@ -69,7 +70,7 @@ function workloadsPanel() {
   const box = h("div", { class: "wl-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading your workloads..."));
   loadWorkloads(box, false);
   return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
-    reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
+    reads: "Your project's metadata entities, notebooks on this PC, pipelines on this PC (the Git folders this PC opened, its schedules and local run records; Preview), and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
     changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
     results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. When there's a platform, each action and change is also written to its audit (Platform > Govern > Audit) with who, where, before, after and how it ended; until the platform takes a line, this PC keeps it and sends it again. A run you start writes where that environment's runs always write.",
     more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
@@ -106,7 +107,7 @@ async function loadWorkloads(box, refresh) {
       current = r.group_key;
       const g = groups.get(current) || { label: current, count: 0, health: {} };
       const bad = ["failing", "late", "attention"].filter((x) => g.health?.[x]).map((x) => `${g.health[x]} ${x === "attention" ? "need attention" : x}`);
-      rows.push(h("tr", { class: "wl-group" }, h("td", { colspan: 7 }, h("b", {}, g.label),
+      rows.push(h("tr", { class: "wl-group" }, h("td", { colspan: 7 }, h("b", {}, g.label), current === "pipelines" ? [" ", previewTag()] : null,
         h("span", { class: "muted-text small" }, ` · ${g.count} ${g.count === 1 ? "workload" : "workloads"}${bad.length ? ` · ${bad.join(", ")}` : ""}`))));
     }
     rows.push(workloadRow(r));
@@ -120,7 +121,7 @@ async function loadWorkloads(box, refresh) {
     mine: data.user ? `Nothing is owned by ${data.user}. Owners come from project files or are assigned on a workload's page.`
       : "Sign in so KratosForge knows who you are.",
     unowned: "Every workload has an owner.",
-  }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
+  }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities, pipelines on this PC and Fabric items in your workspaces show here.");
   box.replaceChildren(
     h("div", { class: "monitor-filters" }, h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, (data.views || []).map(chip)),
       h("span", { class: "spacer" }), h("label", { class: "muted-text small row" }, "Group by", groupSelect)),
@@ -253,6 +254,7 @@ function workloadSubtitle(w) {
     const file = d.path ? String(d.path).split(/[\\/]/).slice(-2).join("/") : "";
     return [`Metadata entity in ${w.group?.label || d.project}`, d.layer ? `${d.layer} layer` : "", file, w.description].filter(Boolean).join(" · ");
   }
+  if (w.kind === "pipeline") return ["Pipeline on this PC", w.description].filter(Boolean).join(" · ");
   if (w.kind === "notebook") {
     return ["Notebook on this PC", w.link ? `linked to its Fabric item (${w.link.how})` : "not linked to a Fabric item", w.description].filter(Boolean).join(" · ");
   }
@@ -263,6 +265,7 @@ function openButton(w) {
   const d = w.definition || {};
   if (w.kind === "meta_entity") return btn("Open entity", "table", () => openEntity(w.name), "tool outline");
   if (w.kind === "notebook") return btn("Open notebook", "notebook", () => openNotebook(w.name), "tool outline");
+  if (w.kind === "pipeline") return btn("Open pipeline", "flow", () => openWorkloadPipeline(w), "tool outline");
   return d.url ? btn("Open in Fabric", "cloud", () => openInFabric(d.url), "tool outline") : null;
 }
 
@@ -311,7 +314,9 @@ function findingAction(w, f, n) {
   if (n.action === "promote") { if (f.env) state.meta.env = f.env; return goMeta("environments"); }
   if (n.action === "assign") return ownershipDialog(w);
   if (n.action === "link") return confirmLink(w);
-  if (n.action === "open_definition") return w.kind === "meta_entity" ? openEntity(w.name) : openNotebook(w.name);
+  if (n.action === "open_definition") {
+    return w.kind === "meta_entity" ? openEntity(w.name) : w.kind === "pipeline" ? openWorkloadPipeline(w) : openNotebook(w.name);
+  }
   return undefined;
 }
 
@@ -321,7 +326,14 @@ function openRun(open, w = null) {
   if (open.kind === "meta_run") return showRun(open.run_id, open.env);
   if (open.kind === "url" && open.url) return openInFabric(open.url);
   if (open.kind === "pc_schedule") { monitorPage.panel = "schedules"; return go("monitor"); }
+  if (open.kind === "pipeline_run" && open.run_id) return openPipelineRun(open.run_id);
   return undefined;
+}
+
+// A local pipeline opens on the Pipelines page, from its folder (pipelines.js).
+function openWorkloadPipeline(w) {
+  const d = w.definition || {};
+  return openPipeline({ path: d.path }, { label: [d.repo, d.relative].filter(Boolean).join(" · ") || d.path });
 }
 
 function ownershipTable(w) {

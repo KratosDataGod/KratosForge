@@ -1,6 +1,7 @@
 """The live test harness (FD-101), with Fabric and OneLake faked and Delta on local disk."""
 
 import json
+import re
 
 import pytest
 import requests
@@ -102,7 +103,7 @@ def test_every_check_passes_and_everything_created_is_deleted(tmp_path):
     assert result["left_behind"] == []
     saved = (tmp_path / "out" / "run1" / "result.json").read_text()
     assert json.loads(saved)["schema"] == "live-test-result@1"
-    assert TOKEN not in saved
+    assert TOKEN not in saved and "tenant-1" not in saved  # results get shared: never the tenant id
     assert "Outcome: **passed**" in (tmp_path / "out" / "run1" / "summary.md").read_text()
 
 
@@ -343,7 +344,9 @@ def test_a_writer_that_lost_the_commit_race_is_reported_as_retried(tmp_path):
     result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=local_writer(tmp_path, fail_once="B")).run()
     check = by_id(result)["delta.concurrent"]
     assert check["status"] == "passed", check
-    assert "writer B retried (2 attempts)" in check["detail"]
+    # The forced failure costs B one attempt; the two writers can also really collide, which costs more.
+    retried = re.search(r"writer B retried \((\d+) attempts\)", check["detail"])
+    assert retried and int(retried[1]) >= 2, check
 
 
 def test_lost_rows_fail_the_concurrent_check(tmp_path):

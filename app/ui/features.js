@@ -185,7 +185,7 @@ const LAYOUT_CHOICES = {
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
     [["tags", "Tags"], ["dots", "Quiet dots"]]],
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
-  learn_mode: ["Learning guidance", "Focus shows findings and their About link. Guided adds the Learn lesson that covers each finding. Learning also suggests your next lesson on Learn. Checks run the same in every mode.",
+  learn_mode: ["Learning guidance (Preview)", "Focus shows findings and their About link. Guided adds the Learn lesson that covers each finding. Learning also suggests your next lesson on Learn. Checks run the same in every mode.",
     [["focus", "Focus"], ["guided", "Guided"], ["learning", "Learning"]]],
 };
 const LAYOUT_DEFAULTS = { ui_explanations: "on_request" };  // as app_settings.DEFAULTS; others: the first choice

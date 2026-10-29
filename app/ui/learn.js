@@ -155,6 +155,7 @@ function learnFindingLink(ruleId) {
     const m = covering.find((x) => x.kind === "module") || covering[0];
     if (m) fill(slot, h("a", { href: "#", class: "learn-more", title: `${m.id} on Learn`,
       onclick: (e) => { e.preventDefault(); learnOpen(m.id); } }, `Lesson: ${m.title}`));
+    else slot.remove();
   });
   return slot;
 }

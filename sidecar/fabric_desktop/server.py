@@ -144,6 +144,11 @@ from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 
 METHODS |= ACCESS_CACHE_METHODS
 
+# Learn: lessons and labs on this PC (learn_service.py).
+from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
+
+METHODS |= LEARN_METHODS
+
 # Settings > Advanced > OneLake writes: the local write folders (local_writes_service.py).
 from .local_writes_service import METHODS as LOCAL_WRITES_METHODS  # noqa: E402
 

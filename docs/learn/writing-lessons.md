@@ -2,7 +2,7 @@
 
 KratosForge Learn is built from lessons and labs that ship inside the app. They run on this PC,
 work offline, and never publish anything to Fabric. This page is for people who write or review
-them. Learn has no screen in the app yet; the plan is in issue #1065 and the stories it links to.
+them. People use them on the [Learn](../learn.md) page; the plan is in issue #1065 and the stories it links to.
 
 ## Where content lives
 

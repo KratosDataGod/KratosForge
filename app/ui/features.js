@@ -111,6 +111,7 @@ const PREVIEW_FEATURES = {
   vscode: "VS Code pairing",
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
+  learn: "Learn",
 };
 
 function previewShown() {

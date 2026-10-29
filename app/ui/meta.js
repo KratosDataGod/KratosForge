@@ -776,7 +776,7 @@ function showRunResults(results, decision) {
 async function showRun(runId, env = state.meta.env) {
   const r = await metaCall("meta_run_detail", { run_id: runId, env });
   if (!r) return;
-  showDialog(`${r.entity} · ${new Date(r.started_at).toLocaleString()}`, h("div", { class: "scroll" },
+  showDialog(`${r.entity} · ${dateTimeText(r.started_at)}`, h("div", { class: "scroll" },
     h("div", { class: "row wrap" }, statusPill(r.status), h("span", { class: "muted-text" }, `Run ${r.run_id} · ${ranOn(r)}${r.job_id ? ` · job ${r.job_id}` : ""}${r.attempt > 1 ? ` · try ${r.attempt}` : ""} · metadata ${r.metadata} · ${r.seconds}s`)),
     r.message ? h("p", { class: "text" }, r.message) : null,
     h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Step", "Rows", "Time", "Result"].map((c) => h("th", {}, c)))),
@@ -1126,7 +1126,7 @@ function keyTableDetail(t, k, rerender) {
     const res = await metaCall("meta_key_lookup", { table: t.name, value: input.value, env: k.env });
     if (res === undefined) return;
     answer.replaceChildren(res ? h("span", {}, h("span", { class: "mono" }, res.bk), " is ", h("b", { class: "mono" }, String(res.sk)),
-      `, created ${new Date(res.create_date).toLocaleString()}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
+      `, created ${dateTimeText(res.create_date)}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
   };
   input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") find(); });
   return h("div", { class: "card pad side-panel" },
@@ -1374,7 +1374,7 @@ registerFeature({
 // ---------- table health ----------
 
 function shortDate(iso) {
-  return iso ? new Date(iso).toLocaleString() : "never";
+  return dateTimeText(iso, { empty: "never" });
 }
 
 async function renderHealthTab(body) {

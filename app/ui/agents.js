@@ -20,7 +20,7 @@ function agAt(iso) {
   const ahead = Math.round((t.getTime() - Date.now()) / 1000);
   if (!iso || Number.isNaN(t.getTime()) || ahead < 45) return relTime(iso);
   if (ahead < 3600) return `in ${Math.round(ahead / 60)} min`;
-  return ahead < 86400 ? `at ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : t.toLocaleString();
+  return ahead < 86400 ? `at ${timeText(t)}` : dateTimeText(t);
 }
 
 function agStatePill(a) {

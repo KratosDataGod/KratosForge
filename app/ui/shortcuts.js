@@ -624,11 +624,11 @@ function scChangeList(changes, after, showWhere) {
   let day = "";
   const out = [];
   for (const c of changes) {
-    const d = new Date(c.at).toLocaleDateString();
+    const d = dateText(c.at);
     if (d !== day) { day = d; out.push(h("div", { class: "sc-day" }, d)); }
     const [cls, label] = SC_CHANGE[c.kind] || ["neu", c.kind];
     out.push(h("div", { class: "sc-change" },
-      h("span", { class: "muted-text small" }, new Date(c.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+      h("span", { class: "muted-text small" }, timeText(c.at)),
       h("span", { class: `pill-s ${cls}` }, label),
       h("div", {}, h("b", {}, c.name), showWhere ? h("span", { class: "muted-text" }, ` in ${c.workspace_name} / ${c.lakehouse_name}`) : null,
         c.kind === "repointed" ? h("div", { class: "small mono" }, h("s", {}, scDefText(c.before)), " → ", scDefText(c.after))

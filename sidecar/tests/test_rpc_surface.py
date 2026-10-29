@@ -32,6 +32,7 @@ _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
+_EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
@@ -111,6 +112,8 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_preflight": _INTERNAL,  # risk_service
     "git_path_info": _INTERNAL,  # git_service
     "git_repos": _INTERNAL,  # git_service
+    "pbi_embed_token": _EMBED,
+    "pbi_embed_content": _EMBED,
     # Listed by QA-017 as having no screen.
     "audit_log": _QA017,
     "delete_notebook": _QA017,

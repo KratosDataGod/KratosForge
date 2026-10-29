@@ -216,6 +216,12 @@ from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
 
 METHODS |= EDITOR_METHODS
 
+# Embed Studio (powerbi_embed_service.py, Preview): a Power BI token for the embed frame, and a report's
+# or dashboard's embed URL, pages and tiles. Both read only.
+from .powerbi_embed_service import METHODS as POWERBI_EMBED_METHODS  # noqa: E402
+
+METHODS |= POWERBI_EMBED_METHODS
+
 
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish

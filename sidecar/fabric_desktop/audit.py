@@ -84,6 +84,7 @@ notebook_file_path notebook_disk_stamp notebook_name_for_path notebook_listing n
 notebook_formats_import_check
 profile_get profile_report
 notebook_comments_list
+pbi_embed_token pbi_embed_content
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

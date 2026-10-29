@@ -3,14 +3,19 @@
 Everything here reads the bundled content (learn/content.py) or works in a lab under
 ``<data>/learn`` (learn/labs.py). Nothing reads or writes OneLake, starts a Fabric job or sends
 anything anywhere: a lab's DuckDB connection has no file or network access and every answer is
-rolled back.
+rolled back. An exercise that passes in a published lesson is recorded in Profile (LX-07), like a
+clean Validate run.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .learn import content, labs
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
            "learn_lab_check", "learn_lab_hint", "learn_lab_reset"}
@@ -60,8 +65,17 @@ class LearnMixin:
         return labs.run(self.root, str(module_id), str(sql))  # type: ignore[attr-defined]
 
     def learn_lab_check(self, module_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
-        return labs.check(self.root, str(module_id), str(exercise_id),  # type: ignore[attr-defined]
-                          None if answer is None else str(answer))
+        """Run the exercise's checks. A pass in a published lesson is recorded in Profile (``earned``: the
+        achievements it brought); recording never changes the result."""
+        result = labs.check(self.root, str(module_id), str(exercise_id),  # type: ignore[attr-defined]
+                            None if answer is None else str(answer))
+        result["earned"] = []
+        if result["passed"]:
+            try:
+                result["earned"] = self._progress_observe_lab(result, content.get(str(module_id)))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the profile must never change the check's result
+                _log.warning("Could not record the Learn exercise in Profile: %s", describe(exc))
+        return result
 
     def learn_lab_hint(self, module_id: str, exercise_id: str, level: int = 1) -> dict[str, Any]:
         return labs.hint(str(module_id), str(exercise_id), int(level))

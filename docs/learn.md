@@ -52,6 +52,14 @@ policy can set it, and then it can't be changed here.
 The checks themselves run the same in every mode; guidance only adds links. Guidance shows only
 while **Show preview features** is on.
 
+## In your profile
+
+When every check of an exercise passes in a published lesson or lab, it is recorded in your
+[Profile](profile.md) like a clean Validate run, unless recording is off there. The last exercise of a
+lesson also records the lesson as finished. These can earn The First Spark, The Data Smith, The
+Query Forger, The Architect's Eye and The Guardian. Your answer is never stored in the profile. Draft
+lessons are for trying out and aren't recorded.
+
 ## What is stored
 
 A started lab is a folder under this PC's KratosForge data: `learn/<id>/` holds the lab's DuckDB

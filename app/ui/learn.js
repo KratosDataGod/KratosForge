@@ -238,6 +238,7 @@ function learnExercise(m, ex) {
     catch (err) { learnPage.checks[ex.id] = { error: friendlyError(err).text }; }
     finally { learnPage.busy = false; }
     learnChecksRefresh(ex);
+    profileEarned(learnPage.checks[ex.id].earned);  // a pass in a published lesson, recorded in Profile
   };
   editor.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runIt(); } });
   return [...top, editor,

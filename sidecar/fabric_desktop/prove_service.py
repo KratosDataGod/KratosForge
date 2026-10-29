@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, depgraph, envprofile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
@@ -43,6 +43,7 @@ RUNNING = ("preparing", "pc", "fabric", "verifying")
 PROOF_SUFFIX = "_proof"
 
 _log = logging.getLogger(__name__)
+_PROOFS_SAVING = threading.Lock()  # proofs.jsonl is read, changed and written whole
 
 
 def _now() -> str:
@@ -513,19 +514,19 @@ class ProveMixin:
 
     def _proofs_saved(self) -> list[dict[str, Any]]:
         try:
-            lines = self._proofs_file.read_text(encoding="utf-8").splitlines()
+            lines = jsonfile.read_text(self._proofs_file).splitlines()
         except OSError:
             return []
         return [json.loads(line) for line in lines if line.strip()]
 
     def _proof_save(self, record: dict[str, Any]) -> None:
+        # A proof's own thread saves as it ends while a request (Delete outputs) may save too: one at a
+        # time, each through its own temporary file, so neither fails nor drops the other's row.
         keep = {k: v for k, v in record.items() if not k.startswith("_")}
         keep["pc"] = {k: v for k, v in record["pc"].items() if k != "cells"}
-        rows = [r for r in self._proofs_saved() if r.get("id") != record["id"]] + [keep]
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp = self._proofs_file.with_suffix(".tmp")
-        tmp.write_text("".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]), encoding="utf-8")
-        tmp.replace(self._proofs_file)
+        with _PROOFS_SAVING:
+            rows = [r for r in self._proofs_saved() if r.get("id") != record["id"]] + [keep]
+            jsonfile.write_text(self._proofs_file, "".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]))
 
     def proof_busy(self) -> bool:
         return any(r["state"] in RUNNING for r in self._proof_state().values())

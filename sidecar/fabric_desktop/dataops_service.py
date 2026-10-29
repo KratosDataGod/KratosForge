@@ -169,7 +169,10 @@ class DataOpsMixin:
             store = self._store(project, env)  # type: ignore[attr-defined]
             if "entity" in src:
                 up = project.entities[src["entity"]]
-                source = store.read(project.layer(up.layer).lakehouse, up.schema, up.table)
+                # Only the columns are compared, so no rows are read: the drift card opens with the
+                # entity page and must not wait for a whole table to download.
+                scan = store.scan(project.layer(up.layer).lakehouse, up.schema, up.table)
+                source = scan.limit(0).collect() if scan is not None else None
                 if source is None:
                     problem = f"{up.name} hasn't been loaded in {env} yet"
             elif "files" in src:

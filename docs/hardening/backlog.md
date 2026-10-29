@@ -107,7 +107,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-020 | Fixed (#250) | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | Open: blocked on signing | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
 | HD-022 | Fixed (#258) | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |
-| HD-023 | Partly fixed (#241) | SH-7: promote a named commit, re-check hashes, protected environment. Named commit and hash re-check come with HD-028's `build` input; the protected environment and copying the SBOMs remain | Hardening | #132 (`promote.yml`) | S |
+| HD-023 | Partly fixed (#241, #910) | SH-7: promote a named commit, re-check hashes, protected environment. Named commit and hash re-check come with HD-028's `build` input; Stable gets the SBOMs (#910). The protected environment remains (Chris: repository settings) | Hardening | #132 (`promote.yml`) | S |
 | HD-024 | Fixed (#674); workflow review pending | SH-8: pin actions in `codex-review.yml` and `docs.yml`; scope permissions | Hardening | Done; workflow change needs maintainer review | S |
 | HD-025 | Partly fixed (#679) | SH-9: agent installers use constraints; ProgramData ACL | Hardening | Constraints done; the ACL needs a Windows host to verify | S |
 | HD-026 | Fixed (#251) | SH-10: no bare `python` fallback in release builds (done in #251: `choose_python` returns a bare name only in debug builds, and a release build needs an absolute `FABRIC_DESKTOP_PYTHON`) | Hardening | none | S |
@@ -154,7 +154,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 
 | Id | Status | What | Cx |
 | --- | --- | --- | --- |
-| HD-050 | Partly fixed (#305) | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). | L |
+| HD-050 | Partly fixed (#305, #927) | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). Second slice: the RPC no longer accepts `export_sql_csv`, `integrations_approvals`, `all_shortcuts`, `list_shortcuts`, `git_path_info` and `git_repos`, which no screen called (the `Service` methods stay for in-process callers). `run_cell` stays while engine tests drive it, and `meta_preflight` stays for the PB-067 run dialog. | L |
 | HD-055 | Fixed (#263) | AR-4: lint rule against new silent `except Exception`; clear the 53 existing ones | M |
 | HD-056 | Partly fixed (#274) | Split `app.js` along `registerFeature` boundaries | L |
 | HD-057 | Open | Registry (ADMX) policy alongside `policy.json` | M |

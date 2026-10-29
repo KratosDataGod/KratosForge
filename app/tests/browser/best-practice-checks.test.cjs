@@ -21,7 +21,8 @@ let templates = [
 ];
 let last = null;
 const result = () => ({ project: "Sales Forecasting", checked_at: new Date(Date.now() - 5 * 60e3).toISOString(), where: "this PC",
-  enforcement: "Warn only: nothing is blocked.", problems: [], inactive: [],
+  enforcement: "Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers.", problems: [], inactive: [], offline: true,
+  package_note: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.",
   counts: { to_look_at: 2, unknown: 0, excepted: 0, passing: 1, policies: 3 },
   policies: [
     { id: "table-names", name: "Table names", enforcement: "warn", severity: "medium", status: "findings", checked: 3, passed: 2, unknown: [], not_run: [], missing: [], rules: ["naming.table_name"],
@@ -80,7 +81,7 @@ test("Templates lists built-in and your own templates, each with Use", { skip },
 test("How this works names every write", { skip }, async () => {
   const how = await page().textContent(".how-it-works");
   for (const part of ["Template create, edit and delete write catalog.policy_template", "Use writes a policy draft",
-    "Check now writes only its last result, to governance_checks.json on this PC", "Label it writes the column's classification to catalog.enrichment"]) assert.ok(how.includes(part), part);
+    "Check now writes its last result, to governance_checks.json on this PC", "the project's policy package, to governance_packages/<project>.json on this PC", "Label it writes the column's classification to catalog.enrichment"]) assert.ok(how.includes(part), part);
 });
 
 test("Use makes a policy draft from the template and opens it", { skip }, async () => {
@@ -105,13 +106,14 @@ test("deleting your template asks first, drawn as a danger", { skip }, async () 
   assert.deepStrictEqual(callsOf("governance_template_delete"), [{ id: "no-pii-in-dev" }]);
 });
 
-test("Check now runs on this PC, says how many to look at and that nothing is blocked", { skip }, async () => {
+test("Check now runs on this PC, says how many to look at and what a promote stops on", { skip }, async () => {
   await openView("check", ".bp-check-head");
   assert.match(await page().textContent(".bp-summary"), /Sales Forecasting: not checked yet/);
   await page().click('.bp-check-head button:has-text("Check now")');
   await page().waitForSelector('.bp-summary:has-text("2 to look at")');
   assert.strictEqual((await page().textContent(".bp-summary")).trim(), "Sales Forecasting: 2 to look at");
-  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Warn only: nothing is blocked.");
+  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers. "
+    + "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.");
   const names = await page().textContent('[data-policy="table-names"]');
   assert.match(names, /Table names/);
   assert.match(names, /gold\.customer_orders customer_orders doesn't match the naming pattern\./);

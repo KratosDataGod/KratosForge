@@ -1197,7 +1197,7 @@ function gitCapacityTab(st) {
   }
   const d = p.diff;
   const c = d?.counts;
-  const read = d ? new Date(d.read_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+  const read = d ? timeText(d.read_at) : null;
   const bar = h("section", { class: "card pad" }, h("div", { class: "row wrap" },
     h("b", {}, "Drift report"),
     c ? h("span", { class: "muted-text small" }, `Read from Fabric at ${read} · ${c.same} same · ${c.differs} differ · ${c.not_in_git} not in Git · ${c.not_visible} not visible to you`) : null,

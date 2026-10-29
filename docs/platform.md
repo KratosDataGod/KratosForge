@@ -264,7 +264,7 @@ Setting it up creates only those two items and makes you its first admin. Nothin
 1. Every environment's keys **close**. No run can issue a key while they're copied: a run that needs a new key stops and says the keys are moving.
 2. Prod's key tables are copied with the **same numbers** and checked row by row.
 3. Test's and Dev's follow. A business key Prod already has takes Prod's key. One Prod doesn't have gets a new key. The result counts how many Dev and Test keys changed number.
-4. The platform admins of every environment become admins of the keys database, so they can still add key tables.
+4. The platform admins of every environment become admins of the keys database, so they can still add key tables. An admin entry that isn't a sign-in name (like `ana`, saved before the platform checked) never matched anyone, so it stays behind. A platform admin is always added by sign-in name (`ana@contoso.com`); groups can't be platform admins.
 5. Only when every key table checked out, and no environment's keys changed during the move, does every environment switch to the keys database. Each environment's own keys stay closed, with a note saying where keys are now, so a PC that hasn't joined the Keys workspace can't issue different keys.
 
 Each environment's own keys are only read, never changed or deleted.

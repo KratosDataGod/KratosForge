@@ -530,6 +530,15 @@ def test_only_platform_admins_create_domains_key_tables_and_sources(platform):
     ana.call("remove_admin", user="chris@example.com")
     with pytest.raises(core.PlatformError, match="at least one admin"):
         ana.call("remove_admin", user="ana@example.com")
+    # Only a sign-in name can match a caller, and removing a non-admin isn't recorded as a removal.
+    before = [e for e in ana.call("audit", limit=500) if e["action"] in ("add admin", "remove admin")]
+    for bad in ("ana", "Ana Lopez", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", ""):
+        with pytest.raises(core.PlatformError, match="sign-in name"):
+            ana.call("add_admin", user=bad)
+    with pytest.raises(core.PlatformError, match="lee@example.com isn't a platform admin"):
+        ana.call("remove_admin", user="Lee@Example.com")
+    assert [a["user_name"] for a in ana.call("list_admins")] == ["ana@example.com"]
+    assert [e for e in ana.call("audit", limit=500) if e["action"] in ("add admin", "remove admin")] == before
 
 
 def test_a_new_platform_has_no_admin_until_someone_claims_it(tmp_path):

@@ -60,6 +60,7 @@ from typing import Any, Callable
 
 import requests
 
+from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST
@@ -472,7 +473,7 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     from .meta import LocalStore, OneLakeStore
     if isinstance(store, OneLakeStore):
         if not meta_lakehouse_id:
-            raise LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
+            raise NotSetUp("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
         return OneLakeControl(store.workspace_id, meta_lakehouse_id, token, session)
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")

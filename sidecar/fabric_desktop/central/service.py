@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,7 @@ from ..meta import keys as keys_mod
 from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
+from ..errors import NotSetUp
 from ..redact import describe
 from . import core, home, keys_home
 from . import setup as setup_mod
@@ -206,6 +206,8 @@ class PlatformMixin:
             except Exception as exc:  # noqa: BLE001 - an older platform: nothing has moved yet
                 for done in closed:
                     done.call("close_keys", reason="")
+                if isinstance(exc, (NotSetUp, PermissionError)):
+                    raise  # not an older platform: Finish or repair wouldn't help
                 raise LookupError(f"{env.title()}'s platform can't close its keys for the move ({exc}). Run Finish "
                                   "or repair on it in Settings under Platform, then move the keys again.") from exc
         stopped = ("Nothing switched, and every environment's keys stay closed so they can't change. "
@@ -561,6 +563,8 @@ class PlatformMixin:
                    "a platform admin runs Platform > Settings > Finish or repair once.")
         try:
             return self._catalog().call(op, **kwargs)
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             _log.info("%s: %s", op, describe(exc))
             raise LookupError(missing) from exc

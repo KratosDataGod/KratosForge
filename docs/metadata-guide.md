@@ -65,7 +65,7 @@ When you're ready to use Fabric for Dev, assign it a workspace (step 7) and swit
 | **Can read from** | **Any earlier layer**, or **Only** one earlier layer. The first layer reads files and sources. |
 | **Schema drift** | What happens when a source has a column the contract doesn't: **Keep new columns**, **Ignore new columns**, or **Stop on new columns**. An entity can override this. |
 | **Required checks** | **Key not null** and **Key unique**: every table in the layer must have these checks on its key. |
-| **Surrogate keys: Required** | Every table in the layer must take its keys from LH_Keys. |
+| **Surrogate keys: Required** | Every table in the layer must take its surrogate keys from the environment's key tables ([section 8](#8-surrogate-keys)). |
 | **Keep history** | How many days back a table can be restored (at least 7). VACUUM keeps files this long. |
 | **↑ ↓** and **Remove** | Reorder, or remove a layer with no entities. |
 
@@ -125,6 +125,8 @@ Every hook, custom check and custom step needs an `owner` and a `test`, or the s
 | Type 1 dimension | `scd1` | Merges on the key, overwriting changes. Surrogate keys are issued once and never renumbered. An Unknown member is at -1. |
 | Type 2 dimension | `scd2` | A change in a `tracked` column closes the current row and adds a new version with `valid_from`, `valid_to` and `is_current`. Columns in `type1` are overwritten on every version. |
 
+**Key tables in LH_Keys** are read only as far as a run needs. A run with up to 50,000 business keys reads just their rows, skipping the files whose range of business keys can't hold one. The next key comes from the Delta log's statistics. A run with more business keys reads the key table once, which is quicker than filtering by that many values; a run of 1 million keys against a 2 million key table takes about as long as reading the table. Keys from the platform (SQL_Platform or SQL_Keys) are issued per run in SQL.
+
 Facts use `[[lookup]]` to take a dimension's surrogate key as it was on the fact's date. A fact row whose dimension member doesn't exist gets -1.
 
 ### Large tables
@@ -139,7 +141,35 @@ Replayed quarantine rows go in the same way.
 
 **Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
 
-Full loads and rebuilds replace the whole table. A source too big to read at once can be read **in batches** (Preview): set `batch_by` under `[load]` to a column the source has, usually a date such as `order_date`. A full load, an incremental entity's first load, or a full rebuild then reads the source one batch of that column's values at a time, sorted, with as many rows in a batch as fit in free memory with the copies the later steps make. Each batch goes through every step (contract, keys, cleaning, derived columns, hooks, lookups, checks) on its own, and the batches are streamed into the table, which is replaced in **one Delta commit** at the end: readers see the old table until the whole load has worked, and a load that stops (a check, an error, a closed app) leaves the table as it was. The run shows a **plan batches** step, for example *8 batches by order_date, the largest 1,900,000 rows*, and one step per step name with the batches added up.
+### Late rows and source deletes (Preview)
+
+These are settings in your entity files, not a screen, so **Settings > Preview features** has nothing to hide for them.
+
+By default an incremental run reads rows whose watermark is strictly after the last run's, and never looks at rows it loaded before. That misses two things: a row that arrives late, with a watermark older than the last run's, and a row deleted at the source. Two `[load]` settings, both off by default, cover them for an incremental load of a Delta source (`table`, `link` or `entity`) with `[contract] keys`:
+
+```toml
+[load]
+mode = "incremental"
+watermark = "modified_at"
+lookback = "2 hours"     # read again the rows up to 2 hours before the watermark
+deletes = "soft"         # none (default) | soft | hard
+```
+
+- **`lookback`** moves the read back from the watermark: the run reads rows after *watermark less lookback*. The rows it had already loaded come again and replace themselves through the MERGE on the key, so a late row inside the lookback lands exactly once and nothing lands twice. Use a duration (`"30 minutes"`, `"2 hours"`, `"3 days"`) for a date or datetime watermark (a date watermark goes back whole days, rounded up, so `"2 hours"` reads the watermark's own day again), or a whole number for a numeric one. The watermark itself never moves back. The read step says so, for example *incremental, modified after 2026-10-01T09:00:00+00:00 (the watermark 2026-10-01T11:00:00+00:00 less the lookback 2 hours)*. A row older than the lookback is still missed; a full rebuild (Backfill) picks it up. Changing `lookback` isn't a logic change.
+- **`deletes`** compares keys with the source on every incremental run: it reads every key the source has (only the key columns, renamed, cast and cleaned as the table holds them) and finds the live keys in the table the source no longer has. This reads the source's whole key columns, which costs more than the watermark read, so it's opt-in.
+  - `soft` keeps the row and marks it: the table gets an `is_deleted` (bool) and a `deleted_at` (datetime, UTC) column. Rows the source has are `is_deleted = false`; a deleted key's row is set `is_deleted = true` with `deleted_at` the run's start time in UTC, and keeps that time on later runs. A key that comes back at the source is live again. Turning `soft` on for a table that already exists rewrites it once to add the two columns (every row live). Don't list the two columns in the contract; a table that reads this one can list `is_deleted` to take it.
+  - `hard` removes the row, in the same Delta MERGE commit as the new rows.
+  - The run's **deletes** step says what it compared, for example *compared 999 source keys with 1000 live keys in the table: 1 key gone from the source to mark deleted*, and the write step adds *marked 1 row deleted* or *removed 1 row deleted at the source*. If the source has no rows at all, the run stops instead of marking or removing every row.
+  - **Safety stops.** Before anything is written, the run stops with nothing marked or removed when:
+    - more live keys would go than `max_deletes` allows. The default is `"20%"` of the table's live keys. Set `max_deletes = "50%"` or a whole number of keys under `[load]` when bigger deletes are real. A source that was cut short (a partial export, a truncated table) looks like a mass delete, and this is what catches it. On a small table a share stops on any delete: 20% of 4 live keys is 0 keys. Give a count instead, such as `max_deletes = 5`.
+    - a source key can't be read as the key's type, or a clean rule blanks it. For example, the source's `id` turns into text holding `"three"`. Read leniently, that key would be empty and look gone. A `null_if` rule on a key column does this whenever the source has one of its values, so with deletes on, the run stops until that row is fixed at the source or the rule comes off.
+    - the source has no live rows at all. In a table written with `deletes = "soft"`, a row marked `is_deleted = true` counts as gone.
+  - Deletes are found on incremental runs. A first load, a full rebuild and a quarantine replay don't look for them; the next incremental run does.
+  - An incremental table that reads a `soft` table doesn't get its deletes through the watermark: a marked row keeps its watermark value, so it isn't read again. Set `deletes` on the reading table too. Its comparison treats the keys marked `is_deleted = true` as gone. That applies to a source with both `is_deleted` (true or false) and `deleted_at`, the two columns `soft` writes. Another source's own `is_deleted` column is read as an ordinary column.
+
+A run in Fabric uses the same engine, so it behaves the same. The settings are checked when you save: `lookback` and `deletes` need an incremental load of a Delta source with keys, `deletes` can't be used with a custom step or with keys this entity makes, a lookback is a duration or a whole number, and `max_deletes` is a share like `"20%"` or a whole number.
+
+Full loads and rebuilds replace the whole table. A source too big to read at once can be read **in batches** (Preview): set `batch_by` under `[load]` to a column the source has, usually a date such as `order_date`. A full load, an incremental entity's first load, or a full rebuild then reads the source one batch of that column's values at a time, sorted, with as many rows in a batch as fit in free memory with the copies the later steps make. Each batch goes through every step (contract, keys, cleaning, derived columns, hooks, lookups, checks) on its own, and the batches are streamed into the table, which is replaced in **one Delta commit** at the end: readers see the old table until the whole load has worked, and a load that stops (a check, an error, a closed app) leaves the table as it was. When a check or an error stops a load on this PC, the data files the stream had already written are removed, and a **clean up** step says how many. That happens only if the run still holds the table and no other writer committed to it meanwhile; otherwise they, like the files of a closed app, are left for `VACUUM`, which removes files no version of the table uses. In OneLake nothing is removed and the clean up step says the files are left for `VACUUM`: a Fabric job may be writing the same table, and its files that aren't committed yet can't be told apart from this load's. The run shows a **plan batches** step, for example *8 batches by order_date, the largest 1,900,000 rows*, and one step per step name with the batches added up.
 
 - Batching reads the source column once to count its values, then each batch's rows. When everything fits in one batch, the load is one ordinary read. Measured on a 15 GB PC with a 60 million row table (16 columns, about 13 GB in memory read at once, too big for one read): 6 batches, 52 seconds, peaking at 7.2 GB. The script is `examples/benchmark/batched_loads.py`.
 - A batch never splits one value. When a single value holds more rows than fit, the memory guard stops the run and names that value: batch by a column with more values.
@@ -168,6 +198,16 @@ Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremen
 
 Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
 
+### Schema changes (Preview)
+
+This is how runs treat a table's schema, not a screen of its own, so **Settings > Preview features** has nothing to hide for it. A run changes a table's schema in one of three ways, and records every change.
+
+- **A new column goes in place.** A column the contract adds, or one the drift policy keeps, joins the table in the same MERGE or append as the rows: no Parquet file is rewritten, and older rows read it as empty.
+- **A wider type rewrites the table.** Widening a column in the contract (`int32` to `int64`, `float32` to `float64`, a decimal with more digits) reads the whole table and replaces it, and the write step says so. Delta has a type widening feature that would avoid the rewrite, but the Delta writer KratosForge uses can't write it yet, and it raises the table's Delta protocol beyond what Fabric's SQL analytics endpoint and Direct Lake are known to read, so it stays off.
+- **A narrower type, or a type of another kind, is refused.** As Delta refuses it without `overwriteSchema`, a run that would change `int64` to `int32`, or a number to text, stops before it writes anything, and the table stays as it was. To make the change anyway, set `overwrite_schema = true` under `[contract]` for that run: the table is rewritten with the new types, and every report and table that reads the column sees them. Remove the setting afterwards so the next change is checked again.
+
+Each change goes in `meta.schema_history` with the run, the **Delta version** that made it and the entity's **schema version** (1 for the table's first load, one more for each run that changes the schema). Its `change` is `created`, `added`, `widened`, `narrowed`, `retyped` or `dropped`, and `breaking` is true for the last three, the same rule promote's [breaking-change check](data-mesh.md#data-products) uses for a data product's ports. The **Schema drift** card lists the latest changes.
+
 ### Loads from files read only new files
 
 An incremental or dimension load from files (`files` or `landing`) remembers each file it loaded: its path, size and modified time, in `LH_Meta`'s `meta.loaded_files`. Each run then reads only files that are new or have changed since, instead of every file in the folder. The **read** step says so, for example *1 new file of 30*.
@@ -177,7 +217,7 @@ An incremental or dimension load from files (`files` or `landing`) remembers eac
 - Full loads always read every file.
 - To read every file on each run anyway, set `new_files_only = false` under `[source]`. This isn't a logic change, so it doesn't ask whether to rebuild.
 
-The list is written after the table. A run that fails before its write reads the same files next time. If the table is written but the list can't be, the run says so and the next run reads those files again, which a load with keys absorbs.
+The list is written after the table. A run that fails before its write reads the same files next time. The table's Delta commit also lists the files the run read, so if the table is written but the list can't be saved, the run says so and the next run still skips those files (and saves them to the list), with or without keys. This looks back over the table's last 20 commits, and only at runs that read 5,000 files or fewer.
 
 **When a table's logic changes**, an incremental run stops and asks you to choose:
 
@@ -222,7 +262,7 @@ expires = "2026-11-01"
 | Button | What it does |
 | --- | --- |
 | **Profile** | Reads what the entity reads, every row, on your PC, before cleaning: nulls, distinct values, ranges, lengths, most common values and what looks wrong. It suggests `[[clean]]` rules (trim, turn `N/A` into nulls, fold `Shipped`/`SHIPPED`, parse dates stored as text) and `[[check]]` rules (not null, unique, accepted values, ranges). Tick cleaning rules to see rows before and after; **Add to entity** appends the ticked blocks through the save gate. **Profile its table instead** profiles what was written. |
-| **Compare** | Puts the table in two places side by side: Dev against Test or Prod, or now against an earlier Delta version. Row counts, keys only on one side, columns that changed value for the same key, and how each number column's total moved. |
+| **Compare** | Puts the table in two places side by side: Dev against Test or Prod, or now against an earlier Delta version. Row counts, keys only on one side, columns that changed value for the same key, and how each number column's total moved. A table with more than 5,000,000 rows on either side isn't loaded into memory: KratosForge streams both sides and compares row counts, totals and a checksum of every row instead, and the result says **Compared: counts, totals and a checksum** rather than **Compared: every row by key**. A checksum that differs says some rows differ, not which keys. |
 | **History** (Preview) | Every Delta version: when, what happened, which run. **Restore** brings back an earlier version (as a new version, so it can be undone too), moves an incremental table's watermark back, and offers to run the tables that read it. |
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
@@ -285,12 +325,12 @@ Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each s
 **Promote to Test** (or Prod):
 
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
-2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace, and `LH_Keys` with any missing key tables in the Keys workspace.
-3. Syncs source systems to `LH_Keys` and publishes the `VL_Sources` variable library.
+2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace. Key tables: without a platform, it creates `LH_Keys` in the Keys workspace if it's missing, and any missing key tables in it. With the target's keys in the platform (the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod) `SQL_Keys`, or the environment's `SQL_Platform`), a platform admin's promote creates the missing key tables, and anyone else's lists them as missing, to request on **Data mesh > Requests**.
+3. Writes the source systems to `LH_Keys` (`config.source_system`, `config.source_connection`) when the target's keys are there; with keys in the platform, no source system tables are written. For a target in a Fabric workspace, it also publishes the `VL_Sources` variable library.
 4. Pins the target to this metadata version, recorded in `meta.deployments` with a [release record](#release-records).
 5. If the target runs in Fabric, uploads the new version for its runner.
 
-Promote copies **configuration**, never data and never keys. Each environment issues its own surrogate keys from its own `LH_Keys`, and Test and Prod load from their own sources. After a promote, run the target to load it.
+Promote copies **configuration**, never data and never keys. With one keys database, Dev, Test and Prod issue from the same key tables, so a business key has the same surrogate key everywhere; otherwise each environment issues its own: in its `SQL_Platform`, in `LH_Keys` in its Keys workspace, or, for an environment that runs on this PC, in key tables on this PC. Test and Prod load from their own sources. After a promote, run the target to load it.
 
 ### Release records
 
@@ -335,7 +375,7 @@ require_commit = true    # block even when this environment is on this PC
 
 ### Who can promote
 
-*Preview.* Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
+*Preview*, part of **Promote** and tagged with it. Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
 
 To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
 
@@ -375,7 +415,7 @@ business_key = "customer_id"     # or ["source_code", "customer_id"]
 
 ### Keys in the platform
 
-With a [platform](platform.md) in Fabric, an environment's keys come from `SQL_Platform` instead, one key system for every team. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
+With a [platform](platform.md) in Fabric, an environment's keys come from the platform instead, one key system for every team: from `SQL_Keys` once they've moved into the [one keys database](platform.md#one-keys-database-for-dev-test-and-prod), shared by Dev, Test and Prod, and from that environment's `SQL_Platform` until then. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
 
 In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Data mesh > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
 
@@ -502,8 +542,12 @@ business_key = "order_id"
 | | `watermark` | The column incremental loads move forward on |
 | | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |
 | | `batch_by` | A source column: full loads and rebuilds read the source in batches of its values and replace the table in one commit ([Large tables](#large-tables)) |
+| | `lookback` | How far before the watermark an incremental run reads again, so late rows land: `"2 hours"`, `"30 minutes"`, `"3 days"`, or a whole number for a numeric watermark ([Late rows and source deletes](#late-rows-and-source-deletes-preview)) |
+| | `deletes` | `none` (the default), `soft` or `hard`: what an incremental run does with a key the source no longer has ([Late rows and source deletes](#late-rows-and-source-deletes-preview)) |
+| | `max_deletes` | The most live keys one run may mark or remove before it stops, as a share (`"20%"`, the default) or a whole number of keys ([Late rows and source deletes](#late-rows-and-source-deletes-preview)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
+| | `overwrite_schema` | `true` lets a run narrow a column's type or change it to another kind, rewriting the table (Preview; [Schema changes](#schema-changes-preview)) |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |
 | `[[clean]]` | `column` plus `trim`, `case` (`lower`, `upper`, `title`), `replace` (`{ "old" = "new" }`), `null_if` (a list), `parse_date` (formats like `"dd/MM/yyyy"`), `fill_null`, `round` | Cleaning rules, applied in order |
 | | `dedupe_keep` | `"newest:<column>"` or `"oldest:<column>"`: keep one row per key |
@@ -512,7 +556,7 @@ business_key = "order_id"
 | | `name`, `expr` | A row rule as a SQL expression |
 | | `python`, `owner`, `test` | A custom check |
 | | `on_fail` | `stop`, `quarantine` or `warn` |
-| `[[keys]]` | `table`, `business_key` | Surrogate keys from `LH_Keys` |
+| `[[keys]]` | `table`, `business_key` | Surrogate keys from the environment's key tables (`SQL_Keys`, `SQL_Platform` or `LH_Keys`) |
 | `[[lookup]]` | `dim`, `on`, `as`, `at` | A dimension's surrogate key as of the fact's date |
 | `[scd]` | `surrogate_key`, `tracked`, `type1` | Dimension settings |
 | `[model]` | `date_column` | Makes the dimension the semantic model's date table (see [section 10](#10-semantic-model-preview)) |
@@ -539,7 +583,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `compute` | `local` (this PC) or `fabric` |
 | `keys_workspace_id`, `keys_workspace_name` | Where `LH_Keys` lives |
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
-| `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
+| `keys` | `platform` (keys in the platform: `SQL_Keys` when the organization has one keys database, else `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
 | `require_commit` | Whether promote here takes only files a pushed Git commit holds. On by default for an environment in OneLake, off for one on this PC; `false` or `true` overrides it ([Release records](#release-records)) |
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |

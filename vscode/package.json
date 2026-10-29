@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "kratosbi",
   "private": true,
-  "license": "SEE LICENSE IN README.md",
+  "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/KratosDataGod/KratosForge" },
   "engines": { "vscode": "^1.95.0" },
   "categories": ["Notebooks", "Data Science"],

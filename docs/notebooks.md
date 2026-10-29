@@ -54,7 +54,7 @@ Each cell keeps a stable id (the standard `id` of notebook format 4.5) through e
 | --- | --- |
 | `lakehouse.read_csv(path)`, `read_parquet(path)`, `read_json(path)` | Read a file. `Files/...` paths read from the attached lakehouse; any other path is a file on this PC. Returns a Polars DataFrame. |
 | `lakehouse.read_table("schema.table")` | Read a Delta table. The schema defaults to `dbo`. |
-| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. While it writes, it holds the table's write lease, a small file in the lakehouse's `Files/_fabric_desktop/leases/`. If another notebook, job, metadata run or agent is writing the table, it waits up to 90 seconds, then stops with who is writing it ([agent.md](agent.md)). `df` can also be a stream of batches (a `RecordBatchReader` or DuckDB's `fetch_record_batch`), written as one commit without holding it all in memory. In a notebook that writes **here, then uploads** (the default), it returns at once and the upload runs in the background; the cell ends when its writes are in OneLake ([Writing to OneLake](architecture.md#writing-to-onelake)). A write that fails fails the cell at its end, after the rest of the cell has run; a notebook set to write **straight to OneLake** stops at the failed write instead. An overwrite of the same rows uploads nothing. In Fabric, a stream is written batch by batch too. |
+| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. While it writes, it holds the table's write lease, a small file in the lakehouse's `Files/_fabric_desktop/leases/`. If another notebook, job, metadata run or agent is writing the table, it waits up to 90 seconds, then stops with who is writing it ([agent.md](agent.md)). `df` can also be a stream of batches (a `RecordBatchReader` or DuckDB's `fetch_record_batch`), written as one commit without holding it all in memory. In a notebook that writes **here, then uploads** (the default), it returns at once and the upload runs in the background; the cell ends when its writes are in OneLake ([Writing to OneLake](architecture.md#writing-to-onelake)). A write that fails fails the cell at its end, after the rest of the cell has run; a notebook set to write **straight to OneLake** stops at the failed write instead. An overwrite of the same rows uploads nothing. In Fabric, a stream is written batch by batch too. Column types Delta can't hold are written as Fabric reads them, as a Local data project writes them: unsigned integers as the next larger signed type (UInt64 as DECIMAL(20, 0)) and float16 as float. A TIME, an INTERVAL, a decimal of more than 38 digits, or a column that is NULL in every row (with no type) stops the write with a message saying how to cast it. When you append, a column that is NULL in every row takes the table's type for that column. Every other type is written as it is. |
 | `lakehouse.sql("SELECT ...")` | Run Spark SQL over the attached lakehouse's tables, on this PC, and return a Polars DataFrame. |
 | `lakehouse.has_schemas()` | `False` when the attached lakehouse was created without schemas. |
 
@@ -113,6 +113,7 @@ from pyspark.sql import functions as F
 | `notebook` items (Preview) | `get`, `list` and `getDefinition` read Fabric notebook items as you (the workspace defaults to the attached lakehouse's; `getDefinition` returns the ipynb text). `create`, `update`, `updateDefinition` and `delete` run in Fabric only: on this PC, use **Publish to OneLake**, which shows what it replaces first |
 | `session` | `restartPython()` (and `stop()`) stop the cell and restart Python, clearing variables, as `dbutils.library.restartPython()` does |
 | `lakehouse` (Preview) | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
+| `warehouse`, `connections` | Fabric only. Using them stops the cell with what to do instead: open a warehouse from **Workspaces** to query it on the [Warehouse page](warehouse.md), and read secrets with `credentials.getSecret` from Azure Key Vault |
 | `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
 | `udf` (Preview) | `getFunctions(name, workspaceId)` reads a User data functions item as you (the workspace defaults to the attached lakehouse's): `itemDetails`, and `functionDetails` with each function's parameters, return type and description, read from its code. Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead; run the notebook in Fabric to call it |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)). Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace with its active value set, and the cell says which workspace that was (Fabric reads the notebook's own workspace, so attach a lakehouse there to read the same values); Integer, Number and Boolean variables keep their type. Read only (Preview, not yet run on a tenant) |
@@ -198,6 +199,24 @@ An environment adds Python packages to a notebook, like a Fabric Environment ite
 
 Environments are kept on this PC under the app's data folder, in `environments\`. They aren't published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
 
+#### Compare with a Fabric Environment item (Preview)
+
+Before running in Fabric, check that the Fabric Environment item the notebook will use has the same packages as this PC. It's a command, with no screen in the app yet:
+
+```
+fabric-desktop env-drift --workspace <workspace id> --environment <Environment item id> [--notebook <name>] [--json]
+```
+
+It reads the item's published libraries and its Spark runtime with your sign-in, and the libraries and runtime saved in the item but not yet published. All four calls are read-only, and no Spark session starts. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
+
+- **Missing here**: published to the item, not installed on this PC;
+- **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same, and a version like `>=1.4` is met by any version it allows);
+- **Only here**: in the notebook's environment, not published to the item. Fabric's runtime may still ship it, which the item's libraries don't say.
+
+It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC's engine runs, and when it doesn't know a runtime's Python. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
+
+When the item has **unpublished changes**, the report lists what publishing it would add, remove or change, including a runtime change. Fabric runs what's published, so unpublished changes don't count as drift and don't change the exit code. They do show what the next publish brings in. If the unpublished changes can't be read, the report says so and the comparison with the published libraries stands.
+
 Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 
 ### Cell dependencies and stale outputs (Preview)
@@ -278,7 +297,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
-- **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, and **Enter** goes back to editing.
+- **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, **Tab** moves on to the next cell (a cell's buttons come just before its editor in Tab order, so Tab from the cell above reaches them), and **Enter** goes back to editing.
 
 The ribbon has four tabs:
 
@@ -340,7 +359,7 @@ The note has a button to switch when the other place would work.
 - **On this PC:** Windows Task Scheduler runs the saved notebook in a fresh kernel of its own (not the one open in the app), every code cell in order with its attached lakehouse. Frozen cells are skipped, as Run all skips them, and the run record says how many were. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
-For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
+For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and, for Fabric, the **Time zone**: every Windows time zone, your PC's first, with a search box (a schedule on this PC runs in the PC's own time zone). The same dialog lists the notebook's schedules; **Edit** changes one in place, keeping its runs and whether it is paused, and **Remove** asks first. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 
 ### Recent runs (Preview)
 
@@ -383,7 +402,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | **Export ▾** | Saves the full result as CSV or Parquet in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
-| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
+| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it, asking first when the query has SQL of its own. |
 
 How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › Advanced › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
 
@@ -419,4 +438,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.

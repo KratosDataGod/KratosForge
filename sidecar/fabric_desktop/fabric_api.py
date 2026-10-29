@@ -212,7 +212,7 @@ class FabricClient:
             items.extend(body.get(key, []))
             nxt = body.get("continuationUri")
             try:
-                url = pages.follow(followable_url(nxt, url)) if nxt else ""
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""  # some APIs send the text "null"
             except PagingError as exc:  # a FabricError, so callers that report Fabric errors report this one
                 raise FabricError(str(exc), "PagingStopped") from None
         return items
@@ -312,6 +312,25 @@ class FabricClient:
             return found
         raise FabricError(f"Fabric said it created the lakehouse {name}, but it isn't in the workspace yet. "
                           "Refresh the workspace in a minute, then try again.", "LakehouseNotFoundAfterCreate")
+
+    def environment_libraries(self, workspace_id: str, environment_id: str, staged: bool = False) -> list[dict[str, Any]]:
+        """The libraries published to an Environment item (or, with ``staged``, the ones saved but not
+        yet published): [{"name", "libraryType": External|Custom, "version"}]. Read only (``beta=False``
+        is the GA contract; the preview one has another shape). An empty list answers 404
+        EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+        where = "staging/libraries" if staged else "libraries"
+        try:
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False", key="libraries")
+        except FabricError as exc:
+            if exc.code == "EnvironmentLibrariesNotFound":
+                return []
+            raise
+
+    def environment_spark_compute(self, workspace_id: str, environment_id: str, staged: bool = False) -> dict[str, Any]:
+        """The Environment item's published (or, with ``staged``, unpublished) Spark settings, with
+        ``runtimeVersion``. Read only."""
+        where = "staging/sparkcompute" if staged else "sparkcompute"
+        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False").json()
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
@@ -631,7 +650,7 @@ class FabricClient:
     def list_data_access_roles_tagged(self, workspace_id: str, item_id: str) -> tuple[list[dict[str, Any]], str | None]:
         """The roles and the ETag Fabric gave the list, for put_data_access_roles(etag=) to refuse
         the write if someone changed the roles in between."""
-        url: str | None = f"/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
+        url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
         items: list[dict[str, Any]] = []
         etag = None
         while url:
@@ -639,7 +658,8 @@ class FabricClient:
             etag = etag or resp.headers.get("ETag")
             body = resp.json()
             items.extend(body.get("value", []))
-            url = body.get("continuationUri")
+            nxt = body.get("continuationUri")
+            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # HD-058, as _paged; some APIs send the text "null"
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

@@ -3,7 +3,8 @@
 Governance calls ``platform_notify`` with one event per change (workloads/platform_notify.py has
 the shape); this file keeps the routes in the app's settings and the outbox and dedupe ledger in
 the app's folder. Routes hold Teams webhook addresses, which work like passwords: they are
-never returned to the UI, recorded in the audit log, or written to a backup.
+never returned to the UI, recorded in the audit log, or written to a backup, and settings.json
+holds them encrypted for this Windows account (sealed_settings.py).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+from . import sealed_settings
 from .dataops_service import post_teams
 from .redact import secrets
 from .workloads.notify import Outbox, transaction
@@ -86,10 +88,13 @@ class PlatformNotifyMixin:
         return None
 
     def platform_notify_settings(self) -> dict[str, Any]:
-        """The routes without their webhook addresses: whether one is set, and its host."""
+        """The routes without their webhook addresses: whether one is set, and its host. ``unreadable``:
+        one is saved but this Windows account can't decrypt it (sealed_settings.py), so enter it again."""
         raw = self._pn_raw()
+        lost = (self._settings().get(sealed_settings.UNREADABLE) or {}).get(SETTING) or {}  # type: ignore[attr-defined]
         routes = [{"name": r.get("name", ""), "kinds": r.get("kinds") or [], "domains": r.get("domains") or [],
                    "url_set": bool(r.get("url")), "host": urlparse(r.get("url") or "").hostname or ""}
+                  | ({"unreadable": True} if str(r.get("name", "")) in lost else {})
                   for r in raw.get("routes") or []]
         outbox, _ = self._pn_paths()
         return {"routes": routes, "quiet": raw.get("quiet") or "", "quiet_exempt": raw.get("quiet_exempt") or [],

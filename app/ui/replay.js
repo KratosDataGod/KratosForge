@@ -117,7 +117,7 @@ async function replayOpenDialog() {
     const f = file.files?.[0];
     if (f) await open({ content: replayBase64(await f.arrayBuffer()) });
   });
-  const when = (iso) => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d.toLocaleString() : ""; };
+  const when = (iso) => dateTimeText(iso);
   showDialog("Open a replay bundle", h("div", { class: "replay-dialog" },
     h("p", { class: "muted small" }, "Opens the bundle's cells as a new notebook. Replaying it runs that code on this PC with your sign-in, so read the cells first when someone else sent you the bundle."),
     rows.length ? h("div", { class: "replay-list" }, rows.map((r) => h("div", { class: "replay-row" },
@@ -160,7 +160,7 @@ function replayBody(nb) {
   const r = nb.replay;
   const v = replayView(nb);
   const c = v.check;
-  const when = r.saved_at && !isNaN(new Date(r.saved_at)) ? new Date(r.saved_at).toLocaleString() : "";
+  const when = dateTimeText(r.saved_at);
   const out = [h("div", { class: "replay-title" }, h("b", {}, `Replay of ${r.notebook}, failed at cell ${r.failed_cell}${when ? ` on ${when}` : ""}`), previewTag())];
   if (v.problem) out.push(h("span", { class: "error-text" }, v.problem));
   if (!c) return [...out, h("span", { class: "muted small" }, "Checking the bundle's tables...")];

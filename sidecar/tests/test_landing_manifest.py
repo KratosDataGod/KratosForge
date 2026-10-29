@@ -3,7 +3,7 @@
 import pytest
 
 from fabric_desktop.meta.store import OneLakeStore
-from test_meta import DAY1, DAY2, ORDER_COLS, Repo, edit_entity, landing
+from test_meta import DAY2, ORDER_COLS, Repo, edit_entity, landing
 
 DAY3 = DAY2.replace(day=DAY2.day + 1)
 
@@ -96,8 +96,41 @@ def test_if_the_list_cannot_be_recorded_the_table_is_still_written(repo, monkeyp
         return real(table, rows, **kw)
     monkeypatch.setattr(repo.dev, "meta_append", no_manifest)
     res = repo.engine(DAY2).run("bronze.orders")
-    assert res.status == "ok" and "the next run reads them again" in res.steps[-1].detail
+    assert res.status == "ok" and "couldn't save the list of 1 file read (OSError: OneLake said no)" in res.message
     assert 106 in repo.table("bronze.orders")["order_id"].to_list()
+
+
+def test_files_a_commit_lists_are_not_loaded_again_when_the_list_was_not_saved(tmp_path, monkeypatch):
+    # Without keys nothing absorbs a file read twice: its rows would be appended again.
+    r = Repo(tmp_path / "project")
+    edit_entity(r.root, "bronze.orders", 'mode = "full"', 'mode = "incremental"')
+    edit_entity(r.root, "bronze.orders", 'keys = ["order_id"]', 'keys = []')
+    r.reload()
+    real = r.dev.meta_append
+
+    def no_manifest(table, rows, **kw):
+        if table == "loaded_files":
+            raise OSError("OneLake said no")
+        return real(table, rows, **kw)
+    monkeypatch.setattr(r.dev, "meta_append", no_manifest)
+    first = r.engine().run("bronze.orders")
+    assert first.status == "ok" and "couldn't save the list" in first.message
+    assert r.dev.meta("loaded_files").height == 0
+    rows = r.table("bronze.orders").height
+    monkeypatch.setattr(r.dev, "meta_append", real)
+
+    again = r.engine(DAY2).run("bronze.orders")
+    assert again.status == "ok" and "no new files" in read_step(again), read_step(again)
+    assert r.table("bronze.orders").height == rows
+    saved = r.dev.meta("loaded_files")  # saved now, under the run that read it
+    assert saved["path"].to_list() == ["landing/orders/orders_2026-10-01.csv"]
+    assert saved["run_id"].to_list() == [first.run_id]
+
+    landing(r.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS}\n106,2,2026-10-02,30.00,,shipped,2026-10-02\n")
+    res = r.engine(DAY3).run("bronze.orders")
+    assert res.status == "ok" and read_step(res).startswith("1 new file of 2")
+    assert r.table("bronze.orders").height == rows + 1
+    assert r.dev.meta("loaded_files").height == 2
 
 
 class FakeFiles:
@@ -131,3 +164,39 @@ def test_read_settings_are_not_logic_changes(repo):
                 'files = "landing/orders/*.csv"\nnew_files_only = false')
     repo.reload()
     assert repo.p.fingerprint(repo.p.entities["bronze.orders"]) == before
+
+
+def test_without_the_table_history_the_saved_list_is_used_and_the_run_says_so(repo, monkeypatch):
+    def no_history(*a, **k):
+        raise OSError("OneLake said no")
+    monkeypatch.setattr(repo.dev, "history", no_history)
+    res = repo.engine(DAY2).run("bronze.orders")
+    assert res.status == "ok" and "no new files" in read_step(res)
+    assert any("couldn't read the table's history" in s.detail for s in res.steps)
+
+
+def test_a_run_reading_too_many_files_lists_none_in_its_commit(repo, monkeypatch):
+    import fabric_desktop.meta.engine as engine_mod
+    monkeypatch.setattr(engine_mod, "FILES_IN_COMMIT", 1)
+    for day in ("02", "03"):
+        landing(repo.root, f"landing/orders/orders_2026-10-{day}.csv",
+                f"{ORDER_COLS}\n1{day},2,2026-10-{day},30.00,,shipped,2026-10-{day}\n")
+    res = repo.engine(DAY2).run("bronze.orders")
+    assert res.status == "ok" and any(s.detail.startswith("too many files to list") for s in res.steps)
+    assert engine_mod.FILES_KEY not in repo.dev.history("LH_Bronze", "dbo", "orders", 1)[0]
+
+
+def test_a_refused_type_change_records_no_files_and_the_next_run_reads_them(repo):
+    # The type check (before the commit) and the file list (in the commit) together: a refused
+    # run commits nothing, so its files are neither saved nor found in the table's history.
+    landing(repo.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS}\n106,2,2026-10-02,30.00,,shipped,2026-10-02\n")
+    edit_entity(repo.root, "bronze.orders", 'amount = "float64"', 'amount = "string"')
+    repo.reload()
+    refused = repo.engine(DAY2).run("bronze.orders", backfill="none")
+    assert refused.status == "failed" and "schema change refused" in refused.message
+    assert repo.dev.meta("loaded_files").height == 1  # only the first run's file
+    edit_entity(repo.root, "bronze.orders", 'amount = "string"', 'amount = "float64"')
+    repo.reload()
+    res = repo.engine(DAY2).run("bronze.orders", backfill="none")
+    assert res.status == "ok" and read_step(res).startswith("1 new file of 2"), (res.message, read_step(res))
+    assert 106 in repo.table("bronze.orders")["order_id"].to_list()

@@ -9,26 +9,92 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that pull request's older run, so the
+# queue holds only current heads. Pushes to main each get their own group and
+# are never cancelled, so every main batch still publishes a Preview.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    # What a pull request touches decides which of the slower jobs it needs. Pushes to main run every
+    # job, because the release needs them all and every main batch publishes a Preview. A job left
+    # out here ends as skipped, never failed. On main this job only prints its answers, so it can't
+    # fail and leave the release without the jobs it needs.
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
+      browser: ${{ steps.paths.outputs.browser }}
+      windows: ${{ steps.paths.outputs.windows }}
+      ubuntu: ${{ steps.paths.outputs.ubuntu }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: paths
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
+          # it changes against the base it will merge into.
+          files="$(git diff --name-only HEAD^1 HEAD)"
+          printf 'Changed:\n%s\n' "$files"
+          has() { grep -qE "$1" <<< "$files"; }
+          # Nothing changed (or the diff failed to list anything): run everything.
+          if [ -z "$files" ]; then has() { true; }; fi
+          # Docs only: the docs site, Markdown at the top level and the site config.
+          if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
+          # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
+          if [ "$docs_only" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
+          # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
+          # host list, links), so a docs change runs them here too.
+          if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
+
   sidecar:
+    needs: changes
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
+    # Both entries always exist, so each check always reports; one the pull request doesn't need
+    # skips its steps and passes.
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
       run:
         working-directory: sidecar
     steps:
+      - if: env.RUN_TESTS != 'true'
+        working-directory: .
+        run: echo "This pull request changes nothing these tests cover on ${{ matrix.os }}; skipped."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.RUN_TESTS == 'true'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: env.RUN_TESTS == 'true'
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            sidecar/constraints.txt
+            sidecar/pyproject.toml
       - run: python -m pip install -e ".[dev]" -c constraints.txt
-      - run: python -m pytest -q
+        if: env.RUN_TESTS == 'true'
+      # One worker per core (pytest-xdist); loadfile keeps each test file in one worker, since some
+      # files share module-level state. --durations lists the slowest tests, so slow ones stay visible.
+      - run: python -m pytest -q -n auto --dist loadfile --durations=25
+        if: env.RUN_TESTS == 'true'
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
+        if: env.RUN_TESTS == 'true'
         shell: bash
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
@@ -44,15 +110,34 @@ jobs:
           node-version: "22"
       - run: node --test app/tests/ui.test.cjs
 
+  lint:
+    # Mistakes rather than style in the engine's Python: syntax errors, and names that are unused
+    # or undefined (sidecar/pyproject.toml [tool.ruff]). ruff is already one of the engine's pinned packages.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sidecar
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff -c constraints.txt
+      - run: python -m ruff check --output-format github .
+
   vscode-extension:
     # vscode/: the KratosForge extension compiles, and its client pairs and runs cells through the
     # real engine's editor channel (vscode/test). No VS Code is downloaded.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sidecar/constraints.txt
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -68,15 +153,21 @@ jobs:
   ui-browser:
     # app/tests/browser: the real UI in headless Chromium with the shell stubbed; SQL and Optimize
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
       PLAYWRIGHT_VERSION: "1.56.1"
+      # The accessibility audit's rules (a11y-audit.test.cjs); a new version can add rules, so change it on its own.
+      AXE_CORE_VERSION: "4.10.2"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sidecar/constraints.txt
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
@@ -84,10 +175,10 @@ jobs:
         working-directory: sidecar
       - name: Install Playwright and Chromium
         run: |
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION"
+          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION" "axe-core@$AXE_CORE_VERSION"
           "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
           # The tests skip when Playwright can't be loaded; here that must fail instead.
-          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright')"
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node -e "require('playwright'); require.resolve('axe-core/axe.min.js')"
       # One file at a time: each starts a Chromium and an engine, and running them side by side on
       # a small runner made engine replies miss the tests' 10 s waits.
       - run: node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"
@@ -97,8 +188,12 @@ jobs:
 
   audit:
     # Known vulnerabilities in what the app ships: the engine's pinned Python packages and the
-    # shell's Rust crates. A new advisory turns this red on every pull request until the package
-    # is moved (in its own pull request, per CONTRIBUTING). Releases don't wait for it.
+    # shell's Rust crates. A new advisory turns this red on every pull request, and the release
+    # job waits for it, so Preview doesn't publish a build with it until the package is moved (in
+    # its own pull request, per CONTRIBUTING) or an exception with a lapse date is recorded in
+    # .github/audit-exceptions.txt (.github/scripts/audit_exceptions.py).
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -108,20 +203,45 @@ jobs:
       - name: Python packages (sidecar/constraints.txt)
         run: |
           python -m pip install --quiet pip-audit==2.10.1
-          pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off
+          ignore="$(python .github/scripts/audit_exceptions.py pip)"
+          status=0
+          pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off $ignore \
+            --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
+          [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"
+          exit $status
+      # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
+        with:
+          key: cargo-audit-0.22.2
+          workspaces: app/src-tauri
+          cache-targets: "false"
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Rust crates (app/src-tauri/Cargo.lock)
         run: |
-          cargo install --locked cargo-audit --version 0.22.2
-          cargo audit --file app/src-tauri/Cargo.lock
+          cargo audit --version 2>/dev/null | grep -qwF 0.22.2 || cargo install --locked cargo-audit --version 0.22.2
+          ignore="$(python .github/scripts/audit_exceptions.py cargo)"
+          status=0
+          cargo audit --file app/src-tauri/Cargo.lock $ignore --json > "$RUNNER_TEMP/cargo-audit.json" || status=$?
+          [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint cargo "$RUNNER_TEMP/cargo-audit.json"
+          exit $status
 
   sbom-app:
     # The shell's software bill of materials (every Rust crate in Cargo.lock), attached to releases
     # next to the engine's (built in the engine job from the engine itself).
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Keeps the cargo-cyclonedx binary between runs (~/.cargo/bin); only main writes the cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
+        with:
+          key: cargo-cyclonedx-0.5.9
+          workspaces: app/src-tauri
+          cache-targets: "false"
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: |
-          cargo install --locked cargo-cyclonedx --version 0.5.9
+          cargo cyclonedx --version 2>/dev/null | grep -qwF 0.5.9 || cargo install --locked cargo-cyclonedx --version 0.5.9
           cd app/src-tauri && cargo cyclonedx --format json --override-filename sbom-app
           mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -132,6 +252,8 @@ jobs:
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -143,6 +265,8 @@ jobs:
     # Python (signed by the PSF) plus the sidecar and every package it needs. Windows
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:
@@ -254,6 +378,8 @@ jobs:
     runs-on: windows-latest
     # After the engine, whose zips' checksums the exe carries.
     needs: engine
+    outputs:
+      signed: ${{ steps.signature.outputs.signed }}
     defaults:
       run:
         working-directory: app/src-tauri
@@ -299,6 +425,19 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      # Once signing is set up, a build of main that comes out unsigned stops here instead of being
+      # published: signed apps refuse unsigned updates (signature.rs), and Promote refuses them.
+      - name: Check the exe's signature
+        id: signature
+        shell: pwsh
+        env:
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          $sig = Get-AuthenticodeSignature target\release\kratosforge.exe
+          "The exe's signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          $signed = $sig.Status -eq 'Valid'
+          if ($env:SIGNING -eq 'true' -and -not $signed) { throw "Signing is set up, but the exe isn't validly signed ($($sig.Status)), so it isn't published." }
+          "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
@@ -310,7 +449,7 @@ jobs:
     # exe, and is also kept as a release of its own (build-<sha>) for pinning and rollback.
     # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell, sbom-app]
+    needs: [sidecar, ui, engine, shell, sbom-app, audit]
     runs-on: ubuntu-latest
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
@@ -378,8 +517,9 @@ jobs:
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
+            --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published}' > version.json
+              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.

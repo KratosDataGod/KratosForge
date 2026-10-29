@@ -1,7 +1,6 @@
 """Estate X-ray over local folders laid out like OneLake, and adopting a lakehouse into metadata."""
 
 import datetime as dt
-import os
 import re
 from pathlib import Path
 

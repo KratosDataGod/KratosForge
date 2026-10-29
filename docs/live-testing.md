@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run the first three, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -60,6 +60,8 @@ fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric       
 | Check id | What it does and writes | What it proves |
 | --- | --- | --- |
 | `delta.concurrent` | Two writers append 50 rows each at the same moment to `dbo.livetest_concurrent` in the test lakehouse, through the same write path notebooks and jobs use. Writes to OneLake, which uses capacity. | Both commits land (version 2), the row count is the sum, no row is lost. The detail says which writer had to retry after losing the commit race, if either did. |
+| `lease.onelake` | Holds a table write lease on `dbo.livetest_lease` (a small file under `Files/_fabric_desktop/leases` in the test lakehouse) and, while it is held, has a second writer try to take it, replace it with a stale ETag and wait for it. A few small OneLake writes, which use capacity. | OneLake honours the conditional requests (`If-None-Match: *`, `If-Match`) that per-table write leases rely on, so two KratosForge writers never write one table at once. If it fails, two writers can overlap on that tenant. |
+| `delta.merge_profile` | Writes `dbo.livetest_merge`, then runs `MERGE INTO ... WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *` on it the way the app's SQL does, under the table's lease. Writes 4 rows to OneLake, which uses capacity. | The MERGE lands (one row updated, one inserted) and the table stays in the Fabric-safe Delta profile (reader 1, writer 2, no deletion vectors), so Fabric's SQL analytics endpoint and Direct Lake still read it. |
 | `notebook.publish` | Publishes a two-cell notebook item `fdlt_<run id>_nb` the way **Publish to Fabric** does, reads its definition back and compares the cells. Creating an item uses capacity. | Publishing and reading notebook definitions work with your tenant. |
 | `pipeline.definition` | Creates a DataPipeline item `fdlt_<run id>_pl` with one Wait activity, reads its definition back, parses it and exports it again. Creating an item uses capacity. | The app reads Fabric's pipeline definitions and round-trips them without loss. |
 | `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |

@@ -297,7 +297,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
-- **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, and **Enter** goes back to editing.
+- **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, **Tab** moves on to the next cell (a cell's buttons come just before its editor in Tab order, so Tab from the cell above reaches them), and **Enter** goes back to editing.
 
 The ribbon has four tabs:
 
@@ -402,7 +402,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | **Export ▾** | Saves the full result as CSV or Parquet in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
-| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
+| **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. **×**, or **Delete** on the tab, closes it, asking first when the query has SQL of its own. |
 
 How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › Advanced › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
 

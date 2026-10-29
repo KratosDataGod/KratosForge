@@ -16,6 +16,7 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 mod deep_link;
 mod engine_patch;
 mod exe_name;
+mod folder_pick;
 mod policy_file;
 mod policy_trust;
 mod replies;
@@ -2101,6 +2102,20 @@ fn add_to_vscode(client_id: String, insiders: bool) -> Result<(), String> {
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
+/// Browse… beside a folder box (#971): the Windows folder dialog, owned by the window that asked.
+/// Returns the chosen folder, or None when the person cancels. The dialog gets a thread of its
+/// own, so it never shares a COM apartment with anything else.
+#[tauri::command]
+async fn pick_folder(window: tauri::Window, start: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick(owner, start)).join())
+        .await.map_err(|e| e.to_string())?
+        .map_err(|_| "The folder dialog stopped unexpectedly".to_string())?
+}
+
 /// Opens one of this repository's docs pages in the default browser, such as
 /// "xray-fixes.md#small-files". Only pages under docs/ on GitHub.
 #[tauri::command]
@@ -2251,7 +2266,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())

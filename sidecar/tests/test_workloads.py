@@ -4,7 +4,6 @@ Local stores are real (a metadata project, notebooks, schedules, the management 
 Fabric is a fake. Nothing here talks to a tenant."""
 
 import datetime as dt
-import json
 import time
 import types
 

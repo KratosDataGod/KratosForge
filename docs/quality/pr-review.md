@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #939 2b0a2071, #998 2eb27cbb | RM carries after #1011 (ruff gate) and #1023 merged | PASS 9.2, PASS 9.3 carried | #939: delta identical to 22ad2a8d except for one dropped line, `import re` in central/service.py, which #939's own change left unused (no `re.` left in the file). `ruff check .` passes; merges clean; RM reports 105 passed. #998: delta identical to a9fbfb74; CONTRIBUTING.md keeps the pytest lines, then main's ruff line, then #998's preview, sign-in and run lines (checked with remerge-diff); merges clean. |
+
 | 2026-10-29 | #951 7bfa3d79 | Every axe "needs a look" item has a person's verdict: main merged in after #926 and #932 | PASS 9.2 carried | Carried from 44f8608e. Against main the delta is 7 files (+43/-23): the JUDGED table, its "every undecided check has a verdict" test, verdict text in report(), arrows aria-hidden, gutter, placeholder and null colors moved to var(--muted), and the arrow color #8a8a8a. The tab roles and the inventory follow main (#926), so neither appears in the delta. The audit doc was re-run, and its rows and verdicts match the code. Merges clean. ui.test 306/0; a11y audit 4/4 twice. |
 
 | 2026-10-29 | #998 a9fbfb74 | RM conflict-resolution carry after #926 merged | PASS 9.3 carried | Carried from e10d4232: the delta is identical. Checked with remerge-diff: notebooks.md takes main's Command mode line (with #926's Tab note) and keeps #998's "Hide a cell's code or output" line. Merges clean. RM reports test_release and test_updater 60 passed. |

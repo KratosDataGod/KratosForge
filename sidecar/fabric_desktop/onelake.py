@@ -14,6 +14,7 @@ from urllib.parse import unquote
 import requests
 
 from . import http_session
+from .paging import Pages
 from .retrying import send_with_retry
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
@@ -157,6 +158,7 @@ class FileStore:
         if max_results:
             params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
+        pages = Pages(f"{directory or 'Files'} in OneLake")
         while True:
             resp = self._read(url, params=dict(params), timeout=60)
             resp.raise_for_status()
@@ -168,7 +170,7 @@ class FileStore:
             token = resp.headers.get("x-ms-continuation")
             if not token or max_results:
                 break
-            params["continuation"] = token
+            params["continuation"] = pages.follow(token)
         return sorted(entries, key=lambda e: (not e["is_dir"], e["name"].lower()))
 
     def probe(self, workspace_id: str, lakehouse_id: str, directory: str) -> tuple[int | None, str]:

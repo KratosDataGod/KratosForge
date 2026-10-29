@@ -12,6 +12,7 @@ import requests
 from urllib3.util import parse_url
 
 from . import http_session
+from .paging import Pages, PagingError
 from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -205,11 +206,15 @@ class FabricClient:
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         url = url if url.startswith("http") else f"{API}{url}"
+        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric")
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+            try:
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+            except PagingError as exc:  # a FabricError, so callers that report Fabric errors report this one
+                raise FabricError(str(exc), "PagingStopped") from None
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:

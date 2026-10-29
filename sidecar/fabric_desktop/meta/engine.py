@@ -647,13 +647,17 @@ class Engine:
         if gone.height > allowed:
             said = f"{limit * 100:g}%" if kind == "share" else plural(int(limit), "key")
             raise CheckStop(f"load deletes: {plural(gone.height, 'key')} of {plural(have.height, 'live key')} in "
-                            f"{e.name} are gone from the source, more than max_deletes allows ({said}). Nothing was "
+                            f"{e.name} {'is' if gone.height == 1 else 'are'} gone from the source, more than "
+                            f"max_deletes allows ({said}). Nothing was "
                             "written. A source cut short looks like this: check it, and raise [load] max_deletes "
                             "if the deletes are real")
         what = "to mark deleted" if e.deletes == "soft" else "to remove"
+        earlier = next((i for i, st in enumerate(res.steps) if st.name == "deletes"), None)
         self._step(res, "deletes", t0, gone.height,
                    f"compared {plural(source.height, 'source key')} with {plural(have.height, 'live key')} "
                    f"in the table: {plural(gone.height, 'key')} gone from the source {what}")
+        if earlier is not None:  # a retry after a commit conflict compares again: its step replaces the first
+            res.steps[earlier] = res.steps.pop()
         return gone
 
     def _tombstones(self, e: Entity, gone: pl.DataFrame) -> pl.DataFrame:

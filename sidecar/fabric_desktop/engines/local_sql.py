@@ -396,6 +396,12 @@ def _statements(code: str) -> list[str]:
     return [s for s in out if s.strip(" ;\n\t")]
 
 
+def _sqlite_table(names: list[str], rows: list[Any]) -> pa.Table:
+    columns = list(zip(*rows)) if rows else [[] for _ in names]
+    return pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
+                                  for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
+
+
 def _sqlite_authorizer(action: int, *_args: Any) -> int:
     """ATTACH and DETACH would open or create another database file; everything else is the session's own."""
     return sqlite3.SQLITE_DENY if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH) else sqlite3.SQLITE_OK
@@ -427,18 +433,24 @@ class SQLiteSession(_SqlSession):
         if cur.description is None:
             return None, 0
         names = [d[0] for d in cur.description]
-        kept = cur.fetchmany(max(request.preview_rows, request.result_rows))
-        total = len(kept)
-        while True:
-            more = cur.fetchmany(10_000)
-            if not more:
+        keep = max(request.preview_rows, request.result_rows)
+        kept: list[Any] = []
+        total = size = 0
+        while True:   # in batches, so a whole result is checked against RESULT_BYTES as it is read
+            batch = cur.fetchmany(10_000)
+            if not batch:
                 break
-            total += len(more)
-            if request.result_rows > 0:
+            total += len(batch)
+            if request.result_rows > 0 and total > request.result_rows:
                 raise _too_many(request.result_rows)
-        columns = list(zip(*kept)) if kept else [[] for _ in names]
-        table = pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
-                                       for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
+            if len(kept) < keep:
+                part = batch[:keep - len(kept)]
+                kept.extend(part)
+                if request.result_rows > 0:
+                    size += _sqlite_table(names, part).nbytes
+                    if size > RESULT_BYTES:
+                        raise _too_big()
+        table = _sqlite_table(names, kept)
         return self._keep(table, total, request)
 
     def _interrupt(self) -> None:

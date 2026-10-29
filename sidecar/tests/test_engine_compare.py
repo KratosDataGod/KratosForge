@@ -173,3 +173,14 @@ def test_a_key_only_one_side_has_is_reported(duck, lite):
     report = cmp.compare(duck, lite, sql(QUERY), right_request=sql("SELECT id AS ident, name, amount FROM t"),
                          rules={"keys": ["id"]})
     assert report["result"] == "not_compared" and "Key column" in report["problem"]
+
+
+def test_sqlite_checks_the_byte_cap_while_reading(lite, monkeypatch):
+    monkeypatch.setattr(local_sql, "RESULT_BYTES", 64)
+    seen = []
+    real = local_sql._sqlite_table
+    monkeypatch.setattr(local_sql, "_sqlite_table", lambda names, rows: seen.append(len(rows)) or real(names, rows))
+    code = "WITH RECURSIVE r(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM r WHERE i < 24999) SELECT i FROM r"
+    res = lite.execute(sql(code, rows=25_000))
+    assert res.status == "error" and "larger than" in res.outputs[-1]["evalue"]
+    assert seen == [10_000]   # stopped at the first batch, never read all 25,000 rows into one table

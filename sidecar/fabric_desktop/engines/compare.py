@@ -10,7 +10,8 @@ Refused before anything runs:
 - an engine that doesn't claim the ``result`` capability (the report quotes its note);
 - a remote engine, unless ``copy_confirmed``. Returning a remote result copies the platform's data
   onto this PC, and copying across platforms is never implicit: the caller passes
-  ``copy_confirmed=True`` only after its own confirm for that copy. Opening the session is not it.
+  ``copy_confirmed=True`` only after a confirm made for that copy, naming the engine and target, and
+  recorded in the audit log; never from a stored setting. Opening the session is not it.
 
 The left side runs first; if it fails, the right side doesn't run (it may be billed). verify names
 the two sides ``pc`` and ``fabric``; in this report ``pc`` is the left engine and ``fabric`` the right.

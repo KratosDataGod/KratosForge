@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #993 105a5276 | SF-00 Snowflake connection profiles, main merge | PASS at 105a5276 (carried from 3e2f0b50) | 9.2 | Second quality reviewer. The change set against main is identical. Needs Chris's go. |
+
+| #995 8a4bd0da | SF-04 Snowflake SQL on this PC, main merge | PASS at 8a4bd0da (carried from d7990305) | 9.1 | Second quality reviewer. The change set against main is identical. Needs Chris's go. |
+
 | #975 9daada28 | CI speed: test leak fix + main merge | PASS | 9.2 | Main 1c2ba84b merged; tornado now comes from main. The new fix: test_small_ipython_magics sets KF_TEST_VALUE and KF_TEST_TOKEN through monkeypatch first, so the values %env writes into os.environ are removed after the test, and dbconnect's secret-gone test on the same xdist worker no longer sees KF_TEST_TOKEN. The two tests in one process: 2 passed. Merges main cleanly. notebook_magics, dbconnect, silent_except 85 passed. |
 
 | #1005 e8f70b9a | Offline sign-in (WS6 offline branch), main merge | PASS at e8f70b9a (carried from cb0ced89) | 9.3 | The PR's own delta is identical to cb0ced89 (sorted +/- lines compared against the merge-base), and it merges main 1c2ba84b cleanly. Owner's run with a dead proxy: offline_sign_in, sign_in_errors, silent_except 19 passed. |

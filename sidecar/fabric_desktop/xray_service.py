@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import logging
@@ -13,8 +14,8 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import app_settings, maintenance, risk, xray
-from .auth import FABRIC_SCOPES
+from . import app_settings, http_session, maintenance, risk, xray
+from .auth import FABRIC_SCOPES, POWERBI_DATAFLOW_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
@@ -201,9 +202,12 @@ class XRayMixin:
             prefix = f"abfss://{r['workspace_id']}@"
             n_adopted = sum(1 for a in adopted if a.startswith(prefix) and f"/{r['lakehouse_id']}/" in a)
             rows.append(r | {"managed": (r["workspace_id"], r["lakehouse_name"]) in managed, "adopted": n_adopted})
+        removed = self._settings().get("xray_removed") or {}  # type: ignore[attr-defined]
         findings = []
         for f in result.get("findings", []):
             fix = fixes.get(_finding_id(f))
+            if _finding_id(f) in removed:  # a leftover removed since this scan: nothing to wait for
+                fix = {"state": "fixed", "removed_at": removed[_finding_id(f)]}
             findings.append(f | {"id": _finding_id(f), "fixed": bool(fix and fix["state"] == "fixed"), "fix": fix})
         return result | {"lakehouse_rows": rows, "findings": findings}
 
@@ -335,6 +339,156 @@ class XRayMixin:
                                     "item_id": lakehouse_id, "job_id": job_id})
         return run | {"keep_days": days, "why": why}
 
+    # ---- leftover Dataflow Gen2 staging lakehouses
+
+    def _staging_check(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """Whether one staging lakehouse can be removed, read live from Fabric and OneLake (never
+        from the scan): it must still exist with a staging name, a newer staging lakehouse must
+        exist in the same workspace, and nothing may have been written to its Tables or Files for
+        STAGING_QUIET_DAYS, and every dataflow in the workspace must show it doesn't stage there
+        (_staging_dataflows). Anything that can't be read keeps it. Read only."""
+        if not _GUID.fullmatch(str(workspace_id or "")):
+            raise ValueError("Pick a workspace: its Fabric id is needed.")
+        now = dt.datetime.now(dt.timezone.utc)
+        group = [{"workspace_id": workspace_id, "workspace_name": "", "lakehouse_id": lh["id"], "lakehouse_name": lh["displayName"]}
+                 for lh in FabricClient(self.auth.fabric_token).list_lakehouses(workspace_id)]  # type: ignore[attr-defined]
+        me = next((lh for lh in group if lh["lakehouse_id"] == lakehouse_id), None)
+        if me is None:
+            raise ValueError("That lakehouse isn't in the workspace any more. Scan again.")
+        name = me["lakehouse_name"]
+        made = xray.staging_created(name)
+        out: dict[str, Any] = {"lakehouse_name": name, "created": made.isoformat(timespec="seconds") if made else None,
+                               "kept": None, "files": None, "bytes": None, "last_write": None,
+                               "quiet_days": xray.STAGING_QUIET_DAYS, "allowed": bool(app_settings.value("allow_staging_cleanup")),
+                               "ok": False, "why": []}
+        if not made:
+            out["why"].append(f"{name} isn't named like a Dataflow Gen2 staging lakehouse, so it isn't removed from here.")
+            return out
+        newest, older = xray.staging_split([lh for lh in group if xray.is_staging(lh["lakehouse_name"])])
+        out["kept"] = newest["lakehouse_name"] if newest else None
+        if lakehouse_id not in {lh["lakehouse_id"] for lh in older}:
+            out["why"].append(f"{name} is the newest staging lakehouse in this workspace, so dataflows may be staging in it.")
+        files = FileStore(self.auth.storage_token)  # type: ignore[attr-defined]
+        entries: list[dict[str, Any]] = []
+        try:
+            for folder in ("Tables", "Files"):
+                entries += [e for e in files.list(workspace_id, lakehouse_id, folder, recursive=True)]
+        except Exception as exc:  # noqa: BLE001 - not knowing what's in it keeps it
+            out["why"].append(f"Its tables and files couldn't be read ({describe(exc)}), so whether it's still used isn't known.")
+            return out
+        out["files"] = sum(1 for e in entries if not e["is_dir"])
+        out["bytes"] = sum(e["size"] for e in entries if not e["is_dir"])
+        stamps = [e["modified"] for e in entries if e.get("modified")]
+        last = max(stamps) if stamps else made.isoformat(timespec="seconds")
+        out["last_write"] = last if stamps else None
+        idle = xray._days_since(last, now)
+        if idle is None or idle < xray.STAGING_QUIET_DAYS:
+            out["why"].append(f"Something was written to it {idle} day{'s' if idle != 1 else ''} ago" if stamps and idle is not None
+                              else f"It was made {idle} day{'s' if idle != 1 else ''} ago" if idle is not None
+                              else "When it was last written isn't known")
+            out["why"][-1] += f", less than {xray.STAGING_QUIET_DAYS} days, so a dataflow may still be using it."
+        out["dataflows"] = self._staging_dataflows(workspace_id, lakehouse_id, name, _when(last), out["why"])
+        if not out["allowed"]:
+            out["why"].append("Your organization turned off removing staging lakehouses (allow_staging_cleanup in its policy file).")
+        out["ok"] = not out["why"]
+        return out
+
+    def _staging_dataflows(self, workspace_id: str, lakehouse_id: str, name: str, last_write: dt.datetime | None,
+                           why: list[str]) -> list[dict[str, Any]]:
+        """The proof that no dataflow in the workspace stages in this lakehouse: every dataflow has
+        a completed refresh that started after the lakehouse was last written (so a dataflow staging
+        there would have written to it since), and no dataflow's definition names it. Fabric doesn't
+        say which staging lakehouse a dataflow uses, so a dataflow that can't be shown not to use it
+        (never refreshed, history gone, definition unreadable) keeps it. Adds the reasons to ``why``;
+        returns one row per dataflow. Read only: getDefinition is a POST but changes nothing."""
+        fabric = FabricClient(self.auth.fabric_token)  # type: ignore[attr-defined]
+        try:
+            flows = [it for it in fabric.list_items(workspace_id) if it.get("type") == "Dataflow"]
+        except Exception as exc:  # noqa: BLE001 - not knowing the dataflows keeps it
+            why.append(f"The workspace's dataflows couldn't be listed ({describe(exc)}), so whether one stages in it isn't known.")
+            return []
+        if not flows:
+            why.append("Fabric lists no Dataflow Gen2 items in this workspace, and older dataflows aren't listed by its API, "
+                       "so whether one stages in it isn't known.")
+            return []
+        try:
+            fabric_ids = {str(f.get("id") or "").lower() for f in flows}
+            unlisted = [d for d in self._powerbi_dataflows(workspace_id) if str(d.get("objectId") or "").lower() not in fabric_ids]
+        except Exception as exc:  # noqa: BLE001 - the older dataflows unknown: one may stage there
+            why.append(f"Power BI's list of the workspace's dataflows couldn't be read ({describe(exc)}). It's the only list "
+                       "with older dataflows (Gen1, and Gen2 without CI/CD), so whether one stages in it isn't known.")
+            unlisted = []
+        if unlisted:
+            names = ", ".join(sorted(str(d.get("name") or d.get("objectId")) for d in unlisted))
+            why.append(f"Older dataflows Fabric's API doesn't describe are in this workspace ({names}), and which staging "
+                       "lakehouse they use can't be shown.")
+        if last_write is None:
+            why.append("When it was last written isn't known, so refreshes can't show it's unused.")
+        rows = []
+        for flow in flows:
+            row = {"name": flow.get("displayName") or "", "item_id": flow.get("id") or "", "last_refresh": None,
+                   "names_it": None, "ok": False}
+            rows.append(row)
+            try:
+                text = _definition_text(fabric.get_item_definition(workspace_id, row["item_id"]))
+                row["names_it"] = any(re.search(rf"(?<![\w-]){re.escape(word)}(?![\w-])", text, re.IGNORECASE)
+                                      for word in (lakehouse_id, name))
+            except Exception as exc:  # noqa: BLE001 - an unread definition might name it
+                why.append(f"The definition of {row['name']} couldn't be read ({describe(exc)}).")
+                continue
+            if row["names_it"]:
+                why.append(f"The definition of {row['name']} names it.")
+                continue
+            try:
+                done = [j for j in fabric.list_job_instances(workspace_id, row["item_id"]) if j.get("status") == "Completed"]
+            except Exception as exc:  # noqa: BLE001 - no history: no proof
+                why.append(f"The refreshes of {row['name']} couldn't be read ({describe(exc)}).")
+                continue
+            started = max((t for t in (_when(j.get("startTimeUtc")) for j in done) if t), default=None)
+            row["last_refresh"] = started.isoformat(timespec="seconds") if started else None
+            if started is None:
+                why.append(f"{row['name']} has no completed refresh Fabric still lists, so it may stage there when it next runs.")
+            elif last_write is not None and started < last_write + STAGING_MARGIN:
+                why.append(f"{row['name']} last refreshed before the lakehouse was last written, so it may stage there.")
+            else:
+                row["ok"] = last_write is not None
+        return rows
+
+    def _powerbi_dataflows(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Every dataflow Power BI lists in the workspace: Gen1 and Dataflow Gen2 without CI/CD, which
+        Fabric's items API leaves out ({"objectId", "name"}). Raises when it can't be read."""
+        token = self.auth._token(POWERBI_DATAFLOW_SCOPES)  # type: ignore[attr-defined]
+        r = http_session.session().get(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/dataflows",
+                                       headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        r.raise_for_status()
+        return list(r.json().get("value") or [])
+
+    def xray_staging_preview(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
+        """What removing one leftover staging lakehouse would delete, and anything that stops it."""
+        return self._staging_check(workspace_id, lakehouse_id)
+
+    def xray_remove_staging(self, workspace_id: str, lakehouse_id: str, lakehouse_name: str,
+                            workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
+        """Delete one leftover staging lakehouse in Fabric, after checking again everything the
+        preview checked. ``lakehouse_name`` is the name the person confirmed: a lakehouse renamed
+        since is not deleted."""
+        check = self._staging_check(workspace_id, lakehouse_id)
+        if check["lakehouse_name"] != lakehouse_name:
+            raise ValueError(f"The lakehouse is now called {check['lakehouse_name']}, not {lakehouse_name}. Nothing was deleted; scan again.")
+        if not check["ok"]:
+            raise ValueError(f"{lakehouse_name} wasn't deleted. " + " ".join(check["why"]))
+        FabricClient(self.auth.fabric_token).delete_lakehouse(workspace_id, lakehouse_id)  # type: ignore[attr-defined]
+        removed_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        _log.info("Removed leftover staging lakehouse %s (%s) in workspace %s; kept %s",
+                  lakehouse_name, lakehouse_id, workspace_name or workspace_id, check["kept"])
+        if finding_id:
+            cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=90)).isoformat(timespec="seconds")
+            removed = {k: v for k, v in (self._settings().get("xray_removed") or {}).items()  # type: ignore[attr-defined]
+                       if str(v) >= cutoff}  # long gone from every scan: no need to keep them
+            removed[finding_id] = removed_at
+            self._save_settings(xray_removed=removed)  # type: ignore[attr-defined]
+        return check | {"removed_at": removed_at}
+
     # ---- adopt a lakehouse into the metadata project
 
     def _source_table(self, workspace_id: str, lakehouse_id: str, schema: str | None, table: str) -> tuple[str, DeltaTable]:
@@ -399,6 +553,38 @@ class XRayMixin:
 
 def _table_schema(table: DeltaTable) -> pl.Schema:
     return pl.from_arrow(pa.schema(table.schema().to_arrow()).empty_table()).schema  # type: ignore[union-attr]
+
+
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+STAGING_MARGIN = dt.timedelta(hours=1)  # a refresh must start this long after the last write: clocks differ
+
+
+def _when(iso: Any) -> dt.datetime | None:
+    """An ISO time as UTC, or None."""
+    if not iso:
+        return None
+    try:
+        t = dt.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
+def _definition_text(definition: dict[str, Any]) -> str:
+    """Every part of an item definition, decoded, as one text to search. A definition with no
+    parts is unreadable, not proof of anything."""
+    parts = (definition.get("definition") or definition).get("parts") or []
+    out = []
+    for part in parts:
+        payload = part.get("payload") or ""
+        try:
+            out.append(base64.b64decode(payload).decode("utf-8", "replace") if part.get("payloadType", "InlineBase64") == "InlineBase64" else str(payload))
+        except ValueError:
+            out.append(str(payload))
+        out.append(str(part.get("path") or ""))
+    if not parts:
+        raise ValueError("Fabric returned no definition parts")
+    return "\n".join(out)
 
 
 def _finding_id(f: dict[str, Any]) -> str:

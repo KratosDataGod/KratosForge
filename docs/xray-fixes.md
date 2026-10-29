@@ -12,6 +12,7 @@ Each finding links here. Every section says what the finding means, why it matte
 | [Cost](#cost) | Worth fixing ($10 or more in 30 days), otherwise Good to know | **Open notebook** or **See cost** |
 | [Not changing](#not-changing) | Good to know | **Open in Fabric** |
 | [Needs vacuum](#needs-vacuum) | Good to know | **Vacuum** |
+| [Leftover staging lakehouses](#leftover-staging-lakehouses) | Good to know | **Remove** |
 | [Empty lakehouses](#empty-lakehouses) | Good to know | **Open in Fabric** |
 
 The scan reads at most 500 tables. Scans run when you press **Scan now** or **Scan again** (the very first one on a PC starts by itself), and **Pause** holds a scan where it is.
@@ -117,6 +118,25 @@ The estimate leaves out Spark session start-up. Fabric's **Capacity Metrics** ap
 So **Restore** and time travel still reach back as far as the layer promises. With the **Needs vacuum** filter on, **Vacuum all** starts one job per table, each keeping its own history. **Optimize** on a small-files finding keeps the same history when it vacuums.
 
 **By hand.** As for small files, with only **Run VACUUM command** ticked, or `VACUUM my_table RETAIN 168 HOURS;` in a notebook (use the layer's days times 24 for metadata tables). Don't go below 7 days: a shorter retention can break queries running at the time, and you lose restore to those versions.
+
+## Leftover staging lakehouses
+
+**What it means.** Dataflow Gen2 stages data in a lakehouse it creates itself, named `StagingLakehouseForDataflows_` and the time it was made (for example `StagingLakehouseForDataflows_20260926153358`). A workspace can end up with several. The finding lists every one except the newest in its workspace. The older single `DataflowsStagingLakehouse` is never listed.
+
+**Why it matters.** A leftover still holds the data it staged, and you pay OneLake storage for it. It also clutters the workspace.
+
+**How the one in use is kept.** Fabric doesn't say which staging lakehouse a dataflow uses, so Remove is careful:
+
+- The newest staging lakehouse in a workspace is never offered. A name dated more than a day ahead is never offered either, and doesn't count as the newest.
+- An older one can be removed only when nothing in its Tables or Files has been written for 30 days (an empty one counts from when it was made).
+- Every Dataflow Gen2 in the workspace must show it doesn't stage there: its definition doesn't name the lakehouse, and it has a completed refresh that started after the lakehouse was last written (a dataflow staging there would have written to it). A dataflow that never refreshed, whose history Fabric no longer lists, or whose definition can't be read keeps it, and so does a workspace where Fabric lists no dataflows. Older dataflows (Gen1, and Dataflow Gen2 without CI/CD) aren't in Fabric's API, so Remove also reads Power BI's list of the workspace's dataflows (`Dataflow.Read.All`, asked on first use): any dataflow there that Fabric doesn't describe keeps the lakehouse, and so does a list that can't be read. Power BI lists only the dataflows you can see, so use Remove with the Member or Admin role in the workspace.
+- If its tables and files can't be read, it stays.
+
+The scan doesn't read the tables inside any staging lakehouse, and it never suggests Optimize, Vacuum or other fixes for them, because Fabric manages them.
+
+**What Remove does.** It checks everything above again, live from Fabric and OneLake. Then it shows the workspace, when the lakehouse was made and last written, how many files and how much storage it holds, which staging lakehouse is kept, and each dataflow it checked. When something keeps it, it says why and nothing can be deleted. Otherwise **Remove...** opens a red confirm, and **Delete lakehouse** stays off until you type `delete`. The app then checks again and deletes that one lakehouse with its tables and files through the Fabric API (shortcut targets stay). A lakehouse renamed since the check isn't deleted. Fabric may not let you get it back. The `StagingWarehouseForDataflows_` warehouse made at the same time is left alone. Remove is only in the app: it isn't offered over MCP or the local API. IT can turn Remove off with `allow_staging_cleanup: false`; the findings still show.
+
+**By hand.** Open the workspace in Fabric, check that no dataflow refresh wrote to the lakehouse lately, and delete it from its **...** menu. Keep the newest one.
 
 ## Empty lakehouses
 

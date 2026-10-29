@@ -52,6 +52,8 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_staging_cleanup  IT only: false stops the Estate X-ray deleting leftover Dataflow Gen2
+                     staging lakehouses; it still lists them (default true)
     allow_notebook_packages  IT only: false stops people installing packages into notebook
                      environments (environments.py); the engine's own packages still work
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
@@ -137,7 +139,8 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
-                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True}
+                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True,
+                            "allow_staging_cleanup": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -147,7 +150,7 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
-                                            "forge_animations": bool}
+                                            "forge_animations": bool, "allow_staging_cleanup": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
              "forge_animations")
@@ -223,7 +226,7 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
                               "allow_dbconnect_install": False,
-                              "platform_presence": False}
+                              "platform_presence": False, "allow_staging_cleanup": False}
 
 
 def policy_path() -> Path:

@@ -284,7 +284,8 @@ class FabricClient:
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
-        harness calls this, for lakehouses it created itself."""
+        harness (for lakehouses it created itself) and X-ray's Remove (for a leftover Dataflow Gen2
+        staging lakehouse, after xray_service._staging_check) call this."""
         self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
 
     def delete_item(self, workspace_id: str, item_id: str) -> None:

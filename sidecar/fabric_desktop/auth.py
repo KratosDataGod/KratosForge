@@ -65,6 +65,9 @@ TENANT_WRITE_SCOPES = ["https://api.fabric.microsoft.com/Tenant.ReadWrite.All"]
 # Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
 # as Workspace.ReadWrite.All above), so no directory permission is needed for it.
 POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+# Listing a workspace's older dataflows (Gen1 and Dataflow Gen2 without CI/CD), which Fabric's items
+# API leaves out, before the Estate X-ray removes a staging lakehouse (Power BI's API; on first use).
+POWERBI_DATAFLOW_SCOPES = ["https://analysis.windows.net/powerbi/api/Dataflow.Read.All"]
 # Reading endorsement with Power BI's admin tenant scan (api.powerbi.com, the same Power BI Service
 # Tenant.Read.All as above, asked for Power BI's address). Only a Fabric administrator can use it, and
 # only they are asked for it, when they choose Scan now on a data product (Preview).

@@ -2563,6 +2563,26 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   .avatar { border: 1px solid CanvasText; }
 }
 
+/* Home > Recent notebooks: details, Run several and items pinned to Home (home-notebooks.js) */
+.home-recent .home-run-bar { gap: 8px; align-items: center; margin-bottom: 6px; }
+.home-notebooks th.tick, .home-notebooks td.tick { width: 32px; }
+.chip-s { display: inline-block; padding: 1px 8px; border: 1px solid var(--border-input); border-radius: 10px; font-size: 12px; white-space: nowrap; }
+.home-run.ok { color: #0e700e; }
+.home-run.failed { color: var(--danger); }
+.home-run-going { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.home-run-going .progress { width: 140px; }
+.home-pin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 10px; }
+.home-pin { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.home-pin-name { font-weight: 600; text-align: left; }
+.home-run-confirm h3 { margin: 12px 0 6px; font-size: 14px; }
+.home-run-list, .home-run-fabric { border: 1px solid var(--border); border-radius: 6px; }
+.home-run-fabric { padding-bottom: 6px; margin-bottom: 8px; }
+.home-run-fabric .risk-panel { margin: 6px 12px 0; }
+.home-run-row { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
+.home-run-row:last-child { border-bottom: 0; }
+.home-run-parallel { gap: 8px; align-items: center; margin: 8px 0 4px; }
+.home-parallel { width: 52px; }
+
 /* Learn (learn.js) */
 .learn-body { display: flex; flex-direction: column; gap: 16px; }
 .learn-eyebrow { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }

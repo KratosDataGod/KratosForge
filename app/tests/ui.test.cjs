@@ -5478,6 +5478,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],

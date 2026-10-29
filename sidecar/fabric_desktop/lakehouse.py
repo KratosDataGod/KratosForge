@@ -38,6 +38,8 @@ from .retrying import data_upload_dropped
 _log = logging.getLogger(__name__)
 
 MODES = ("overwrite", "append")
+# The write history names a notebook's table write "Notebook write to <lakehouse>"; costs.py tells it from a job run by this.
+WRITE_JOB_PREFIX = "Notebook write to "
 
 
 @dataclass(frozen=True)
@@ -557,7 +559,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         _record_table(ref, result.delta_version if skipped else
                       result.delta_version - 1 if result.delta_version > 0 else None, "write", lh)
         if lh.history_file:
-            record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
+            record = {"job": f"{WRITE_JOB_PREFIX}{lh.name}", "table_uri": ref.uri, "mode": mode,
                       "rows": result.rows, "delta_version": result.delta_version,
                       "seconds": round(time.monotonic() - started, 2),
                       "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

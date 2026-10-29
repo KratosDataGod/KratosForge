@@ -209,9 +209,9 @@ function enterEditMode(cell = selectedCell()) {
 function renderExplorer() {
   const lh = nbLakehouse(state.notebook);
   const fromLocations = nbData(state.notebook).from === "locations";
-  const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
-    onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
+  const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(state.explorerTab === id), onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
+  const tabs = h("div", { class: "explorer-tabs", role: "tablist", "aria-label": "Explorer" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {
@@ -986,6 +986,8 @@ function renderOutput(o, cell) {
   // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
+  // Snowflake SQL translated to DuckDB (snowflake_sql.py): the per-statement report, as text.
+  if (o.type === "translation") return h("div", { class: "output translation-output" }, h("pre", {}, String(o.text ?? "")));
   return h("div", { class: "output" }, h("pre", {}, JSON.stringify(o)));
 }
 
@@ -1484,7 +1486,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
     cell.seconds = (performance.now() - started) / 1000;
   }
   if (cell.paused) dbgSnapshot(cell, null);
-  cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.finishedAt = timeText(new Date());
   cell.partial = code != null;
   setKernel(nb.stopRequested ? "stopped" : "idle", nb);
   if (state.notebook !== nb) return ok;  // finished in the background; reopening shows it

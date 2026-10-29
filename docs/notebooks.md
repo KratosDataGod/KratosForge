@@ -113,6 +113,7 @@ from pyspark.sql import functions as F
 | `notebook` items (Preview) | `get`, `list` and `getDefinition` read Fabric notebook items as you (the workspace defaults to the attached lakehouse's; `getDefinition` returns the ipynb text). `create`, `update`, `updateDefinition` and `delete` run in Fabric only: on this PC, use **Publish to OneLake**, which shows what it replaces first |
 | `session` | `restartPython()` (and `stop()`) stop the cell and restart Python, clearing variables, as `dbutils.library.restartPython()` does |
 | `lakehouse` (Preview) | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
+| `warehouse`, `connections` | Fabric only. Using them stops the cell with what to do instead: open a warehouse from **Workspaces** to query it on the [Warehouse page](warehouse.md), and read secrets with `credentials.getSecret` from Azure Key Vault |
 | `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
 | `udf` (Preview) | `getFunctions(name, workspaceId)` reads a User data functions item as you (the workspace defaults to the attached lakehouse's): `itemDetails`, and `functionDetails` with each function's parameters, return type and description, read from its code. Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead; run the notebook in Fabric to call it |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)). Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace with its active value set, and the cell says which workspace that was (Fabric reads the notebook's own workspace, so attach a lakehouse there to read the same values); Integer, Number and Boolean variables keep their type. Read only (Preview, not yet run on a tenant) |
@@ -197,6 +198,24 @@ An environment adds Python packages to a notebook, like a Fabric Environment ite
 - Your organization can turn installs off (`allow_notebook_packages` in the policy file, [azure-setup.md](azure-setup.md)); notebooks then use the app's packages only.
 
 Environments are kept on this PC under the app's data folder, in `environments\`. They aren't published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
+
+#### Compare with a Fabric Environment item (Preview)
+
+Before running in Fabric, check that the Fabric Environment item the notebook will use has the same packages as this PC. It's a command, with no screen in the app yet:
+
+```
+fabric-desktop env-drift --workspace <workspace id> --environment <Environment item id> [--notebook <name>] [--json]
+```
+
+It reads the item's published libraries and its Spark runtime with your sign-in, and the libraries and runtime saved in the item but not yet published. All four calls are read-only, and no Spark session starts. It compares them with the app's own packages plus, with `--notebook`, that notebook's environment, and lists each library as:
+
+- **Missing here**: published to the item, not installed on this PC;
+- **Different version**: on both, at different versions (`1.0` and `1.0.0` count as the same, and a version like `>=1.4` is met by any version it allows);
+- **Only here**: in the notebook's environment, not published to the item. Fabric's runtime may still ship it, which the item's libraries don't say.
+
+It also says when the runtime's Python (runtime 1.3 runs Python 3.11, 1.1 and 1.2 run 3.10) isn't the Python this PC's engine runs, and when it doesn't know a runtime's Python. Uploaded `.jar`, `.py` and R files are listed as not compared; a wheel is compared by the name and version in its file name. An item you can't read (no access, a wrong id, deleted) gives **Couldn't compare**, with the reason, and never stops a run. The exit code is 0 for no drift, 1 for drift, and 2 when the item couldn't be read.
+
+When the item has **unpublished changes**, the report lists what publishing it would add, remove or change, including a runtime change. Fabric runs what's published, so unpublished changes don't count as drift and don't change the exit code. They do show what the next publish brings in. If the unpublished changes can't be read, the report says so and the comparison with the published libraries stands.
 
 Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 
@@ -340,7 +359,7 @@ The note has a button to switch when the other place would work.
 - **On this PC:** Windows Task Scheduler runs the saved notebook in a fresh kernel of its own (not the one open in the app), every code cell in order with its attached lakehouse. Frozen cells are skipped, as Run all skips them, and the run record says how many were. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
-For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
+For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and, for Fabric, the **Time zone**: every Windows time zone, your PC's first, with a search box (a schedule on this PC runs in the PC's own time zone). The same dialog lists the notebook's schedules; **Edit** changes one in place, keeping its runs and whether it is paused, and **Remove** asks first. All schedules are also in **Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules**.
 
 ### Recent runs (Preview)
 
@@ -419,4 +438,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.

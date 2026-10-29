@@ -172,7 +172,8 @@ async function renderMetadata() {
   const inProject = group[3] === "project";
   if (inProject) m.projectTab = m.tab;  // Project opens where you left it
   const shownGroups = (section) => META_TAB_GROUPS.filter(([, , tabs, sec]) => sec === section && visible(tabs).length);
-  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) },
+  const groupTab = ([id, label, tabs]) => h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id),
+    onclick: () => goMeta(visible(tabs)[0][0]) },
     label, metaGroupPreview(tabs) ? previewTag() : null);
   const tabLabel = (label, previewId) => {
     const node = h("span", {}, label);
@@ -191,9 +192,9 @@ async function renderMetadata() {
         { title: `Run every entity in ${ENV_LABEL[m.env]} on a schedule, on this PC or in Fabric` })),
       btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
         { disabled: p.errors.length ? true : null })] : null,
-    tabs: [h("div", { class: "subtabs meta-groups" }, shownGroups("mesh").map(groupTab),
-      h("button", { class: `tab${inProject ? " active" : ""}`, onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
-    inProject ? h("div", { class: "subtabs meta-project-groups", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, shownGroups("mesh").map(groupTab),
+      h("button", { class: `tab${inProject ? " active" : ""}`, role: "tab", "aria-selected": String(inProject), onclick: () => goMeta(m.projectTab || "entities") }, "Project")),
+    inProject ? h("div", { class: "subtabs meta-project-groups", role: "tablist", "aria-label": "Project" }, shownGroups("project").map(groupTab)) : null],
     // Problems and ending exceptions show on every tab: runs and promote stay blocked until they're fixed.
     banners: [problemsBanner(p.errors), exceptionBanner(p), policyEnding],
     groupSeg: visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
@@ -221,8 +222,8 @@ function renderMetaNoProject(p) {
     intro: pageIntro("Your organization's data products, the requests on them and who owns what. ", learnMore("data-mesh")),
     // Set up a project is the page's own button, before the tab's so the tab's primary stays last.
     actions: null,
-    tabs: [h("div", { class: "subtabs meta-groups" }, groups.map(([id, label, tabs]) =>
-      h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(shown(tabs)[0][0]) },
+    tabs: [h("div", { class: "subtabs meta-groups", role: "tablist", "aria-label": "Data mesh" }, groups.map(([id, label, tabs]) =>
+      h("button", { class: `tab${group[0] === id ? " active" : ""}`, role: "tab", "aria-selected": String(group[0] === id), onclick: () => goMeta(shown(tabs)[0][0]) },
         label, metaGroupPreview(tabs) ? previewTag() : null)))],
     banners: [],
     groupSeg: shown(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, shown(group[2]).map(([id, label]) =>
@@ -483,7 +484,9 @@ async function renderEntity() {
   if (state.view !== "entity" || !e) return;
   state.meta.entity = e;
   if (!state.meta.project) { await loadMetaProject(); renderEnvBar(); }
-  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false" });
+  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false", "aria-label": "Entity file (TOML)",
+    "aria-description": "Tab types four spaces. Press Esc, then Tab, to move on; Shift+Tab always goes back.",
+    "data-esc-tab": "" });  // the accessibility audit leaves it with Esc, then Tab
   editor.value = e.text;
   const dirty = () => editor.value !== e.text;
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
@@ -495,10 +498,16 @@ async function renderEntity() {
     if (res.name !== e.name) state.meta.entity = { name: res.name };
     render();
   };
+  // Tab indents; Esc, then Tab, moves focus on, as in the code editors, so Tab never traps focus here (#928).
+  let leaving = false;
   editor.addEventListener("keydown", (ev) => {
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); save(); }
-    if (ev.key === "Tab") { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key === "Escape") { leaving = true; return; }
+    if (ev.key === "Tab" && !ev.shiftKey && !leaving) { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key !== "Shift") leaving = false;
   });
+  editor.addEventListener("blur", () => { leaving = false; });
+  editor.addEventListener("mousedown", () => { leaving = false; });  // a click after Esc goes back to typing
 
   const cols = Object.entries(e.columns).map(([c, t]) => h("div", { class: "col-row" },
     h("span", { class: "mono" }, c), h("span", { class: "muted-text mono" }, t),
@@ -595,7 +604,7 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
     let settled = false;
     let why = null;
     const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v && why ? why.value.trim() : v); };
-    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const cancel = btn(opts.cancelLabel || "Cancel", null, () => done(false), "tool outline");
     const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
     let typed = null;
     if (opts.reason) {
@@ -768,7 +777,7 @@ function showRunResults(results, decision) {
 async function showRun(runId, env = state.meta.env) {
   const r = await metaCall("meta_run_detail", { run_id: runId, env });
   if (!r) return;
-  showDialog(`${r.entity} · ${new Date(r.started_at).toLocaleString()}`, h("div", { class: "scroll" },
+  showDialog(`${r.entity} · ${dateTimeText(r.started_at)}`, h("div", { class: "scroll" },
     h("div", { class: "row wrap" }, statusPill(r.status), h("span", { class: "muted-text" }, `Run ${r.run_id} · ${ranOn(r)}${r.job_id ? ` · job ${r.job_id}` : ""}${r.attempt > 1 ? ` · try ${r.attempt}` : ""} · metadata ${r.metadata} · ${r.seconds}s`)),
     r.message ? h("p", { class: "text" }, r.message) : null,
     h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Step", "Rows", "Time", "Result"].map((c) => h("th", {}, c)))),
@@ -1118,7 +1127,7 @@ function keyTableDetail(t, k, rerender) {
     const res = await metaCall("meta_key_lookup", { table: t.name, value: input.value, env: k.env });
     if (res === undefined) return;
     answer.replaceChildren(res ? h("span", {}, h("span", { class: "mono" }, res.bk), " is ", h("b", { class: "mono" }, String(res.sk)),
-      `, created ${new Date(res.create_date).toLocaleString()}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
+      `, created ${dateTimeText(res.create_date)}.`) : `No ${t.bk} ${input.value.trim()} yet. The first run that sees it gives it a key.`);
   };
   input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") find(); });
   return h("div", { class: "card pad side-panel" },
@@ -1343,7 +1352,8 @@ async function moveSourcesToPlatform(own, env, done) {
 // The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
 registerShortcuts("Entity page", [
   { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
-  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces", when: () => state.view === "entity" },
+  { keys: ["Esc"], label: "In the entity file: the next Tab moves on instead of typing spaces (Shift+Tab always goes back)", when: () => state.view === "entity" },
 ]);
 
 registerFeature({
@@ -1364,15 +1374,8 @@ registerFeature({
 
 // ---------- table health ----------
 
-function formatBytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function shortDate(iso) {
-  return iso ? new Date(iso).toLocaleString() : "never";
+  return dateTimeText(iso, { empty: "never" });
 }
 
 async function renderHealthTab(body) {
@@ -1415,7 +1418,7 @@ async function renderHealthTab(body) {
       h("td", {}, h("span", { class: "mono" }, t.entity)),
       h("td", {}, t.layer ? layerChip(t.layer) : h("span", { class: "muted-text" }, "run metadata")),
       t.exists ? [
-        h("td", { class: "n" }, t.files), h("td", { class: "n" }, formatBytes(t.bytes)), h("td", { class: "n" }, formatBytes(t.avg_file_bytes)),
+        h("td", { class: "n" }, t.files), h("td", { class: "n" }, sizeText(t.bytes)), h("td", { class: "n" }, sizeText(t.avg_file_bytes)),
         hl.local ? null : h("td", {}, t.v_ordered ? h("span", { class: "pill-s pass" }, "Yes") : h("span", { class: "pill-s wrn" }, "No")),
         h("td", { class: "n" }, t.versions_since_vacuum), h("td", {}, shortDate(t.last_optimize)),
         h("td", {}, t.advice.length ? h("ul", { class: "gate-list" }, t.advice.map((a) => h("li", {}, a))) : h("span", { class: "pill-s pass" }, "Healthy")),
@@ -1703,10 +1706,10 @@ function directLakeResult(out, plan, updateModel) {
           t.exists ? [
             h("td", { class: over(t.rows, lim?.rows) }, num(t.rows)), h("td", { class: over(t.files, lim?.files) }, num(t.files)),
             h("td", { class: over(t.row_groups, lim?.row_groups) }, (t.row_groups_estimated ? "about " : "") + num(t.row_groups)),
-            h("td", { class: "n" }, formatBytes(t.bytes))]
+            h("td", { class: "n" }, sizeText(t.bytes))]
             : h("td", { colspan: 4, class: "muted-text" }, "No Delta table")))),
         lim?.model_bytes ? h("tfoot", {}, h("tr", {}, h("td", { colspan: 5, class: "muted-text" }, "Model total"),
-          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${formatBytes(out.model_bytes)} of ${formatBytes(lim.model_bytes)}`))) : null),
+          h("td", { class: over(out.model_bytes, lim.model_bytes) }, `${sizeText(out.model_bytes)} of ${sizeText(lim.model_bytes)}`))) : null),
       h("p", { class: "muted-text" }, "Row groups come from each file's Parquet footer, up to 200 files a table; above that they're estimated from a sample and marked \"about\".")) : null,
     h("p", { class: "muted-text" }, `Checked ${relTime(out.checked_at)}.`));
 }

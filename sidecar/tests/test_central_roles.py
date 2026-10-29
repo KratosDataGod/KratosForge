@@ -62,7 +62,6 @@ ANYONE = {
     "ensure_policy_schema": "Finish or repair, as ensure_schema",
     "ensure_template_schema": "Finish or repair, as ensure_schema",
     "issue_keys": 'core.py: "everyone: ... issuing keys from existing key tables"',
-    "import_keys": "Move keys: same numbers only, a key already there with another number is refused",
     "register_project": "core.py register_project: \"the first to record a project owns it\" (later changes: members)",
     "register_link": 'core.py: "everyone: ... links" (refused when the product is not open to the project)',
     "save_enrichment": 'core.py: "everyone: ... catalog text"',
@@ -73,8 +72,10 @@ ANYONE = {
     "follow_product": "a person follows a product for themselves",
     "unfollow_product": "a person stops following a product for themselves",
     "log_workload_action": "log_workload_action: the caller's own action, on the audit",
-    "record_shortcuts": "a scan of lakehouses the caller can read, recorded for everyone",
-    "record_shortcut_health": "a scan's health check, recorded for everyone",
+    "record_shortcuts": "a scan anyone may report; a removal or repoint applies only from an admin or a member "
+                        "of a project with a product in that lakehouse, and is otherwise skipped or reported",
+    "record_shortcut_health": "anyone may report a shortcut broken; any other result applies only from an "
+                              "admin or a member of a project with a product in that lakehouse",
     "log_shortcut_change": "a shortcut change the caller made from the app",
     "claim_admin": "claim_admin: only while the platform has no admin",
     "claim_exception_warning": "policy.py: one PC claims an exception's ending notice so only one posts it",
@@ -142,6 +143,7 @@ def _shortcut(db):
 # Each role write: (operation, who may, arguments from the seeded database).
 ROLE_WRITES = [
     ("ensure_key_table", ADMIN, lambda db: {"name": "supplier"}),
+    ("import_keys", ADMIN, lambda db: {"name": "customer", "rows": [[7, "C-7", "2026-01-01"]]}),
     ("close_keys", ADMIN, lambda db: {"reason": "moving"}),
     ("stage_keys", ADMIN, lambda db: {"staging": True}),
     ("clear_keys", ADMIN, lambda db: core.stage_keys(db, True, by=ADMIN) and {}),

@@ -2,6 +2,7 @@ import base64
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pyarrow as pa
@@ -137,14 +138,35 @@ def test_save_notebook_creates_then_updates_the_fabric_item():
 
 
 def test_server_keeps_prints_out_of_the_protocol_and_speaks_utf8(tmp_path):
-    request = json.dumps({"id": 1, "method": "run_cell", "params": {
-        "code": "import os\nos.write(1, b'native noise')\nprint('h\u00e9llo \u2713')\n2 * 21"}}, ensure_ascii=False)
-    proc = subprocess.run([sys.executable, "-m", "fabric_desktop.server"], input=request + "\n",
-                          capture_output=True, encoding="utf-8", timeout=120,
-                          env={"LOCALAPPDATA": str(tmp_path), **_base_env()})
-    response = json.loads(proc.stdout)  # exactly one JSON line, nothing else
-    assert response["result"]["outputs"] == [{"type": "stream", "text": "h\u00e9llo \u2713\n"}, {"type": "text", "text": "42"}]
-    assert "native noise" in proc.stderr
+    err = (tmp_path / "stderr.txt").open("w+", encoding="utf-8")  # a file, so a full pipe can't stall the engine
+    proc = subprocess.Popen([sys.executable, "-m", "fabric_desktop.server"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=err, encoding="utf-8",
+                            env={"LOCALAPPDATA": str(tmp_path), **_base_env()})
+    hung = threading.Timer(120, proc.kill)  # a hung engine fails the test instead of blocking readline forever
+    hung.start()
+
+    def ask(rid, method, **params):
+        proc.stdin.write(json.dumps({"id": rid, "method": method, "params": params}, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        response = json.loads(proc.stdout.readline())  # each reply is exactly one JSON line, nothing else
+        assert response["id"] == rid and "error" not in response, response
+        return response["result"]
+
+    try:
+        ask(1, "start_cell", code="import os\nos.write(1, b'native noise')\nprint('h\u00e9llo \u2713')\n2 * 21")
+        version, rid = -1, 2
+        while (result := ask(rid, "poll_cell", version=version, wait=2))["status"] == "running" and rid < 300:
+            version, rid = result["version"], rid + 1
+        result = ask(rid + 1, "poll_cell", version=-1)  # -1: all of the finished cell's outputs
+        assert result["outputs"] == [{"type": "stream", "text": "h\u00e9llo \u2713\n"}, {"type": "text", "text": "42"}]
+        proc.stdin.close()
+        assert proc.stdout.read() == ""  # the noise went to stderr, not between the replies
+        proc.wait(timeout=60)
+        assert "native noise" in (tmp_path / "stderr.txt").read_text(encoding="utf-8")
+    finally:
+        hung.cancel()
+        proc.kill()
+        err.close()
 
 
 def _base_env():

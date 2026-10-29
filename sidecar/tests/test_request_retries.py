@@ -160,13 +160,19 @@ class FabricDomains:
     """Fabric's admin domains API, which refuses a second domain of the same name with a 409."""
 
     def __init__(self):
-        self.created = []
+        self.created, self.domains = [], []
 
     def create_admin_domain(self, name, description="", parent_id=""):
-        if any(n.lower() == name.lower() for n, _ in self.created):
+        if any(d["displayName"].lower() == name.lower() for d in self.domains):
             raise FabricError(f"POST /admin/domains failed with 409: {name} already exists", status=409)
         self.created.append((name, parent_id))
-        return {"id": f"f-{name.lower()}", "displayName": name}
+        made = {"id": f"f-{name.lower()}", "displayName": name, "description": description,
+                "parentDomainId": parent_id}
+        self.domains.append(made)
+        return dict(made)
+
+    def list_admin_domains(self):
+        return [dict(d) for d in self.domains]
 
 
 @pytest.mark.parametrize("when", ["before", "after"])
@@ -179,12 +185,8 @@ def test_a_domain_approval_failing_at_fabric_never_makes_the_domain_twice(svc, w
     fabric.create_admin_domain = fail_once(fabric, "create_admin_domain", when)
     with pytest.raises(requests_service.StepError, match="Create the domain HR in Fabric failed"):
         svc.platform_decide(req["id"], True)
-    if when == "before":
-        assert svc.platform_decide(req["id"], True)["status"] == "approved"
-    else:
-        # Fabric made it but the answer was lost: approving again is refused by Fabric's 409 with
-        # the way out (Import from Fabric), the request stays waiting, and nothing is made twice.
-        with pytest.raises(requests_service.StepError, match="Fabric already has a domain called HR. Choose Import"):
-            svc.platform_decide(req["id"], True)
-        assert [r["id"] for r in svc.platform_requests("waiting")] == [req["id"]]
+    # Fabric made it but the answer was lost ("after"): approving again finds the domain by this
+    # request's marker and keeps it (#1042), so either way Fabric holds one HR.
+    assert svc.platform_decide(req["id"], True)["status"] == "approved"
     assert fabric.created == [("HR", "")]
+    assert [d["fabric_domain"] for d in svc.platform_domains() if d["name"] == "HR"] == ["f-hr"]

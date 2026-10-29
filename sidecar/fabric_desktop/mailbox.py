@@ -64,6 +64,7 @@ from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST
+from .paging import Pages
 from .redact import describe
 from .retrying import send_with_retry
 
@@ -103,6 +104,7 @@ class OneLakeControl(OneLakeBackend):
         params = {"resource": "filesystem", "recursive": "false",
                   "directory": f"{self.lakehouse_id}/{CONTROL_DIR}/{folder}"}
         names: list[str] = []
+        pages = Pages(f"the {folder} mailbox folder")
         while True:
             resp = send_with_retry(lambda: self._http.get(url, params=dict(params), headers=self._headers(),
                                                           timeout=60), "GET", sleep=self._sleep)
@@ -114,7 +116,7 @@ class OneLakeControl(OneLakeBackend):
             token = resp.headers.get("x-ms-continuation")
             if not token:
                 return sorted(n for n in names if n.endswith(".json"))
-            params["continuation"] = token
+            params["continuation"] = pages.follow(token)
 
 
 def _iso(t: float) -> str:

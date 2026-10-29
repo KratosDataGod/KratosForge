@@ -31,6 +31,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
 | **Account circle** | Top right | Your initial, or **?** when signed out. Opens the account menu. |
+| **Browse…** | Beside every box that asks for a folder on this PC | Opens the Windows folder dialog and puts the folder you pick in the box. **Cancel** leaves the box as it was, and you can still type or paste a path. A folder your organization sets has no **Browse…**. |
 | **Info button** | Title bar, beside the page's title | Opens the page's one-line explanation and its **How this works** panel (what the page reads, what it changes, where results go) as a drawer. With **Settings > Appearance > Layout > Explanations** set to **Beside the page**, they show on the page instead ([Layout](#layout)). |
 
 ### Command bar (Ctrl+K)
@@ -443,7 +444,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 - **Full screen** hides the app's top bar, left rail and tabs, so Fabric fills the window under a slim row of these buttons. **Exit full screen**, or Esc when the app (not Fabric) has the keys, brings them back. The app remembers it: the tab opens in full screen until you leave it. Keys you press inside Fabric go to Fabric, so the button is the sure way out.
 - **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on the app's own [Warehouse page](warehouse.md). On any other Fabric page it says to open one first. It reads only the address of the page Fabric shows.
 
-It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. It opens in the tenant of your app sign-in, which skips Fabric's email page. Otherwise sign in once; the app keeps that sign-in's cookies between launches, encrypted for your Windows account (DPAPI) in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
 **How this works**, from the title bar's info button, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
 

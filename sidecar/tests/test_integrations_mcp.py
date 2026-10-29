@@ -1,7 +1,6 @@
 """The MCP server (integrations/mcp_server.py), driven by the official MCP SDK's own client: in
 memory on both protocol eras, and as the real `fabric-desktop mcp` process over stdio."""
 
-import dataclasses
 import json
 import os
 import sys

@@ -356,7 +356,7 @@ function gitNewDialog(kind = "notebooks") {
   showDialog("New repository", h("div", { class: "git-form" },
     h("p", { class: "text" }, "A new Git repository on this PC for one kind of definition, with that kind's starting files. Nothing is sent anywhere until you add a remote and push."),
     h("div", { class: "field" }, "It holds", radios), holds,
-    h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Into this folder", parent), err),
+    h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Into this folder", folderField(parent, "the folder to create it in")), err),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Create repository", null, ok, "tool primary")]);
   setTimeout(() => name.focus(), 50);
 }
@@ -872,7 +872,7 @@ function gitSettingsTab(st) {
 // ---------- open, clone, init ----------
 
 function gitPathDialog(title, intro, fields, okLabel, run) {
-  const inputs = fields.map((f) => h("input", { value: f.value || "", placeholder: f.placeholder || "" }));
+  const inputs = fields.map((f) => h("input", { value: f.value || "", placeholder: f.placeholder || "", "aria-label": f.label }));
   const err = h("p", { class: "field-error" });
   const ok = async () => {
     err.textContent = "";
@@ -880,13 +880,13 @@ function gitPathDialog(title, intro, fields, okLabel, run) {
   };
   inputs.forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); }));
   showDialog(title, h("div", { class: "git-form" }, h("p", { class: "text" }, intro),
-    fields.map((f, i) => h("label", { class: "field" }, f.label, inputs[i])), err),
+    fields.map((f, i) => h("label", { class: "field" }, f.label, f.folder ? folderField(inputs[i], f.folder) : inputs[i])), err),
   [btn("Cancel", null, closeDialog, "tool outline"), btn(okLabel, null, ok, "tool primary")]);
 }
 
 function gitOpenDialog() {
   gitPathDialog("Open a repository", "The folder of a Git repository on this PC (any folder inside it works).",
-    [{ label: "Folder", placeholder: "C:\\Users\\you\\source\\repos\\project" }], "Open", async (path) => {
+    [{ label: "Folder", folder: "the repository's folder", placeholder: "C:\\Users\\you\\source\\repos\\project" }], "Open", async (path) => {
       const st = await rpc("git_open", { path });
       await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
     });
@@ -894,7 +894,7 @@ function gitOpenDialog() {
 
 function gitInitDialog(path = "", kind = null) {
   gitPathDialog("Start a new repository", "Makes this folder a Git repository on this PC. Nothing is sent anywhere until you add a remote and push.",
-    [{ label: "Folder", value: path, placeholder: "C:\\Users\\you\\source\\repos\\new-project" }, { label: "First branch", value: "main" }], "Start repository",
+    [{ label: "Folder", folder: "the folder", value: path, placeholder: "C:\\Users\\you\\source\\repos\\new-project" }, { label: "First branch", value: "main" }], "Start repository",
     async (folder, branch) => {
       const st = await rpc("git_init", { path: folder, branch: branch || "main", kind });
       await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
@@ -905,7 +905,7 @@ function gitInitDialog(path = "", kind = null) {
 function gitCloneDialog() {
   gitPathDialog("Clone a repository", "Copies a repository to this PC. If it needs a sign-in, Git Credential Manager opens its own window; the app never sees your password.",
     [{ label: "Repository address", placeholder: "https://github.com/org/repo.git" },
-      { label: "Into this folder", value: gitPage.info?.clone_folder || "", placeholder: "C:\\Users\\you\\source\\repos" },
+      { label: "Into this folder", folder: "the folder to clone into", value: gitPage.info?.clone_folder || "", placeholder: "C:\\Users\\you\\source\\repos" },
       { label: "Folder name (optional)", placeholder: "Named after the repository" }], "Clone",
     async (url, parent, name) => {
       const op = await rpc("git_clone_start", { url, parent, name: name || null });

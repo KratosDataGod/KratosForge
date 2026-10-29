@@ -34,17 +34,26 @@ POLICY = {"id": "table-names", "name": "Table names are snake_case", "category":
           "enforcement": "warn", "rule": "table_name_pattern",
           "params": {"pattern": {"value": "^[a-z][a-z0-9_]*$", "stricter": "fixed"}}}
 
-# Operations that only read. They take no caller, or take one only to shape what they show.
+# Operations that only read, with arguments for each that needs some. They take no caller, or take one
+# only to shape what they show; a test runs each one as an admin and as someone with no role, and finds
+# nothing changed.
+# (list_policy_templates and the product term and item lists make their tables if they are missing, which
+# changes nothing on a platform that has them.)
 READS = {
-    "audit", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats", "keys_state",
-    "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_glossary", "list_grants",
-    "list_key_tables", "list_landing_zones", "list_policies", "list_policy_exceptions", "list_product_items",
-    "list_products", "list_projects", "list_seen_shortcuts", "list_shortcut_risks", "list_sources", "lookup_key",
-    "owner_coverage", "policies_ready", "policy_applicability", "policy_history", "policy_options",
-    "policy_snapshot", "policy_version", "product_history", "resolve_policies", "resolve_port", "shortcut_changes",
-    "shortcut_rules", "whoami", "list_follows", "product_followers", "list_requests", "access_reviews",
-    "list_project_members", "product_trust", "list_policy_templates", "use_policy_template",
-    "save_policy_as_template",
+    "audit": {}, "enrichment": {"project": "ledger"}, "entra_group_naming": {}, "export_keys": {"name": "customer"},
+    "get_policy": {"id": "table-names"}, "key_stats": {"name": "customer"}, "keys_state": {}, "list_admins": {},
+    "list_assignments": {}, "list_domains": {}, "list_entra_groups": {}, "list_glossary": {}, "list_grants": {},
+    "list_key_tables": {}, "list_landing_zones": {}, "list_policies": {}, "list_policy_exceptions": {},
+    "list_product_items": {"product_id": "crm/c360"}, "list_products": {}, "list_projects": {},
+    "list_seen_shortcuts": {}, "list_shortcut_risks": {}, "list_sources": {},
+    "lookup_key": {"name": "customer", "value": "UNKNOWN"}, "owner_coverage": {}, "policies_ready": {},
+    "policy_applicability": {"id": "table-names"}, "policy_history": {"id": "table-names"},
+    "policy_options": {}, "policy_snapshot": {}, "policy_version": {"id": "table-names", "version": 1},
+    "product_history": {"product_id": "crm/c360"}, "resolve_policies": {"project": "ledger"},
+    "resolve_port": {"product_id": "crm/c360", "port": "customers", "env": "prod"}, "shortcut_changes": {},
+    "shortcut_rules": {}, "whoami": {}, "list_follows": {}, "product_followers": {"product_id": "crm/c360"},
+    "list_requests": {}, "access_reviews": {}, "list_project_members": {"project": "ledger"},
+    "product_trust": {"product_id": "crm/c360"}, "list_policy_templates": {},
 }
 
 # Writes anyone signed in may make, each with the docstring line that allows it.
@@ -182,6 +191,8 @@ ROLE_WRITES = [
     ("save_policy_template", ADMIN, lambda db: {"template": dict(POLICY, id="tpl-other")}),
     ("delete_policy_template", ADMIN, lambda db: {"id": "tpl-names"}),
     ("set_template_authors", ADMIN, lambda db: {"authors": "domain_owners"}),
+    ("use_policy_template", ADMIN, lambda db: {"template": "tpl-names", "id": "from-tpl"}),
+    ("save_policy_as_template", ADMIN, lambda db: {"policy": "table-names", "id": "tpl-x"}),
     ("end_policy_exception", ADMIN, lambda db: {"id": policy.list_policy_exceptions(db)[0]["id"], "reason": "Renamed"}),
 ]
 
@@ -249,3 +260,16 @@ def test_a_role_write_succeeds_for_someone_with_the_role(seeded, tmp_path, op, a
     before = _dump(path)
     LocalPlatform(path, lambda: allowed).call(op, **kwargs)
     assert _dump(path) != before
+
+
+@pytest.mark.parametrize("user", [ADMIN, NOBODY])
+@pytest.mark.parametrize("op", sorted(READS))
+def test_a_read_changes_nothing_whoever_calls_it(seeded, tmp_path, op, user):
+    """As an admin too, so a write listed here by mistake changes the database and fails."""
+    path = _copy(seeded, tmp_path)
+    before = _dump(path)
+    try:
+        LocalPlatform(path, lambda: user).call(op, **READS[op])
+    except core.PlatformError:
+        pass  # silent-ok: a read some roles may not make (product_followers) changes nothing either way
+    assert _dump(path) == before

@@ -65,6 +65,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
+| [home-notebooks.md](home-notebooks.md) | Engineers, analysts | Home's Recent notebooks: each notebook's workspace, lakehouse and last run, running several at once, and items pinned to Home (Preview) |
 | [notebook-fabric-step.md](notebook-fabric-step.md) | Engineers | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake (Preview) |
 | [notebook-best-practices.md](notebook-best-practices.md) | Engineers | Best-practice checks on a notebook's code, read on this PC without running it (Preview) |
 | [notebook-folders.md](notebook-folders.md) | Engineers, analysts | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one; publishing from a folder (Preview) |
@@ -164,6 +165,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Notebook runs | Notebook ribbon > Schedule > Recent runs, or the Run tab ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
+| Run several notebooks from Home | Home > Recent notebooks: tick notebooks, then Run ([home-notebooks.md](home-notebooks.md#run-several-notebooks-preview)) |
+| Items pinned to Home | Home > Pinned; the pin on Home's notebook rows and on Workspaces item rows ([home-notebooks.md](home-notebooks.md#pinned-items-preview)) |
 | Run the last cell on Fabric | Notebook cell ⋯ menu > Run on Fabric (Spark) ([notebook-fabric-step.md](notebook-fabric-step.md)) |
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |

@@ -109,6 +109,8 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  runSeveral: "Run several notebooks from Home",
+  itemPins: "Items pinned to Home",
 };
 
 function previewShown() {

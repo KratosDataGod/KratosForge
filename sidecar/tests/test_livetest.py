@@ -467,6 +467,14 @@ def test_unknown_opt_in_check_is_refused():
         livetest.LiveTest(WS, None, None, None, ".", bad_token_files=object(), extra={"spark.everything"})
 
 
+@pytest.mark.parametrize("check", sorted(set(livetest.EXTRA_CHECKS) - {"notebook.run"}))  # notebook.run: --run-in-fabric
+def test_every_opt_in_check_can_be_named_with_check(check, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit:
+        cli.main(["live-test", "--workspace", WS, "--dry-run", "--check", check])
+    assert exit.value.code == 0 and f"Opt-in {check}" in capsys.readouterr().out
+
+
 def test_dry_run_with_all_lists_opt_in_checks_and_their_cost(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exit:

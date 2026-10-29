@@ -31,6 +31,7 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from .. import redact
+from ..paging import Pages, PagingError
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -198,12 +199,17 @@ class Client:
     def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         token = ""
+        pages = Pages(f"{self.host}{path}")  # empty pages with a next token would otherwise never reach the limit
         while len(items) < CATALOG_LIMIT:
             page = self._call("GET", path, params=params | ({"page_token": token} if token else {}))
             items += page.get(key) or []
             token = page.get("next_page_token") or ""
             if not token:
                 break
+            try:
+                pages.follow(token)
+            except PagingError as exc:
+                raise DatabricksError(str(exc)) from None
         return items[:CATALOG_LIMIT]
 
 

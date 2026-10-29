@@ -887,7 +887,7 @@ async function confirmApproval(r) {
   if (r.kind === "workspace_access") {
     const p = d.principal || {};
     const ok = await confirmDialog(`Approve ${d.role} on ${r.target}?`,
-      `As you, KratosForge gives ${p.type === "Group" ? `the group ${p.name}` : p.email} the ${d.role} role in ${r.target}. ${after}`, "Add and approve");
+      `As you, KratosForge gives ${p.type === "Group" ? `the group ${p.name}` : p.email} the ${d.role} role in ${r.target}. If they already have a higher role, they keep it. ${after}`, "Add and approve");
     return ok ? {} : null;
   }
   if (r.kind === "domain") {

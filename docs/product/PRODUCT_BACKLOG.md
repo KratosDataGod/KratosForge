@@ -358,7 +358,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | Proposed |
 | [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | Proposed |
 | [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | Proposed |
-| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | Proposed |
+| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In review |
 | [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | Proposed |
 
 ### PB-019
@@ -407,7 +407,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-068
 
-**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · Proposed
+**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · In review
 
 - **Problem:** Every keyed run reads the whole key table, which grows with the business.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.

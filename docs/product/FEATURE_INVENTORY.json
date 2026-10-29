@@ -3096,14 +3096,14 @@
         "preview": false
       },
       "limitations": [
-        "read_keys reads the whole key table"
+        "Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged"
       ],
       "prs": [
         23,
         52
       ],
       "workstream": "Staged roadmap (FD-115)",
-      "next_action": "Stop reading whole key tables on every keyed run (FD-115).",
+      "next_action": "Merge the batch-limited key reads (PB-068, #847).",
       "backlog": [
         "PB-068"
       ]

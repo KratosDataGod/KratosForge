@@ -15,16 +15,20 @@ class PagingError(RuntimeError):
 
 
 class Pages:
-    def __init__(self, what: str, max_pages: int | None = None):
+    def __init__(self, what: str, max_pages: int | None = None, start: str = ""):
+        """``start`` is the first page's link, when it has one, so a service that sends it back as the
+        next page is stopped before the first page is read twice."""
         self.what, self.max_pages = what, max_pages or MAX_PAGES
-        self._seen: set[str] = set()
+        self._seen: set[str] = {start} if start else set()
+        self._pages = 1  # the first page, read before anything is followed
 
     def follow(self, token: str) -> str:
         """``token`` (the next-page link or continuation), after checking it may be followed."""
         if token in self._seen:
             raise PagingError(f"Listing {self.what} stopped: the service sent the same next page twice, "
                               "so the list would never end. Try again later.")
-        if len(self._seen) + 1 >= self.max_pages:
+        if self._pages >= self.max_pages:
             raise PagingError(f"Listing {self.what} stopped after {self.max_pages:,} pages, so the list isn't complete.")
         self._seen.add(token)
+        self._pages += 1
         return token

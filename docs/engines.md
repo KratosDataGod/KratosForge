@@ -143,6 +143,33 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
 
+## Databricks workspace discovery (Preview)
+
+To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
+what you can use. Discovery is a command, with no screen in the app yet:
+
+```
+fabric-desktop databricks-discover --profile dev
+fabric-desktop databricks-discover --host https://adb-1234567890123456.7.azuredatabricks.net --json
+```
+
+It lists who you're signed in as, the SQL warehouses (state, size, auto-stop), the all-purpose
+clusters (job clusters are left out), the Unity Catalog metastore and its catalogs, and then a
+warehouse and a cluster to try first.
+
+- **Nothing starts.** Every request is a read of a documented Databricks REST API, so discovery never
+  starts a warehouse or a cluster and bills no DBUs. It needs no confirm for that reason.
+- **Databricks Connect, before you try it.** Each cluster says whether Databricks Connect can use it
+  and, if not, why: its runtime line (16.4 or 17.3 in this version) or an access mode without Unity
+  Catalog (Connect needs Dedicated or Standard). Installing the client is a separate step.
+- **No auto-stop is called out.** A warehouse or cluster that never stops on its own bills DBUs until
+  someone stops it, so it's flagged and never suggested.
+- **Each part stands alone.** A part you can't read (a 403 on clusters, say) says why, and the rest
+  still come back. The command exits 0 when every part was read, 1 when one couldn't be, and 2 when
+  it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
+
+It's tested against fakes of those APIs, not yet against a live workspace.
+
 ## Databricks Connect (Preview)
 
 PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while
@@ -315,8 +342,8 @@ adapter has one.
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's
   local testing framework, which can't run `session.sql` and implements only some functions.
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
-  through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
-  Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.
+  through the Statement Execution API, tested against fakes only. Workspace discovery and Databricks
+  Connect stay Preview until tested against a live workspace.
 - Databricks Connect will run in its own Python environment: it ships its own PySpark, which would
   otherwise change what `spark` means in every local notebook. Its version is checked before
   anything starts (Databricks Runtime 16.4 or later, or serverless, for this app's Python 3.12).

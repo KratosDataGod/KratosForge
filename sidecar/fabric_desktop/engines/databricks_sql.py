@@ -172,6 +172,10 @@ class Client:
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
             (f"{message} " if message else "") + hint.get(resp.status_code, "")
 
+    def get(self, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+        """A read (GET) of a documented API path; reading never starts compute."""
+        return self._call("GET", path, params=params or {})
+
     def warehouse(self, warehouse_id: str) -> dict[str, Any]:
         return self._call("GET", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}")
 

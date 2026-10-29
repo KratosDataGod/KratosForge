@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import duckdb
 import pyarrow as pa
@@ -91,7 +91,58 @@ def spark_fixes(statement: exp.Expression) -> exp.Expression:
     """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
-    return spark_substring(_spark_dates(_spark_names(statement)))
+    return _spark_functions(spark_substring(_spark_dates(_spark_names(statement))))
+
+
+# Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
+# answers as Spark does ({0}, {1} are the arguments). Lambda names can't clash with a column.
+_ANON_TEMPLATES = {
+    "PMOD": "((({0}) % ({1})) + ({1})) % ({1})",
+    "ARRAYS_OVERLAP": "CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL WHEN LIST_HAS_ANY({0}, {1}) THEN TRUE "
+                      "WHEN LEN({0}) > 0 AND LEN({1}) > 0 AND (LIST_POSITION({0}, NULL) IS NOT NULL "
+                      "OR LIST_POSITION({1}, NULL) IS NOT NULL) THEN NULL ELSE FALSE END",
+    "ARRAY_UNION": "CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER(LIST_CONCAT({0}, {1}), "
+                   "(kf_v, kf_i) -> LIST_POSITION(LIST_CONCAT({0}, {1}), kf_v) = kf_i) END",
+}
+_DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
+
+
+def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
+    return cast(exp.Expression, sqlglot.parse_one(template.format(*(a.sql("duckdb") for a in args)), read="duckdb"))
+
+
+def _spark_functions(statement: exp.Expression) -> exp.Expression:
+    """Spark functions DuckDB answers differently, rewritten to answer as Spark does (#1105):
+    dayofweek counts Sunday as 1, sort_array puts NULL first ascending and last descending,
+    array_sort puts NULL last, percentile interpolates, array_distinct and array_union keep
+    first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
+    next_day take text, and pmod is never negative. Deepest first, so a rewritten argument is
+    written out already rewritten."""
+    found = list(statement.find_all(exp.DayOfWeek, exp.SortArray, exp.ArraySort, exp.Quantile, exp.ArrayDistinct,
+                                    exp.LastDay, exp.NextDay, exp.Anonymous))
+    for node in reversed(found):
+        if isinstance(node, exp.DayOfWeek):
+            node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
+        elif isinstance(node, exp.SortArray):
+            asc = node.args.get("asc")
+            if asc is None or isinstance(asc, exp.Boolean):
+                up = asc is None or asc.this
+                node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
+                    node.this, exp.Literal.string("ASC" if up else "DESC"),
+                    exp.Literal.string("NULLS FIRST" if up else "NULLS LAST")]))
+        elif isinstance(node, exp.ArraySort):
+            if node.expression is None:  # array_sort with a comparator keeps sqlglot's translation
+                node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
+                    node.this, exp.Literal.string("ASC"), exp.Literal.string("NULLS LAST")]))
+        elif isinstance(node, exp.Quantile):
+            node.replace(exp.Anonymous(this="QUANTILE_CONT", expressions=[node.this, node.args["quantile"]]))
+        elif isinstance(node, exp.ArrayDistinct):
+            node.replace(_from_template(_DISTINCT, [node.this]))
+        elif isinstance(node, (exp.LastDay, exp.NextDay)):
+            node.set("this", exp.cast(node.this, exp.DataType.Type.DATE))
+        elif isinstance(node, exp.Anonymous) and str(node.this).upper() in _ANON_TEMPLATES and len(node.expressions) == 2:
+            node.replace(_from_template(_ANON_TEMPLATES[str(node.this).upper()], list(node.expressions)))
+    return statement
 
 
 def _spark_dates(statement: exp.Expression) -> exp.Expression:
@@ -156,7 +207,8 @@ _SLICE_LENGTH = "Unexpected value for length in function slice: length must be g
 
 # Functions this module rewrites into longer DuckDB SQL; a select of one keeps the name Spark gives it.
 _REWRITTEN = (exp.IgnoreNulls, exp.AddMonths, exp.StrToUnix, exp.Substring, exp.ArraySlice, exp.MonthsBetween,
-              exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc)
+              exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.DayOfWeek, exp.SortArray, exp.ArraySort,
+              exp.Quantile, exp.ArrayDistinct, exp.LastDay, exp.NextDay)
 
 
 def _spark_names(statement: exp.Expression) -> exp.Expression:
@@ -164,7 +216,9 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
     the DuckDB SQL it becomes."""
     for select in statement.find_all(exp.Select):
         for i, column in enumerate(select.expressions):
-            if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not column.find(*_REWRITTEN):
+            if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not (
+                    column.find(*_REWRITTEN) or any(str(a.this).upper() in _ANON_TEMPLATES
+                                                    for a in column.find_all(exp.Anonymous))):
                 continue
             name = column.sql("spark", normalize_functions="lower")
             select.expressions[i] = exp.alias_(column, name, quoted=True)

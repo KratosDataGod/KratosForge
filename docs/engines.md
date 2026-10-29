@@ -161,7 +161,7 @@ changes when an upgrade fixes or breaks one. A function not listed here or below
 | `last_day` | Date and time | Doesn't run | Needs a DATE, not a string: last_day(DATE'2009-01-12') runs. |
 | `dayofweek` | Date and time | Different result | DuckDB counts from Sunday = 0, Databricks from Sunday = 1. |
 | `next_day` | Date and time | Doesn't run | DuckDB has no next_day for this argument type. |
-| `array_distinct` | Array and map | Different result | Same items, but not in first-seen order. |
+| `array_distinct` | Array and map | Can differ | Same items, but the order depends on the machine, not first-seen order. |
 | `sort_array` | Array and map | Different result | Ascending puts NULL last here, first on Databricks. |
 | `arrays_overlap` | Array and map | Doesn't run | DuckDB names it array_has_any. |
 | `array_union` | Array and map | Doesn't run | Not translated to a DuckDB equivalent. |

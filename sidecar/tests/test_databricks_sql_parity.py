@@ -17,14 +17,15 @@ DOCS = Path(__file__).resolve().parents[2] / "docs" / "engines.md"
 @pytest.mark.parametrize("case", parity.CASES, ids=lambda c: c.function)
 def test_each_function_answers_as_recorded(case):
     outcome, value = parity.run(case, duckdb.connect())
-    assert outcome == case.outcome, f"{case.function}: now {outcome} ({value!r}); update CASES and docs/engines.md"
+    recorded = ("same", "differs") if case.outcome == "varies" else (case.outcome,)
+    assert outcome in recorded, f"{case.function}: now {outcome} ({value!r}); update CASES and docs/engines.md"
 
 
 def test_cases_are_unique_and_every_difference_says_what_to_do():
     names = [c.function for c in parity.CASES]
     assert len(names) == len(set(names))
     for c in parity.CASES:
-        assert c.outcome in ("same", "differs", "error", "untranslated")
+        assert c.outcome in ("same", "differs", "varies", "error", "untranslated")
         assert bool(c.note) == (c.outcome != "same"), c.function
         assert c.sql.startswith("SELECT ")
 

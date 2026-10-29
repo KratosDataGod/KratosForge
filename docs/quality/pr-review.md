@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #975 9daada28 | CI speed: test leak fix + main merge | PASS | 9.2 | Main 1c2ba84b merged; tornado now comes from main. The new fix: test_small_ipython_magics sets KF_TEST_VALUE and KF_TEST_TOKEN through monkeypatch first, so the values %env writes into os.environ are removed after the test, and dbconnect's secret-gone test on the same xdist worker no longer sees KF_TEST_TOKEN. The two tests in one process: 2 passed. Merges main cleanly. notebook_magics, dbconnect, silent_except 85 passed. |
+
+| #1005 e8f70b9a | Offline sign-in (WS6 offline branch), main merge | PASS at e8f70b9a (carried from cb0ced89) | 9.3 | The PR's own delta is identical to cb0ced89 (sorted +/- lines compared against the merge-base), and it merges main 1c2ba84b cleanly. Owner's run with a dead proxy: offline_sign_in, sign_in_errors, silent_except 19 passed. |
+
 | #914 b1475f4b | PB-054 late rows, main merge | PASS at b1475f4b (carried from 4e262666) | 9.1 | Second quality reviewer. Main merge only; the change set against main is identical. Needs Chris's go. |
 
 | #924 18d5174b | Main merge | PASS at 18d5174b (carried from ef1bb0c9) | 9.1 | Second quality reviewer. Main merge only; the change set against main is identical. |

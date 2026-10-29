@@ -109,6 +109,15 @@ class CheckStop(Exception):
     pass
 
 
+def type_change_refused(entity: str, changes: list[str]) -> CheckStop:
+    """The stop for column types that would narrow or change kind ("qty int64 to int32"), worded the
+    same for a batched load and an unbatched one."""
+    return CheckStop(f"schema change refused: {'; '.join(changes)} would narrow a column's type or change its kind, "
+                     "which breaks readers of the table. Nothing was written. Change the contract or the source "
+                     f"back, or, to rewrite {entity} with the new types, add this line under [contract] in its "
+                     "entity file: overwrite_schema = true (and take it out again after the run)")
+
+
 class Abandoned(Exception):
     """Raised by a ``table_lock`` to stop a run without writing or recording the table: the work
     was handed to another worker (the agent's mailbox takeover), which runs it instead."""
@@ -870,12 +879,8 @@ class Engine:
                         continue
                     new_ = pl.from_arrow(t.select([name]).slice(0, 0)).schema[name]
                     if new_ != old and not (name not in e.columns and drift_mod.widens(new_, old)):
-                        stop_ = CheckStop(
-                            f"schema change refused: {name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)} "
-                            "would narrow a column's type or change its kind, which breaks readers of the table. "
-                            f"Nothing was written. Change the source back, or, to rewrite {e.name} with the new "
-                            "types, add this line under [contract] in its entity file: overwrite_schema = true "
-                            "(and take it out again after the run)")
+                        stop_ = type_change_refused(
+                            e.name, [f"{name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)}"])
                         failure.append(stop_)
                         raise stop_
                 cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
@@ -1291,10 +1296,7 @@ class Engine:
             return
         refused = [c["detail"] for c in drift_mod.schema_changes(before, after) if c["change"] in ("narrowed", "retyped")]
         if refused:
-            raise CheckStop(f"schema change refused: {'; '.join(refused)} would narrow a column's type or change its "
-                            "kind, which breaks readers of the table. Nothing was written. Change the contract back, "
-                            f"or, to rewrite {e.name} with the new types, add this line under [contract] in its entity "
-                            "file: overwrite_schema = true (and take it out again after the run)")
+            raise type_change_refused(e.name, refused)
 
     def _schema_rows(self, e: Entity, res: RunResult) -> list[dict[str, Any]]:
         """The schema history for this run's commit: each change it made to the table's schema, with

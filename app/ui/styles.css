@@ -2504,6 +2504,9 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .platform-env { gap: 8px; }
 .platform-pages + .platform-env { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }
 
+/* A tab row whose tablist sits beside other things (Learn more): the tabs keep the row's spacing (#961). */
+.subtabs .tab-group { display: flex; gap: 4px; }
+
 /* Schedule time zone: a search box over every Windows time zone, shown as a list (PB-048). */
 .zone-field select { padding: 4px; min-height: 0; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }

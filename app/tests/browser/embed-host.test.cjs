@@ -170,3 +170,17 @@ test("the host frames nothing but Power BI, and only the app can frame it", { sk
   assert.ok(refused.some((t) => t.includes("frame-ancestors")), refused.join("\n"));
   await other.close();
 });
+
+// The SDK posts the token to its frame with target origin "*", so the frame must never be anything but Power BI:
+// if Power BI's frame sends itself elsewhere, the host's frame-src refuses the navigation.
+test("Power BI's frame can't take itself off app.powerbi.com", { skip }, async () => {
+  const hostFrame = page.frames().find((f) => f.url().startsWith("http://pbiembed.localhost/"));
+  const pbiFrame = page.frames().find((f) => f.url().startsWith("https://app.powerbi.com/"));
+  assert.ok(pbiFrame, "Power BI's frame isn't open");
+  const blocked = hostFrame.evaluate(() => new Promise((resolve) => {
+    document.addEventListener("securitypolicyviolation", (e) => resolve(`${e.violatedDirective} ${e.blockedURI}`), { once: true });
+  }));
+  await pbiFrame.evaluate(() => { location.href = "https://example.com/stolen"; });
+  assert.match(await blocked, /^frame-src https:\/\/example\.com/);
+  assert.ok(!page.frames().some((f) => f.url().startsWith("https://example.com/")), "the frame reached example.com");
+});

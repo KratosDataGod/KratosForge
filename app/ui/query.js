@@ -130,7 +130,7 @@ async function warehouseRunOk(ref) {
 // WH-08: the Messages view: what the last run did, from its status. Never the SQL.
 function sqlMessages(ex, tab, target) {
   if (!ex) return h("p", { class: "muted-text", style: "padding:12px 16px" }, tab.error ? tab.error.replace(/^Error: /, "") : "No query has run in this tab yet.");
-  const time = (s) => (s ? new Date(s * 1000).toLocaleTimeString() : "");
+  const time = (s) => (s ? timeText(s * 1000, { seconds: true }) : "");
   const lines = [`Target: ${target}`];
   if (ex.created) lines.push(`Queued at ${time(ex.created)}`);
   if (ex.started) lines.push(`Started at ${time(ex.started)}`);
@@ -602,6 +602,7 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
+  const closeTab = (i) => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); };
   const addTab = () => { p.whCompareShown = p.whMonitorShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
   const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
@@ -609,24 +610,40 @@ function renderQuery() {
   // WH-19: the Monitoring tab, once opened for this warehouse.
   const monitor = wh && p.whMonitor?.key === sqlRefKey(ref) ? p.whMonitor : null;
   const monitorOn = !!(monitor && p.whMonitorShown);
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn && !monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn && !monitorOn),
-        onclick: () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
-        ondblclick: async () => {
+  // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
+  // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
+  // Delete and × ask first when the query has SQL of its own (keyClose); after Delete, focus goes to the tab now selected.
+  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
+    h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
+      ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: async (e) => {
+        if (e.key !== "Delete") return;
+        e.preventDefault();
+        if (await keyClose() === false) return;
+        document.querySelector(".sql-tabs [aria-selected=true]")?.focus();
+      } } : {}),
+      ...extra }, icon(iconName, 14), label),
+    close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: () => keyClose() }, "×") : null);
+  const tabs = h("div", { class: "sql-tabbar" },
+    h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
+      p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",
+        () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
+        p.tabs.length > 1 ? () => closeTab(i) : null,
+        { ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); } },
-        icon("branchCompare", 14), "Compare"),
-      h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
-    monitor ? h("div", { class: `sql-tab wh-mon-tab${monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(monitorOn), onclick: () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); } },
-        icon("monitor", 14), "Monitoring"),
-      h("button", { class: "close", "aria-label": "Close Monitoring", onclick: () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); } }, "×")) : null,
+        } },
+        async () => {
+          const sql = (t.sql || "").trim();
+          if (sql && sql !== QUERY_HINT.trim() && sql !== WAREHOUSE_HINT.trim()
+            && !(await confirmDialog(`Close ${t.name}?`, "Its SQL is discarded. It isn't saved anywhere else.", "Close query", { danger: true }))) return false;
+          closeTab(i);
+        })),
+      compare ? sqlTab(" wh-cmp-tab", compareOn, "Compare", "branchCompare",
+        () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); },
+        () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); }) : null,
+      monitor ? sqlTab(" wh-mon-tab", monitorOn, "Monitoring", "monitor",
+        () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); },
+        () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); }) : null),
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
@@ -977,3 +994,8 @@ function renderQuery() {
   }
   editor.focus();
 }
+
+// The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
+registerShortcuts("SQL query", [
+  { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
+]);

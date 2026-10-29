@@ -1,6 +1,6 @@
 """Deleting local copies of lakehouse data that nobody has used for a while (FD-131b).
 
-Reading OneLake from this PC leaves copies of the data behind: file previews (``files/``), tables
+Reading OneLake from this PC leaves copies of the data behind: files notebooks read (``files/``), tables
 staged before a publish (``staging/``) and the metadata framework's download cache
 (``onelake-cache/``). They are only caches, fetched again when needed, but they are customer data
 at rest on a laptop. ``sweep`` deletes what hasn't changed for ``days`` days (policy
@@ -47,15 +47,33 @@ def _stale_spills(root: Path, now: float) -> list[Path]:
     return [p for p in folder.iterdir() if p.is_file() and p.stat().st_mtime < now - SPILL_HOURS * 3600]
 
 
+# A file preview downloads into a folder of its own under preview-files/ and removes it once read
+# (preview_service.py). One left behind (the engine stopped mid-preview) goes at the next start once
+# it is an hour old, whatever local_retention_days says: an hour, so a preview another engine
+# process is reading right now is never taken from it.
+PREVIEWS = "preview-files"
+PREVIEW_HOURS = 1
+
+
+def _stale_previews(root: Path, now: float) -> list[Path]:
+    folder = root / PREVIEWS
+    if not folder.is_dir():
+        return []
+    return [p for p in folder.iterdir() if p.is_dir() and p.stat().st_mtime < now - PREVIEW_HOURS * 3600]
+
+
 def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None) -> dict[str, Any]:
     """Delete (or with ``dry_run`` only list) local copies older than ``days``, and spill files left
-    over from uploads. Returns what and how much."""
+    over from uploads and previews. Returns what and how much."""
     now = now if now is not None else time.time()
-    old: list[Path] = _stale_spills(root, now)
-    if days <= 0:  # copies are kept, left-over spills still go
+    old: list[Path] = _stale_spills(root, now) + _stale_previews(root, now)
+    if days <= 0:  # copies are kept, left-over spills and previews still go
         total = sum(_size(p) for p in old)
         if not dry_run:
             for p in old:
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                    continue
                 try:
                     p.unlink(missing_ok=True)
                 except OSError as exc:  # still open: a very long upload (Windows) keeps it until the next start

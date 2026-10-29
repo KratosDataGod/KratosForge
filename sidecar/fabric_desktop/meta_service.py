@@ -12,16 +12,17 @@ from typing import Any, Callable, Iterator
 
 import polars as pl
 
-from . import duties, lakehouse
+from . import duties, lakehouse, sealed_settings
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
+from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -31,6 +32,7 @@ from .redact import describe as describe_error
 from .jsonfile import read_json, write_json, write_text
 
 _log = logging.getLogger(__name__)
+_seal_failed: list[bool] = []  # the warning that settings.json couldn't be sealed was logged
 
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -89,7 +91,7 @@ def _days(value: Any) -> Any:
         return value
 
 
-class NoMetadataProject(LookupError):
+class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
 
 
@@ -104,10 +106,20 @@ class MetaMixin:
 
     def _settings(self) -> dict[str, Any]:
         settings = read_json(self.settings_file, {})
-        return settings if isinstance(settings, dict) else {}
+        settings = settings if isinstance(settings, dict) else {}
+        if sealed_settings.needs_sealing(settings):  # saved in the clear by an earlier version
+            try:
+                write_json(self.settings_file, sealed_settings.seal(settings))
+            except OSError as exc:  # tried again on each read, but said once per process
+                if not _seal_failed:
+                    _seal_failed.append(True)
+                    _log.warning("Couldn't encrypt the saved Teams addresses: %s", describe_error(exc))
+        return sealed_settings.unseal(settings)
 
     def _save_settings(self, **changes: Any) -> None:
-        write_json(self.settings_file, self._settings() | changes)
+        settings = self._settings()
+        kept = {k: v for k, v in (settings.get(sealed_settings.UNREADABLE) or {}).items() if k not in changes}
+        write_json(self.settings_file, sealed_settings.seal(settings | changes | {sealed_settings.UNREADABLE: kept}))
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""
@@ -185,7 +197,7 @@ class MetaMixin:
             return store
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
+            raise NotSetUp(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         # environments.toml can be edited by hand: never read or write one environment's tables as another's.
         if clash := [(a, b, w) for a, b, w in _clashes(project.environments) if env in (a, b)]:
             a, b, w = clash[0]
@@ -302,7 +314,7 @@ class MetaMixin:
             cfg["workspace_name"] = workspace_name or ""
             target = target or ("onelake" if workspace_id else "local")
         if target == "onelake" and not cfg.get("workspace_id"):
-            raise LookupError(f"Assign a workspace to {env.title()} first.")
+            raise NotSetUp(f"Assign a workspace to {env.title()} first.")
         if target:
             cfg["target"] = target
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
@@ -342,7 +354,7 @@ class MetaMixin:
         preview: dict[str, Any] | None = None
         try:
             store = self._store(project, env)
-            log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
+            log = store.meta_where("run_log", pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
             if e.layer in project.layer_names():
                 preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
@@ -366,6 +378,9 @@ class MetaMixin:
         new_name = spec.get("name")
         if not new_name:
             raise ValueError("Not saved: the file needs a name, like name = \"silver.orders\"")
+        for n in (name, new_name):
+            if problem := entity_name_problem(n):
+                raise ValueError(f"Not saved: {n}: {problem}")
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -385,6 +400,8 @@ class MetaMixin:
             raise ValueError(f"template must be one of {', '.join(TEMPLATES)}")
         if name in project.entities:
             raise ValueError(f"{name} already exists")
+        if problem := entity_name_problem(name):
+            raise ValueError(f"{name}: {problem}")
         layer = name.split(".")[0]
         if layer not in project.layer_names():
             raise ValueError(f"{layer} is not a layer; use one of {', '.join(project.layer_names())}")
@@ -470,7 +487,7 @@ class MetaMixin:
         if isinstance(store, OneLakeStore):
             meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
             if not meta_id:
-                raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
+                raise NotSetUp(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
             return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token,  # type: ignore[attr-defined]
                                   timeout=lease_timeout(ttl))
         if isinstance(store, LocalStore):
@@ -523,13 +540,13 @@ class MetaMixin:
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
         store = self._store(project, env)
-        run = store.meta("run_log").filter(pl.col("run_id") == run_id)
+        run = store.meta_where("run_log", pl.col("run_id") == run_id)
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
         row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
-        row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
+        row["dq"] = _json_rows(store.meta_where("dq_results", pl.col("run_id") == run_id), 100)
         return row
 
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:
@@ -563,8 +580,11 @@ class MetaMixin:
         errors += unreleased
         duty_errors, duty_notes = self._duties_gate(project, source, target)
         errors += duty_errors
+        policies = self.governance_promote_gate(target)  # type: ignore[attr-defined]
+        errors += policies["errors"]
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
-                "notes": notes + more + duty_notes, "git": git}
+                "notes": notes + more + duty_notes + policies["notes"], "git": git,
+                "policy_exceptions": policies["excepted"]}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
@@ -581,6 +601,8 @@ class MetaMixin:
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
         errors += self._duties_gate(project, source, target, src)[0]
+        policies = self.governance_promote_gate(target)  # type: ignore[attr-defined]  # Block policies (GOV-003)
+        errors += policies["errors"]
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
@@ -601,6 +623,8 @@ class MetaMixin:
             result["breaking"] = notes
         if release_notes:
             result["release"]["notes"] = release_notes
+        if policies["excepted"] or policies["notes"]:
+            result["policies"] = {"excepted": policies["excepted"], "notes": policies["notes"]}
         if project.products:
             try:  # so other teams' links find this environment's tables
                 published = self.mesh_publish(target)  # type: ignore[attr-defined]
@@ -837,6 +861,8 @@ class MetaMixin:
     def _read_platform_sources(self) -> list[dict[str, Any]]:
         try:
             return self._catalog().call("list_sources")  # type: ignore[attr-defined]
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             raise LookupError(f"{exc} After an update, a platform admin runs Platform > Settings > Finish or repair.") from exc
 

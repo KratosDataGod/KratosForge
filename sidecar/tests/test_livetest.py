@@ -1,6 +1,7 @@
 """The live test harness (FD-101), with Fabric and OneLake faked and Delta on local disk."""
 
 import json
+import re
 
 import pytest
 import requests
@@ -343,7 +344,9 @@ def test_a_writer_that_lost_the_commit_race_is_reported_as_retried(tmp_path):
     result = extra_harness(tmp_path, extra={"delta.concurrent"}, writer=local_writer(tmp_path, fail_once="B")).run()
     check = by_id(result)["delta.concurrent"]
     assert check["status"] == "passed", check
-    assert "writer B retried (2 attempts)" in check["detail"]
+    # The forced failure costs B one attempt; the two writers can also really collide, which costs more.
+    retried = re.search(r"writer B retried \((\d+) attempts\)", check["detail"])
+    assert retried and int(retried[1]) >= 2, check
 
 
 def test_lost_rows_fail_the_concurrent_check(tmp_path):

@@ -3272,20 +3272,61 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// The attributes object an h(...) call opens with "{" just before index i: its text, read up to the
+// brace that closes it, past strings, template literals and nested objects (#1061).
+function attrsAt(src, i) {
+  const open = src.lastIndexOf("{", i);
+  if (open < 0 || !/^\{\s*$/.test(src.slice(open, i))) return null;
+  const stack = ["{"];
+  for (let j = open + 1; j < src.length; j++) {
+    const c = src[j];
+    const top = stack[stack.length - 1];
+    if (top === '"' || top === "'") {
+      if (c === "\\") j++;
+      else if (c === top) stack.pop();
+    } else if (top === "`") {
+      if (c === "\\") j++;
+      else if (c === "`") stack.pop();
+      else if (c === "$" && src[j + 1] === "{") { stack.push("{"); j++; }
+    } else if (c === '"' || c === "'" || c === "`" || c === "{") stack.push(c);
+    else if (c === "}") {
+      stack.pop();
+      if (!stack.length) return src.slice(open, j + 1);
+    }
+  }
+  return null;
+}
+
 // UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
 // Home and End and a screen reader says which tab is selected.
 test("every row of tabs is a tablist with selected state", () => {
+  // A row whose tablist is its first child, so a jump button can sit after the list (OneLake, #961).
+  const firstChild = (src, attrs, at) => {
+    const rest = src.slice(at + attrs.length);
+    const m = rest.match(/^\s*,\s*h\("\w+",\s*\{/);
+    return m ? attrsAt(rest, m[0].length) : null;
+  };
   for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");
     for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
       for (const m of src.matchAll(re)) {
-        const near = src.slice(m.index, m.index + 260);
         const line = src.slice(0, m.index).split("\n").length;
-        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
-        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+        const attrs = attrsAt(src, m.index);
+        assert.ok(attrs, `${file}:${line}: a tab row or tab whose attributes object can't be read`);
+        if (role === 'role: "tab"') {
+          assert.ok(attrs.includes(role), `${file}:${line}: a tab without ${role}`);
+          assert.ok(attrs.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+        } else {
+          const child = attrs.includes(role) ? null : firstChild(src, attrs, src.lastIndexOf("{", m.index));
+          assert.ok(attrs.includes(role) || (child && child.includes(role)), `${file}:${line}: a tab row without ${role}`);
+        }
       }
     }
   }
+  // The reader itself: a role just past the object's closing brace doesn't count.
+  const near = 'h("div", { class: "subtabs", onclick: () => { go(`x${y}`); } }, h("b", {}, \'role: "tablist"\'))';
+  assert.ok(!attrsAt(near, near.indexOf("class:")).includes('role: "tablist"'));
+  assert.strictEqual(attrsAt(near, near.indexOf("class:")), '{ class: "subtabs", onclick: () => { go(`x${y}`); } }');
 });
 
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.

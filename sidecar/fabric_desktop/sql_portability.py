@@ -89,7 +89,7 @@ def _rules(rewritten: str, target: str) -> tuple[str, list[str]]:
     return grade, reasons
 
 
-def _statement(n: int, tree: exp.Expression, source: str, target: str) -> Finding:
+def _statement(n: int, tree: exp.Expr, source: str, target: str) -> Finding:
     src, tgt = PLATFORMS[source]["sqlglot"], PLATFORMS[target]["sqlglot"]
     written = tree.sql(dialect=src)
     if isinstance(tree, exp.Command):
@@ -101,7 +101,8 @@ def _statement(n: int, tree: exp.Expression, source: str, target: str) -> Findin
         return Finding(n, "unsupported", None, (first,))
     # Text, not trees: a lenient reader takes LIMIT as T-SQL, but the Warehouse doesn't.
     same = rewritten == written
-    grade, reasons = ("compatible" if same else "translated"), []
+    grade = "compatible" if same else "translated"
+    reasons: list[str] = []
     rules = PLATFORMS[target]["rules"]
     if rules:
         found, reasons = _rules(rewritten, rules)

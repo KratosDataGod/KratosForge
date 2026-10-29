@@ -305,8 +305,16 @@ class PlatformMixin:
         """A new domain, created in Fabric first when ``in_fabric`` and then kept in the platform linked
         to it, as Import from Fabric would. Everything that could stop the platform's save is checked
         before Fabric is asked, so a refused domain is never left in Fabric alone."""
+        return self._create_domain(domain, in_fabric)[0]
+
+    def _create_domain(self, domain: dict[str, Any], in_fabric: bool = True,
+                       marker: str = "") -> tuple[list[dict[str, Any]], bool]:
+        """platform_create_domain, and whether the Fabric domain was adopted. A request's approval
+        passes its ``marker`` (never reachable from the app's calls): it goes in the Fabric domain's
+        description, and on Fabric's 409 a domain of this name and parent carrying exactly that marker
+        is one this request already made, whose answer was lost, so it is kept instead (#1042)."""
         if not in_fabric:
-            return self.platform_save_domain(domain)
+            return self.platform_save_domain(domain), False
         name = str(domain.get("name") or "").strip()
         if not name:
             raise ValueError("A domain needs a name")
@@ -325,22 +333,41 @@ class PlatformMixin:
                              f"{parent['name']} in Fabric first, or choose Import from Fabric.")
         if parent and parent.get("parent_id"):
             raise ValueError("Subdomains go one level deep: pick a top-level domain as the parent")
+        admin = self._fabric_admin(write=True)
+        parent_fid = str((parent or {}).get("fabric_domain") or "")
+        description = f"{domain.get('description') or ''} {marker}".strip()
+        adopted = False
         try:
-            created = self._fabric_admin(write=True).create_admin_domain(
-                name, str(domain.get("description") or ""), (parent or {}).get("fabric_domain") or "")
+            created = admin.create_admin_domain(name, description, parent_fid)
         except FabricError as exc:
             if exc.status in (401, 403):
                 raise PermissionError("Only a Fabric administrator can create domains in Fabric, and Fabric refused "
                                       "this account. Nothing was changed.") from exc
             if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
-                raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to bring "
-                                 "it in.") from exc
-            raise
+                created = self._domain_made_by(admin, marker, name, parent_fid) if marker else None
+                if created is None:
+                    raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to "
+                                     "bring it in.") from exc
+                adopted = True
+            else:
+                raise
         try:
-            return self.platform_save_domain(domain | {"id": did, "name": name, "fabric_domain": str(created["id"])})
+            saved = self.platform_save_domain(domain | {"id": did, "name": name, "fabric_domain": str(created["id"])})
+            return saved, adopted
         except Exception as exc:
             raise RuntimeError(f"{name} was created in Fabric but not saved in the platform ({exc}). Choose Import "
                                "from Fabric to bring it in.") from exc
+
+    @staticmethod
+    def _domain_made_by(admin: FabricClient, marker: str, name: str, parent_fid: str) -> dict[str, Any] | None:
+        """The Fabric domain of this name and parent whose description carries exactly ``marker``, or
+        None. A domain someone else made, or that another request made, has no such marker."""
+        for d in admin.list_admin_domains():
+            if (str(d.get("displayName") or "").strip().lower() == name.lower()
+                    and str(d.get("parentDomainId") or "") == parent_fid
+                    and marker in str(d.get("description") or "")):
+                return d
+        return None
 
     def platform_delete_domain(self, id: str) -> list[dict[str, Any]]:
         self._catalog().call("delete_domain", did=id)

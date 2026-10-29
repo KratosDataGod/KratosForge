@@ -110,6 +110,21 @@ jobs:
           node-version: "22"
       - run: node --test app/tests/ui.test.cjs
 
+  lint:
+    # Mistakes rather than style in the engine's Python: syntax errors, and names that are unused
+    # or undefined (sidecar/pyproject.toml [tool.ruff]). ruff is already one of the engine's pinned packages.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sidecar
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff -c constraints.txt
+      - run: python -m ruff check --output-format github .
+
   vscode-extension:
     # vscode/: the KratosForge extension compiles, and its client pairs and runs cells through the
     # real engine's editor channel (vscode/test). No VS Code is downloaded.

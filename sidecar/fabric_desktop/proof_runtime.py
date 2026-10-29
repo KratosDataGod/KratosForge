@@ -26,7 +26,6 @@ import json
 import os
 import platform
 import random
-import sys
 import time
 
 PROOF_ROOT = "Files/_fabric_desktop/proofs"

@@ -472,7 +472,8 @@ async function whProjectDeploy(ref, project) {
   try {
     const objects = await whScriptWarehouse(ref);
     await whEnvRead();
-    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref) });
+    plan = await rpc("wh_project_deploy_plan", { repo: project.repo, folder: project.folder, objects, environment: whEnv(ref),
+      workspace_id: ref.workspace_id });
     // The engine's check on each change, before anything is sent: one it would refuse isn't offered.
     const whRef = { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind };
     for (const c of plan.changes.filter((x) => x.offered)) {
@@ -484,8 +485,10 @@ async function whProjectDeploy(ref, project) {
     return;
   }
   if (!plan.changes.length) { toast(`${ref.name} already matches ${project.folder}: nothing to deploy.`); return; }
-  const env = whEnv(ref);
-  const named = whNeedsName(ref);
+  // The engine's environment for this deploy (the stricter of the page's and the project's), so the label
+  // and the typed-name rule match the gate it applied.
+  const env = plan.environment || whEnv(ref);
+  const named = ["prod", "none"].includes(env);
   const where = env === "none" ? "no environment, so it's treated like Prod" : ENV_NAMES[env] || env;
   let picked = plan.changes.findIndex((c) => c.offered);
   if (picked < 0) picked = 0;

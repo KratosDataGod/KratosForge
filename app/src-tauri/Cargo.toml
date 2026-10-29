@@ -3,6 +3,7 @@ name = "fabric-desktop"
 version = "0.1.0"
 description = "Run data jobs locally and publish Delta tables to Microsoft Fabric OneLake"
 edition = "2021"
+license = "Apache-2.0"
 
 # The program file is kratosforge.exe (exe_name.rs). The package keeps its legacy name.
 [[bin]]

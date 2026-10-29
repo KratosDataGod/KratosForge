@@ -60,6 +60,7 @@ NO_UI_CALLER: dict[str, str] = {
     # CLI and headless agent (in-process).
     "preview_job": _CLI,
     "run_job": _CLI,
+    "environment_fabric_drift": _CLI + " yet (`fabric-desktop env-drift`, docs/notebooks.md)",
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,

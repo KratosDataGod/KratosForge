@@ -151,7 +151,7 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
                                             "forge_animations": bool}
-USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
+USER_KEYS: tuple[str, ...] = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
              "forge_animations")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
@@ -191,7 +191,7 @@ DEFAULTS["incident_sla"] = {}
 TYPES["incident_sla"] = dict
 # OneLake writes from notebooks on this PC (lakehouse.write_table, publish). onelake_writes is the
 # default for notebooks that don't choose; each notebook can set its own.
-CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
+CHOICES: dict[str, tuple[str, ...]] = {"onelake_writes": ("local_first", "direct"), "onelake_compression": ("zstd", "snappy")}
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")

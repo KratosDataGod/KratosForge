@@ -375,8 +375,9 @@ def test_snowflake_credentials_hold_only_their_methods_fields():
 
 def test_export_drops_snowflake_parts_tied_to_this_pc_and_import_asks_for_them():
     data = snowflake()
+    key = KEY if os.name == "nt" else "/home/me/sf.p8"  # a full path on the PC the test runs on
     data["connections"].append({"id": "sf2", "platform": "snowflake", "account": "myorg-other",
-                                "credential": {"method": "keypair", "private_key_file": "/home/me/sf.p8",
+                                "credential": {"method": "keypair", "private_key_file": key,
                                                "passphrase": "env:SF_PASS"}})
     data["connections"].append({"id": "sf3", "platform": "snowflake",
                                 "credential": {"method": "cli-connection", "connection": "my-cli-conn"}})
@@ -384,7 +385,7 @@ def test_export_drops_snowflake_parts_tied_to_this_pc_and_import_asks_for_them()
                                                                                      "secret": "credman:sf"}})
     doc = cp.export(cp.validate(data))
     text = json.dumps(doc)
-    assert "/home/me" not in text and "SF_PASS" not in text and "credman:sf" not in text and "my-cli-conn" not in text
+    assert json.dumps(key)[1:-1] not in text and "SF_PASS" not in text and "credman:sf" not in text and "my-cli-conn" not in text
     back = cp.import_(doc)
     assert back["validation"]["status"] == "warnings" and len(back["validation"]["problems"]) == 3
     creds = [c["credential"] for c in back["connections"]]

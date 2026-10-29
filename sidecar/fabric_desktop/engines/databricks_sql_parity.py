@@ -84,7 +84,7 @@ CASES: tuple[Case, ...] = (
     Case('ceil', 'Math', 'SELECT ceil(-0.1)', 0, 'same'),
     Case('floor', 'Math', 'SELECT floor(-0.1)', -1, 'same'),
     Case('mod (%)', 'Math', 'SELECT -7 % 3', -1, 'same'),
-    Case('pmod', 'Math', 'SELECT pmod(-7, 3)', 2, 'error', 'DuckDB has no pmod; use ((a % b) + b) % b.'),
+    Case('pmod', 'Math', 'SELECT pmod(-7, 3)', 2, 'same'),
     Case('div', 'Math', 'SELECT 3 div 2', 1, 'same'),
     Case('power', 'Math', 'SELECT power(2, 3)', 8, 'same'),
     Case('sqrt', 'Math', 'SELECT sqrt(4)', 2, 'same'),
@@ -103,11 +103,11 @@ CASES: tuple[Case, ...] = (
     Case('date_sub', 'Date and time', "SELECT date_sub('2016-07-30', 1)", D(2016, 7, 29), 'same'),
     Case('datediff', 'Date and time', "SELECT datediff('2009-07-31', '2009-07-30')", 1, 'same'),
     Case('add_months', 'Date and time', "SELECT add_months('2016-08-31', 1)", D(2016, 9, 30), 'same'),
-    Case('last_day', 'Date and time', "SELECT last_day('2009-01-12')", D(2009, 1, 31), 'error', "Needs a DATE, not a string: last_day(DATE'2009-01-12') runs."),
+    Case('last_day', 'Date and time', "SELECT last_day('2009-01-12')", D(2009, 1, 31), 'same'),
     Case('year', 'Date and time', "SELECT year(DATE'2016-07-30')", 2016, 'same'),
     Case('month', 'Date and time', "SELECT month(DATE'2016-07-30')", 7, 'same'),
     Case('dayofmonth', 'Date and time', "SELECT dayofmonth(DATE'2009-07-30')", 30, 'same'),
-    Case('dayofweek', 'Date and time', "SELECT dayofweek(DATE'2009-07-30')", 5, 'differs', 'DuckDB counts from Sunday = 0, Databricks from Sunday = 1.'),
+    Case('dayofweek', 'Date and time', "SELECT dayofweek(DATE'2009-07-30')", 5, 'same'),
     Case('weekofyear', 'Date and time', "SELECT weekofyear(DATE'2008-02-20')", 8, 'same'),
     Case('quarter', 'Date and time', "SELECT quarter(DATE'2016-08-31')", 3, 'same'),
     Case('date_format', 'Date and time', "SELECT date_format(DATE'2016-04-08', 'yyyy-MM-dd')", '2016-04-08', 'same'),
@@ -116,16 +116,15 @@ CASES: tuple[Case, ...] = (
     Case('date_trunc', 'Date and time', "SELECT date_trunc('MM', TIMESTAMP'2015-03-05 09:32:05.359')", dt.datetime(2015, 3, 1, 0, 0), 'same'),
     Case('trunc', 'Date and time', "SELECT trunc(DATE'2019-08-04', 'MM')", D(2019, 8, 1), 'same'),
     Case('make_date', 'Date and time', 'SELECT make_date(2013, 7, 15)', D(2013, 7, 15), 'same'),
-    Case('next_day', 'Date and time', "SELECT next_day('2015-01-14', 'TU')", D(2015, 1, 20), 'error', 'DuckDB has no next_day for this argument type.'),
+    Case('next_day', 'Date and time', "SELECT next_day('2015-01-14', 'TU')", D(2015, 1, 20), 'same'),
     Case('months_between', 'Date and time', "SELECT months_between(DATE'1997-02-28', DATE'1996-10-30', false)", 3.935483870967742, 'same'),
     Case('array', 'Array and map', 'SELECT array(1, 2, 3)', [1, 2, 3], 'same'),
     Case('size', 'Array and map', "SELECT size(array('b', 'd', 'c', 'a'))", 4, 'same'),
     Case('array_contains', 'Array and map', 'SELECT array_contains(array(1, 2, 3), 2)', True, 'same'),
     Case('element_at', 'Array and map', 'SELECT element_at(array(1, 2, 3), 2)', 2, 'same'),
-    Case('array_distinct', 'Array and map', 'SELECT array_distinct(array(1, 2, 3, 3))', [1, 2, 3], 'varies',
-         'Same items, but the order depends on the machine, not first-seen order.'),
+    Case('array_distinct', 'Array and map', 'SELECT array_distinct(array(1, 2, 3, 3))', [1, 2, 3], 'same'),
     Case('array_sort', 'Array and map', "SELECT array_sort(array('b', 'd', NULL, 'c', 'a'))", ['a', 'b', 'c', 'd', None], 'same'),
-    Case('sort_array', 'Array and map', "SELECT sort_array(array('b', 'd', NULL, 'c', 'a'), true)", [None, 'a', 'b', 'c', 'd'], 'differs', 'Ascending puts NULL last here, first on Databricks.'),
+    Case('sort_array', 'Array and map', "SELECT sort_array(array('b', 'd', NULL, 'c', 'a'), true)", [None, 'a', 'b', 'c', 'd'], 'same'),
     Case('array_join', 'Array and map', "SELECT array_join(array('hello', 'world'), ' ')", 'hello world', 'same'),
     Case('array_max', 'Array and map', 'SELECT array_max(array(1, 20, NULL, 3))', 20, 'same'),
     Case('array_min', 'Array and map', 'SELECT array_min(array(1, 20, NULL, 3))', 1, 'same'),
@@ -133,8 +132,8 @@ CASES: tuple[Case, ...] = (
     Case('slice', 'Array and map', 'SELECT slice(array(1, 2, 3, 4), 2, 2)', [2, 3], 'same'),
     Case('sequence', 'Array and map', 'SELECT sequence(1, 5)', [1, 2, 3, 4, 5], 'same'),
     Case('array_position', 'Array and map', 'SELECT array_position(array(3, 2, 1), 1)', 3, 'same'),
-    Case('arrays_overlap', 'Array and map', 'SELECT arrays_overlap(array(1, 2, 3), array(3, 4, 5))', True, 'error', 'DuckDB names it array_has_any.'),
-    Case('array_union', 'Array and map', 'SELECT array_union(array(1, 2, 3), array(1, 3, 5))', [1, 2, 3, 5], 'error', 'Not translated to a DuckDB equivalent.'),
+    Case('arrays_overlap', 'Array and map', 'SELECT arrays_overlap(array(1, 2, 3), array(3, 4, 5))', True, 'same'),
+    Case('array_union', 'Array and map', 'SELECT array_union(array(1, 2, 3), array(1, 3, 5))', [1, 2, 3, 5], 'same'),
     Case('array_intersect', 'Array and map', 'SELECT array_intersect(array(1, 2, 3), array(1, 3, 5))', [1, 3], 'same'),
     Case('array_except', 'Array and map', 'SELECT array_except(array(1, 2, 3), array(1, 3, 5))', [2], 'same'),
     Case('transform', 'Array and map', 'SELECT transform(array(1, 2, 3), x -> x + 1)', [2, 3, 4], 'same'),
@@ -164,12 +163,21 @@ CASES: tuple[Case, ...] = (
     Case('bool_and', 'Aggregate', 'SELECT bool_and(col) FROM VALUES (true), (true), (false) AS tab(col)', False, 'same'),
     Case('bool_or', 'Aggregate', 'SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)', True, 'same'),
     Case('median', 'Aggregate', 'SELECT median(col) FROM VALUES (0), (10) AS tab(col)', 5, 'same'),
-    Case('percentile', 'Aggregate', 'SELECT percentile(col, 0.3) FROM VALUES (0), (10) AS tab(col)', 3, 'differs', 'Translated to a discrete quantile; Databricks interpolates.'),
+    Case('percentile', 'Aggregate', 'SELECT percentile(col, 0.3) FROM VALUES (0), (10) AS tab(col)', 3, 'same'),
     Case('percentile_approx', 'Aggregate', 'SELECT percentile_approx(col, 0.5) FROM VALUES (0), (1), (2), (10) AS tab(col)', 1, 'differs', 'Approximate on both, but the estimates differ.'),
     Case('approx_count_distinct', 'Aggregate', 'SELECT approx_count_distinct(col) FROM VALUES (1), (1), (2), (2), (3) AS tab(col)', 3, 'same'),
     Case('stddev', 'Aggregate', 'SELECT stddev(col) FROM VALUES (1), (2), (3) AS tab(col)', 1.0, 'same'),
     Case('variance', 'Aggregate', 'SELECT variance(col) FROM VALUES (1), (2), (3) AS tab(col)', 1.0, 'same'),
     Case('any_value', 'Aggregate', 'SELECT any_value(col) FROM VALUES (10), (10) AS tab(col)', 10, 'same'),
+    Case('sort_array (descending)', 'Array and map', "SELECT sort_array(array('b', NULL, 'a'), false)", ['b', 'a', None], 'same'),
+    Case('arrays_overlap (only NULL could match)', 'Array and map', 'SELECT arrays_overlap(array(1, NULL), array(3, 4))', None, 'same'),
+    Case('array_union (NULLs)', 'Array and map', 'SELECT array_union(array(1, NULL), array(NULL, 2))', [1, None, 2], 'same'),
+    Case('pmod (negative divisor)', 'Math', 'SELECT pmod(7, -3)', 1, 'same'),
+    Case('pmod (both negative)', 'Math', 'SELECT pmod(-7, -3)', -1, 'same'),
+    Case('dayofweek (Sunday)', 'Date and time', "SELECT dayofweek(DATE'2009-07-26')", 1, 'same'),
+    Case('array_intersect (order and NULL)', 'Array and map', 'SELECT array_intersect(array(5, 1, NULL, 3, 5), array(3, NULL, 5))', [5, None, 3], 'same'),
+    Case('array_except (order and NULL)', 'Array and map', 'SELECT array_except(array(9, 5, 1, NULL, 3, 1, NULL), array(3))', [9, 5, 1, None], 'same'),
+    Case('array_distinct (order and NULL)', 'Array and map', 'SELECT array_distinct(array(3, NULL, 1, 3, NULL))', [3, None, 1], 'same'),
 )
 
 
@@ -210,7 +218,9 @@ def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
     words = {"differs": "Different result", "varies": "Can differ", "error": "Doesn't run",
              "untranslated": "Not translated"}
-    rows = ["| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
+    rows = [f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
+            "DuckDB engine doesn't answer the same way.", "",
+            "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]
     rows += [f"| `{c.function}` | {c.group} | {words[c.outcome]} | {c.note} |" for c in CASES if c.outcome != "same"]
     same_ = [f"`{c.function}`" for c in CASES if c.outcome == "same"]
-    return "\n".join(rows) + f"\n\nThese {len(same_)} answer the same as on Databricks: " + ", ".join(same_) + "."
+    return "\n".join(rows) + f"\n\nThese {len(same_)} checks answer the same as on Databricks: " + ", ".join(same_) + "."

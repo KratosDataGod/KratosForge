@@ -149,31 +149,23 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
 
 ### Databricks SQL functions on this PC
 
-Of 130 commonly used Databricks SQL built-in functions, these are the ones the DuckDB engine
-doesn't answer the same way, checked by running each one through the engine's own translation
-(sqlglot, then DuckDB) against the value Databricks gives: its documented example, or one worked by
-hand where the reference gives none. A test runs them again, so the table
-changes when an upgrade fixes or breaks one. A function not listed here or below hasn't been checked.
+The DuckDB engine's own translation (sqlglot, then DuckDB) runs each check against the value
+Databricks gives: its documented example, or one worked by hand where the reference gives none. A
+test runs them again, so the table changes when an upgrade fixes or breaks one. A function not listed
+here or below hasn't been checked.
+
+Of 139 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
 | `format_number` | String | Doesn't run | DuckDB has no format_number; use printf or format. |
 | `soundex` | String | Doesn't run | DuckDB has no soundex. |
 | `bround` | Math | Doesn't run | DuckDB has no banker's rounding function. |
-| `pmod` | Math | Doesn't run | DuckDB has no pmod; use ((a % b) + b) % b. |
 | `conv` | Math | Doesn't run | DuckDB has no base conversion function. |
-| `last_day` | Date and time | Doesn't run | Needs a DATE, not a string: last_day(DATE'2009-01-12') runs. |
-| `dayofweek` | Date and time | Different result | DuckDB counts from Sunday = 0, Databricks from Sunday = 1. |
-| `next_day` | Date and time | Doesn't run | DuckDB has no next_day for this argument type. |
-| `array_distinct` | Array and map | Can differ | Same items, but the order depends on the machine, not first-seen order. |
-| `sort_array` | Array and map | Different result | Ascending puts NULL last here, first on Databricks. |
-| `arrays_overlap` | Array and map | Doesn't run | DuckDB names it array_has_any. |
-| `array_union` | Array and map | Doesn't run | Not translated to a DuckDB equivalent. |
 | `exists` | Array and map | Doesn't run | The lambda isn't translated to DuckDB's syntax. |
-| `percentile` | Aggregate | Different result | Translated to a discrete quantile; Databricks interpolates. |
 | `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
 
-These 115 answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `year`, `month`, `dayofmonth`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_sort`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `approx_count_distinct`, `stddev`, `variance`, `any_value`.
+These 133 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`.
 
 ## Databricks workspace discovery (Preview)
 

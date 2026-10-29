@@ -182,15 +182,17 @@ def days_old(taken_at: str, now: dt.datetime | None = None) -> float | None:
     return ((now or dt.datetime.now(dt.timezone.utc)) - then).total_seconds() / 86400
 
 
-def resolve_offline(package: dict[str, Any], local: list[dict[str, Any]] | None = None, today: str = "") -> dict[str, Any]:
-    """The project's policies in force, from a verified package alone, as resolve_policies gives them."""
+def resolve_offline(package: dict[str, Any], local: list[dict[str, Any]] | None = None, today: str = "",
+                    context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The project's policies in force, from a verified package alone, as resolve_policies gives them.
+    ``context`` (environment, layer) filters by each policy's applies_to, as it does there."""
     snap = {"policies": package["policies"], "assignments": package["assignments"],
             "versions": {k: {"version": v["version"], "definition": v["definition"], "hash": v["sha256"], "intact": True}
                          for k, v in package["versions"].items()}}
     chain = [(c["scope"], c["target"]) for c in package["chain"]]
     exceptions = [dict(e, note=f"Excepted until {e.get('until')}: {e.get('reason') or 'no reason given'}")
                   for e in package["exceptions"]]
-    out = resolve(snap, chain, local, {}, today, exceptions)
+    out = resolve(snap, chain, local, context or {}, today, exceptions)
     return out | {"project": package["project"]}
 
 

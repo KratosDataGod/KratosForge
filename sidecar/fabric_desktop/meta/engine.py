@@ -21,6 +21,7 @@ from typing import Any, Callable
 import polars as pl
 
 from . import batches as batches_mod
+from . import drift as drift_mod
 from . import keys as keys_mod
 from . import preflight
 from .project import (
@@ -30,10 +31,11 @@ from .project import (
     Project,
     impact,
     load_python,
+    parse_lookback,
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -42,6 +44,10 @@ WRITE_ATTEMPTS = 3
 AFTER_COMMIT_ATTEMPTS = 3
 # Commit metadata naming one after-commit append, so a retry can tell the append already committed.
 APPEND_KEY = "fabric_desktop_append"
+# Commit metadata listing the files a run read, so they count as loaded if its list wasn't saved.
+FILES_KEY = "fabric_desktop_files"
+# Most files listed there: above it the commit lists none (every history read parses the list).
+FILES_IN_COMMIT = 5000
 
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
@@ -50,6 +56,11 @@ FAR_PAST = dt.date(1900, 1, 1)
 # Power BI refuses a date table with a blank date. It's day 0 of Excel and Power BI's date serials.
 UNKNOWN_DATE = dt.date(1899, 12, 30)
 FAR_FUTURE = dt.date(9999, 12, 31)
+# [load] deletes = "soft": the columns that mark a row whose key the source no longer has. deleted_at
+# is the run's start in UTC.
+DELETED_AT_TYPE = pl.Datetime("us", "UTC")
+# [load] deletes = "hard": the MERGE source column that flags a key to remove (never written).
+_DELETE_FLAG = "__fd_delete"
 _SIMPLE_TYPES: dict[str, pl.DataType] = {
     "string": pl.String, "str": pl.String, "int64": pl.Int64, "bigint": pl.Int64, "int32": pl.Int32,
     "int": pl.Int32, "float64": pl.Float64, "double": pl.Float64, "float32": pl.Float32, "bool": pl.Boolean,
@@ -98,6 +109,15 @@ class CheckStop(Exception):
     pass
 
 
+def type_change_refused(entity: str, changes: list[str]) -> CheckStop:
+    """The stop for column types that would narrow or change kind ("qty int64 to int32"), worded the
+    same for a batched load and an unbatched one."""
+    return CheckStop(f"schema change refused: {'; '.join(changes)} would narrow a column's type or change its kind, "
+                     "which breaks readers of the table. Nothing was written. Change the contract or the source "
+                     f"back, or, to rewrite {entity} with the new types, add this line under [contract] in its "
+                     "entity file: overwrite_schema = true (and take it out again after the run)")
+
+
 class Abandoned(Exception):
     """Raised by a ``table_lock`` to stop a run without writing or recording the table: the work
     was handed to another worker (the agent's mailbox takeover), which runs it instead."""
@@ -121,6 +141,17 @@ def polars_type(name: str) -> pl.DataType:
     if name not in _SIMPLE_TYPES:
         raise ValueError(f"unknown column type {name!r}")
     return _SIMPLE_TYPES[name]
+
+
+def _stop_if_unreadable(before: pl.DataFrame, after: pl.DataFrame, keys: list[str], to: str) -> None:
+    """[load] deletes: a source key that can't be read as the key's type would turn null and look gone
+    from the source, so its row would be deleted. Stop instead."""
+    for k in keys:
+        bad = before.filter(before[k].is_not_null() & after[k].is_null())
+        if bad.height:
+            raise CheckStop(f"load deletes: {plural(bad.height, 'source key')} in {k} couldn't be read as {to} "
+                            f"(for example {bad[k][0]!r}), so they would look gone from the source. Nothing was "
+                            "written and no deletes were applied; check the source's key column")
 
 
 def _cast(df: pl.DataFrame, col: str, dtype: pl.DataType) -> pl.Expr:
@@ -153,6 +184,26 @@ def _wm_literal(value: str, dtype: pl.DataType) -> Any:
 
 def _wm_text(value: Any) -> str:
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _wm_minus(e: Entity, value: Any, dtype: pl.DataType) -> Any:
+    """The watermark moved back by the entity's [load] lookback (unchanged without one): a duration
+    for a date or datetime watermark, a number for a numeric one. A date goes back whole days, rounded
+    up, so "2 hours" reads the watermark's own day again."""
+    lookback = parse_lookback(e.spec.get("load", {}).get("lookback"))
+    if not lookback:
+        return value
+    when = dtype == pl.Date or isinstance(dtype, pl.Datetime)
+    if isinstance(lookback, dt.timedelta) and when:
+        if dtype == pl.Date:  # date - timedelta(hours=2) is the same date: round up to whole days
+            return value - dt.timedelta(days=-(-lookback // dt.timedelta(days=1)))
+        return value - lookback
+    if isinstance(lookback, int) and dtype.is_numeric():
+        return value - lookback
+    want = "a duration such as \"2 hours\"" if when else "a whole number" if dtype.is_numeric() else None
+    raise CheckStop(f"load lookback {lookback if isinstance(lookback, int) else e.spec['load']['lookback']!r} "
+                    f"doesn't fit the watermark's type ({dtype}): "
+                    + (f"use {want}" if want else "a lookback needs a date, datetime or number watermark"))
 
 
 @dataclass
@@ -246,6 +297,12 @@ class Engine:
         self.batch_rows: int | None = None
         # During a batched load, the values unique checks have seen in earlier batches.
         self._seen: dict[str, pl.Series] | None = None
+        # The run's start in UTC: what deleted_at says for a row a soft-delete run marks.
+        self.run_at = dt.datetime.now(dt.timezone.utc)
+        # [load] lookback: the saved watermark this run read back from, which the new one never goes below.
+        self._wm_floor: str | None = None
+        # [load] deletes: every key the source has, read once per run (None until read).
+        self._src_keys: pl.DataFrame | None = None
 
     def _no_links(self, alias: str) -> str:
         raise CheckStop(f"link {alias} can't be resolved here: connect a platform, or pin its location for "
@@ -346,25 +403,42 @@ class Engine:
         e = self.project.entities[name]
         res = RunResult(self.run_id, name, "ok")
         started = time.perf_counter()
-        started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+        self.run_at = dt.datetime.now(dt.timezone.utc)
+        started_at = self.run_at.isoformat(timespec="microseconds")
+        self._wm_floor, self._src_keys = None, None
         self._dq: list[dict[str, Any]] = []
-        self._schema_changes: list[dict[str, Any]] = []
+        self._schema_from: pl.Schema | None = None  # the table's schema before this run's commit
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
+        self._files_recovered: list[dict[str, Any]] = []
         self._pending_quarantine = []
+        unsaved = ""  # the schema history's note, if it couldn't be saved: kept whatever the run's message becomes
         try:
             with self.table_lock(e):
-                if backfill == "migrate":
-                    self._migrate(e, res)
-                if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
-                    df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
-                    df, _ = self._checks(e, df, res)
-                    self._write(e, df, res, backfill)
-                self._flush_quarantine(res)
-                self._record_files(e, res)
+                self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
+                try:
+                    if backfill == "migrate":
+                        self._migrate(e, res)
+                    if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
+                        df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
+                        df, _ = self._checks(e, df, res)
+                        self._write(e, df, res, backfill)
+                    self._flush_quarantine(res)
+                    self._record_files(e, res)
+                finally:
+                    # Still under the lock, so the next run of this entity reads this run's schema version
+                    # and numbers its own after it. The lock is held through _after_commit's few short retries
+                    # on a slow meta lakehouse; it never raises.
+                    if res.delta_version is not None and not self._after_commit(
+                            res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
+                            lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res), metadata=m)):
+                        unsaved = res.steps[-1].detail
         except Abandoned:
             raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
+            # Files found only in a commit's metadata are saved now. This is after the table lock, so two
+            # runs may both save them: harmless, as the list is read as a set.
+            self._record_files(e, res)
         except DecisionNeeded as ex:
             res.status, res.message, res.options = "needs_decision", str(ex), ex.options
             return res
@@ -375,6 +449,8 @@ class Engine:
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
         finally:
             self._pending_quarantine = []  # a run that didn't commit quarantines nothing
+            if unsaved and unsaved not in res.message:  # a failure after the commit replaced the message
+                res.message = f"{res.message}; {unsaved}" if res.message else unsaved
         seconds = round(time.perf_counter() - started, 3)
         log = [{
             "run_id": self.run_id, "batch_id": batch_id, "entity": name, "env": self.store.env,
@@ -385,7 +461,7 @@ class Engine:
             "steps": json.dumps([s.__dict__ for s in res.steps])} | self.run_context]
         # The run's records, after its commit: if they can't be saved the run's result still stands
         # (raising here would lose it, and a caller retrying would write the table again).
-        for table, rows in (("run_log", log), ("dq_results", self._dq), ("schema_history", self._schema_changes)):
+        for table, rows in (("run_log", log), ("dq_results", self._dq)):
             if rows:
                 self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
                                    lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
@@ -431,11 +507,11 @@ class Engine:
         res.steps.append(Step(name, rows, round(time.perf_counter() - t0, 3), detail))
 
     def _last_ok(self, e: Entity) -> dict[str, Any] | None:
-        log = self.store.meta("run_log").filter((pl.col("entity") == e.name) & (pl.col("status") == "ok"))
+        log = self.store.meta_where("run_log", (pl.col("entity") == e.name) & (pl.col("status") == "ok"))
         return log.row(-1, named=True) if log.height else None
 
     def _watermark(self, e: Entity) -> str | None:
-        w = self.store.meta("watermarks").filter(pl.col("entity") == e.name)
+        w = self.store.meta_where("watermarks", pl.col("entity") == e.name)
         saved = w["value"][-1] if w.height else None
         # Each write also carries its watermark in the Delta commit. If the newest such commit's run
         # never saved its watermark (the save failed after the commit), that commit's value is the
@@ -474,7 +550,7 @@ class Engine:
             todo, detail = listed, f"{plural(len(listed), 'file')}"
             if self._tracks_files(e):
                 if not full:
-                    done = self._loaded_files(e, where)
+                    done = self._loaded_files(e, where, res)
                     todo = [f for f in listed if (f["path"], f["size"], f["modified"]) not in done]
                     detail = f"{plural(len(todo), 'new file')} of {len(listed)}"
                     if not todo:
@@ -505,9 +581,8 @@ class Engine:
             detail += "; renamed " + ", ".join(f"{k} to {v}" for k, v in renames.items())
         return df, detail
 
-    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
-        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
-        to read, the estimate from its log, and the read step's text so far."""
+    def _open_source(self, e: Entity) -> tuple[Any, str, dict[str, str] | None]:
+        """A Delta source (table, link or entity): the table, its uri and storage options."""
         src = e.spec["source"]
         if "table" in src or "link" in src:
             uri = src["table"] if "table" in src else self.link_table(src["link"])
@@ -521,6 +596,92 @@ class Engine:
             table, uri, options = self.store.table(self.lakehouse(up), up.schema, up.table)
             if table is None:
                 raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
+        return table, uri, options
+
+    def _source_keys(self, e: Entity) -> pl.DataFrame:
+        """Every key the source has now, as the table holds it: renamed, cast to the contract types
+        and through the entity's clean rules on key columns. Reads only the key columns (and is_deleted,
+        when the source has it)."""
+        if self._src_keys is not None:
+            return self._src_keys
+        src = e.spec["source"]
+        lf = lazy(*self._open_source(e))
+        back = {v: k for k, v in (src.get("rename") or {}).items()}
+        cols = [back.get(k, k) for k in e.keys]
+        names = lf.collect_schema().names()
+        missing = [c for c in cols if c not in names]
+        if missing:
+            raise CheckStop(f"load deletes: the source has no key column {', '.join(missing)}")
+        schema = lf.collect_schema()
+        if schema.get("is_deleted") == pl.Boolean and "deleted_at" in names and "is_deleted" not in cols:
+            # A soft-delete source (a table written with deletes = "soft") keeps its deleted keys as rows marked
+            # is_deleted; they are gone from it, and its watermark won't bring them here again.
+            lf = lf.filter(~pl.col("is_deleted").fill_null(False))
+        df = lf.select(cols).unique().collect(engine="streaming")
+        df, _ = self._renamed(src, df, "")
+        raw = df.select(e.keys).drop_nulls()
+        df = raw.select([_cast(raw, k, polars_type(e.columns[k])).alias(k) for k in e.keys])
+        rules = [r for r in e.spec.get("clean", []) if r.get("column") in e.keys and "dedupe_keep" not in r]
+        if rules:
+            df, _ = apply_clean(df, rules, e.keys)  # row for row: dedupe_keep is left out
+        _stop_if_unreadable(raw, df, e.keys, "the contract type (or a clean rule blanks it)")
+        self._src_keys = df.unique()
+        return self._src_keys
+
+    def _gone_keys(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> pl.DataFrame | None:
+        """[load] deletes: the keys the table holds as live rows that the source no longer has. None
+        when deletes don't apply to this run (not set, the first load, a rebuild or a replay)."""
+        if e.mode != "incremental" or e.deletes not in ("soft", "hard") or backfill not in (None, "none"):
+            return None
+        target = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        if target is None:
+            return None
+        t0 = time.perf_counter()
+        if "is_deleted" in target.collect_schema().names():
+            target = target.filter(pl.col("is_deleted").is_null() | ~pl.col("is_deleted"))
+        have = target.select(e.keys).unique().drop_nulls().collect(engine="streaming")
+        source = self._source_keys(e)
+        if not source.height and have.height:
+            raise CheckStop(f"load deletes: the source has no live rows, so every row of {e.name} would be "
+                            f"{'marked deleted' if e.deletes == 'soft' else 'removed'}. Nothing was written; "
+                            "check the source")
+        typed = source.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys])
+        _stop_if_unreadable(source, typed, e.keys, "the table's key type")
+        gone = have.join(typed, on=e.keys, how="anti")
+        if df.height and all(k in df.columns for k in e.keys):
+            gone = gone.join(df.select([pl.col(k).cast(have.schema[k], strict=False) for k in e.keys]),
+                             on=e.keys, how="anti")
+        kind, limit = e.max_deletes
+        allowed = int(limit * have.height) if kind == "share" else int(limit)
+        if gone.height > allowed:
+            said = f"{limit * 100:g}%" if kind == "share" else plural(int(limit), "key")
+            raise CheckStop(f"load deletes: {plural(gone.height, 'key')} of {plural(have.height, 'live key')} in "
+                            f"{e.name} {'is' if gone.height == 1 else 'are'} gone from the source, more than "
+                            f"max_deletes allows ({said}). Nothing was "
+                            "written. A source cut short looks like this: check it, and raise [load] max_deletes "
+                            "if the deletes are real")
+        what = "to mark deleted" if e.deletes == "soft" else "to remove"
+        earlier = next((i for i, st in enumerate(res.steps) if st.name == "deletes"), None)
+        self._step(res, "deletes", t0, gone.height,
+                   f"compared {plural(source.height, 'source key')} with {plural(have.height, 'live key')} "
+                   f"in the table: {plural(gone.height, 'key')} gone from the source {what}")
+        if earlier is not None:  # a retry after a commit conflict compares again: its step replaces the first
+            res.steps[earlier] = res.steps.pop()
+        return gone
+
+    def _tombstones(self, e: Entity, gone: pl.DataFrame) -> pl.DataFrame:
+        """deletes = "soft": the table's rows for the gone keys, marked deleted as of this run."""
+        lf = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        rows = lf.join(gone.lazy(), on=e.keys, how="semi").collect(engine="streaming")
+        return rows.with_columns(pl.lit(True).alias("is_deleted"),
+                                 pl.lit(self.run_at).cast(DELETED_AT_TYPE).alias("deleted_at"),
+                                 pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at"))
+
+    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
+        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
+        to read, the estimate from its log, and the read step's text so far."""
+        src = e.spec["source"]
+        table, uri, options = self._open_source(e)
         lf = lazy(table, uri, options)
         # The filter and the column list go into the scan, so only the files and columns this run
         # needs are read: an incremental run of a large table reads its new rows, not all of it.
@@ -534,9 +695,16 @@ class Engine:
             # The watermark is a contract column, saved from the output; the source may call it something else.
             src_wm = {v: k for k, v in (src.get("rename") or {}).items()}.get(wm_col, wm_col)
             if wm is not None and src_wm in names:
-                after = (src_wm, _wm_literal(wm, schema[src_wm]))
+                saved = _wm_literal(wm, schema[src_wm])
+                # A lookback reads again the rows just before the watermark, so late rows land; the
+                # MERGE on the key makes the rows already loaded replace themselves.
+                after = (src_wm, _wm_minus(e, saved, schema[src_wm]))
                 lf = lf.filter(pl.col(src_wm) > after[1])
                 detail = f"incremental, {wm_col} after {wm}"
+                if after[1] != saved:
+                    self._wm_floor = wm
+                    detail = (f"incremental, {wm_col} after {_wm_text(after[1])} "
+                              f"(the watermark {wm} less the lookback {e.spec['load']['lookback']})")
         keep = self._source_columns(e, names)
         total = len([c for c in names if c not in SYSTEM_COLUMNS])
         if len(keep) < total:
@@ -620,6 +788,8 @@ class Engine:
         state: dict[str, Any] = {"written": 0, "kept": 0, "wm": None, "keys": []}
         mark = len(res.steps)
         stamp = [pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at")]
+        if e.soft_deletes:  # every row the source has is live
+            stamp += [pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at")]
 
         def tables():
             for b in plan:
@@ -695,9 +865,24 @@ class Engine:
         worker.start()
         try:
             first = take()
-            schema = first.schema
+            before = None if read_version is None else \
+                self.store.scan(lh, e.schema, e.table, read_version).collect_schema()
+            schema, kept_types = _first_batch_schema(e, first, before)
+            self._refuse_type_changes(e, before, pl.from_arrow(schema.empty_table()).schema)
 
             def fit(t: pa.Table) -> pa.Table:  # every batch in the first one's columns and types
+                for name, old in kept_types.items():
+                    # A column the first batch left empty took the table's type. A later batch with
+                    # values of another kind is the change an unbatched load refuses: refuse it too.
+                    col_ = t.column(name) if name in t.column_names else None
+                    if col_ is None or col_.null_count == t.num_rows:
+                        continue
+                    new_ = pl.from_arrow(t.select([name]).slice(0, 0)).schema[name]
+                    if new_ != old and not (name not in e.columns and drift_mod.widens(new_, old)):
+                        stop_ = type_change_refused(
+                            e.name, [f"{name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)}"])
+                        failure.append(stop_)
+                        raise stop_
                 cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
                         for f in schema]
                 return pa.Table.from_arrays(cols, schema=schema)
@@ -717,6 +902,10 @@ class Engine:
                 version = self.store.write_stream(lh, e.schema, e.table, pa.RecordBatchReader.from_batches(
                     schema, record_batches()), metadata=metadata, read_version=read_version)
             except Exception:
+                # Nothing was committed; the files the stream had written are removed (PB-067).
+                cleanup = self.store.last_cleanup
+                if cleanup:
+                    self._step(res, "clean up", tw, cleanup["removed"], cleanup["note"])
                 if failure:
                     raise failure[0] from None
                 raise
@@ -738,37 +927,68 @@ class Engine:
         return True
 
     def _fold(self, res: RunResult, mark: int) -> None:
-        """A batched load's per-batch steps, quality results and schema changes, as one each."""
+        """A batched load's per-batch steps and quality results, as one each."""
         res.steps[mark:] = [Step(*s) for s in batches_mod.fold_steps(res.steps[mark:])]
         failed: dict[tuple[str, str], int] = {}
         for r in self._dq:
             failed[(r["check"], r["action"])] = failed.get((r["check"], r["action"]), 0) + r["failed"]
         self._dq = [{"run_id": self.run_id, "entity": res.entity, "check": c, "failed": n, "action": a}
                     for (c, a), n in failed.items()]
-        self._schema_changes = list({json.dumps(c, sort_keys=True): c for c in self._schema_changes}.values())
 
     def _tracks_files(self, e: Entity) -> bool:
         """Incremental and dimension loads from files read only files they haven't loaded (a full
         backfill reads them all). Full loads, and ``[source] new_files_only = false``, read them all."""
         return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
 
-    def _loaded_files(self, e: Entity, lakehouse: str) -> set[tuple[str, int, str]]:
-        m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
-        return {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+    def _loaded_files(self, e: Entity, lakehouse: str, res: RunResult) -> set[tuple[str, int, str]]:
+        m = self.store.meta_where("loaded_files", (pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
+        done = {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+        # Each write also carries the files it read in its Delta commit. If the run never saved its
+        # list (the save failed after the commit), those files are loaded all the same: going by the
+        # saved list would load them again, and a load without keys would add their rows twice. Only
+        # the last 20 commits are looked at, as for the watermark.
+        try:
+            history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
+        except Exception as exc:  # noqa: BLE001  no history to go by: the saved list is all there is
+            res.steps.append(Step("files", 0, 0.0, f"couldn't read the table's history ({type(exc).__name__}: {exc}), "
+                                                   "so only the saved list of loaded files is used"))
+            return done
+        saved = set(m["run_id"].to_list())
+        for commit in history:
+            run, files = commit.get("fabric_desktop_run_id"), _committed_files(commit, lakehouse)
+            if not run or run in saved or not files:
+                continue
+            new = [f for f in files if (f["path"], f["size"], f["modified"]) not in done]
+            done |= {(f["path"], f["size"], f["modified"]) for f in files}
+            self._files_recovered += [{"entity": e.name, "lakehouse": lakehouse, "run_id": run} | f for f in new]
+        return done
+
+    def _files_metadata(self, res: RunResult) -> dict[str, str]:
+        """The files this run read, for its table commit (see _loaded_files)."""
+        if not self._files_read:
+            return {}
+        where, files = self._files_read
+        if len(files) > FILES_IN_COMMIT:
+            res.steps.append(Step("files", len(files), 0.0, f"too many files to list in the Delta commit (over "
+                                                            f"{FILES_IN_COMMIT:,}): if the list of loaded files "
+                                                            "can't be saved, the next run reads them again"))
+            return {}
+        listed = [[f["path"], f["size"], f["modified"]] for f in files]
+        return {FILES_KEY: json.dumps({"lakehouse": where, "files": listed}, separators=(",", ":"))}
 
     def _record_files(self, e: Entity, res: RunResult) -> None:
-        """After the table commit: the files this run read are loaded. If this fails, the next run
-        reads them again, which a keyed load absorbs."""
-        if not self._files_read:
-            return
-        where, files = self._files_read
-        try:
-            self.store.meta_append("loaded_files", [{"entity": e.name, "lakehouse": where, "run_id": self.run_id,
-                                                     "path": f["path"], "size": f["size"], "modified": f["modified"]}
-                                                    for f in files])
-        except Exception as exc:  # the table is written; only the next run's file list is affected
-            res.steps.append(Step("files", len(files), 0.0, f"couldn't record the files read ({type(exc).__name__}: "
-                                                             f"{exc}); the next run reads them again"))
+        """After the table commit: the files this run read are loaded, and so are any a run committed
+        without saving its list (saved under that run). If this fails, the next run finds them in
+        the commit instead."""
+        rows = list(self._files_recovered)
+        if self._files_read:
+            where, files = self._files_read
+            rows += [{"entity": e.name, "lakehouse": where, "run_id": self.run_id, "path": f["path"],
+                      "size": f["size"], "modified": f["modified"]} for f in files]
+        if rows:
+            self._after_commit(res, f"the list of {plural(len(rows), 'file')} read",
+                               (META_LAKEHOUSE, "meta", "loaded_files"),
+                               lambda m: self.store.meta_append("loaded_files", rows, metadata=m))
 
     def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
         """The source columns the contract expects, and those this entity uses."""
@@ -815,9 +1035,8 @@ class Engine:
             raise CheckStop(f"schema drift: new columns {', '.join(new)} (layer {e.layer} does not allow new columns)")
         if new and policy == "evolve":
             self._evolved = new
+            # The schema history records them once they are in the table, with the version that added them.
             detail = f"kept new columns {', '.join(new)}; add them to the contract to keep them for good"
-            self._schema_changes.append({"entity": e.name, "run_id": self.run_id, "change": "added",
-                                         "columns": ", ".join(new)})
         elif new:
             df = df.drop(new)
             detail = f"ignored new columns {', '.join(new)}"
@@ -1065,6 +1284,44 @@ class Engine:
         if committed:
             self._advance_watermark(e, df, backfill, res)
 
+    def _table_schema(self, e: Entity, version: int | None = None) -> pl.Schema | None:
+        if version is not None:  # the version this run's write made: the store kept its schema
+            kept = getattr(self.store, "written_schema", lambda *a: None)
+            written = kept(self.lakehouse(e), e.schema, e.table, version)
+            if written is not None:
+                return written
+        lf = self.store.scan(self.lakehouse(e), e.schema, e.table, version)
+        return None if lf is None else lf.collect_schema()
+
+    def _refuse_type_changes(self, e: Entity, before: pl.Schema | None, after: pl.Schema) -> None:
+        """Delta's rule, as the notebook writer applies it: a rewrite may add columns and widen a
+        column's type, but narrowing it or changing it to another kind needs overwriteSchema, here
+        ``overwrite_schema = true`` under [contract]. Checked before anything is written."""
+        if before is None or e.spec.get("contract", {}).get("overwrite_schema") is True:
+            return
+        refused = [c["detail"] for c in drift_mod.schema_changes(before, after) if c["change"] in ("narrowed", "retyped")]
+        if refused:
+            raise type_change_refused(e.name, refused)
+
+    def _schema_rows(self, e: Entity, res: RunResult) -> list[dict[str, Any]]:
+        """The schema history for this run's commit: each change it made to the table's schema, with
+        the Delta version that made it and the entity's next schema version (one per commit)."""
+        changes = drift_mod.schema_changes(self._schema_from, self._table_schema(e, res.delta_version))
+        if not changes:
+            return []
+        # This entity's rows only: files whose statistics rule the entity out aren't read.
+        seen, _ = self.store.read_where(META_LAKEHOUSE, "meta", "schema_history", pl.col("entity") == e.name)
+        if seen is None:
+            seen = pl.DataFrame(schema=META_SCHEMAS["schema_history"])
+        if "schema_version" not in seen.columns:
+            seen = seen.with_columns(schema_version=pl.lit(None, pl.Int64))
+        # Rows from before schema versions were recorded have none: each of their runs counts as one, so
+        # the numbering continues after them (and stays above any version that started again at 1).
+        older = seen.filter(pl.col("schema_version").is_null())["run_id"].n_unique()
+        top = seen["schema_version"].max()
+        return [{"entity": e.name, "run_id": self.run_id, "delta_version": res.delta_version,
+                 "schema_version": max(older, int(top or 0)) + 1} | c for c in changes]
+
     def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
         """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or
         "" with the reason the table has to be read and rewritten instead."""
@@ -1077,9 +1334,13 @@ class Engine:
         target = self.store.scan(self.lakehouse(e), e.schema, e.table)
         if target is None:
             return "", ""
-        changed = _type_changes(df, target.collect_schema())
+        have = target.collect_schema()
+        changed = _type_changes(df, have)
         if changed:
             return "", changed
+        if e.soft_deletes and "is_deleted" not in have:
+            # A MERGE would leave the rows already there with an empty is_deleted; the one rewrite marks them live.
+            return "", "rewrote the table once to add is_deleted and deleted_at (deletes = \"soft\")"
         if not e.keys:
             return "append", ""
         if df.select(e.keys).is_duplicated().any():
@@ -1087,7 +1348,8 @@ class Engine:
         return "upsert", ""
 
     def _write_merged(self, e: Entity, df: pl.DataFrame, how: str, backfill: str | None,
-                      metadata: dict[str, str]) -> tuple[int, str]:
+                      metadata: dict[str, str], hard: pl.DataFrame | None = None) -> tuple[int, str]:
+        """``hard``: keys whose rows the same MERGE removes ([load] deletes = "hard")."""
         lh = self.lakehouse(e)
         have = self.store.scan(lh, e.schema, e.table).collect_schema()
         # A column the table has and the rows don't is null in them, as when the table was rewritten.
@@ -1096,9 +1358,17 @@ class Engine:
         if how == "append":
             version = self.store.write(lh, e.schema, e.table, df, mode="append", metadata=metadata)
             return version, f"{what} {plural(df.height, 'row')} (Delta append, no files rewritten)"
-        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata)
+        flag = None
+        # Soft-delete marks ride along with the rows; the step names them on their own.
+        rows = int((~df["is_deleted"]).sum()) if e.soft_deletes and "is_deleted" in df.columns else df.height
+        if hard is not None and hard.height:
+            flag = _DELETE_FLAG
+            gone = hard.select([pl.col(k).cast(df.schema[k]) for k in e.keys])
+            df = pl.concat([df.with_columns(pl.lit(False).alias(flag)), gone.with_columns(pl.lit(True).alias(flag))],
+                           how="diagonal_relaxed")
+        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata, delete_flag=flag)
         removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
-        return version, (f"{what} {plural(df.height, 'row')} on {', '.join(e.keys)}: "
+        return version, (f"{what} {plural(rows, 'row')} on {', '.join(e.keys)}: "
                          f"{m.get('num_target_rows_updated', 0)} updated, {m.get('num_target_rows_inserted', 0)} new "
                          f"(Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
 
@@ -1174,7 +1444,9 @@ class Engine:
         """One attempt at the table commit; True when something was committed."""
         t0 = time.perf_counter()
         lh = self.lakehouse(e)
-        if df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
+        gone = self._gone_keys(e, df, backfill, res)  # [load] deletes: keys the source no longer has
+        n_gone = gone.height if gone is not None else 0
+        if df.height == 0 and not n_gone and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
                 and self.store.exists(lh, e.schema, e.table):
             self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), "nothing new to write")
             return False
@@ -1184,11 +1456,28 @@ class Engine:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
+        metadata |= self._files_metadata(res)
+        # Before any merge: scd1_merge, scd2_merge and the relaxed concats below join the new rows to
+        # the table's, and would fail on a change of kind, or quietly keep the old type, first.
+        df = _fit_to_table(e, df, self._schema_from)
+        self._refuse_type_changes(e, self._schema_from, df.schema)
+        live = df.height
+        deleted = ""
+        if e.soft_deletes:
+            # Every row the source has is live; a key it no longer has keeps its row, marked deleted.
+            df = df.with_columns(pl.lit(False).alias("is_deleted"), pl.lit(None, dtype=DELETED_AT_TYPE).alias("deleted_at"))
+            if n_gone:
+                df = pl.concat([df, self._tombstones(e, gone)], how="diagonal_relaxed")
+                deleted = f"; marked {plural(n_gone, 'row')} deleted (gone from the source)"
+        elif n_gone:
+            deleted = f"; removed {plural(n_gone, 'row')} deleted at the source"
+        hard = gone if (n_gone and e.deletes == "hard") else None
         how, why = self._merge_plan(e, df, backfill)
         if how:
-            version, info = self._write_merged(e, df, how, backfill, metadata)
-            res.rows_written, res.delta_version = df.height, version
-            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
+            version, info = self._write_merged(e, df, how, backfill, metadata, hard)
+            res.rows_written, res.delta_version = live, version
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table),
+                       f"{info}{deleted}; Delta version {version}")
             return True
         if e.mode in ("scd1", "scd2") and self.merge_writes:
             done = self._write_dimension(e, df, metadata)
@@ -1215,8 +1504,10 @@ class Engine:
             info = f"replayed {plural(df.height, 'row')}"
         elif e.mode == "incremental" and existing is not None and backfill != "full":
             keep = existing.join(df.select(e.keys), on=e.keys, how="anti") if e.keys else existing
+            if hard is not None:
+                keep = keep.join(hard.select([pl.col(k).cast(keep.schema[k]) for k in e.keys]), on=e.keys, how="anti")
             out = pl.concat([keep, df], how="diagonal_relaxed")
-            info = f"merged {df.height} rows on {', '.join(e.keys)}" if e.keys else f"appended {df.height} rows"
+            info = f"merged {live} rows on {', '.join(e.keys)}" if e.keys else f"appended {live} rows"
         elif e.mode == "incremental" and existing is not None:
             keep = existing.join(df.select(e.keys), on=e.keys, how="anti") if e.keys else existing.clear()
             out = pl.concat([keep, df], how="diagonal_relaxed")
@@ -1224,19 +1515,28 @@ class Engine:
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
         out = with_unknown_date(out, e)
+        if e.soft_deletes:  # rows written before deletes were turned on are live
+            out = out.with_columns(pl.col("is_deleted").fill_null(False))
         if why:
             info = f"{info}; {why}"
+        self._refuse_type_changes(e, None if existing is None else existing.schema, out.schema)
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
                                    read_version=read_version)
-        res.rows_written, res.delta_version = df.height, version
-        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
+        res.rows_written, res.delta_version = live, version
+        self._step(res, "write", t0, out.height, f"{info}{deleted}; Delta version {version}")
         return True
 
     def _new_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> str | None:
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:
-            return _wm_text(df[wm_col].max())
+            top = df[wm_col].max()
+            if self._wm_floor is not None and backfill in (None, "none"):
+                # A lookback re-read only older rows: the watermark stays where it was, never goes back.
+                floor = _wm_literal(self._wm_floor, df.schema[wm_col])
+                if top < floor:
+                    return self._wm_floor
+            return _wm_text(top)
         return None
 
     def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None, res: RunResult) -> None:
@@ -1303,6 +1603,17 @@ def apply_clean(df: pl.DataFrame, rules: list[dict[str, Any]], keys: list[str]) 
     return df, changed
 
 
+def _committed_files(commit: dict[str, Any], lakehouse: str) -> list[dict[str, Any]]:
+    """The files a table commit says its run read from ``lakehouse``, from _files_metadata."""
+    try:
+        listed = json.loads(commit.get(FILES_KEY) or "{}")
+        if listed.get("lakehouse") != lakehouse:
+            return []
+        return [{"path": str(p), "size": int(n), "modified": str(m)} for p, n, m in listed.get("files", [])]
+    except (TypeError, ValueError, AttributeError):  # not written by _files_metadata: nothing to go by
+        return []
+
+
 def _next_key(existing: pl.DataFrame | None, sk: str) -> int:
     if existing is None or existing.height == 0:
         return 1
@@ -1344,9 +1655,52 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
                            .otherwise(pl.col(col)).alias(col))
 
 
+def _by_key(df: pl.DataFrame, bk: list[str]) -> pl.DataFrame:
+    """Rows in business-key order, so new surrogate keys go to the same rows on every run: the
+    joins before them don't keep any row order."""
+    return df.sort(bk, nulls_last=True, maintain_order=True)
+
+
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     sk = e.surrogate_key
     return df.select([sk] + [c for c in df.columns if c != sk])
+
+
+def _first_batch_schema(e: Entity, first: pa.Table, table: pl.Schema | None) -> tuple[pa.Schema, dict[str, Any]]:
+    """The schema every batch of a batched load is written in: the first batch's, except that a
+    column the first batch leaves empty takes the table's type (a file that left it empty reads as
+    text), as _fit_to_table does for a load in one go. Also returns those columns and their types."""
+    schema = first.schema
+    if table is None or not first.num_rows or e.spec.get("contract", {}).get("overwrite_schema") is True:
+        return schema, {}
+    kept: dict[str, Any] = {}
+    for i, f in enumerate(schema):
+        old = table.get(f.name)
+        if old is None or first.column(f.name).null_count != first.num_rows:
+            continue
+        typed = pl.DataFrame(schema={f.name: old}).to_arrow().schema.field(f.name).type
+        if typed != f.type:
+            schema = schema.set(i, f.with_type(typed))
+            kept[f.name] = old
+    return schema, kept
+
+
+def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.DataFrame:
+    """The new rows in the table's types where nothing is lost: a column with no values in this
+    load (a file that left it empty reads as text), and a column the contract doesn't declare whose
+    type the table's widens (an int32 batch into an int64 column). A narrowing the contract asks
+    for, and any real change of kind, are left for _refuse_type_changes."""
+    if table is None or e.spec.get("contract", {}).get("overwrite_schema") is True:
+        return df  # overwrite_schema: the new rows' types are the ones asked for
+    declared = e.columns
+    casts = []
+    for name, dtype in df.schema.items():
+        old = table.get(name)
+        if old is None or old == dtype:
+            continue
+        if (df.height and df[name].null_count() == df.height) or (name not in declared and drift_mod.widens(dtype, old)):
+            casts.append(pl.col(name).cast(old))
+    return df.with_columns(casts) if casts else df
 
 
 def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
@@ -1367,11 +1721,12 @@ def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
         out = pl.concat([untouched, incoming.filter(pl.col(sk) != -1)], how="diagonal_relaxed")
         return out.sort(sk), f"{incoming.height - matched} new, {matched} updated, keys from LH_Keys"
     if existing is None:
-        rows = _ordered(incoming.with_columns(pl.int_range(1, incoming.height + 1, dtype=pl.Int64).alias(sk)), e)
+        rows = _by_key(incoming, bk).with_columns(pl.int_range(1, incoming.height + 1, dtype=pl.Int64).alias(sk))
+        rows = _ordered(rows, e)
         return pl.concat([unknown_member(rows.schema, e), rows]), f"{incoming.height} new"
     keys = existing.select(bk + [sk])
     matched = incoming.join(keys, on=bk, how="inner")
-    new = incoming.join(keys, on=bk, how="anti")
+    new = _by_key(incoming.join(keys, on=bk, how="anti"), bk)
     start = next_key or _next_key(existing, sk)
     new = new.with_columns(pl.int_range(start, start + new.height, dtype=pl.Int64).alias(sk))
     untouched = existing.join(incoming.select(bk), on=bk, how="anti")
@@ -1393,7 +1748,7 @@ def scd2_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
                              "each row's history at 1900-01-01.", ["migrate"])
 
     def versioned(df: pl.DataFrame, start: int, valid_from: Any) -> pl.DataFrame:
-        df = df.with_columns(pl.int_range(start, start + df.height, dtype=pl.Int64).alias(sk),
+        df = _by_key(df, bk).with_columns(pl.int_range(start, start + df.height, dtype=pl.Int64).alias(sk),
                              (valid_from if isinstance(valid_from, pl.Expr) else pl.lit(valid_from)).alias("valid_from"),
                              pl.lit(FAR_FUTURE).alias("valid_to"), pl.lit(True).alias("is_current"))
         return _ordered(df, e)

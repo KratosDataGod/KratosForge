@@ -16,7 +16,7 @@ function compareSide(name, side, env) {
     verSel.replaceChildren(h("option", { value: "" }, "Now"));
     const list = await rpc("meta_versions", { name, env: envSel.value }).catch(() => []);
     for (const v of list.slice(1)) {
-      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${v.at ? new Date(v.at).toLocaleString() : ""}${v.operation ? ` · ${v.operation}` : ""}`));
+      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${dateTimeText(v.at)}${v.operation ? ` · ${v.operation}` : ""}`));
     }
   };
   envSel.addEventListener("change", loadVersions);
@@ -159,7 +159,7 @@ function lastRelease(env, onChange = null) {
       row("Code", releaseCommitText(r)),
       r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
       row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
-        h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
+        when(r.at)),
       row("Record", record)));
   }).catch(() => box.remove());
   return box;
@@ -339,8 +339,18 @@ function driftPanel(e, d) {
         : h("p", { class: "muted-text small" }, `${d.source || "The source"} in ${ENV_LABEL[d.env]} matches the contract.`),
     droppedRows, addedRows, retypedRows,
     h("label", { class: "field" }, "When the source adds columns", policy),
-    d.history?.length ? h("div", { class: "muted-text small" }, `Kept before: ${d.history.slice(0, 3).map((x) => x.columns).join("; ")}`) : null,
+    schemaChanges(d.history),
     h("div", { class: "row" }, h("span", { class: "spacer" }), applyBtn));
+}
+
+// The table's latest schema changes from meta.schema_history, newest first. Rows from before
+// PB-031 have only the columns a drift policy kept; a table's first schema isn't a change.
+function schemaChanges(history) {
+  const rows = (history || []).filter((x) => x.change !== "created").slice(0, 3);
+  if (!rows.length) return null;
+  const text = rows.map((x) => (x.detail ? `${x.change} ${x.detail}` : `kept ${x.columns}`)
+    + (x.delta_version != null ? ` (Delta version ${x.delta_version})` : ""));
+  return h("div", { class: "muted-text small" }, `Schema changes: ${text.join("; ")}`);
 }
 
 // ---------- quarantine ----------

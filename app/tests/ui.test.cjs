@@ -463,7 +463,7 @@ test("billed capacity totals show each currency on its own and say which environ
     h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
     measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
   };
-  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  vm.runInNewContext(`${dateHelpers()}${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
   assert.strictEqual(ctx.usageBilled([], "USD"), null);
   const out = text(ctx.usageBilled([
     { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
@@ -1257,7 +1257,7 @@ test("attempt() stays quiet only for a cancelled sign-in, never for an empty err
 test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${dateHelpers()}${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
   const now = Date.parse("2026-10-20T12:00:00Z");
   const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
   assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
@@ -1506,6 +1506,27 @@ test("Workspaces, the catalog and data products have a How this works panel that
   assert.match(products, /records your project as a reader/);
   assert.match(products, /adds a request/);
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});
+
+// #856 (PB-083): the catalog's Endorsed items filter is off, and its reason (the button's title) says
+// where endorsement really shows. There is no embedded Fabric catalog to point at.
+test("the Endorsed items filter's reason names the admin tenant scan, data products and Open Fabric's catalog", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "service.py"), "utf8");
+  const reason = py.match(/ENDORSED_FILTER_REASON = \(([\s\S]*?)\)\n/)?.[1].replace(/"\s*"/g, "") || "";
+  assert.match(reason, /admin tenant scan/);
+  assert.match(reason, /Data mesh > Products/);
+  assert.match(reason, /Scan now/);
+  assert.match(reason, /Fabric administrator/);
+  assert.match(reason, /Open Fabric's catalog/);
+  assert.match(app, /btn\("Open Fabric's catalog"/, "the button the reason names is on the catalog page");
+  assert.doesNotMatch(py + app, /catalog below|embedded on the same page/i);
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "troubleshooting.md"), "utf8");
+  const row = docs.split("\n").find((l) => l.includes("**Endorsed items** is greyed out")) || "";
+  assert.match(row, /admin tenant scan/);
+  assert.match(row, /Scan now/);
+  assert.match(row, /Open Fabric's catalog/);
+  assert.doesNotMatch(row, /embedded/);
 });
 
 test("repositories are grouped by what they hold, unsorted ones last", () => {
@@ -3251,6 +3272,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
+// Home and End and a screen reader says which tab is selected.
+test("every row of tabs is a tablist with selected state", () => {
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
+      for (const m of src.matchAll(re)) {
+        const near = src.slice(m.index, m.index + 260);
+        const line = src.slice(0, m.index).split("\n").length;
+        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
+        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+      }
+    }
+  }
+});
+
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
 test("sizes read the same on every page", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -3264,6 +3301,50 @@ test("sizes read the same on every page", () => {
   for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
     assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
+// The shared date and time helpers (activity.js), for tests that run a page's code on its own.
+function dateHelpers(names = ["readDate", "dateText", "timeText", "dateTimeText"]) {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  return names.map((name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0]).join("\n");
+}
+
+test("dates and times read the same on every page", () => {
+  const ctx = {};
+  vm.runInNewContext(`${dateHelpers(["readDate", "dateText", "timeText", "dateTimeText", "relTime"])}
+this.f = { dateText, timeText, dateTimeText, relTime };`, ctx);
+  const { dateText, timeText, dateTimeText, relTime } = ctx.f;
+  const at = "2026-10-28T19:03:07Z";
+  const d = new Date(at);
+  assert.strictEqual(dateText(at), d.toLocaleDateString(undefined, { dateStyle: "medium" }));
+  assert.strictEqual(dateText(d), dateText(at), "a Date reads the same as its ISO string");
+  assert.strictEqual(dateText(d.getTime()), dateText(at), "and as milliseconds");
+  assert.ok(dateTimeText(at).startsWith(dateText(at)), dateTimeText(at));
+  assert.strictEqual(timeText(at), d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+  assert.notStrictEqual(timeText(at, { seconds: true }), timeText(at), "seconds only when asked");
+  assert.strictEqual(dateText("2026-10-28T00:00:00Z", { utc: true }), new Date(Date.UTC(2026, 9, 28)).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" }));
+  for (const f of [dateText, timeText, dateTimeText, relTime]) {
+    for (const bad of [null, undefined, "", "not a date", NaN]) {
+      const out = f(bad);
+      assert.strictEqual(out, "", `${f.name}(${String(bad)})`);
+    }
+  }
+  assert.strictEqual(dateTimeText(null, { empty: "never" }), "never");
+  assert.ok(dateText(at, { weekday: true }).includes(d.toLocaleDateString(undefined, { weekday: "short" })), "weekday when asked");
+  assert.strictEqual(dateText("soon", { empty: "?" }), "?");
+  const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
+  assert.strictEqual(relTime(ago(5)), "just now");
+  assert.strictEqual(relTime(ago(600)), "10 min ago");
+  assert.strictEqual(relTime(ago(7200)), "2 h ago");
+  assert.strictEqual(relTime(ago(90000)), "yesterday");
+  const lastYear = new Date(Date.now() - 400 * 86400000);
+  assert.strictEqual(relTime(lastYear.toISOString()), dateText(lastYear));
+  // Every page uses these: no page formats a date or time itself.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "activity.js")) {
+    const page = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.doesNotMatch(page, /\.toLocale(Date|Time)String\(|dateStyle|timeStyle|new Date\([^()]*\)\.toLocaleString\(/,
+      `${file} formats a date itself: use dateText, timeText, dateTimeText or relTime`);
   }
 });
 
@@ -4175,6 +4256,21 @@ test("Markdown and JSON cell outputs render without new HTML sinks", () => {
   assert.strictEqual(t, '{2}a: [3]0: 11: "<b>x</b>"2: nullb: {1}c: true');
   assert.strictEqual(tree.attrs.open, true);
   assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
+});
+
+// Snowflake SQL on DuckDB (SF-04): the translation report is plain text in a <pre>, never HTML.
+test("The Snowflake translation output renders as text", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = /function renderOutput\([\s\S]*?\n}\n/.exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined) });
+  const ctx = { h: el };
+  vm.createContext(ctx);
+  vm.runInContext(fn + "this.r = renderOutput;", ctx);
+  const evil = "Statement 1: <img src=x onerror=alert(1)>";
+  const out = ctx.r({ type: "translation", text: evil, statements: [] }, null);
+  assert.strictEqual(out.attrs.class, "output translation-output");
+  assert.strictEqual(out.kids[0].tag, "pre");
+  assert.deepStrictEqual(out.kids[0].kids, [evil]);
 });
 
 // IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
@@ -5310,14 +5406,18 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
     "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Late rows and source deletes": ["docs/metadata-guide.md", /settings in your entity files, not a screen/],
+    "Schema changes": ["docs/metadata-guide.md", /how runs treat a table's schema, not a screen of its own/],
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
+    "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

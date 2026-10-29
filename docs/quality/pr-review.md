@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1104 c156df58 | (retargeted to main after #1101 squash) | PASS carry | RM merge of main on 08b9f303. Patch-id against main is identical to 557c36fd..08b9f303 (5 files, +82/-11). Merge result: ui 309/0. |
+
 | 2026-10-29 | #1101 dba0abf1 | Databricks workspace discovery (Preview) | PASS carry | RM merge of main (#1096, #1106) on 51ba02c1. Remerge diff: engines.md keeps both sections unchanged, and ui.test NO_ID keeps main's BY_ID moves plus the discovery reason. Every other file matches 51ba02c1 (same patch-id). ui 308/0 on this head. |
 
 | 2026-10-29 | #1120 147f0a20 | FS-04 pipeline gotchas PG1-PG10 (warnings) | PASS 9.2 | Delta only narrows Optionals in orchestration/gotchas.py, with no change in behaviour. Merge result: mypy ratchet passes (exit 0), 330 tests pass, ruff clean. Earlier checks still hold: ui 307/0, no text overlap with skills-for-fabric, no REGISTRY_VERSION collision. |

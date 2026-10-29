@@ -983,6 +983,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.match(say("SignInError: broker_error: Status_IncorrectConfiguration, error code 3399614466"), /for this service/);  // #1079
+  assert.match(say("SignInError: AADSTS65002: Consent between first party application and first party resource"), /for this service/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
   assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");

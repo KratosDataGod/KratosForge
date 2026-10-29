@@ -58,6 +58,23 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
 
 
+def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
+    """A failed long-running operation, in Fabric's words: its error code and message, never the raw body."""
+    error = state.get("error") if isinstance(state.get("error"), dict) else {}
+    code = str(error.get("errorCode") or "") or None
+    message = str(error.get("message") or "").strip().rstrip(".")
+    more = error.get("moreDetails") if isinstance(error.get("moreDetails"), list) else []
+    details = [str(d.get("message")).strip().rstrip(".") for d in more if isinstance(d, dict) and d.get("message")]
+    if code == "CapacityNotActive":
+        message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
+                   "or use a workspace on an active capacity")
+    text = f"Fabric's operation {operation} {'failed' if state.get('status') == 'Failed' else 'ended in an unknown state'}"
+    text += f": {message}" if message else " and gave no reason"
+    text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "")
+    request_id = str(error.get("requestId") or "")
+    return FabricError(text + (f". Request id {request_id}." if request_id else "."), code)
+
+
 # Hosts a URL Fabric hands back (continuationUri, an operation's Location) may name before the
 # token goes with it: Fabric, OneLake, Power BI, and Power BI's regional wabi-* hosts. Only the
 # public cloud: every base URL in this app is a public-cloud one.
@@ -151,27 +168,45 @@ class FabricClient:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt else ""
+            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # some APIs send the text "null"
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:
-        """Follow a 202 long-running operation to its result."""
+        """Follow a 202 long-running operation to its result. Once it has succeeded, the state's
+        ``Location`` names the result; an operation that has none (Fabric says some just finish)
+        returns {}. A failure raises with Fabric's own code and message, not the raw response."""
         if resp.status_code != 202:
             return resp.json() if resp.content else {}
         came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
         location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
+        operation = resp.headers.get("x-ms-operation-id") or location.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
         deadline = time.monotonic() + self._poll_timeout
         while True:
             self._sleep(retry_after(resp.headers, 2))
             resp = self._request("GET", location)
-            status = resp.json().get("status")
+            state = resp.json() if resp.content else {}
+            status = state.get("status")
             if status == "Succeeded":
-                result = self._request("GET", f"{location.rstrip('/')}/result")
-                return result.json() if result.content else {}
+                return self._operation_result(location, resp.headers.get("Location"))
             if status in ("Failed", "Undefined"):
-                raise FabricError(f"Operation failed: {resp.text}")
+                raise _operation_failed(operation, state)
             if time.monotonic() > deadline:
-                raise FabricError(f"Operation timed out: {location}")
+                raise FabricError(f"Fabric's operation {operation} didn't finish within {self._poll_timeout:g} seconds "
+                                  f"(last status: {status or 'none'}). It may still finish in Fabric.", "OperationTimedOut")
+
+    def _operation_result(self, location: str, result_location: str | None) -> dict[str, Any]:
+        if result_location:
+            url = followable_url(result_location, location)
+            if url.rstrip("/") != location.rstrip("/"):
+                result = self._request("GET", url)
+                return result.json() if result.content else {}
+        try:  # no result link: build it from the operation, as Fabric's docs allow
+            result = self._request("GET", f"{location.rstrip('/')}/result")
+        except FabricError as exc:
+            if exc.status in (400, 404):
+                return {}  # it succeeded and has no result
+            raise
+        return result.json() if result.content else {}
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self._paged("/workspaces")
@@ -215,14 +250,37 @@ class FabricClient:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
-        """Create a schema-enabled lakehouse."""
+        """Create a schema-enabled lakehouse. Always returns it with its ``id``: when the operation gives
+        no result, the lakehouse is looked up by name."""
         problem = lakehouse_name_problem(name)
         if problem:
             raise ValueError(problem)
         body = {"displayName": name, "creationPayload": {"enableSchemas": True}}
         if description:
             body["description"] = description
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        made = self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        if made.get("id"):
+            return made
+        found = self.find_lakehouse(workspace_id, name)
+        if found and found.get("id"):
+            return found
+        raise FabricError(f"Fabric said it created the lakehouse {name}, but it isn't in the workspace yet. "
+                          "Refresh the workspace in a minute, then try again.", "LakehouseNotFoundAfterCreate")
+
+    def environment_libraries(self, workspace_id: str, environment_id: str) -> list[dict[str, Any]]:
+        """The libraries published to an Environment item: [{"name", "libraryType": External|Custom, "version"}].
+        Read only (``beta=False`` is the GA contract; the preview one has another shape). An item with
+        no libraries answers 404 EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+        try:
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/libraries?beta=False", key="libraries")
+        except FabricError as exc:
+            if exc.code == "EnvironmentLibrariesNotFound":
+                return []
+            raise
+
+    def environment_spark_compute(self, workspace_id: str, environment_id: str) -> dict[str, Any]:
+        """The Environment item's published Spark settings, with ``runtimeVersion``. Read only."""
+        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/sparkcompute?beta=False").json()
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
@@ -268,7 +326,11 @@ class FabricClient:
     def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
         """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
         query = f"?format={fmt}" if fmt else ""
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        got = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        if not isinstance(got.get("definition"), dict):
+            raise FabricError("Fabric didn't send the item's definition. Try again; if it keeps happening, "
+                              "open the item in Fabric to check it still loads.", "NoDefinition")
+        return got
 
     def list_notebooks(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/notebooks")

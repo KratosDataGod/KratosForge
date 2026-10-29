@@ -5310,6 +5310,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
     "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Late rows and source deletes": ["docs/metadata-guide.md", /settings in your entity files, not a screen/],
     "Schema changes": ["docs/metadata-guide.md", /how runs treat a table's schema, not a screen of its own/],
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
@@ -5319,6 +5320,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
+    "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

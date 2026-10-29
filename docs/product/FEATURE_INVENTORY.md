@@ -67,9 +67,9 @@ on quality.
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Implemented | 2 | 114 | 3 | 119 |
-| Partially Implemented | 1 | 10 | 1 | 12 |
+| Partially Implemented | 1 | 10 | 2 | 13 |
 | Implemented but Not Exposed | 0 | 4 | 0 | 4 |
-| Missing | 0 | 0 | 3 | 3 |
+| Missing | 0 | 0 | 2 | 2 |
 | Planned | 0 | 0 | 4 | 4 |
 | **Total** | **3** | **128** | **11** | **142** |
 <!-- END GENERATED: summary -->
@@ -170,7 +170,7 @@ on quality.
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Partially Verified | Fabric, Monitor | Check in the Windows app that a look-alike host opens in the browser (PB-008 review). |
 | [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
-| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
+| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Partially Implemented | Unverified | Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview) | Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
 | [FEAT-FAB-13](#feat-fab-13) | Deployment pipelines and item-definition deploy | Planned | Unverified | None | Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates. |
 | [FEAT-ONE-01](#feat-one-01) | OneLake catalog | Implemented | Partially Verified | OneLake > Catalog | Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py). |
@@ -186,7 +186,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
-| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
+| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Merge the batch-limited key reads (PB-068, #847). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
@@ -671,12 +671,13 @@ on quality.
 **Fabric Environment items and Spark settings.** Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.
 
 - **Pillar and category:** Local development; Fabric Integration and Deployment
-- **Status:** Missing. **Verification:** Unverified.
-- **Where people reach it:** None
-- **Evidence:** absent: no Environment item calls in sidecar/fabric_desktop/fabric_api.py
-- **Owning workstream:** Prove (FD-109)
+- **Status:** Partially Implemented. **Verification:** Unverified.
+- **Where people reach it:** Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview)
+- **Evidence:** code: sidecar/fabric_desktop/fabric_environment.py; test: sidecar/tests/test_fabric_environment.py (passed at the PB-016 part 1 head; fakes only, not yet read on a tenant)
+- **Source:** `sidecar/fabric_desktop/fabric_environment.py`, `sidecar/fabric_desktop/environment_service.py`, `sidecar/fabric_desktop/fabric_api.py`
+- **Owning workstream:** Microsoft Fabric
 - **Backlog:** [PB-016](PRODUCT_BACKLOG.md#pb-016)
-- **Recommended next action:** Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).
+- **Recommended next action:** Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).
 
 ### FEAT-FAB-10
 
@@ -1136,11 +1137,11 @@ on quality.
 - **Pillar and category:** Local development; Local Development and Execution
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Data mesh > Entities > Run
-- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
+- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; test: sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once (PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths); smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
 - **Source:** `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/meta/store.py`
-- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`
+- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`, `sidecar/tests/test_meta_late_rows_deletes.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Watermark filter is strictly >, so late rows are dropped. Type 2 source repeating a key fails (plan).
+- **Known limitations:** Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed. Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead. Type 2 source repeating a key fails (plan).
 - **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#61](https://github.com/KratosDataGod/KratosForge/pull/61)
 - **Backlog:** [PB-019](PRODUCT_BACKLOG.md#pb-019)
 - **Recommended next action:** Keep; add late-arriving rows and source deletes (FD-117).
@@ -1184,11 +1185,11 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/keys.py`, `sidecar/fabric_desktop/meta_service.py`, `app/ui/meta.js`
 - **Tests:** `sidecar/tests/test_keys.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** read_keys reads the whole key table.
+- **Known limitations:** Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged.
 - **Pull requests and issues:** [#23](https://github.com/KratosDataGod/KratosForge/pull/23), [#52](https://github.com/KratosDataGod/KratosForge/pull/52)
 - **Owning workstream:** Staged roadmap (FD-115)
 - **Backlog:** [PB-068](PRODUCT_BACKLOG.md#pb-068)
-- **Recommended next action:** Stop reading whole key tables on every keyed run (FD-115).
+- **Recommended next action:** Merge the batch-limited key reads (PB-068, #847).
 
 ### FEAT-META-06
 

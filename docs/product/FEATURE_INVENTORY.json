@@ -1175,21 +1175,30 @@
       "description": "Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.",
       "pillar": "Local development",
       "category": "Fabric Integration and Deployment",
-      "status": "Missing",
+      "status": "Partially Implemented",
       "verification": "Unverified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no Environment item calls in sidecar/fabric_desktop/fabric_api.py"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_environment.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_environment.py",
+          "note": "passed at the PB-016 part 1 head; fakes only, not yet read on a tenant"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/fabric_environment.py",
+        "sidecar/fabric_desktop/environment_service.py",
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Engine and CLI: fabric-desktop env-drift (read only); no screen yet",
+        "preview": true
       },
-      "workstream": "Prove (FD-109)",
-      "next_action": "Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).",
+      "workstream": "Microsoft Fabric",
+      "next_action": "Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).",
       "backlog": [
         "PB-016"
       ]
@@ -2935,6 +2944,11 @@
           "ref": "sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches"
         },
         {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once",
+          "note": "PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths"
+        },
+        {
           "kind": "smoke",
           "ref": "meta_run env=dev ran every sample entity locally with status ok in under a second"
         }
@@ -2945,7 +2959,8 @@
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_large_tables.py"
+        "sidecar/tests/test_large_tables.py",
+        "sidecar/tests/test_meta_late_rows_deletes.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
@@ -2955,7 +2970,8 @@
         "preview": false
       },
       "limitations": [
-        "Watermark filter is strictly >, so late rows are dropped",
+        "Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed",
+        "Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead",
         "Type 2 source repeating a key fails (plan)"
       ],
       "prs": [
@@ -3080,14 +3096,14 @@
         "preview": false
       },
       "limitations": [
-        "read_keys reads the whole key table"
+        "Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged"
       ],
       "prs": [
         23,
         52
       ],
       "workstream": "Staged roadmap (FD-115)",
-      "next_action": "Stop reading whole key tables on every keyed run (FD-115).",
+      "next_action": "Merge the batch-limited key reads (PB-068, #847).",
       "backlog": [
         "PB-068"
       ]

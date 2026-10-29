@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1093 04eb09a0 | Central repair test: SQLite journal in memory (Fixes #1092) | PASS 9.2 | Test-only, 1 file. `_connect` sets journal_mode=MEMORY + synchronous=OFF for build, check and repair; rollback of an uncommitted transaction on close still holds, so the interrupted-repair test keeps its meaning. Merges clean; on the merge result test_central_upgrades + test_silent_except 70 passed (8.98 s); ruff E9,F clean. Windows speed-up is inferred: the windows-latest sidecar job must be green before merge. |
+
 | 2026-10-29 | #1083 619cc25d | LX-03 (merges LX-02 NO_ID reason) | PASS 9.2 (carry) | Since ec873c8d only the LX-02 merge: 2 lines (Learn docs "no screen yet" sentence + its NO_ID reason in ui.test.cjs). Merges clean with main; ui.test.cjs 306/306 on head, 307/307 on the merge result. |
 | 2026-10-29 | #1076 28c5a57f | LX-02 Learn docs NO_ID reason | PASS 9.2 (carry) | Since 25316eb9: 2 lines, docs say Learn has no screen yet and ui.test.cjs NO_ID map names it. Merges clean with main; ui.test.cjs 307/307 on the merge result. |
 

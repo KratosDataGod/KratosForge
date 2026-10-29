@@ -39,7 +39,7 @@ APIs and clients, and stay Preview until they have.
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
-| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | No | Fabric capacity | Preview, tested against fakes |
+| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
 | Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
@@ -271,8 +271,9 @@ its own SQL, so a query and its translation can be checked against each other.
   256 MB, makes that side an error, and nothing is compared.
 - If the first engine fails, the second doesn't run.
 - A remote engine's result would be copied onto this PC. That never happens on its own: the caller
-  asks you first, and approving the session itself doesn't count. No remote engine returns whole
-  results yet.
+  asks you first, and approving the session itself doesn't count. Fabric Spark is the only remote
+  engine that returns whole results so far, for SQL cells: Spark sends the rows as JSON with its
+  schema, and this PC types them back. Nested types and binary come back as text.
 - Both results stay in memory and are gone when the comparison is returned. Nothing is written.
 
 ## Remote compute needs your say-so

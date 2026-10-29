@@ -43,6 +43,10 @@ class FakeLivy:
         self.cancelled = []
         self.deleted = []
         self.on_poll = None
+        # What a result statement prints (fabric_spark._result_code), as Spark would for three rows.
+        self.result_text = json.dumps({
+            "mark": fs.RESULT_MARK, "fields": [["id", "bigint"], ["name", "string"], ["amount", "decimal(10,2)"]],
+            "rows": [["1", "a", "1.50"], ["2", None, "2.50"], ["3", "c", "3.50"]]})
 
     def _result(self, n):
         code, kind = self.statements[n]["code"], self.statements[n]["kind"]
@@ -51,6 +55,8 @@ class FakeLivy:
         if "boom" in code:
             out = {"status": "error", "ename": "NameError", "evalue": "name 'boom' is not defined",
                    "traceback": ["Traceback..."]}
+        elif kind == "pyspark" and fs.RESULT_MARK in code:
+            out = {"status": "ok", "data": {"text/plain": self.result_text}}
         elif kind == "sql":
             out = {"status": "ok", "data": {"application/json": {
                 "schema": {"fields": [{"name": "id", "type": "long"}, {"name": "name", "type": "string"}]},
@@ -275,3 +281,81 @@ def test_close_ends_the_session_in_fabric_once():
     assert livy.deleted == ["7"]
     with pytest.raises(SessionClosed):
         s.execute(CellRequest("1", "python"))
+
+
+# ---------------------------------------------------------------- whole results (the result capability)
+
+
+def test_a_sql_cell_hands_back_its_whole_result_typed_from_sparks_schema():
+    livy = FakeLivy()
+    s = open_session(livy)
+    r = s.execute(CellRequest("SELECT id, name, amount FROM sales", "sql", preview_rows=2, result_rows=10))
+    assert r.status == "ok" and r.rows == 3 and r.table.num_rows == 3
+    assert str(r.table.schema.field("id").type) == "int64" and str(r.table.schema.field("amount").type) == "decimal128(10, 2)"
+    assert r.table.column("name").to_pylist() == ["a", None, "c"]
+    assert r.outputs[0]["total_rows"] == 3 and len(r.outputs[0]["rows"]) == 2
+    sent = livy.statements["0"]
+    assert sent["kind"] == "pyspark" and "spark.sql('SELECT id, name, amount FROM sales')" in sent["code"]
+    assert ".limit(11)" in sent["code"] and "table" not in r.as_dict()
+
+
+def test_the_query_goes_in_as_a_string_literal_only():
+    query = "SELECT '\\'); import os; os.system(\"x\") #' AS q"
+    code = fs._result_code(query, 5)
+    seen = {}
+
+    class Df:
+        schema = type("S", (), {"fields": []})()
+
+        def limit(self, n):
+            seen["limit"] = n
+            return self
+
+        def collect(self):
+            return []
+
+    class Spark:
+        def sql(self, text):
+            seen["sql"] = text
+            return Df()
+
+    printed = []
+    exec(code, {"spark": Spark(), "print": printed.append})   # noqa: S102 - the generated statement, on fakes
+    assert seen == {"sql": query, "limit": 6}
+    assert json.loads(printed[0]) == {"mark": fs.RESULT_MARK, "fields": [], "rows": []}
+
+
+def test_more_rows_than_asked_for_is_an_error():
+    livy = FakeLivy()
+    r = open_session(livy).execute(CellRequest("SELECT * FROM sales", "sql", result_rows=2))
+    assert r.status == "error" and r.table is None and "more than the 2 rows" in r.outputs[0]["evalue"]
+
+
+def test_a_result_over_the_byte_cap_is_an_error(monkeypatch):
+    monkeypatch.setattr(fs, "RESULT_BYTES", 32)
+    r = open_session(FakeLivy()).execute(CellRequest("SELECT * FROM sales", "sql", result_rows=10))
+    assert r.status == "error" and r.table is None and "larger than" in r.outputs[0]["evalue"]
+
+
+def test_an_unexpected_reply_is_an_error_never_a_guess():
+    livy = FakeLivy()
+    livy.result_text = "something else " + fs.RESULT_MARK
+    r = open_session(livy).execute(CellRequest("SELECT 1", "sql", result_rows=10))
+    assert r.status == "error" and "expected form" in r.outputs[0]["evalue"]
+
+
+def test_whole_results_are_for_sql_cells_only():
+    livy = FakeLivy()
+    s = open_session(livy)
+    with pytest.raises(Unsupported, match="SQL cells only"):
+        s.execute(CellRequest("df.show()", "pyspark", result_rows=10))
+    assert livy.statements == {}
+
+
+def test_a_value_that_doesnt_read_as_its_type_stays_text():
+    livy = FakeLivy()
+    livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": [["d", "date"], ["tags", "array<string>"]],
+                                   "rows": [["not a date", "['a', 'b']"]]})
+    r = open_session(livy).execute(CellRequest("SELECT d, tags FROM t", "sql", result_rows=10))
+    assert r.status == "ok" and r.table.column("d").to_pylist() == ["not a date"]
+    assert str(r.table.schema.field("tags").type) == "string"

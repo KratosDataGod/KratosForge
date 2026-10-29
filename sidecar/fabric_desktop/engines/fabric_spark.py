@@ -15,19 +15,30 @@ twice. Nothing opens without a ``RemoteAuthorization`` for this engine and lakeh
 on the workspace's capacity and uses Fabric capacity units for as long as it is open, and the
 organization's ``allow_fabric_runs`` policy can forbid it outright. Closing the session ends it in
 Fabric; Fabric also ends an idle one on its own.
+
+A SQL cell can also hand back its whole result (the ``result`` capability, to compare engines). It is
+sent as a PySpark statement that runs the one query, collects at most the rows asked for plus one,
+and prints them as JSON with Spark's schema; this PC types the values back from that schema. The
+query text goes in as a Python string literal, so it runs as Spark SQL and nothing else. Over the
+rows asked for, or over ``RESULT_BYTES``, is an error, never a cut table. The rows come onto this PC,
+so a caller asks for them only after its own confirm (engines/compare.py).
 """
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from .. import redact
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
-from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 _T = "unit_tests"
 API = "https://api.fabric.microsoft.com/v1"
@@ -39,6 +50,7 @@ KINDS = {"pyspark": "pyspark", "python": "pyspark", "sql": "sql", "scala": "spar
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _ID = re.compile(r"^[0-9A-Za-z-]{1,64}$")
 _SESSION_DONE = ("dead", "error", "killed", "shutting_down", "success")
+RESULT_MARK = "kratosforge-result@1"
 
 FABRIC_SPARK = EngineDescriptor(
     id="fabric-spark", label="Fabric Spark (remote)", location="remote", platform="fabric",
@@ -66,6 +78,10 @@ FABRIC_SPARK = EngineDescriptor(
         "cost": Support("unsupported", "Capacity use is in the Fabric Capacity Metrics app, per item and time, "
                         "not per cell. An open session uses capacity units until it ends."),
         "compat": Support("partial", "The cell's language is checked before sending; Spark checks the code.", _T),
+        "result": Support("partial", "SQL cells only, one query. Spark sends the rows as JSON with its schema and "
+                          "this PC types them back; nested types (arrays, maps, structs) and binary come back as "
+                          f"text. More rows than asked for, or over {RESULT_BYTES // 2**20} MB, is an error. "
+                          "The rows are copied onto this PC.", _T),
     },
     requirements=("A Fabric workspace on a capacity, and Contributor on it", "A lakehouse for the session",
                   "Signed in to Fabric in KratosForge"),
@@ -165,6 +181,58 @@ def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, 
     return ([{"type": "stream", "text": str(text)}] if text not in (None, "") else []), None
 
 
+def _result_code(query: str, rows: int) -> str:
+    """A PySpark statement that runs one Spark SQL query and prints its result as JSON: at most
+    ``rows`` + 1 rows, so "more than asked for" is known without collecting everything."""
+    return ("import json as _kf_json\n"
+            f"_kf_df = spark.sql({query!r})\n"
+            f"_kf_rows = _kf_df.limit({int(rows) + 1}).collect()\n"
+            f"print(_kf_json.dumps({{'mark': {RESULT_MARK!r}, "
+            "'fields': [[f.name, f.dataType.simpleString()] for f in _kf_df.schema.fields], "
+            "'rows': [[None if v is None else str(v) for v in r] for r in _kf_rows]}))\n")
+
+
+def _arrow_type(spark_type: str) -> Any:
+    """The Arrow type for a Spark type's simpleString; anything else (nested, binary...) is text."""
+    import pyarrow as pa
+    simple = {"tinyint": pa.int8(), "smallint": pa.int16(), "int": pa.int32(), "bigint": pa.int64(),
+              "float": pa.float32(), "double": pa.float64(), "boolean": pa.bool_(), "string": pa.string(),
+              "date": pa.date32(), "timestamp": pa.timestamp("us"), "timestamp_ntz": pa.timestamp("us")}
+    if spark_type in simple:
+        return simple[spark_type]
+    m = re.fullmatch(r"decimal\((\d+),(\d+)\)", spark_type)
+    if m:
+        return pa.decimal128(int(m.group(1)), int(m.group(2)))
+    return pa.string()
+
+
+def _result_table(text: str, result_rows: int) -> pa.Table:
+    """The table a result statement printed. Raises when it has more rows or bytes than allowed."""
+    import pyarrow as pa
+
+    from .local_sql import _too_big, _too_many
+    if len(text.encode("utf-8", "replace")) > RESULT_BYTES:
+        raise _too_big()
+    line = next((ln for ln in reversed(text.splitlines()) if RESULT_MARK in ln), "")
+    try:
+        printed = json.loads(line)
+    except ValueError:
+        raise FabricSparkError("Fabric Spark didn't send the result back in the expected form.") from None
+    if not (isinstance(printed, dict) and printed.get("mark") == RESULT_MARK):
+        raise FabricSparkError("Fabric Spark didn't send the result back in the expected form.")
+    fields, rows = printed.get("fields") or [], printed.get("rows") or []
+    if len(rows) > result_rows:
+        raise _too_many(result_rows)
+    columns = {}
+    for i, (name, spark_type) in enumerate(fields):
+        values = pa.array([r[i] for r in rows], pa.string())
+        try:
+            columns[str(name)] = values.cast(_arrow_type(str(spark_type)))
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            columns[str(name)] = values   # kept as text when a value doesn't read as its type
+    return pa.table(columns) if columns else pa.table({})
+
+
 class FabricSparkSession:
     engine = FABRIC_SPARK.id
 
@@ -217,13 +285,18 @@ class FabricSparkSession:
             raise Unsupported(f"Fabric Spark doesn't run {request.language} cells.")
         if request.language == "sql" and request.dialect not in (None, "spark"):
             raise Unsupported(f"Fabric Spark runs Spark SQL, not {request.dialect}.")
+        whole = request.result_rows > 0
+        if whole and request.language != "sql":
+            raise Unsupported("Fabric Spark returns whole results for SQL cells only.")
+        code = _result_code(request.code, request.result_rows) if whole else request.code
+        kind = "pyspark" if whole else kind
         if not self._lock.acquire(blocking=False):
             raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
         self._cancelled = False
         started = self._clock()
         t0 = time.perf_counter()
         try:
-            reply = self._client.submit(self.id, request.code, kind)
+            reply = self._client.submit(self.id, code, kind)
             self._statement = str(reply.get("id", ""))
             if self._cancelled:
                 self._client.cancel(self.id, self._statement)
@@ -243,15 +316,28 @@ class FabricSparkSession:
             self._statement = ""
             self._lock.release()
         # Only Fabric's own word counts: a statement that finished before the cancel keeps its output.
+        table = None
         if reply.get("state") == "cancelled":
             outputs, rows, status = [{"type": "error", "ename": "Cancelled", "evalue": "Cancelled."}], None, "cancelled"
         else:
             outputs, rows = _outputs(reply.get("output") or {}, request.preview_rows)
             status = "error" if any(o.get("type") == "error" for o in outputs) else "ok"
+            if whole and status == "ok":
+                outputs, rows, table, status = self._whole(reply.get("output") or {}, request)
         if on_output:
             for o in outputs:
                 on_output(o)
-        return CellResult(status, outputs, time.perf_counter() - t0, rows, self.engine)
+        return CellResult(status, outputs, time.perf_counter() - t0, rows, self.engine, table=table)
+
+    def _whole(self, output: dict[str, Any], request: CellRequest) -> tuple[list[dict[str, Any]], int | None,
+                                                                            pa.Table | None, str]:
+        from .local_sql import ResultTooLarge, _table_output
+        text = str((output.get("data") or {}).get("text/plain") or "")
+        try:
+            table = _result_table(text, request.result_rows)
+        except (ResultTooLarge, FabricSparkError) as exc:
+            return [{"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}], None, None, "error"
+        return [_table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
 
     def cancel(self) -> bool:
         if not self._lock.locked():

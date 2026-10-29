@@ -1136,11 +1136,11 @@ on quality.
 - **Pillar and category:** Local development; Local Development and Execution
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Data mesh > Entities > Run
-- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
+- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; test: sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once (PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths); smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
 - **Source:** `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/meta/store.py`
-- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`
+- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`, `sidecar/tests/test_meta_late_rows_deletes.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Watermark filter is strictly >, so late rows are dropped. Type 2 source repeating a key fails (plan).
+- **Known limitations:** Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed. Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead. Type 2 source repeating a key fails (plan).
 - **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#61](https://github.com/KratosDataGod/KratosForge/pull/61)
 - **Backlog:** [PB-019](PRODUCT_BACKLOG.md#pb-019)
 - **Recommended next action:** Keep; add late-arriving rows and source deletes (FD-117).

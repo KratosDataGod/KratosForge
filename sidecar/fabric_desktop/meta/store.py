@@ -344,7 +344,8 @@ class Store:
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
-               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+               read_version: int | None = None, new_from: tuple[str, int] | None = None,
+               delete_flag: str | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
@@ -356,7 +357,9 @@ class Store:
         it, so a commit by another writer since then raises CommitFailedError instead of being
         merged over (new surrogate keys depend on the keys the table already had). ``new_from``
         (column, first new key) makes rows from that key up part of what the MERGE reads, so a
-        concurrent insert there conflicts.
+        concurrent insert there conflicts. ``delete_flag`` names a boolean column of ``df``: its true
+        rows delete the matching table rows instead (the source deletes of [load] deletes = "hard"),
+        in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
         delta_profile.check_target(uri, self.options())
@@ -371,9 +374,17 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
-                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
-            .when_matched_update_all().when_not_matched_insert_all().execute()
+        merger = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+                              commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        if delete_flag:
+            # Rows flagged in df remove their match from the table; the flag itself is never written.
+            flag = f"coalesce(s.`{delete_flag}`, false)"  # a null flag is a row to keep, never one dropped
+            merger = merger.when_matched_delete(flag) \
+                .when_matched_update_all(except_cols=[delete_flag]) \
+                .when_not_matched_insert_all(predicate=f"NOT {flag}", except_cols=[delete_flag])
+        else:
+            merger = merger.when_matched_update_all().when_not_matched_insert_all()
+        metrics = merger.execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version(), metrics

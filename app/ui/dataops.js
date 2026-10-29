@@ -16,7 +16,7 @@ function compareSide(name, side, env) {
     verSel.replaceChildren(h("option", { value: "" }, "Now"));
     const list = await rpc("meta_versions", { name, env: envSel.value }).catch(() => []);
     for (const v of list.slice(1)) {
-      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${v.at ? new Date(v.at).toLocaleString() : ""}${v.operation ? ` · ${v.operation}` : ""}`));
+      verSel.append(h("option", { value: v.version }, `Version ${v.version} · ${dateTimeText(v.at)}${v.operation ? ` · ${v.operation}` : ""}`));
     }
   };
   envSel.addEventListener("change", loadVersions);
@@ -62,8 +62,9 @@ function compareResult(res) {
     ...cols.only_right.map((c) => `${c} only in ${R}`),
     ...cols.type_changed.map((c) => `${c.column}: ${c.left} in ${L}, ${c.right} in ${R}`),
   ];
-  const same = res.compared_on_keys && !res.changed.count && !res.only_left.count && !res.only_right.count && !colNotes.length
-    && res.rows.left === res.rows.right;
+  const hashed = res.method === "hashed";
+  const same = (hashed ? res.checksum?.match : res.compared_on_keys && !res.changed.count && !res.only_left.count && !res.only_right.count)
+    && !colNotes.length && res.rows.left === res.rows.right;
   const fmt = (v) => (v === null || v === undefined ? "null" : String(v));
   const parts = [
     h("div", { class: "cmp-stats" },
@@ -71,7 +72,9 @@ function compareResult(res) {
       res.compared_on_keys ? stat(`keys only in ${L}`, n(res.only_left.count), res.only_left.count > 0) : null,
       res.compared_on_keys ? stat(`keys only in ${R}`, n(res.only_right.count), res.only_right.count > 0) : null,
       res.compared_on_keys ? stat("rows with changed values", n(res.changed.count), res.changed.count > 0) : null),
-    same ? h("div", { class: "pass-box" }, icon("ok", 16), `Identical: the same keys and the same values in ${L} and ${R}.`) : null,
+    h("p", { class: "muted-text small" }, hashed ? "Compared: counts, totals and a checksum" : "Compared: every row by key"),
+    same ? h("div", { class: "pass-box" }, icon("ok", 16), hashed ? `Identical: the same rows in ${L} and ${R}, by checksum.`
+      : `Identical: the same keys and the same values in ${L} and ${R}.`) : null,
     res.note ? h("p", { class: "muted-text" }, res.note) : null,
     colNotes.length ? h("div", { class: "problems" }, h("b", {}, "Columns differ"), h("ul", {}, colNotes.map((t) => h("li", {}, t)))) : null,
   ];
@@ -156,7 +159,7 @@ function lastRelease(env, onChange = null) {
       row("Code", releaseCommitText(r)),
       r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
       row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
-        h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
+        when(r.at)),
       row("Record", record)));
   }).catch(() => box.remove());
   return box;
@@ -336,8 +339,18 @@ function driftPanel(e, d) {
         : h("p", { class: "muted-text small" }, `${d.source || "The source"} in ${ENV_LABEL[d.env]} matches the contract.`),
     droppedRows, addedRows, retypedRows,
     h("label", { class: "field" }, "When the source adds columns", policy),
-    d.history?.length ? h("div", { class: "muted-text small" }, `Kept before: ${d.history.slice(0, 3).map((x) => x.columns).join("; ")}`) : null,
+    schemaChanges(d.history),
     h("div", { class: "row" }, h("span", { class: "spacer" }), applyBtn));
+}
+
+// The table's latest schema changes from meta.schema_history, newest first. Rows from before
+// PB-031 have only the columns a drift policy kept; a table's first schema isn't a change.
+function schemaChanges(history) {
+  const rows = (history || []).filter((x) => x.change !== "created").slice(0, 3);
+  if (!rows.length) return null;
+  const text = rows.map((x) => (x.detail ? `${x.change} ${x.detail}` : `kept ${x.columns}`)
+    + (x.delta_version != null ? ` (Delta version ${x.delta_version})` : ""));
+  return h("div", { class: "muted-text small" }, `Schema changes: ${text.join("; ")}`);
 }
 
 // ---------- quarantine ----------
@@ -430,7 +443,7 @@ function quarantinePanel(e, q) {
 
 // ---------- freshness ----------
 
-const fresh = { items: null, alerts: false, timer: null };
+const fresh = { items: null, alerts: false, alertsUnreadable: false, timer: null };
 
 function promiseText(f) {
   if (!f) return "";
@@ -489,7 +502,14 @@ function freshnessDialog(e) {
     btn("Cancel", null, closeDialog, "tool outline"), btn("Save", "save", () => save(false), "tool primary")].filter(Boolean));
 }
 
+// Shown when the saved Teams address is encrypted for another Windows account or PC (sealed_settings.py).
+const ALERTS_UNREADABLE = "The saved Teams address can't be read on this PC or account. Enter it again.";
+
 function alertsLine() {
+  if (fresh.alertsUnreadable) {
+    return h("div", { class: "row wrap wrn-text small" }, icon("alert", 14), ALERTS_UNREADABLE,
+      btn("Set up Teams alerts", null, alertsDialog, "tool link small"));
+  }
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
     fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",
     btn(fresh.alerts ? "Change" : "Set up Teams alerts", null, alertsDialog, "tool link small"));
@@ -502,11 +522,13 @@ async function alertsDialog() {
     const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: url.value.trim(), test }), test ? "Test message not sent" : "Not saved");
     if (!res) return;
     fresh.alerts = !!res.teams_webhook;
+    fresh.alertsUnreadable = !!res.unreadable;
     closeDialog();
     toast(res.teams_webhook ? (test ? "Sent a test message to Teams and saved" : "Teams alerts are on") : "Teams alerts are off");
   };
   showDialog("Teams alerts", h("div", { class: "dataops" },
     h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each new incident (a failed or late table, a missed objective, an agent that stopped) is posted once, and again when it recovers. Environments that a running agent checks are left to the agent."),
+    cur.unreadable ? h("p", { class: "wrn-text small" }, ALERTS_UNREADABLE) : null,
     h("label", { class: "field" }, "Webhook address", url),
     h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message Teams doesn't take is sent with the next check.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
@@ -526,6 +548,7 @@ async function checkFreshness() {
   if (res) {
     fresh.items = res.items;
     fresh.alerts = res.alerts;
+    fresh.alertsUnreadable = !!res.alerts_unreadable;
     for (const x of previewShown() ? [] : res.items) {
       const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
       if (x.status === "late" && !activity.items.some((i) => i.id === id)) {

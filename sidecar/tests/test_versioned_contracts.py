@@ -13,7 +13,15 @@ from fabric_desktop.service import Service
 
 from test_meta import edit_entity, write
 
-TODAY = dt.date.today()
+TODAY = dt.datetime.now(dt.timezone.utc).date()  # the platform's date is UTC's (UDF_Platform runs in UTC)
+
+
+@pytest.fixture(autouse=True)
+def _same_day(monkeypatch):
+    """The platform's and the mesh's clocks stay on TODAY, so a run that crosses midnight UTC can't put setup
+    and checks on different days."""
+    monkeypatch.setattr(core, "_today", lambda: TODAY)
+    monkeypatch.setattr(mesh, "utc_today", lambda: TODAY)
 READS_TEST = {"dev": "test", "test": "test", "prod": "prod"}
 PORT = [{"port": "customers", "entity": "silver.customers", "table": "customers",
          "columns": {"customer_id": "int64", "email": "string"}}]

@@ -111,14 +111,18 @@ def test_check_now_checks_saved_queries_and_warehouse_project_files(tmp_path):
     (view / "vw_Ok.sql").write_text("CREATE VIEW dbo.vw_Ok AS SELECT a FROM dbo.sales;\n", encoding="utf-8")
     (view / "vw_Bad.sql").write_bytes(b"\xff\xfe not utf-8")
     svc.git_repos_file.write_text(json.dumps({"repos": [{"path": str(repo), "name": "sales-platform"}]}), encoding="utf-8")
-    before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*") if p.name != "governance_checks.json")
+    def files():
+        return sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*")
+                      if p.name != "governance_checks.json" and "governance_packages" not in p.parts)
+    before = files()
     out = svc.governance_check_now()
     [pol] = out["policies"]
     assert pol["status"] == "findings" and pol["checked"] == 2 and pol["passed"] == 1
     assert [f["object"] for f in pol["findings"]] == ["My queries/Revenue.sql: statement 1, line 1"]
     assert any("WH_Gold/dbo/Views/vw_Bad.sql" in p for p in out["problems"]), "an unreadable script is said, not skipped"
-    # Check now only reads the scripts; it writes nothing but its last result.
-    assert sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*") if p.name != "governance_checks.json") == before
+    # Check now only reads the scripts; it writes nothing but its last result and the project's policy package.
+    assert files() == before
+    assert [p.name for p in (tmp_path / "app" / "governance_packages").iterdir()] == ["crm.json"]
 
 
 def test_check_now_runs_scheduled_only_rules_on_notebooks_a_schedule_runs(tmp_path):

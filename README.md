@@ -108,6 +108,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
 | [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md), [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) and [development status](docs/product/DEVELOPMENT_STATUS.md) |
+| [docs/product/operations/README.md](docs/product/operations/README.md) | How development runs: six workstreams, story issues in GitHub, work queues, the Monday weekly review, quality gates and the [12-week roadmap](docs/product/operations/roadmap.md) |
 | [docs/optimize/plan.md](docs/optimize/plan.md) | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
 | [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
@@ -358,3 +359,7 @@ Setup, every setting, and install steps for systemd, Docker and Windows are in [
 ## Not yet built
 
 An installer, and pipelines (the agent's pipeline hand-off is roadmap M4). From the metadata plan: per-step performance suggestions, and re-pointing -1 facts when a late customer arrives. Ideas for what comes next are collected in the [Ideas forum](docs/ideas.md).
+
+## License
+
+KratosForge's source code is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 KratosBI LLC; see [NOTICE](NOTICE) for the third-party code it includes. The app you install also ships Microsoft's ODBC driver under Microsoft's own terms, which is why it will come with its own [end-user terms](docs/end-user-terms.md) (a draft, not in effect yet).

@@ -15,26 +15,26 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Create | dark | 4 | 0 (0) | none | 0 | 0 | 0 |
 | Workspaces | light | 17 | 0 (0) | color-contrast (2) | 15 | 0 | 0 |
 | Workspaces | dark | 17 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| OneLake | light | 15 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
-| Data mesh | light | 12 | 0 (0) | none | 9 | 0 | 0 |
-| Data mesh | dark | 12 | 0 (0) | none | 0 | 0 | 0 |
-| Platform | light | 12 | 0 (0) | none | 8 | 0 | 0 |
-| Platform | dark | 12 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake | light | 17 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Data mesh | light | 14 | 0 (0) | none | 9 | 0 | 0 |
+| Data mesh | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
+| Platform | light | 14 | 0 (0) | none | 8 | 0 | 0 |
+| Platform | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
 | Optimize | light | 14 | 0 (0) | none | 5 | 0 | 0 |
 | Optimize | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Monitor | light | 16 | 0 (0) | none | 16 | 0 | 0 |
-| Monitor | dark | 16 | 0 (0) | none | 0 | 0 | 0 |
+| Monitor | light | 18 | 0 (0) | none | 16 | 0 | 0 |
+| Monitor | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | light | 5 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | dark | 5 | 0 (0) | none | 0 | 0 | 0 |
-| Settings | light | 19 | 0 (0) | none | 32 | 0 | 0 |
-| Settings | dark | 19 | 0 (0) | none | 0 | 0 | 0 |
-| Notebook | light | 17 | 1 (1) | color-contrast (2) | 32 | 1 | 0 |
-| Notebook | dark | 17 | 1 (1) | color-contrast (2) | 0 | 0 | 0 |
-| SQL query | light | 22 | 1 (1) | none | 21 | 0 | 1 |
-| SQL query | dark | 22 | 1 (1) | none | 0 | 0 | 0 |
-| Command bar (Ctrl+K) | light | 17 | 1 (1) | none | 98 | 0 | 0 |
-| Command bar (Ctrl+K) | dark | 17 | 1 (1) | none | 0 | 0 | 0 |
+| Settings | light | 21 | 0 (0) | none | 32 | 0 | 0 |
+| Settings | dark | 21 | 0 (0) | none | 0 | 0 | 0 |
+| Notebook | light | 18 | 0 (0) | color-contrast (2) | 38 | 0 | 0 |
+| Notebook | dark | 18 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| SQL query | light | 22 | 0 (0) | none | 21 | 0 | 0 |
+| SQL query | dark | 22 | 0 (0) | none | 0 | 0 | 0 |
+| Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 98 | 0 | 0 |
+| Command bar (Ctrl+K) | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
 | Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 14 | 0 | 0 |
 | Data mesh entity | dark | 15 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
 | Shell (top bar and rail) | light | 13 | 0 (0) | none | 18 | 0 | 0 |
@@ -46,14 +46,7 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 
 Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.
 
-- **Notebook** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
-- **Notebook**: keyboard: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached (Escape, then Tab, used to leave each code editor)
-- **Notebook** (dark): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
-- **SQL query** (light): aria-required-children, critical: Certain ARIA roles must contain particular children. At `.sql-tabs`
-- **SQL query**: `div.cm-content "SQL query"` shows no focus ring
-- **SQL query** (dark): aria-required-children, critical: Certain ARIA roles must contain particular children. At `.sql-tabs`
-- **Command bar (Ctrl+K)** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `.palette-list`
-- **Command bar (Ctrl+K)** (dark): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `.palette-list`
+None.
 
 ## Needs a look
 

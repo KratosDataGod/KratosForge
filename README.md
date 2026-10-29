@@ -40,6 +40,7 @@ Next: [Install](docs/install.md) has the details and what to do if Windows block
 - **No installer.** It's a single exe that updates itself ([Updates](docs/install.md#updates)).
 - **No V-Order from your PC.** Direct Lake reads V-Ordered tables faster, and only Fabric Spark writes them: [run the last cell on Fabric](docs/notebook-fabric-step.md).
 - **Tables use a conservative Delta profile** (reader 1, writer 2, no deletion vectors or column mapping) so the SQL analytics endpoint and Direct Lake can read them.
+- **Pipelines are Preview.** **Create > Pipeline** opens a Fabric pipeline and runs its control flow on your PC, with mocks for activities that only run in Fabric. It hasn't been compared with a run in Fabric yet ([Running pipelines on your PC](docs/orchestration/local-runs.md)). A Fabric pipeline asking the agent to run an environment is also Preview and not yet run on a live tenant ([Run from a Fabric pipeline](docs/agent.md#run-from-a-fabric-pipeline)).
 - **Fabric Git integration and deployment pipelines are planned, not built** ([plan](docs/git-integration-plan.md)).
 - **Preview features** are tagged in the app. **Settings > Preview features** hides them.
 

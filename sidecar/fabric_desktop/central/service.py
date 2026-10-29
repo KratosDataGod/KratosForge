@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -362,7 +361,7 @@ class PlatformMixin:
             admin = self._fabric_admin()
             fabric = admin.list_admin_domains()
         except FabricError as exc:
-            if re.search(r"failed with 40[13]\b", str(exc)):
+            if exc.status in (401, 403):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
                                       "Data mesh > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc

@@ -41,21 +41,62 @@ def _notebook_definition(ipynb: bytes) -> dict[str, Any]:
 
 
 class FabricError(RuntimeError):
-    def __init__(self, message: str, code: str | None = None, status: int | None = None):
+    def __init__(self, message: str, code: str | None = None, status: int | None = None, request_id: str = ""):
         super().__init__(message)
         self.code = code
         self.status = status  # the HTTP status, when the error came from a response
+        self.request_id = request_id  # Fabric's request id, for support
+
+
+# What a person can do about the errors Fabric gives most often (by error code, then by status).
+_HINTS = {
+    "InsufficientPrivileges": "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access",
+    "ItemDisplayNameAlreadyInUse": "Pick a name that isn't used in this workspace yet",
+    "TooManyRequests": "Fabric is limiting requests. Try again in a few minutes",
+    "UnknownError": "Fabric had a problem on its side. Try again, and give the request id to support if it keeps happening",
+    401: "Fabric didn't accept your sign-in. Sign out and in again",
+    403: "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access",
+    429: "Fabric is limiting requests. Try again in a few minutes",
+    500: "Fabric had a problem on its side. Try again, and give the request id to support if it keeps happening",
+}
+
+
+def _error_body(resp: requests.Response) -> dict[str, Any]:
+    """Fabric's error fields, from its own shape ({"errorCode", "message", ...}) or Power BI's ({"error": {...}})."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return {}
+    if not isinstance(body, dict):
+        return {}
+    inner = body.get("error") if isinstance(body.get("error"), dict) else {}
+    return {"code": body.get("errorCode") or inner.get("code") or inner.get("errorCode"),
+            "message": body.get("message") or inner.get("message"),
+            "details": body.get("moreDetails") or inner.get("details") or [],
+            "request_id": body.get("requestId") or inner.get("requestId")}
 
 
 def _error(method: str, url: str, resp: requests.Response) -> FabricError:
-    try:
-        code = resp.json().get("errorCode")
-    except ValueError:
-        code = None
+    """A Fabric error a person can read: what was asked (the path, without its query), the status and
+    Fabric's code, Fabric's own message, what to do, and the request id. Never the raw body."""
+    fields = _error_body(resp)
+    code = str(fields.get("code") or "") or None
+    headers = getattr(resp, "headers", None) or {}
+    request_id = str(fields.get("request_id") or headers.get("x-ms-request-id") or headers.get("RequestId") or "")
+    status = resp.status_code
     if code == "CapacityNotActive":
         return FabricError("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
-                           "or use a workspace on an active capacity.", code, resp.status_code)
-    return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
+                           "or use a workspace on an active capacity.", code, status, request_id)
+    path = url.split("?", 1)[0].split("#", 1)[0]
+    path = path[len(API):] if path.startswith(API) else path
+    parts = [str(fields.get("message") or "").strip().rstrip(".")]
+    parts += [str(d.get("message")).strip().rstrip(".") for d in fields.get("details") or []
+              if isinstance(d, dict) and d.get("message")][:3]
+    hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else "")
+    parts = [p for p in parts if p] + ([hint] if hint else [])
+    text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
+    text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
+    return FabricError(text, code, status, request_id)
 
 
 def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:

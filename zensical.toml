@@ -50,6 +50,7 @@ nav = [
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
     { "VS Code" = "vscode.md" },
+    { "Recent notebooks and pinned items" = "home-notebooks.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },
     { "Notebook best practices" = "notebook-best-practices.md" },
     { "Notebook folders" = "notebook-folders.md" },

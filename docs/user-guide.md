@@ -117,7 +117,8 @@ From the top:
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
 | **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
-| **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
+| **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
+| **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
@@ -252,7 +253,7 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
-- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
+- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
 - Click a workspace's row to open it: its lakehouses, with **New lakehouse**, **New notebook** and **Open in notebook**.
 - **Open in Fabric** opens the workspace in the Fabric page.

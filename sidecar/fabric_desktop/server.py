@@ -23,7 +23,8 @@ from .redact import secrets
 from .service import Service
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
-           "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
+           "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
+           "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
            "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",

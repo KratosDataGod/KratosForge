@@ -52,7 +52,7 @@ import uuid
 from typing import Any
 
 from .core import (OPERATIONS, REQUEST_HOOKS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _columns, _names, _now, _row,
-                   _upsert, _who, domain_id, is_admin, require_admin)
+                   _today, _upsert, _who, domain_id, is_admin, require_admin)
 
 POLICY_CATEGORIES = {
     "naming": "Naming standards",
@@ -468,7 +468,7 @@ def _check_exception(db: Db, target: str, detail: dict[str, Any], reason: str, b
         if _row(db, "domain", "id", where) is None:
             raise PlatformError(f"{where} isn't one of the platform's domains")
     until = _date(detail.get("until"), "Until")
-    today = dt.date.today()
+    today = _today()
     if not until:
         raise PlatformError("Say until when: an exception ends on its date")
     if until <= today.isoformat():
@@ -486,7 +486,7 @@ def _approve_exception(db: Db, req: dict[str, Any], by: str) -> None:
     require_admin(db, by, "grant exceptions to governance policies")
     ensure_exception_schema(db)
     d = req["detail"]
-    if d["until"] < dt.date.today().isoformat():
+    if d["until"] < _today().isoformat():
         raise PlatformError(f"This exception would have ended on {d['until']}: decline it, and ask again if it's still needed")
     row = {"id": req["id"], "policy_id": d["policy"], "scope": d["scope"], "target": d["scope_target"],
            "until_date": d["until"], "reason": str(req.get("reason") or ""), "requested_by": req.get("requested_by") or "",
@@ -506,7 +506,7 @@ def _exception_out(row: dict[str, Any], today: str) -> dict[str, Any]:
 
 def list_policy_exceptions(db: Db, policy: str = "", active: bool = False, today: str = "") -> list[dict[str, Any]]:
     """Exceptions, soonest to end first; with ``active``, only those that haven't ended."""
-    today = today or dt.date.today().isoformat()
+    today = today or _today().isoformat()
     if not db.exists("catalog", "policy_exception"):
         return []
     sql = f"SELECT * FROM {db.t('catalog', 'policy_exception')}" + (" WHERE policy_id = ?" if policy else "")
@@ -531,7 +531,7 @@ def end_policy_exception(db: Db, id: str, reason: str = "", by: str = "") -> dic
         raise PlatformError(f"There's no policy exception {eid[:64]!r}: it may have been asked for but never approved")
     ensure_exception_schema(db)
     row = _row(db, "policy_exception", "id", eid) or row
-    today = dt.date.today()
+    today = _today()
     until = str(row.get("until_date") or "")
     if row.get("ended_at"):
         raise PlatformError(f"This exception already ended early, on {str(row['ended_at'])[:10]} by {row.get('ended_by') or 'someone'}")
@@ -800,7 +800,7 @@ def resolve(snap: dict[str, Any], chain: list[tuple[str, str]], local: list[dict
     policy in force that an active exception covers here: it gets an ``exception`` with the note
     "Excepted until <date>: <why>", which is what shows instead of a violation. Pure and
     deterministic: the same inputs always give the same result, in the same order."""
-    today = today or dt.date.today().isoformat()
+    today = today or _today().isoformat()
     context = context or {}
     rows = [dict(a, origin="platform") for a in snap.get("assignments", [])]
     rows += [{"policy_id": str(a.get("policy") or a.get("policy_id") or ""), "scope": a.get("scope", "project"),

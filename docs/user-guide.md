@@ -69,13 +69,14 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 
-Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces; press **Esc**, then **Tab**, to move on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
 ### The bell: activity
 
 The bell keeps a list of what happened in this app on this PC:
 
 - **Runs that are still going**, including ones in Fabric. It follows a Fabric run until it ends, even if you go to another page, and tells you how it ended.
+  A running Fabric job this app started has **Cancel run** ([Preview](#cancel-a-fabric-run-preview)).
 - **Results you can reopen**, such as the result of a Run all.
 - **Every error**, explained in a sentence ("Your sign-in expired", "You don't have permission for that in this workspace"), with the technical text folded under **Details**. When you report a problem, the most recent errors are included for you.
 
@@ -432,7 +433,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
 
-**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. Check now stops nothing; a promote stops on a finding of a **Block** policy that no exception covers. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
 
 ## Fabric
 
@@ -474,6 +475,10 @@ Monitor has a tab for each source: **KratosForge** and **Fabric**. Another sourc
 
 **Fabric** has two pages: **Monitoring hub**, Fabric's own Monitoring hub for everything in your workspaces, on the whole page, with **Back**, **Home**, **Reload** and **Open in browser** on the view row; and **Schedules** (Preview), the schedules in Fabric's own job scheduler, with how their last run went, **On/Off**, **Open** and **Remove** (which deletes the schedule in Fabric; past runs stay). Fabric schedules run on capacity even when your PC is off.
 
+### Cancel a Fabric run (Preview)
+
+A Fabric job this app started that is still running has **Cancel** on its row in **Runs** and **Cancel run** in the bell. Both ask first: the confirmation names the run and the workspace, and the safe choice, **Keep running**, has the focus. Cancelling asks Fabric to stop the job. Fabric stops it in its own time, so the row reads **Cancelling…** until Fabric reports **Cancelled**; the bell then shows **Cancelled**, which isn't counted as a problem. What the job already wrote stays written, and the capacity it used so far is still used. A cancelled run can't be resumed: run it again to start over. Cancelling works even when a policy turns runs in Fabric off. Jobs that this app didn't start aren't listed, so they have no Cancel here; stop them in Fabric's Monitoring hub on the **Fabric** tab.
+
 ### Pipeline runs in Monitor (Preview)
 
 **Runs** also lists the pipelines you ran on this PC, newest first with everything else. A row says how the run ended: **Succeeded**, **Failed**, **Cancelled**, **Running**, or **Interrupted** when KratosForge stopped while it was going (it isn't resumed, because activities that were running may have done part of their work). A run where you gave the output of some activities instead of running them says how many were **mocked**, and when everything else succeeded it says **Succeeded with mocks**, never plain **Succeeded**. **Env** says **No environment**: pipeline runs on this PC aren't tied to one.
@@ -495,13 +500,15 @@ Each window has **Keep on top** and **Dock back**. Closing the window docks the 
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). KratosForge never reads your whole tenant.
 
+**Local pipelines** (Preview) are their own group: each pipeline in the repositories this PC opened, and each pipeline a schedule on this PC runs. Its runs are the ones started from the Pipelines page or by its schedules here. A run that mocked any activity shows **Needs attention** with "with mocks", because it doesn't show the whole pipeline works. Runs are kept by pipeline name, so when two pipelines share a name, only the runs their own schedules started count for each. **Run the schedule now** uses the schedule's saved parameters, mocks and notebooks, and asks first with the risk check, as for notebooks; a pipeline without a schedule here runs from its **Open pipeline** page. Local pipeline runs start no Fabric job, but steps that read or write a lakehouse use OneLake, and OneLake reads and writes use capacity. They open no incidents: incidents are kept per environment for metadata entities.
+
 **How this works**, from the title bar's info button, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
 
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by**, a dropdown on the same row, picks Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
 | Column | What it means |
 | --- | --- |
-| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (KratosForge couldn't read it), **Healthy**, or **No recorded runs**. |
+| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, a run was cancelled, or a pipeline's last run used mocks), **Not observed** (KratosForge couldn't read it), **Healthy**, or **No recorded runs**. |
 | **Owner** | The team or technical owner, and whether it was declared in the project's files or assigned on this PC. **No owner** when nobody is set, or when a template placeholder such as "me" is all there is. |
 | **Deployed to** | Each environment and where it runs: This PC, an agent, or Fabric and its workspace. |
 | **Last run** | How the newest recorded run ended. |

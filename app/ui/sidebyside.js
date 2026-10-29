@@ -304,7 +304,7 @@ function sbsResult(nb, s) {
       h("div", { class: "pc", style: `flex:${local.processing_seconds}` }), h("div", { class: "upload", style: `flex:${wait}` }))
     : bar(local.seconds, "pc");
   const money = (v) => (v === null || v === undefined ? "–" : `${f.currency === "USD" ? "$" : ""}${v.toFixed(v < 1 ? 3 : 2)}${f.currency && f.currency !== "USD" ? ` ${f.currency}` : ""}`);
-  const at = s.started_at ? new Date(s.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+  const at = dateTimeText(s.started_at);
   const sideStatus = (status, cell) => (status === "ok" ? null
     : h("span", { class: "pill-s fail" }, status === "failed" ? `Failed${cell ? ` at cell ${cell}` : ""}` : status));
   const rows = s.tables || [];

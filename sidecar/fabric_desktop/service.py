@@ -19,7 +19,7 @@ import pyarrow.csv as pa_csv
 from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
-from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
+from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
@@ -163,12 +163,17 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
 
     @property
     def fabric(self) -> FabricClient:
-        return FabricClient(self.auth.fabric_token)
+        return FabricClient(self.auth.fabric_token, refresh=self._refreshed(FABRIC_SCOPES))
 
     @property
     def fabric_jobs(self) -> FabricClient:
         """For starting and scheduling jobs, which Fabric allows only with Item.Execute.All."""
-        return FabricClient(lambda: self.auth._token(EXECUTE_SCOPES))
+        return FabricClient(lambda: self.auth._token(EXECUTE_SCOPES), refresh=self._refreshed(EXECUTE_SCOPES))
+
+    def _refreshed(self, scopes: list[str]) -> Any:
+        """How to get a new token after a 401, when the signed-in identity can; None to ask again."""
+        refreshed = getattr(self.auth, "refreshed_token", None)
+        return (lambda: refreshed(scopes)) if callable(refreshed) else None
 
     @property
     def history_file(self) -> Path:

@@ -359,3 +359,7 @@ Setup, every setting, and install steps for systemd, Docker and Windows are in [
 ## Not yet built
 
 An installer, and pipelines (the agent's pipeline hand-off is roadmap M4). From the metadata plan: per-step performance suggestions, and re-pointing -1 facts when a late customer arrives. Ideas for what comes next are collected in the [Ideas forum](docs/ideas.md).
+
+## License
+
+KratosForge's source code is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 KratosBI LLC; see [NOTICE](NOTICE) for the third-party code it includes. The app you install also ships Microsoft's ODBC driver under Microsoft's own terms, which is why it will come with its own [end-user terms](docs/end-user-terms.md) (a draft, not in effect yet).

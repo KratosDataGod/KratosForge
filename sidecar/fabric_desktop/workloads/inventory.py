@@ -8,6 +8,7 @@ its name, a short description and where it lives.
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import Any, Iterable
 
 from . import model
@@ -317,6 +318,94 @@ def notebook_workloads(notebooks: list[dict[str, Any]], *, links: dict[str, dict
             "observation": local_obs,
             "search": " ".join([name, (nb.get("lakehouse") or {}).get("name") or "",
                                 (nb.get("workspace") or {}).get("workspace_name") or ""]),
+        })
+    return out
+
+
+# --------------------------------------------------------------------------- pipelines on this PC (Preview)
+
+
+def pipeline_run(r: dict[str, Any], message: str = "") -> dict[str, Any]:
+    """A local pipeline run (pipeline_service.pipeline_runs). ``mocked`` counts the activities it
+    mocked: a run with mocks never shows the whole pipeline works."""
+    native = r.get("state")
+    state = "cancelled" if native == "interrupted" else run_state(native)
+    if native == "interrupted" and not message:
+        message = "KratosForge stopped while this run was going. It wasn't resumed."
+    return {"id": r.get("run_id") or "", "state": state, "native_status": native, "started_at": r.get("started"),
+            "ended_at": r.get("ended"), "seconds": r.get("seconds"), "env": "", "where": "this_pc",
+            "ran_on": "This PC", "message": message or r.get("stop_reason") or "", "rows": None, "job_id": "",
+            "mocked": len((r.get("options") or {}).get("mocked") or []), "source": "Pipeline runs on this PC",
+            "open": {"kind": "pipeline_run", "run_id": r.get("run_id")}}
+
+
+def pipeline_workloads(pipelines: list[dict[str, Any]], *, runs: list[dict[str, Any]],
+                       pc_schedules: list[dict[str, Any]], pc_runs: list[dict[str, Any]],
+                       assignments: dict[str, dict[str, dict[str, Any]]], user: str = "") -> list[dict[str, Any]]:
+    """One workload per pipeline in the repositories this PC opened, and per pipeline a schedule here
+    runs. A run counts for a pipeline when its schedule started it, or when the pipeline's name is
+    unique among them (runs are kept by name); a shared name never guesses which one ran."""
+    by_path: dict[str, dict[str, Any]] = {}
+    for p in pipelines:
+        by_path.setdefault(str(p["path"]), p)
+    for s in pc_schedules:
+        t = s.get("target") or {}
+        if t.get("kind") == "pipeline" and t.get("path") and str(t["path"]) not in by_path:
+            by_path[str(t["path"])] = {"path": str(t["path"]), "name": t.get("name") or Path(str(t["path"])).name
+                                       .removesuffix(".DataPipeline"), "repo": "", "relative": "", "scheduled_only": True}
+    names: dict[str, int] = {}
+    for p in by_path.values():
+        names[p["name"]] = names.get(p["name"], 0) + 1
+    runs_by_id = {r.get("run_id"): r for r in runs}
+    pc_by_schedule: dict[Any, list[dict[str, Any]]] = {}
+    for r in pc_runs:
+        pc_by_schedule.setdefault(r.get("schedule_id"), []).append(r)
+    out = []
+    for path, p in by_path.items():
+        wid = model.pipeline_id(path)
+        assigned = assignments.get(wid, {})
+        crit, tags = _extras(assigned)
+        mine = [s for s in pc_schedules if (s.get("target") or {}).get("kind") == "pipeline"
+                and str(s["target"].get("path")) == path]
+        found: dict[str, dict[str, Any]] = {}
+        unrecorded: list[dict[str, Any]] = []
+        for s in mine:
+            for row in pc_by_schedule.get(s.get("id"), []):
+                rec = runs_by_id.get(row.get("run_id"))
+                if rec:
+                    found[rec["run_id"]] = pipeline_run(rec, row.get("message") or "")
+                else:  # it couldn't start, or its record is gone: the schedule's own row says how it went
+                    unrecorded.append(pc_schedule_run(row))
+        if names[p["name"]] == 1:
+            for rec in runs:
+                if rec.get("pipeline") == p["name"] and rec.get("run_id") not in found:
+                    found[rec["run_id"]] = pipeline_run(rec)
+        history = _newest(list(found.values()) + unrecorded)
+        where = " · ".join(x for x in (p.get("repo"), p.get("relative")) if x)
+        out.append({
+            "id": wid, "kind": "pipeline", "kind_label": model.KIND_LABELS["pipeline"], "name": p["name"],
+            "description": where, "preview": True,
+            "group": {"type": "pipelines", "id": "pipelines", "label": "Local pipelines"},
+            "definition": {"path": path, "repo": p.get("repo") or "", "relative": p.get("relative") or "",
+                           "activity_count": p.get("activity_count")},
+            "capabilities": ["discoverable", "observable", "runnable", "schedulable"],
+            "owners": owners({}, assigned), "criticality": crit, "tags": tags,
+            "deployments": [{
+                "env": None, "env_label": "", "location": {"kind": "this_pc", "label": "This PC"},
+                "identity": {"kind": "you", "label": f"You{f' ({user})' if user else ''}, signed in on this PC"},
+                "tables_in": "", "version": None,
+                "schedules": [{"where": "This PC", "text": s.get("text", ""), "enabled": s.get("enabled", True),
+                               "id": s.get("id"), "next_run": s.get("next_run")} for s in mine],
+                "latest_run": history[0] if history else None, "freshness": None,
+                "observation": observation("Pipelines on this PC", "live",
+                                           detail="Runs started from the Pipelines page and from schedules here."),
+                "actions": ["run_schedule"] if mine else [],
+            }],
+            "runs": history,
+            "errors": [p["problem"]] if p.get("problem") else [],
+            "dependencies": {"upstream": [], "downstream": [], "products": []},
+            "observation": observation("Pipelines on this PC", "live"),
+            "search": " ".join([p["name"], where, path]),
         })
     return out
 

@@ -4,21 +4,50 @@
 
 // ---------- times ----------
 
-function relTime(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return String(iso);
+// Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
+// an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
+// opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
+// never "Invalid Date". opts.seconds adds seconds; opts.weekday adds the day of the week; opts.utc reads a
+// plain day ("2026-10-28") as it is.
+function readDate(at) {
+  if (at === null || at === undefined || at === "") return null;
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateText(at, opts = {}) {
+  const d = readDate(at);
+  if (!d) return opts.empty ?? "";
+  const zone = opts.utc ? { timeZone: "UTC" } : {};
+  return opts.weekday ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", ...zone })
+    : d.toLocaleDateString(undefined, { dateStyle: "medium", ...zone });
+}
+
+function timeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(opts.seconds ? { second: "2-digit" } : {}) }) : (opts.empty ?? "");
+}
+
+function dateTimeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: opts.seconds ? "medium" : "short" }) : (opts.empty ?? "");
+}
+
+// How long ago, then the date once it's two days back.
+function relTime(at) {
+  const t = readDate(at);
+  if (!t) return "";
   const s = Math.round((Date.now() - t.getTime()) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return t.toLocaleDateString();
+  return dateText(t);
 }
 
 // A relative time with the exact time on hover.
 function when(iso) {
-  return h("span", { title: iso ? new Date(iso).toLocaleString() : "" }, relTime(iso));
+  return h("span", { title: dateTimeText(iso, { seconds: true }) }, relTime(iso));
 }
 
 function took(seconds) {
@@ -212,7 +241,7 @@ function renderTray() {
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 
-const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
+const TRAY_LABEL = { update: ["Update", "info"], running: ["Running", "info"], ok: ["Done", "pass"], info: ["Done", "pass"], cancelled: ["Cancelled", "neu"], failed: ["Failed", "fail"], error: ["Couldn't finish", "fail"] };
 
 function trayItem(i) {
   const [label, cls] = i.stale ? ["Unknown", "neu"] : TRAY_LABEL[i.status] || ["", "neu"];
@@ -220,6 +249,9 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
+  if (i.status === "running" && !i.stale && remoteActivity(i) && cancelFabricRunShown()) {
+    links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
+  }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
   if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
@@ -259,11 +291,38 @@ async function trackFabricJobs() {
     } else if (item && item.status === "running" && !item.request) {
       // Metadata runs (item.request) finish through watchMetaFabricRun, which also reads their results.
       const ok = r.status === "Completed";
-      logActivity({ id, status: ok ? "ok" : "failed", text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
-      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok, { quiet: true });
+      const cancelled = r.status === "Cancelled";  // someone stopped it: not a problem
+      logActivity({ id, status: ok ? "ok" : cancelled ? "cancelled" : "failed",
+        text: ok ? "Finished in Fabric" : `${r.status} in Fabric. ${r.message || ""}`.trim(), at: r.finished_at || new Date().toISOString() });
+      toast(`${item.title}: ${ok ? "finished" : r.status.toLowerCase()} in Fabric`, !ok && !cancelled, { quiet: true });
     }
   }
   if (open) activity.pollTimer = setTimeout(trackFabricJobs, 15000);
+}
+
+// Cancel in Monitor > Runs and the tray is Preview until a cancel has been checked on a tenant.
+const cancelFabricRunShown = () => previewShown() && !!PREVIEW_FEATURES.cancelFabricRun;
+
+// Cancel a Fabric job this app started (Monitor > Runs and the tray), after a danger confirm. Fabric
+// stops it in its own time: the run reads Cancelling until fabric_runs reads how it ended.
+async function cancelFabricJob(jobId) {
+  const runs = await rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
+  const r = runs?.find((x) => x.job_id === jobId);
+  if (!r) { toast("This run isn't in the app's list of Fabric runs any more. Cancel it from Fabric's Monitoring hub.", true); return false; }
+  const name = r.name || "this run";
+  const ws = r.workspace_name || "its workspace";
+  if (FABRIC_DONE.has(r.status)) { toast(`${name} already ended in Fabric (${r.status}).`); return false; }
+  const ok = await confirmDialog(`Cancel ${name} in Fabric?`,
+    `This asks Fabric to stop the ${(r.kind || "job").toLowerCase()} on ${ws}. What it already wrote stays written, and the capacity it used so far is still used. It can't be resumed: run it again to start over.`,
+    "Cancel run", { danger: true, cancelLabel: "Keep running" });
+  if (!ok) return false;
+  const out = await attempt(() => rpc("cancel_fabric_run", { workspace_id: r.workspace_id, item_id: r.item_id, job_id: jobId }), "Could not cancel");
+  if (!out) return false;
+  const id = `fabric:${jobId}`;
+  if (activity.items.some((i) => i.id === id)) logActivity({ id, text: `Cancelling in Fabric on ${ws}` });
+  toast(`Asked Fabric to cancel ${name}. It shows Cancelled once Fabric stops it.`);
+  trackFabricJobs();
+  return true;
 }
 
 // ---------- environment and compute in the top bar ----------

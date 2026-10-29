@@ -32,10 +32,11 @@ def _shape(conn):
 def _today():
     conn = sqlite3.connect(":memory:")
     core.ensure_schema(core.Db(conn, "sqlite"))
-    return _shape(conn)
+    typed = {n: sorted((c[1], c[2]) for c in conn.execute(f"PRAGMA table_info('{n}')")) for n in _shape(conn)}
+    return _shape(conn), typed
 
 
-TODAY = _today()
+TODAY, TODAY_TYPED = _today()
 
 
 def _build(path, shape):
@@ -111,7 +112,8 @@ IDS = [f"{s['date']}-{s['commit']}" for s in SHAPES["shapes"]]
 
 def test_the_fixture_s_newest_shape_is_today_s():
     newest = SHAPES["shapes"][-1]
-    assert {SHAPES["tables"][i][0]: sorted(c[0] for c in SHAPES["tables"][i][1]) for i in newest["tables"]} == TODAY, \
+    assert {SHAPES["tables"][i][0]: sorted((c[0], c[1]) for c in SHAPES["tables"][i][1])
+            for i in newest["tables"]} == TODAY_TYPED, \
         "regenerate fixtures/central_shapes.json with fixtures/central_shapes.py"
 
 
@@ -126,13 +128,15 @@ def test_a_database_from_an_earlier_release_upgrades_with_every_row_kept(tmp_pat
 
 @pytest.mark.parametrize("shape", [None, *SHAPES["shapes"]], ids=["new", *IDS])
 def test_a_repair_stopped_at_any_statement_finishes_when_run_again(tmp_path, monkeypatch, shape):
-    stops = 0
+    stops, done = 0, False
     for n in range(1, 500):
         path = tmp_path / f"platform-{n}.sqlite"
         rows = _build(path, shape) if shape else {}
         if not _repair_stopping_at(path, n, monkeypatch):
+            done = True
             break
         stops += 1
         _repair(path)
         _check(path, rows)
+    assert done, "a repair has 500 or more schema statements: raise the limit"
     assert shape is SHAPES["shapes"][-1] or stops > 0  # every older shape has statements to stop at

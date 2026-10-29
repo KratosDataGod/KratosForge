@@ -46,7 +46,7 @@ def _shape(path):
 
 def main():
     shapes = []
-    for line in _git("log", "--reverse", "--format=%h %ad", "--date=short", "origin/main", "--", *FILES).splitlines():
+    for line in _git("log", "--reverse", "--abbrev=8", "--format=%h %ad", "--date=short", "origin/main", "--", *FILES).splitlines():
         commit, date = line.split()
         with tempfile.TemporaryDirectory() as tmp:
             pkg = Path(tmp) / "old"

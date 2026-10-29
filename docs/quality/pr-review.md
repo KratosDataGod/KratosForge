@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1095 30dcaace | Busy-table retry test: minute-long leases (Fixes #1094) | PASS 9.2 | Test-only, 1 file. Monkeypatches meta_service.Leases to ttl=60 while keeping the 0.2 s wait; the lambda's signature matches the single call site (meta_service.py:502, keyword owner/ttl/wait), and the backend's ttl only sets its timeout. The busy table (someone-else lease, ttl 3600) still has to be retried, so the test keeps its meaning. Merges clean; on the merge result test_agent + test_silent_except 56 passed, busy_table alone 10/10; ruff E9,F clean. |
+
 | 2026-10-29 | #1093 04eb09a0 | Central repair test: SQLite journal in memory (Fixes #1092) | PASS 9.2 | Test-only, 1 file. `_connect` sets journal_mode=MEMORY + synchronous=OFF for build, check and repair; rollback of an uncommitted transaction on close still holds, so the interrupted-repair test keeps its meaning. Merges clean; on the merge result test_central_upgrades + test_silent_except 70 passed (8.98 s); ruff E9,F clean. Windows speed-up is inferred: the windows-latest sidecar job must be green before merge. |
 
 | 2026-10-29 | #1083 619cc25d | LX-03 (merges LX-02 NO_ID reason) | PASS 9.2 (carry) | Since ec873c8d only the LX-02 merge: 2 lines (Learn docs "no screen yet" sentence + its NO_ID reason in ui.test.cjs). Merges clean with main; ui.test.cjs 306/306 on head, 307/307 on the merge result. |

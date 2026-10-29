@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1097 648cc489 | Unit tests for queues.py check() in the Docs workflow | PASS 9.2 | Tooling only (docs.yml + test_queues.py). 8 unittest cases pin the errors-versus-shortfalls split, issue-only slots, duplicates, unknown or Accepted stories, workstream count and stale README; `unittest discover` 8/8 OK and `queues.py check` exits 0 with 2 shortfalls reported. docs.yml keeps `contents: read`; the new step runs in the read-only build job. Merges clean; no security content in the diff. |
+
 | 2026-10-29 | #1083 ec4bbf6a | LX-03 retargeted to main after #1076 | PASS 9.2 (carry) | `git diff origin/main...ec4bbf6a` is identical to 28c5a57f..619cc25d (11 files, +831/−11); main has since gained #1093, which the PR doesn't touch. Merges clean with current main; on the merge result ui.test.cjs 307/307 and learn_content + learn_labs + silent_except 46 passed. |
 
 | 2026-10-29 | #1054 4807ed51 | Retarget to main after #1028 | PASS 9.2 (carry) | `git diff origin/main 4807ed51` is byte-identical to d41c0929..1b263d11 (4 files). Merges clean; spark_local + spark_merge + silent_except 79 passed; ruff E9,F clean. |

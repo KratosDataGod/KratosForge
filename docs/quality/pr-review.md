@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #1002 7064a860 | Time-zone-proof tests, main merge | PASS at 7064a860 (carried from c7b5bca1) | 9.3 | Release management merged main; CI is green. The PR's own delta is identical to c7b5bca1 (sorted +/- lines compared against the merge-base), and it merges main cleanly. |
+
 | #1005 53e6a399 | Offline sign-in, CONTRIBUTING conflict with #975 | PASS at 53e6a399 (carried from e8f70b9a) | 9.3 | Release management merged main (with #975). The PR's own delta is identical to e8f70b9a (sorted +/- lines compared against the merge-base), and it merges main cleanly. The CONTRIBUTING.md union is right: the pytest line keeps "without Fabric or the internet", followed by #975's -n auto --dist loadfile line. RM: offline_sign_in + requests_core_four 37 passed; ui.test 301/0. |
 
 | #1006 938bc7d8 | Batched loads: an empty kept column takes the table's type (#1004) | PASS | 9.2 | Second quality reviewer. Matches _fit_to_table for unbatched loads; later batches of another kind are refused inside the stream, with the version unchanged. 58 passed with main merged; reverting to first.schema fails the new test. Nit: share the refusal text with _refuse_type_changes. |

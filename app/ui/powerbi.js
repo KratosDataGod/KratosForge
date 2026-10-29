@@ -94,7 +94,15 @@ async function renderPowerBi() {
   const pp = pbiPage;
   const body = h("div", {}, state.user ? loading("Loading workspaces...") : "");
   const filters = h("div", { class: "pbi-filters" });
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("powerbi"),
+  // Refresh reads the workspaces and their items again, for content published since the list was read.
+  const refresh = btn("Refresh", "restart", () => {
+    state.workspaces = null;
+    workspacesPage.items = {};
+    pp.failed.clear();
+    renderPowerBi();
+  }, "tool outline", { title: "Read your workspaces and their reports again" });
+  setView(h("div", { class: "page" }, h("div", { class: "page-head" }, h("h1", {}, "Workspaces"), h("div", { class: "head-actions" }, refresh)),
+    workspacesTabs("powerbi"),
     pageIntro("Reports, paginated reports and dashboards you can open in Power BI. Open one in Embed Studio to see how it "
       + "behaves when embedded in an app. It runs in Power BI and uses its capacity, as it does in Fabric. ", docLink("embed-studio.md", "Learn more")),
     signInCallout(), withHowItWorks([filters, body], howItWorks("workspaces.powerbi", {
@@ -190,7 +198,7 @@ function pbiProblem(detail, item) {
     return { tag: "Capacity", tone: "warn", title: "The workspace's capacity isn't running",
       body: "Power BI can't run the content's queries until the capacity is resumed. Resume it in Fabric, or ask your capacity admin.", primary: fabric };
   }
-  if (code === "403" || /forbidden|unauthori[sz]ed|access/i.test(text)) {
+  if (code === "403" || /forbidden|unauthori[sz]ed|access (?:is )?denied|no access/i.test(text)) {
     return { tag: "No access", tone: "stop", title: "Your account can't open this",
       body: "Power BI said no. Ask the workspace's admin for at least Viewer access, then open it again.", primary: fabric };
   }

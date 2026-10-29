@@ -95,6 +95,11 @@ test("Workspaces > Power BI lists only reports, paginated reports and dashboards
   await page().getByRole("button", { name: "★ Favorites only" }).click();
   assert.deepStrictEqual(await page().locator(".pbi-list tbody tr td:nth-child(2)").allTextContents(), ["Invoice detail"]);
   await page().getByRole("button", { name: "★ Favorites only" }).click();
+  // Refresh reads the items again, so a report published since shows up.
+  const reads = app.calls.filter((c) => c.method === "list_items").length;
+  await page().getByRole("button", { name: "Refresh" }).click();
+  await page().locator(".pbi-list").getByText("Executive overview").waitFor();
+  assert.ok(app.calls.filter((c) => c.method === "list_items").length > reads, "Refresh read the items again");
   assert.deepStrictEqual(app.errors, []);
 });
 

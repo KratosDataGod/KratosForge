@@ -219,8 +219,6 @@ def _arrow_type(spark_type: str) -> Any:
 def _result_table(text: str, result_rows: int) -> tuple[pa.Table, list[str]]:
     """The table a result statement printed, and the columns kept as text (with their Spark type).
     Raises when it has more rows or bytes than allowed."""
-    import pyarrow as pa
-
     from .local_sql import _too_big, _too_many
     if len(text.encode("utf-8", "replace")) > RESULT_BYTES:
         raise _too_big()
@@ -234,9 +232,19 @@ def _result_table(text: str, result_rows: int) -> tuple[pa.Table, list[str]]:
     fields, rows = printed.get("fields") or [], printed.get("rows") or []
     if len(rows) > result_rows:
         raise _too_many(result_rows)
-    names = [str(f[0]) for f in fields]
+    try:
+        return _typed(fields, rows)
+    except (TypeError, ValueError, IndexError):   # a reply that carries the mark but not its shape
+        raise FabricSparkError("Fabric Spark didn't send the result back in the expected form.") from None
+
+
+def _typed(fields: list[Any], rows: list[Any]) -> tuple[pa.Table, list[str]]:
+    import pyarrow as pa
+    names = [str(name) for name, _ in fields]
+    if any(len(r) != len(names) for r in rows):
+        raise ValueError("a row doesn't have one value per column")
     twice = sorted({n for n in names if names.count(n) > 1})
-    if twice:   # one would replace the other, and a comparison could match on the wrong column
+    if twice:   # verify matches columns by name, so two of one name can't be compared honestly
         raise FabricSparkError(f"The result has more than one column named {', '.join(twice)}. "
                                "Give each column its own name (AS ...) to compare it.")
     columns, as_text = {}, []

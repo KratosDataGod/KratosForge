@@ -430,3 +430,16 @@ def test_duplicate_column_names_are_refused_not_dropped():
                                    "rows": [["1", "2"]]})
     r = open_session(livy).execute(CellRequest("SELECT a.id, b.id FROM a JOIN b", "sql", result_rows=10))
     assert r.status == "error" and r.table is None and "more than one column named id" in r.outputs[0]["evalue"]
+
+
+@pytest.mark.parametrize("fields, rows", [
+    ([["a"]], [["1"]]),                       # a field that isn't [name, type]
+    ([["a", "bigint"], ["b", "bigint"]], [["1"]]),   # a row shorter than the fields
+    ([["a", "bigint"]], [[1]]),               # a value that isn't text or null
+    ("not a list", []),
+])
+def test_a_reply_with_the_mark_but_the_wrong_shape_is_an_error(fields, rows):
+    livy = FakeLivy()
+    livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": fields, "rows": rows})
+    r = open_session(livy).execute(CellRequest("SELECT 1", "sql", result_rows=10))
+    assert r.status == "error" and "expected form" in r.outputs[0]["evalue"]

@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #914 b1475f4b | PB-054 late rows, main merge | PASS at b1475f4b (carried from 4e262666) | 9.1 | Second quality reviewer. Main merge only; the change set against main is identical. Needs Chris's go. |
+
+| #924 18d5174b | Main merge | PASS at 18d5174b (carried from ef1bb0c9) | 9.1 | Second quality reviewer. Main merge only; the change set against main is identical. |
+
 | #979 28ac3050 | PB-031 schema guard, main merge | PASS at 28ac3050 (carried from b3944c0c) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to b3944c0c. |
 
 | #989 a6c3480c | UDF parity, main merge | PASS at a6c3480c (carried from ec854570) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to ec854570. |

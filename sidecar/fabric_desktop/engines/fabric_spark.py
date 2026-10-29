@@ -234,6 +234,11 @@ def _result_table(text: str, result_rows: int) -> tuple[pa.Table, list[str]]:
     fields, rows = printed.get("fields") or [], printed.get("rows") or []
     if len(rows) > result_rows:
         raise _too_many(result_rows)
+    names = [str(f[0]) for f in fields]
+    twice = sorted({n for n in names if names.count(n) > 1})
+    if twice:   # one would replace the other, and a comparison could match on the wrong column
+        raise FabricSparkError(f"The result has more than one column named {', '.join(twice)}. "
+                               "Give each column its own name (AS ...) to compare it.")
     columns, as_text = {}, []
     for i, (name, spark_type) in enumerate(fields):
         values = pa.array([r[i] for r in rows], pa.string())

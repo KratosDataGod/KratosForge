@@ -422,3 +422,11 @@ def test_a_value_that_doesnt_read_as_its_type_stays_text():
 
 def test_the_result_note_says_the_cap():
     assert "256 MB" in fs.FABRIC_SPARK.capability("result").note
+
+
+def test_duplicate_column_names_are_refused_not_dropped():
+    livy = FakeLivy()
+    livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": [["id", "bigint"], ["id", "bigint"]],
+                                   "rows": [["1", "2"]]})
+    r = open_session(livy).execute(CellRequest("SELECT a.id, b.id FROM a JOIN b", "sql", result_rows=10))
+    assert r.status == "error" and r.table is None and "more than one column named id" in r.outputs[0]["evalue"]

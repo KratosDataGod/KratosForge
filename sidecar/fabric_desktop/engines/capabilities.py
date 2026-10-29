@@ -44,6 +44,8 @@ CAPABILITIES = {
     "catalog": "List the catalogs, schemas and tables the session can read",
     "cost": "Report usage the platform bills",
     "compat": "Check a cell before running it",
+    # A remote engine's rows come onto this PC, so a caller asks for them only after its own confirm.
+    "result": "Return the whole result as a table, to compare engines",
 }
 LANGUAGES = ("python", "pyspark", "sql", "scala", "r", "markdown")
 

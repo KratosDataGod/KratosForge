@@ -17,7 +17,10 @@ A session never reaches past its own database (the same refusals the SQL page ma
 
 The result of the last statement comes back as a table (the first ``preview_rows`` rows, with the
 exact total counted by reading the rest in batches), the same shape the notebook already shows.
-Results arrive when the statement finishes; none of these engines stream rows to the cell.
+Results arrive when the statement finishes; none of these engines stream rows to the cell. DuckDB and
+SQLite also hand back the whole result as a table when the request asks (``result_rows``), so
+engines/compare.py can compare two engines' answers; more rows than asked for, or more than
+``RESULT_BYTES``, is an error, never a cut table.
 
 What runs where, honestly (see each descriptor):
 
@@ -40,13 +43,30 @@ from typing import Any
 import pyarrow as pa
 
 from .capabilities import EngineDescriptor, Support
-from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
 
 _T = "unit_tests"
 _LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
                       "time. Reading or writing OneLake from this PC still uses Fabric capacity.")
 _NO_VARIABLES = Support("unsupported", "A SQL session holds tables, not variables; Catalog lists them.")
 _NO_STREAM = Support("unsupported", "The result arrives when the statement finishes.")
+_RESULT = Support("native", f"The whole result as a table, up to the rows asked for and {RESULT_BYTES // 2**20} MB; "
+                  "a larger result is an error, never cut.", _T)
+_NO_RESULT = Support("unsupported", "Not in this version; DuckDB and SQLite return whole results.")
+
+
+class ResultTooLarge(RuntimeError):
+    """The whole result was asked for, and it has more rows or bytes than allowed."""
+
+
+def _too_many(rows: int) -> ResultTooLarge:
+    return ResultTooLarge(f"The result has more than the {rows:,} rows asked for, so none of it was kept. "
+                          "Narrow the query, or ask for more rows.")
+
+
+def _too_big() -> ResultTooLarge:
+    return ResultTooLarge(f"The result is larger than {RESULT_BYTES // 2**20} MB, so none of it was kept. "
+                          "Narrow the query (fewer rows or columns).")
 
 
 def _table_output(table: pa.Table, total: int) -> dict[str, Any]:
@@ -72,6 +92,7 @@ class _SqlSession:
         self._cancelled = False
         self._closed = False
         self._preamble: list[dict[str, Any]] = []   # outputs _run adds before the result (a translation report)
+        self._result: pa.Table | None = None         # the whole result, when the request set result_rows
 
     @property
     def closed(self) -> bool:
@@ -89,6 +110,7 @@ class _SqlSession:
             raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
         self._running, self._cancelled = True, False
         self._preamble = []
+        self._result = None
         started = time.perf_counter()
         try:
             try:
@@ -108,13 +130,25 @@ class _SqlSession:
             if on_output:
                 for o in outputs:
                     on_output(o)
-            return CellResult("ok", outputs, seconds, total if table is not None else None, self.engine)
+            return CellResult("ok", outputs, seconds, total if table is not None else None, self.engine,
+                              table=self._result)
         finally:
             self._running = False
             self._lock.release()
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         raise NotImplementedError
+
+    def _keep(self, table: pa.Table, total: int, request: CellRequest) -> tuple[pa.Table, int]:
+        """Keep the whole result when it was asked for; the cell shows the first ``preview_rows``."""
+        if request.result_rows <= 0:
+            return table, total
+        if total > request.result_rows:
+            raise _too_many(request.result_rows)
+        if table.nbytes > RESULT_BYTES:
+            raise _too_big()
+        self._result = table
+        return table.slice(0, request.preview_rows), total
 
     def cancel(self) -> bool:
         if not self._running:
@@ -142,16 +176,25 @@ class _SqlSession:
         raise NotImplementedError
 
 
-def _drain(reader: Any, limit: int) -> tuple[pa.Table, int]:
-    """The first ``limit`` rows of an Arrow batch reader, and how many rows it had in all."""
+def _drain(reader: Any, limit: int, result_rows: int = 0) -> tuple[pa.Table, int]:
+    """The first ``limit`` rows of an Arrow batch reader, and how many rows it had in all.
+
+    With ``result_rows``, every row, stopping with an error as soon as there are more rows than that
+    or more than RESULT_BYTES, so a big result is never held in memory first."""
+    keep = max(limit, result_rows if result_rows > 0 else 0)
     kept: list[pa.RecordBatch] = []
-    have = total = 0
+    have = total = size = 0
     for batch in reader:
         total += batch.num_rows
-        if have < limit:
-            part = batch.slice(0, limit - have)
+        if result_rows > 0 and total > result_rows:
+            raise _too_many(result_rows)
+        if have < keep:
+            part = batch.slice(0, keep - have)
             kept.append(part)
             have += part.num_rows
+            size += part.nbytes
+            if result_rows > 0 and size > RESULT_BYTES:
+                raise _too_big()
     return pa.Table.from_batches(kept, schema=reader.schema), total
 
 
@@ -183,6 +226,7 @@ DUCKDB = EngineDescriptor(
         "catalog": Support("native", "Schemas, tables and views in the session (information_schema).", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _RESULT,
     },
     requirements=("duckdb (ships with KratosForge)",),
     limitations=("Not Fabric's or Databricks' Spark: results can differ where engines differ (use Prove to compare).",
@@ -275,7 +319,8 @@ class DuckDBSession(_SqlSession):
         if cur.description is None:
             return None, 0
         reader = getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch
-        return _drain(reader(), request.preview_rows)
+        table, total = _drain(reader(), request.preview_rows, request.result_rows)
+        return self._keep(table, total, request)
 
     def _interrupt(self) -> None:
         self._con.interrupt()
@@ -326,6 +371,7 @@ SQLITE = EngineDescriptor(
         "catalog": Support("native", "Tables and views in the session (sqlite_master).", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _RESULT,
     },
     requirements=("Python's sqlite3 (built in)",),
     limitations=("SQLite's types and functions are not Spark's or T-SQL's.", "A database file the session opens is read-only.",
@@ -381,17 +427,19 @@ class SQLiteSession(_SqlSession):
         if cur.description is None:
             return None, 0
         names = [d[0] for d in cur.description]
-        kept = cur.fetchmany(request.preview_rows)
+        kept = cur.fetchmany(max(request.preview_rows, request.result_rows))
         total = len(kept)
         while True:
             more = cur.fetchmany(10_000)
             if not more:
                 break
             total += len(more)
+            if request.result_rows > 0:
+                raise _too_many(request.result_rows)
         columns = list(zip(*kept)) if kept else [[] for _ in names]
         table = pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
                                        for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
-        return table, total
+        return self._keep(table, total, request)
 
     def _interrupt(self) -> None:
         self._con.interrupt()
@@ -441,6 +489,7 @@ POLARS = EngineDescriptor(
         "catalog": Support("native", "Tables registered in the session.", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _NO_RESULT,
     },
     requirements=("polars (ships with KratosForge)",),
     limitations=("Polars SQL is not Spark SQL; many Spark functions don't exist.",),

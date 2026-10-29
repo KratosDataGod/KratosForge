@@ -236,3 +236,66 @@ def test_the_cli_dry_run_prints_the_plan_and_writes_nothing(tmp_path, capsys):
     with pytest.raises(SystemExit) as refused:
         cli.main(["smoke-test", "--dry-run"])  # --workspace is required
     assert refused.value.code == 2
+
+
+class Platform:
+    def __init__(self, checks=None, left_behind=None, refused=None, kept=False):
+        self.result = {"run_id": "smoke1", "outcome": "passed", "refused": refused or [], "kept": kept,
+                       "left_behind": left_behind or [], "checks": checks if checks is not None else [
+                           {"flow": n, "id": f"platform.{i}", "title": t, "status": s, "detail": ""}
+                           for n, i, t, s in [(11, "finish_empty", "From empty", "passed"), (12, "repair", "Again", "passed"),
+                                              (13, "product", "Product", "passed"), (14, "keys", "Keys", "passed"),
+                                              (15, "exception", "Exception", "passed"),
+                                              (16, "restrict", "Restrict", "skipped")]]}
+        self.out = None
+
+    def __call__(self, out):
+        self.out = out
+        return self
+
+    def run(self):
+        return self.result
+
+
+def test_the_platform_flows_add_their_steps_and_flows_when_asked_for(tmp_path):
+    platform = Platform()
+    test = smoke(tmp_path)
+    test.platform_test = platform
+    result = test.run()
+    assert result["outcome"] == "passed", result["steps"]
+    assert platform.out == tmp_path / "out" / "smoke1" / "platform"
+    assert {n: flows(result)[n] for n in range(11, 17)} == {11: "passed", 12: "passed", 13: "passed", 14: "passed",
+                                                             15: "passed", 16: "none"}
+    steps = {s["id"]: s for s in result["steps"]}
+    assert steps["platform.outcome"]["status"] == "passed" and "was deleted" in steps["platform.outcome"]["detail"]
+    assert result["platform_test"]["outcome"] == "passed"
+    assert 11 not in flows(smoke(tmp_path / "plain").run()), "without --platform the ten flows stay as they were"
+
+
+def test_a_failed_platform_flow_or_a_left_behind_item_fails_the_run(tmp_path):
+    test = smoke(tmp_path)
+    test.platform_test = Platform(left_behind=[{"id": "sql", "name": "SQL_Platform", "why": "409"}])
+    result = test.run()
+    assert result["outcome"] == "failed"
+    assert "1 item(s) left behind" in {s["id"]: s for s in result["steps"]}["platform.outcome"]["detail"]
+    assert "Delete them in Fabric" in (tmp_path / "out" / "smoke1" / "summary.md").read_text()
+    kept = smoke(tmp_path / "kept")
+    kept.platform_test = Platform(left_behind=[{"id": "sql", "name": "SQL_Platform", "why": "kept"}], kept=True)
+    assert kept.run()["outcome"] == "passed"
+
+
+def test_every_platform_flow_has_features_and_a_title_the_harness_uses():
+    from fabric_desktop import platformtest
+    assert [f.n for f in smoketest.PLATFORM_FLOWS] == list(platformtest.FLOW_TITLES)
+    assert all(f.features for f in smoketest.PLATFORM_FLOWS)
+
+
+def test_the_cli_dry_run_with_platform_prints_its_plan_and_writes_nothing(tmp_path, capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.main(["smoke-test", "--workspace", WS, "--dry-run", "--platform", "--out", str(tmp_path / "res")])
+    assert done.value.code == 0
+    out = capsys.readouterr().out
+    assert "The platform flows will:" in out and "UDF_Platform" in out and "uses capacity" in out
+    run_id = out.split("results to ")[1].split()[0].rstrip(".").replace("\\", "/").rsplit("/", 1)[1]
+    assert f"fdlt_{run_id}" in out and "platform-ledger.json" in out
+    assert not (tmp_path / "res").exists()

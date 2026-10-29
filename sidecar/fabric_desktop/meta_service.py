@@ -354,7 +354,7 @@ class MetaMixin:
         preview: dict[str, Any] | None = None
         try:
             store = self._store(project, env)
-            log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
+            log = store.meta_where("run_log", pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
             if e.layer in project.layer_names():
                 preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
@@ -540,13 +540,13 @@ class MetaMixin:
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
         store = self._store(project, env)
-        run = store.meta("run_log").filter(pl.col("run_id") == run_id)
+        run = store.meta_where("run_log", pl.col("run_id") == run_id)
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
         row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
-        row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
+        row["dq"] = _json_rows(store.meta_where("dq_results", pl.col("run_id") == run_id), 100)
         return row
 
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:

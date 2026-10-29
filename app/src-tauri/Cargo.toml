@@ -22,10 +22,10 @@ sha2 = "0.10"
 
 # The Fabric view's own WebView2 environment, which can sign in with the Windows account,
 # DPAPI, which encrypts its saved sign-in, the policy file's owner and rights (policy_trust.rs),
-# and who signed an update (signature.rs).
+# the folder dialog behind Browse… (folder_pick.rs), and who signed an update (signature.rs).
 [target."cfg(windows)".dependencies]
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security",
                                             "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_UI_Shell",
-                                            "Win32_Security_WinTrust", "Win32_Security_Cryptography_Catalog",
+                                            "Win32_System_Com", "Win32_Security_WinTrust", "Win32_Security_Cryptography_Catalog",
                                             "Win32_Security_Cryptography_Sip"] }

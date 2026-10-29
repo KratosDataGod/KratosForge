@@ -8,7 +8,6 @@ external tool can call them through MCP or the local API.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys

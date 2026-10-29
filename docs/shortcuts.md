@@ -148,6 +148,7 @@ Shortcut requests are the [platform's requests](platform.md#requests), next to k
 
 - A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
 - **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.
+- If an approval stopped after Fabric made the shortcut (a timeout, or the platform couldn't be reached), approving again finds it. If it points exactly where the request asks, the request is approved and the shortcut is recorded once. If a shortcut there points anywhere else, the request stays waiting and the error names its target.
 - The person who sent it can withdraw it while it waits.
 
 **Shortcut needs** lists shortcuts that need changing:

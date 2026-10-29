@@ -65,6 +65,17 @@ def target(source: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("A shortcut points at OneLake, ADLS Gen2 or Amazon S3.")
 
 
+def same_target(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Whether two REST targets point at the same place: the same kind, ids (any case), path and
+    connection; slashes at either end of a path don't count."""
+    da, db = describe({"target": a}), describe({"target": b})
+    keys = ("target_type", "workspace_id", "item_id", "target_path", "location", "subpath", "connection_id")
+
+    def norm(v: Any) -> str:
+        return str(v or "").strip().strip("/").lower()
+    return bool(da["rest_target"]) and all(norm(da.get(k)) == norm(db.get(k)) for k in keys)
+
+
 def check_name(name: str) -> str:
     name = (name or "").strip()
     if not _NAME.match(name):

@@ -22,7 +22,7 @@ from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
 from .central import core
 from .errors import NotSetUp
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, FabricError
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
 from .redact import describe
@@ -554,9 +554,45 @@ class ShortcutMixin:
                 if not req.get("can_decide"):
                     raise PermissionError("Only a platform admin, or the owner of the product it points at, can approve this")
                 d = req["detail"]
-                self.create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
-                                     d.get("lakehouse_name", ""), workspace_name=d.get("workspace_name", ""),
-                                     target_workspace_name=d.get("target_workspace_name", ""),
-                                     note=f"Request from {req.get('requested_by') or 'someone'}: {req.get('reason') or ''}".strip(": "),
-                                     via_request=True)
+                why = f"Request from {req.get('requested_by') or 'someone'}: {req.get('reason') or ''}".strip(": ")
+                try:
+                    self.create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
+                                         d.get("lakehouse_name", ""), workspace_name=d.get("workspace_name", ""),
+                                         target_workspace_name=d.get("target_workspace_name", ""), note=why,
+                                         via_request=True)
+                except FabricError as exc:
+                    if exc.status != 409 and "AlreadyExists" not in str(exc.code or ""):
+                        raise
+                    self._sc_made_before(req, why, exc)
+                    out = super().platform_decide(id, approve, note)  # type: ignore[misc]
+                    return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
+                                           f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
+                                           "asks, so it was kept"]}
         return super().platform_decide(id, approve, note)  # type: ignore[misc]
+
+    def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> None:
+        """Fabric refused a shortcut request's shortcut because one is there already. It counts as made only
+        when it points exactly where the request asks: an earlier approval made it and its answer, or the
+        approval after it, was lost (#1052). Its "added" entry is recorded once."""
+        d = req["detail"]
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        where = shortcuts_mod.location(d["where"])
+        there = next((s for s in api.list_shortcuts(d["workspace_id"], d["item_id"])
+                      if str(s.get("path") or "").strip("/") == where and s.get("name") == d["name"]), None)
+        if there is None:
+            raise conflict
+        wanted = shortcuts_mod.target(d["source"])
+        if not shortcuts_mod.same_target(there.get("target") or {}, wanted):
+            found = shortcuts_mod.describe(there)
+            raise core.PlatformError(
+                f"{d.get('lakehouse_name') or 'The lakehouse'} already has a shortcut {where}/{d['name']}, pointing at "
+                f"{found['target_type']} {found['target'] or '(no path)'}, not where this request asks. Decline the "
+                "request, or remove that shortcut and approve it again.") from conflict
+        sid = core.shortcut_id(d["item_id"], f"{where}/{d['name']}")
+        since = str(req.get("requested_at") or "")
+        logged = self._catalog().call("shortcut_changes", days=3650, shortcut=sid)  # type: ignore[attr-defined]
+        if not any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged):
+            ref = {"workspace_id": d["workspace_id"], "lakehouse_id": d["item_id"], "path": where, "name": d["name"],
+                   "workspace_name": d.get("workspace_name", ""), "lakehouse_name": d.get("lakehouse_name", "")}
+            self._sc_log("added", ref, None, self._sc_def(d["workspace_id"], d["item_id"], where, d["name"], wanted), why)
+        self._all_shortcuts = None

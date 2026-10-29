@@ -483,7 +483,9 @@ async function renderEntity() {
   if (state.view !== "entity" || !e) return;
   state.meta.entity = e;
   if (!state.meta.project) { await loadMetaProject(); renderEnvBar(); }
-  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false" });
+  const editor = h("textarea", { class: "toml", id: "entity-toml", spellcheck: "false", "aria-label": "Entity file (TOML)",
+    "aria-description": "Tab types four spaces. Press Esc, then Tab, to move on; Shift+Tab always goes back.",
+    "data-esc-tab": "" });  // the accessibility audit leaves it with Esc, then Tab
   editor.value = e.text;
   const dirty = () => editor.value !== e.text;
   const errBox = h("div", {}, e.errors.length ? h("div", { class: "problems" }, h("b", {}, "This entity doesn't pass the save gate yet"), gateList(e.errors)) : null);
@@ -495,10 +497,16 @@ async function renderEntity() {
     if (res.name !== e.name) state.meta.entity = { name: res.name };
     render();
   };
+  // Tab indents; Esc, then Tab, moves focus on, as in the code editors, so Tab never traps focus here (#928).
+  let leaving = false;
   editor.addEventListener("keydown", (ev) => {
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); save(); }
-    if (ev.key === "Tab") { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key === "Escape") { leaving = true; return; }
+    if (ev.key === "Tab" && !ev.shiftKey && !leaving) { ev.preventDefault(); editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end"); }
+    if (ev.key !== "Shift") leaving = false;
   });
+  editor.addEventListener("blur", () => { leaving = false; });
+  editor.addEventListener("mousedown", () => { leaving = false; });  // a click after Esc goes back to typing
 
   const cols = Object.entries(e.columns).map(([c, t]) => h("div", { class: "col-row" },
     h("span", { class: "mono" }, c), h("span", { class: "muted-text mono" }, t),
@@ -1343,7 +1351,8 @@ async function moveSourcesToPlatform(own, env, done) {
 // The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
 registerShortcuts("Entity page", [
   { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
-  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces", when: () => state.view === "entity" },
+  { keys: ["Esc"], label: "In the entity file: the next Tab moves on instead of typing spaces (Shift+Tab always goes back)", when: () => state.view === "entity" },
 ]);
 
 registerFeature({

@@ -105,7 +105,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-NB-02](#feat-nb-02) | Run cells on this PC | Implemented | Partially Verified | Notebook page | Keep. |
-| [FEAT-NB-04](#feat-nb-04) | Spark DataFrame API on this PC | Partially Implemented | Partially Verified | Notebook cells | Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; MERGE, UPDATE and DELETE still run in Fabric only (PB-015). |
+| [FEAT-NB-04](#feat-nb-04) | Spark DataFrame API on this PC | Partially Implemented | Partially Verified | Notebook cells | Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; UPDATE and DELETE still run in Fabric only, and a Prove run of a MERGE notebook is still to do (PB-015). |
 | [FEAT-NB-05](#feat-nb-05) | notebookutils and mssparkutils on this PC | Partially Implemented | Partially Verified | Notebook cells | fs.mkdirs on a file raises and fs.fastcp copies folders by default, as in Fabric; run the Preview rows on a tenant. |
 | [FEAT-NB-07](#feat-nb-07) | Where a notebook can run (compute check) | Implemented | Partially Verified | Notebook ribbon > Runs on | AST analyzer with an Unknown outcome (PB-014). |
 | [FEAT-PRV-04](#feat-prv-04) | Environment profile | Partially Implemented | Partially Verified | Prove > Packages only (Preview) | Reproducible environments wait on the package-source decision (FD-109). |
@@ -875,10 +875,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/spark_local.py`, `sidecar/fabric_desktop/spark_compat.py`, `sidecar/fabric_desktop/spark_stream.py`
 - **Tests:** `sidecar/tests/test_notebook_parity.py`, `sidecar/tests/test_spark_local.py`, `sidecar/tests/test_spark_compat.py`, `sidecar/tests/test_spark_writer.py`, `sidecar/tests/test_spark_stream.py`, `sidecar/tests/test_time_travel.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md), [docs/notebook-spark-on-this-pc.md](../notebook-spark-on-this-pc.md)
-- **Known limitations:** MERGE INTO, UPDATE and DELETE raise. partitionBy and reader schema() are ignored. insertInto defaults to errorifexists, unlike Spark's append (inference). No RDD, UDF, streaming; Scala/R refused.
+- **Known limitations:** MERGE INTO runs on this PC (Preview, PB-015, #848; not yet proved against Fabric); UPDATE and DELETE raise. partitionBy and reader schema() are ignored. insertInto defaults to errorifexists, unlike Spark's append (inference). No RDD, UDF, streaming; Scala/R refused.
 - **Pull requests and issues:** [#177](https://github.com/KratosDataGod/KratosForge/pull/177), [#393](https://github.com/KratosDataGod/KratosForge/pull/393), [#409](https://github.com/KratosDataGod/KratosForge/pull/409), [#422](https://github.com/KratosDataGod/KratosForge/pull/422), [#488](https://github.com/KratosDataGod/KratosForge/pull/488), [#497](https://github.com/KratosDataGod/KratosForge/pull/497), [#520](https://github.com/KratosDataGod/KratosForge/pull/520), [#534](https://github.com/KratosDataGod/KratosForge/pull/534), [#551](https://github.com/KratosDataGod/KratosForge/pull/551), [#592](https://github.com/KratosDataGod/KratosForge/pull/592), [#596](https://github.com/KratosDataGod/KratosForge/pull/596)
 - **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-015](PRODUCT_BACKLOG.md#pb-015), [PB-103](PRODUCT_BACKLOG.md#pb-103)
-- **Recommended next action:** Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; MERGE, UPDATE and DELETE still run in Fabric only (PB-015).
+- **Recommended next action:** Close the gaps the supported-API table in notebook-spark-on-this-pc.md lists; UPDATE and DELETE still run in Fabric only, and a Prove run of a MERGE notebook is still to do (PB-015).
 
 ### FEAT-NB-05
 

@@ -87,9 +87,9 @@ def test_a_result_larger_than_the_byte_cap_is_an_error(duck, monkeypatch):
     assert res.status == "error" and res.table is None and "larger than" in res.outputs[-1]["evalue"]
 
 
-def test_only_duckdb_and_sqlite_claim_result_and_polars_says_why_not():
+def test_which_engines_claim_result_and_polars_says_why_not():
     claims = {e.id for e in registry.ENGINES.values() if e.capability("result").available}
-    assert claims == {"local-duckdb", "local-sqlite"}
+    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark"}
     assert registry.get("local-polars").capability("result").note
 
 
@@ -184,3 +184,61 @@ def test_sqlite_checks_the_byte_cap_while_reading(lite, monkeypatch):
     res = lite.execute(sql(code, rows=25_000))
     assert res.status == "error" and "larger than" in res.outputs[-1]["evalue"]
     assert seen == [10_000]   # stopped at the first batch, never read all 25,000 rows into one table
+
+
+class _CountingCursor:
+    def __init__(self, cur, calls):
+        self._cur, self._calls = cur, calls
+        self.description = cur.description
+
+    def fetchmany(self, n):
+        self._calls.append(n)
+        return self._cur.fetchmany(n)
+
+
+class _CountingConnection:
+    def __init__(self, con, calls):
+        self._con, self._calls = con, calls
+
+    def execute(self, sql_text):
+        return _CountingCursor(self._con.execute(sql_text), self._calls)
+
+    def __getattr__(self, name):
+        return getattr(self._con, name)
+
+
+def test_sqlite_stops_reading_at_the_first_batch_past_the_rows_asked_for(lite):
+    calls = []
+    lite._con = _CountingConnection(lite._con, calls)
+    code = "WITH RECURSIVE r(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM r WHERE i < 49999) SELECT i FROM r"
+    res = lite.execute(sql(code, rows=5))
+    assert res.status == "error" and "more than the 5 rows" in res.outputs[-1]["evalue"]
+    assert calls == [10_000]   # one batch read, not all 50,000 rows counted first
+
+
+def test_sqlite_keeps_a_column_that_is_null_in_one_batch(lite):
+    code = ("WITH RECURSIVE r(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM r WHERE i < 10999) "
+            "SELECT i, CASE WHEN i >= 10000 THEN i END AS late FROM r")
+    res = lite.execute(sql(code, rows=11_000))
+    assert res.status == "ok" and res.table.num_rows == 11_000
+    assert res.table.column("late").null_count == 10_000
+
+
+def test_duckdb_against_fabric_spark_on_a_fake_needs_the_copy_confirm_then_matches(duck):
+    import test_fabric_spark as fs_t
+    from fabric_desktop import app_settings
+    mp = pytest.MonkeyPatch()
+    mp.setattr(app_settings, "value", lambda key: True if key == "allow_fabric_runs" else None)
+    try:
+        livy = fs_t.FakeLivy()
+        spark = fs_t.open_session(livy)
+        query = sql("SELECT id, name, amount FROM sales")
+        local = sql("SELECT id::BIGINT AS id, CASE WHEN id = 2 THEN NULL ELSE name END AS name, "
+                    "amount::DECIMAL(10, 2) AS amount FROM t")
+        with pytest.raises(cmp.CopyNotConfirmed):
+            cmp.compare(duck, spark, local, right_request=query)
+        assert livy.statements == {}
+        report = cmp.compare(duck, spark, local, right_request=query, rules={"keys": ["id"]}, copy_confirmed=True)
+        assert report["result"] == "match" and report["right"]["engine"] == "fabric-spark"
+    finally:
+        mp.undo()

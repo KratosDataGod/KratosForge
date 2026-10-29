@@ -195,3 +195,9 @@ def test_the_command_prints_json_and_exits_1_when_a_part_failed(monkeypatch, cap
     out = json.loads(capsys.readouterr().out)
     assert out["signed_in"] and not out["parts"]["warehouses"]["ok"]
 
+
+
+def test_a_workspace_without_a_metastore_says_so():
+    result = discover(FakeWorkspace(refuse={"/api/2.1/unity-catalog/metastore_summary": 404}))
+    assert "no Unity Catalog metastore assigned" in result["parts"]["metastore"]["error"]
+    assert "warehouse" not in result["parts"]["metastore"]["error"]

@@ -119,6 +119,7 @@ def fabric_spark(tmp_path, monkeypatch):
         "fabric-spark", lambda: fs_t.adapter(livy), lambda a: a.open_session(config, fs_t.ok()),
         ok_cell=CellRequest("print('hi')", "pyspark"), error_cell=CellRequest("boom", "python"),
         refused_cells=(CellRequest("x", "r"), sql("SELECT 1", "tsql")),
+        result_cell=sql("SELECT id, name, amount FROM sales"),
         open_unauthorized=lambda a: a.open_session(config), contacted=lambda: len(livy.calls),
         secrets=(fs_t.TOKEN,))
 

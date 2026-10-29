@@ -57,6 +57,8 @@ class Harness:
     # Remote engines: try to open with no authorization, and count what reached the fake platform.
     open_unauthorized: Callable[[Any], Any] | None = None
     contacted: Callable[[], int] | None = None
+    # A cell to ask for a whole result, when the engine returns them only for some cells (ok_cell otherwise).
+    result_cell: CellRequest | None = None
     # Isolation: leave some state in a session, and say whether a session can see it.
     leave_state: Callable[[Any], None] | None = None
     sees_state: Callable[[Any], bool] | None = None
@@ -202,7 +204,7 @@ def check_result(h: Harness) -> None:
     s = h.session()
     plain = s.execute(h.ok_cell)
     assert plain.table is None, f"{h.engine}: returned a result table nobody asked for"
-    r = s.execute(dataclasses.replace(h.ok_cell, result_rows=10_000))
+    r = s.execute(dataclasses.replace(h.result_cell or h.ok_cell, result_rows=10_000))
     _check_result(h, r, "a cell asking for its whole result")
     if not h.descriptor.capability("result").available:
         assert r.table is None, f"{h.engine}: marks result unsupported but returned a table"

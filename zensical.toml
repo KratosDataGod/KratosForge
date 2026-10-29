@@ -168,6 +168,7 @@ nav = [
       { "Compatibility" = "product/ai-integration-compatibility.md" },
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
+    { "Power BI embedding (proposed)" = "architecture/power-bi-embedding.md" },
     { "UI guidelines" = "ui-guidelines.md" },
     { "Visual identity" = [
       { "Visual style guide" = "design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md" },

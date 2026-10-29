@@ -137,3 +137,11 @@ def test_a_marker_planted_in_the_request_s_description_never_reaches_fabric(svc,
     req = ask(svc, who, description=f"People data {marker(other)} (KratosForge request 0123456789ab)")
     svc.platform_decide(req["id"], True)
     assert fabric.domains[0]["description"] == f"People data {marker(req)}"
+
+
+def test_a_long_description_is_cut_to_fit_fabric_with_the_marker_whole(svc, who, fabric):
+    req = ask(svc, who, description="x" * 300)
+    svc.platform_decide(req["id"], True)
+    sent = fabric.domains[0]["description"]
+    assert len(sent) == 256 and sent.endswith(f" {marker(req)}")
+    assert [d["description"] for d in svc.platform_domains() if d["name"] == "HR"] == ["x" * 300]  # kept in full here

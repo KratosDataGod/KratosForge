@@ -93,6 +93,7 @@ nav = [
       { "Connect your AI tool" = "ai/README.md" },
       { "Workflows" = "ai/workflows.md" },
       { "Instructions for your AI tool" = "ai/agent-instructions.md" },
+      { "Use with Microsoft's Fabric skills" = "ai/microsoft-fabric-skills.md" },
     ] },
   ] },
   { "Servers" = [

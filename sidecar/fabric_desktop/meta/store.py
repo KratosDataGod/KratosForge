@@ -19,6 +19,7 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..errors import NotSetUp
 from ..leases import check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
@@ -41,8 +42,11 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "dq_results": {"run_id": pl.String, "entity": pl.String, "check": pl.String, "failed": pl.Int64,
                    "action": pl.String},
     "watermarks": {"entity": pl.String, "value": pl.String, "run_id": pl.String, "at": pl.String},
+    # One row per kind of change a commit made to an entity's table (meta/drift.py schema_changes):
+    # the Delta version that made it and the entity's schema version. Older rows don't have the last four.
     "schema_history": {"entity": pl.String, "run_id": pl.String, "change": pl.String, "columns": pl.String,
-                       "at": pl.String},
+                       "at": pl.String, "detail": pl.String, "breaking": pl.Boolean, "delta_version": pl.Int64,
+                       "schema_version": pl.Int64},
     # A promote's release record (meta/release.py): the commit, whether the files matched it, the
     # engine, and the full receipt. Older rows don't have these columns and read as empty.
     "deployments": {"env": pl.String, "version": pl.String, "source_env": pl.String, "at": pl.String,
@@ -340,7 +344,8 @@ class Store:
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
-               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+               read_version: int | None = None, new_from: tuple[str, int] | None = None,
+               delete_flag: str | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
@@ -352,7 +357,9 @@ class Store:
         it, so a commit by another writer since then raises CommitFailedError instead of being
         merged over (new surrogate keys depend on the keys the table already had). ``new_from``
         (column, first new key) makes rows from that key up part of what the MERGE reads, so a
-        concurrent insert there conflicts.
+        concurrent insert there conflicts. ``delete_flag`` names a boolean column of ``df``: its true
+        rows delete the matching table rows instead (the source deletes of [load] deletes = "hard"),
+        in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
         delta_profile.check_target(uri, self.options())
@@ -367,9 +374,17 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
-                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
-            .when_matched_update_all().when_not_matched_insert_all().execute()
+        merger = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+                              commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        if delete_flag:
+            # Rows flagged in df remove their match from the table; the flag itself is never written.
+            flag = f"coalesce(s.`{delete_flag}`, false)"  # a null flag is a row to keep, never one dropped
+            merger = merger.when_matched_delete(flag) \
+                .when_matched_update_all(except_cols=[delete_flag]) \
+                .when_not_matched_insert_all(predicate=f"NOT {flag}", except_cols=[delete_flag])
+        else:
+            merger = merger.when_matched_update_all().when_not_matched_insert_all()
+        metrics = merger.execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version(), metrics
@@ -501,7 +516,7 @@ class OneLakeStore(Store):
     def _lakehouse_id(self, lakehouse: str) -> str:
         if lakehouse not in self.lakehouse_ids:
             how = "run Dev to create it" if self.env == "dev" else "promote to create it"
-            raise LookupError(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
+            raise NotSetUp(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
         return self.lakehouse_ids[lakehouse]
 
     def workspace_of(self, lakehouse: str) -> str:

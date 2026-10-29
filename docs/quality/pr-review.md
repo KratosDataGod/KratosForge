@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1096 832c9bda, #1101 51ba02c1, #1106 9be4c645 | update-branch onto main after #1107 | PASS 9.2 (carry, each) | Each is a clean merge of main into the prior head (3d00e389, e727af85, a89ea2c6) with no remerge resolution; three-dot patch-id identical to the prior change; each merges clean. |
+
 | 2026-10-29 | #1106 a89ea2c6 | Parity table: array_distinct recorded as Can differ | PASS 9.2 | Since 0ad9416e only array_distinct changes: a new `varies` outcome ("Can differ") for DuckDB hash order (Windows same, Linux different); the test accepts same or differs for that case only, every other case stays exact, and the docs table regenerates to match. Merges clean; on the merge result parity + silent_except 151 passed; ruff clean. |
 
 | 2026-10-29 | #1101 e727af85 | Workspace discovery, merged with main after #1054 | PASS 9.2 (carry) | Outside cli.py the three-dot patch-id equals 557c36fd's; the only conflict was cli.py's module docstring, resolved (remerge-diff) as the union of live-test-databricks and databricks-discover; both subcommands parse and dispatch. Merges clean; discovery + dbx_livetest + databricks_sql + silent_except 74 passed. |

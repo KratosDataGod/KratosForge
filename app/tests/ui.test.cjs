@@ -3251,6 +3251,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
+// Home and End and a screen reader says which tab is selected.
+test("every row of tabs is a tablist with selected state", () => {
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
+      for (const m of src.matchAll(re)) {
+        const near = src.slice(m.index, m.index + 260);
+        const line = src.slice(0, m.index).split("\n").length;
+        assert.ok(near.includes(role), `${file}:${line}: a tab row or tab without ${role}`);
+        if (role === 'role: "tab"') assert.ok(near.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+      }
+    }
+  }
+});
+
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
 test("sizes read the same on every page", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");

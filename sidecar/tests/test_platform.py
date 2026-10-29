@@ -65,6 +65,7 @@ class _SqlServer:
 
 def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     monkeypatch.setattr(core, "ensure_key_table", lambda *a: None)
+    monkeypatch.setattr(core, "require_admin", lambda *a: None)
     conn = _SqlServer()
     rows = [[i, f"bk{i}", "2026-01-01"] for i in range(1, 2501)]
     out = core.import_keys(core.Db(conn, "tsql"), "customer", rows)
@@ -93,6 +94,8 @@ def test_two_runs_at_once_never_get_two_keys_for_one_business_key(platform):
 
 
 def test_import_keeps_numbers_and_refuses_to_renumber(platform):
+    with pytest.raises(core.PlatformError, match="Only platform admins can copy keys in"):
+        _as(platform, "eve@example.com").call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"]])
     out = platform.call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"], [9, "y", "2026-01-02"]])
     assert out == {"imported": 2, "already_there": 0}
     assert platform.call("import_keys", name="customer", rows=[[5, "x", ""]])["already_there"] == 1
@@ -1337,3 +1340,72 @@ def test_a_project_recorded_by_an_object_id_with_a_team_as_owner_isnt_claimed(pl
     with pytest.raises(core.PlatformError, match="crm has no owner yet"):
         mallory.call("register_project", project={"name": "crm", "team": "Mallory"})
     assert mallory.call("list_project_members", project="crm")["members"] == []
+
+
+def _sc(lh, name, target, ws="w1"):
+    return {"lakehouse_id": lh, "workspace_id": ws, "workspace_name": "Sales", "lakehouse_name": lh, "path": "Tables",
+            "name": name, "target": target}
+
+
+def test_only_a_lakehouses_project_members_or_an_admin_hide_a_shortcut_problem(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    lakehouses = [{"lakehouse_id": "lh1", "workspace_id": "w1"}, {"lakehouse_id": "lh2", "workspace_id": "w2"}]
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", a), _sc("lh1", "y", a), _sc("lh2", "z", a, "w2")])
+    sid = {s["name"]: s["id"] for s in platform.call("list_seen_shortcuts")}
+    platform.call("accept_shortcut_risk", shortcut_id=sid["x"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": sid["x"], "health": "broken", "detail": "404"}])
+    # Eve isn't a member of crm: her scan reports a repoint and a removal but changes neither.
+    out = eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", b), _sc("lh2", "z", a, "w2")])
+    assert sorted((s["change"], s["shortcut_id"]) for s in out["skipped"]) == [("removed", sid["y"]), ("repointed", sid["x"])]
+    [reported] = [c for c in out["changes"] if c["kind"] == "repointed"]
+    assert reported["by_user"] == "eve@example.com" and reported["note"].startswith("reported")
+    seen = {s["name"]: s for s in platform.call("list_seen_shortcuts")}
+    assert set(seen) == {"x", "y", "z"} and seen["x"]["health"] == "broken"
+    assert [r["shortcut_id"] for r in platform.call("list_shortcut_risks")] == [sid["x"]]
+    # Nor can she mark it healthy; anyone may report one broken.
+    got = eve.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"},
+                                                      {"id": sid["y"], "health": "broken", "detail": "gone"}])
+    assert [c["kind"] for c in got] == ["skipped", "broke"] and got[1]["by_user"] == "eve@example.com"
+    assert {s["name"]: s["health"] for s in platform.call("list_seen_shortcuts")} == {"x": "broken", "y": "broken", "z": "not_checked"}
+    # A lakehouse no project has a product in: an admin's only. In crm's, bo's scan and check apply.
+    eve.call("record_shortcuts", lakehouses=lakehouses[1:], shortcuts=[])
+    assert "z" in {s["name"] for s in platform.call("list_seen_shortcuts")}
+    out = bo.call("record_shortcuts", lakehouses=lakehouses[:1], shortcuts=[_sc("lh1", "x", b)])
+    assert not out["skipped"] and {c["kind"] for c in out["changes"]} == {"repointed", "removed"}
+    assert platform.call("list_shortcut_risks") == [], "an applied repoint ends the accepted risk"
+    assert [c["kind"] for c in bo.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"}])] == []
+    assert any(a["action"] == "shortcut scan" and a["by_user"] == "bo@example.com" for a in platform.call("audit"))
+
+
+def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("log_shortcut_change", kind="added", shortcut=_sc("lh1", "x", a), after={"target": a})  # anyone adds
+    [x] = platform.call("list_seen_shortcuts")
+    platform.call("accept_shortcut_risk", shortcut_id=x["id"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "404"}])
+    with pytest.raises(core.PlatformError, match="only a platform admin, or a member of a project"):
+        eve.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", a), before={"target": a})
+    out = eve.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    assert out["note"].startswith("reported") and out["by_user"] == "eve@example.com"
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "broken" and x["target"]["path"] == "Tables/a" and len(platform.call("list_shortcut_risks")) == 1
+    # A non-member's same-health report doesn't freshen the check either; a broken one always lands.
+    when = x["checked_at"]
+    assert [c["kind"] for c in eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "healthy"}])] == ["skipped"]
+    eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "still 404"}])
+    assert platform.call("list_seen_shortcuts")[0]["health_detail"] == "still 404"
+    bo.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
+    bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
+    assert platform.call("list_seen_shortcuts") == []

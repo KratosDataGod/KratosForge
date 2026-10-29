@@ -17,9 +17,11 @@ from typing import Any
 from . import access as access_mod
 from . import governance_notices as notices
 from . import shortcut_center as center
+from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
 from .auth import ONELAKE_SCOPES
 from .central import core
+from .errors import NotSetUp
 from .fabric_api import FabricClient
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
@@ -142,28 +144,7 @@ class ShortcutMixin:
         """List one entry of each shortcut through OneLake: [{id, lakehouse_id, host_workspace_id,
         path, full_path, target_type}]. Records each result with the platform."""
         token = self.auth.storage_token()  # type: ignore[attr-defined]  # here: MSAL stays on one thread
-        files = FileStore(lambda: token)
-        hosts: dict[tuple[str, str, str], int | None] = {}
-        lock = threading.Lock()
-
-        def host_status(s: dict[str, Any]) -> int | None:
-            key = (s["host_workspace_id"], s["lakehouse_id"], s["path"])
-            with lock:
-                if key in hosts:
-                    return hosts[key]
-            status, _ = files.probe(s["host_workspace_id"], s["lakehouse_id"], s["path"])
-            with lock:
-                hosts[key] = status
-            return status
-
-        def check(s: dict[str, Any]) -> dict[str, Any]:
-            host = host_status(s)
-            status, message = (None, "") if host in (401, 403) else files.probe(s["host_workspace_id"], s["lakehouse_id"],
-                                                                                s["full_path"])
-            return {"id": s["id"]} | center.health_from_probe(s, host, status, message)
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(check, items))
+        results = watch.probe(FileStore(lambda: token), items)  # the same check the agent's schedule makes
         problems: list[str] = []
         changes = self._sc_call("record_shortcut_health", problems, [], results=results)
         problem = self._governance_notify(lambda: notices.shortcut_events(changes))  # type: ignore[attr-defined]
@@ -343,6 +324,8 @@ class ShortcutMixin:
         missing = f"The platform can't keep accepted shortcut risks yet: UDF_Platform has no {op} function. {RISKS_REPAIR}"
         try:
             return self._catalog().call(op, **kwargs)  # type: ignore[attr-defined]
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             _log.info("%s: %s", op, describe(exc))
             raise LookupError(missing) from exc

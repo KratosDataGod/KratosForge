@@ -14,6 +14,7 @@ passes the method name as a literal.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -29,7 +30,6 @@ _NOTIFY = "governance Teams notices: governance sends the events; the UI only re
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
-_INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 
@@ -101,16 +101,9 @@ NO_UI_CALLER: dict[str, str] = {
     "sql_executions": _NO_SCREEN,
     "usage_imports": _NO_SCREEN,
     "usage_reconciliation": _NO_SCREEN,
+    "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     # Superseded on screen.
-    "export_sql_csv": _SUPERSEDED,  # the SQL page uses sql_export
-    "integrations_approvals": _SUPERSEDED,  # Settings > Integrations uses integrations_pending
-    "run_cell": _SUPERSEDED,  # notebooks use start_cell / poll_cell
-    # Reused in-process by another method.
-    "all_shortcuts": _INTERNAL,  # shortcut_service
-    "list_shortcuts": _NO_SCREEN,  # removal candidate: estate/shortcut services call api.list_shortcuts, not this
-    "meta_preflight": _INTERNAL,  # risk_service
-    "git_path_info": _INTERNAL,  # git_service
-    "git_repos": _INTERNAL,  # git_service
+    "run_cell": _SUPERSEDED,  # notebooks use start_cell / poll_cell; engine tests still drive it as one call
     # Listed by QA-017 as having no screen.
     "audit_log": _QA017,
     "delete_notebook": _QA017,
@@ -143,3 +136,18 @@ def test_the_exception_list_stays_honest():
     now_called = sorted(_ui_names(set(NO_UI_CALLER)))
     assert not now_called, f"NO_UI_CALLER lists names the UI now calls; remove them from the list: {now_called}"
     assert all(reason.strip() for reason in NO_UI_CALLER.values())
+
+
+# HD-050 slice 2 (#927): names no screen called, taken out of METHODS. The Service methods stay, because
+# git_service, shortcut_service and pipeline_service still call git_path_info, all_shortcuts and git_repos.
+REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_path_info", "git_repos",
+           "list_shortcuts")
+
+
+def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):
+    from fabric_desktop.service import Service
+    svc = Service(client_id="x", root=tmp_path)
+    for name in REMOVED:
+        reply = server.handle(svc, json.dumps({"id": 1, "method": name, "params": {}}))
+        assert reply == {"id": 1, "error": f"unknown method {name!r}"}, name
+        assert callable(getattr(svc, name)), name

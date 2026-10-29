@@ -132,7 +132,7 @@ class NotebookBatchMixin:
 
     def notebook_batch_stop(self, id: str) -> dict[str, Any]:  # noqa: A002
         """Don't start the notebooks still waiting. Ones already running finish."""
-        self._batch_file(id)
+        self.notebook_batch(id)  # a batch that isn't on this PC is refused, not given a stray stop file
         (self._batch_dir() / f"{id}.stop").write_text(_now(), encoding="utf-8")
         return self.notebook_batch(id)
 

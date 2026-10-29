@@ -95,6 +95,9 @@ def test_a_batch_whose_process_went_quiet_says_so(svc, in_process):
 def test_batch_ids_and_names_are_checked(svc, in_process):
     with pytest.raises(ValueError):
         svc.notebook_batch("../../secrets")
+    with pytest.raises(LookupError):
+        svc.notebook_batch_stop("0123456789ab")
+    assert not (svc.root / nbs.BATCHES / "0123456789ab.stop").exists()
     with pytest.raises(ValueError):
         svc.notebook_batch_start([])
     with pytest.raises(ValueError):

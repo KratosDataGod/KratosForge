@@ -125,9 +125,11 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
         if call is None:
             found.append("does not call _run exactly once")
         else:
-            want = [ast.Name("sqlDB"), ast.Constant(op)] + ([ast.Name("ctx")] if takes_ctx else [])
-            if [ast.dump(x, annotate_fields=False) for x in call.args] != [
-                    ast.dump(x, annotate_fields=False) for x in want]:
+            # Compared as (kind, name or value): ast.dump of a hand-built node differs between Python
+            # versions (3.13 fills in ctx=Load(), 3.12 leaves it out).
+            want = [("Name", "sqlDB"), ("Constant", op)] + ([("Name", "ctx")] if takes_ctx else [])
+            got = [(type(x).__name__, x.id if isinstance(x, ast.Name) else getattr(x, "value", None)) for x in call.args]
+            if got != want:
                 found.append(f"_run's positional arguments are {[ast.unparse(x) for x in call.args]}")
             for k in call.keywords:
                 if k.arg is None:

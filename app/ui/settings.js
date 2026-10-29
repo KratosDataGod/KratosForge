@@ -364,7 +364,7 @@ function showWhatsNew(asked = false) {
   const repo = "https://github.com/KratosDataGod/KratosForge";
   const day = (d) => {
     const [y, m, dd] = String(d || "").split("-").map(Number);
-    return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    return y ? dateText(new Date(y, m - 1, dd)) : "";
   };
   const item = (i) => h("li", {}, h("span", {}, i.title),
     h("span", { class: "muted-text small" }, day(i.date),
@@ -705,7 +705,7 @@ async function renderSettings() {
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
     preview("updateBanner", settingRow("Tell me when a new build is out",
       "While KratosForge is open, checks your channel's version file every 4 hours, the same check as at startup; nothing else is sent. "
-        + (updateWatch.checkedAt ? `Last checked ${updateWatch.checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet since this start."),
+        + (updateWatch.checkedAt ? `Last checked ${timeText(updateWatch.checkedAt)}.` : "Not checked yet since this start."),
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateWatchOn() ? true : null,
         onchange: (e) => {
           try { localStorage.setItem(UPDATE_WATCH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
@@ -773,9 +773,9 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
-  const tabs = previewShown() ? h("div", { class: "subtabs" },
+  const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
     [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
-      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+      h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
@@ -1101,7 +1101,7 @@ function savedWriteRow(saved, user, tenant, now = Date.now()) {
   const at = Date.parse(saved.at);
   if (Number.isNaN(at) || now - at > WRITE_PASS_DAYS * 86400000 || at > now) return null;
   return { key: "write", title: "Writing to OneLake", status: "ok",
-    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${new Date(at).toLocaleDateString()}. Checked again after ${WRITE_PASS_DAYS} days.` };
+    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${dateText(at)}. Checked again after ${WRITE_PASS_DAYS} days.` };
 }
 
 function rememberWrite(row, target) {
@@ -1157,7 +1157,7 @@ function readinessCard() {
   async function run() {
     box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));
     const rows = await attempt(() => rpc("readiness_check"), "Ready to work");
-    if (rows) draw(rows, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    if (rows) draw(rows, timeText(new Date()));
   }
   run();
   return box;

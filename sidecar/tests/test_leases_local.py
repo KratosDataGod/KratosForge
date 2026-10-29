@@ -79,3 +79,31 @@ def test_a_renewal_failure_inside_the_lease_length_keeps_it(tmp_path):
     time.sleep(0.3)
     held.stop()
     assert not held.lost
+
+
+def test_a_lease_file_another_writer_is_reading_is_still_let_go_and_renewed(tmp_path, monkeypatch):
+    # Windows refuses to delete or replace a file while another process reads it (WinError 32);
+    # writers waiting for the lease read it all the time, so a release must try again, not give up.
+    import os
+    from pathlib import Path
+
+    backend = LocalBackend(tmp_path)
+    etag = backend.create("dbo.sales", b"one")
+    real_replace, real_unlink, refused = os.replace, Path.unlink, []
+
+    def busy(real):
+        def call(*args, **kwargs):
+            if len(refused) % 3 < 2:  # refused twice, then allowed
+                refused.append(args)
+                raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+            refused.append(None)
+            return real(*args, **kwargs)
+        return call
+
+    monkeypatch.setattr(os, "replace", busy(real_replace))
+    etag = backend.replace("dbo.sales", b"two", etag)
+    assert etag and backend.read("dbo.sales").data == b"two"
+    monkeypatch.setattr(Path, "unlink", busy(real_unlink))
+    assert backend.delete("dbo.sales", etag) is True
+    monkeypatch.undo()
+    assert backend.read("dbo.sales") is None and len(refused) == 6

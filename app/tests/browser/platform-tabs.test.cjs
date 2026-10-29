@@ -30,7 +30,7 @@ test("four tabs: requests are on Data mesh now, and the old link opens them ther
   await page().waitForSelector(".plat-stats");
   assert.deepStrictEqual((await tabs().allTextContents()).map((t) => t.trim()), ["Overview", "Set up", "Govern", "Settings"]);
   assert.deepStrictEqual(asked, [], "Overview's own counts give the number: no second read of the requests");
-  assert.strictEqual(await tabs().nth(0).getAttribute("aria-current"), "page");
+  assert.strictEqual(await tabs().nth(0).getAttribute("aria-selected"), "true");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-tabs.png") });
   await page().click('.plat-stat:has-text("Requests waiting")');
   await page().waitForFunction(() => state.view === "metadata" && state.meta.tab === "requests");
@@ -51,7 +51,7 @@ test("Set up opens its first page, with its three pages on the view row; no menu
   await pages().nth(2).click();
   await page().waitForFunction(() => platformPage.tab === "glossary");
   assert.deepStrictEqual(asked, [], "no tab reads the requests now");
-  assert.strictEqual(await tabs().nth(1).getAttribute("aria-current"), "page");
+  assert.strictEqual(await tabs().nth(1).getAttribute("aria-selected"), "true");
   assert.strictEqual(await pages().nth(2).getAttribute("aria-pressed"), "true");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "platform-set-up.png") });
 });

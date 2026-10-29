@@ -1,11 +1,13 @@
 [build-system]
-requires = ["setuptools>=68"]
+# 77: the SPDX license expression below (PEP 639).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fabric-desktop"
 version = "0.20.0"
 description = "Run data jobs on your own machine and publish Delta tables to Microsoft Fabric OneLake."
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",

@@ -1163,33 +1163,49 @@ function readinessCard() {
   return box;
 }
 
-// ---------- Get started (Home, until there's a metadata project) ----------
+// ---------- Getting started with KratosForge (Home) ----------
 
 function markDone(step) {
   try { localStorage.setItem(`fd.done.${step}`, "1"); } catch { /* not remembered */ }
 }
 
-function getStarted(project, notebookCount) {
+// The main starting points, one small tile each, in a card that folds to its header line and
+// remembers that (fd.fold.home.getstarted). Someone who hid the old Get started card starts folded.
+// Tiles tick once tried: a notebook, a lakehouse opened, a metadata project; the rest never tick.
+// Returns { el, mark(project, notebookCount) } so Home ticks them once it has read those.
+function gettingStarted() {
   let hidden = false;
-  const done = (step) => { try { return localStorage.getItem(`fd.done.${step}`) === "1"; } catch { return false; } };
   try { hidden = localStorage.getItem("fd.getstarted.hidden") === "1"; } catch { /* shown */ }
-  if (hidden || project?.path) return null;
-  const steps = [
-    // Signing in is asked once on Home: by Ready to work while it shows, else here.
-    readinessShown() ? null : [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
-    [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
-    [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
-    [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
-  ].filter(Boolean);
-  const box = h("section", { class: "card pad get-started" },
-    h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
-      btn("Hide", null, () => { try { localStorage.setItem("fd.getstarted.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small")),
-    h("ol", {}, steps.map(([ok, title, help, run]) => h("li", { class: ok ? "done" : null },
-      h("span", { class: "step-mark" }, ok ? icon("ok", 16) : null),
-      h("div", { class: "grow" }, h("b", {}, title), h("div", { class: "muted-text small" }, help)),
-      ok ? null : btn("Start", null, run, "tool outline small")))),
-    h("p", { class: "muted-text small" }, learnMore("get-started", "Read the user guide")));
-  return box;
+  const done = (step) => { try { return localStorage.getItem(`fd.done.${step}`) === "1"; } catch { return false; } };
+  const points = [
+    ["notebook", "notebook", "Run a notebook on this PC", "Python and Spark-style code on your own processor.", "New notebook", () => newNotebook()],
+    ["import", "arrowUpload", "Bring your notebooks", "Import from Fabric or Databricks and run them here.", "Import", () => nbfImportDialog()],
+    ["lakehouse", "onelake", "Explore OneLake", "Browse lakehouse tables and files, or query them with SQL.", "OneLake catalog", () => go("onelake")],
+    ["project", "metadata", "Build medallion tables", "Describe bronze, silver and gold once; KratosForge builds and runs them.", "Data mesh", () => go("metadata")],
+    ["optimize", "gauge", "Spend less Fabric capacity", "See what uses capacity and what could run on this PC.", "Optimize", () => go("optimize")],
+    ["platform", "building", "Set up the platform", "For admins: workspaces, environments, access and governance.", "Platform", () => go("platform")],
+  ];
+  const tiles = new Map();
+  const grid = h("div", { class: "gs-grid" }, points.map(([key, ic, title, text, verb, run]) => {
+    const tile = h("div", { class: `gs-tile${key === "lakehouse" && done("lakehouse") ? " done" : ""}` },
+      h("div", { class: "row gs-title" }, icon(ic, 16), h("b", { class: "grow" }, title), h("span", { class: "gs-tick", title: "Tried" }, icon("ok", 14))),
+      h("div", { class: "muted-text small" }, text),
+      btn(verb, null, run, "tool link small"));
+    tiles.set(key, tile);
+    return tile;
+  }));
+  const learn = PREVIEW_FEATURES.learn && previewShown()
+    ? btn("New to Fabric? Try the lessons in Learn", "beaker", () => go("learn"), "tool link small") : null;
+  const el = foldable("home.getstarted",
+    h("h2", {}, "Getting started with KratosForge"),
+    h("div", { class: "gs-body" }, grid,
+      h("div", { class: "row wrap gs-foot" }, learn, learnMore("get-started", "Read the user guide"))),
+    { cls: "card pad get-started", start: hidden });
+  const mark = (project, notebookCount) => {
+    tiles.get("notebook").classList.toggle("done", notebookCount > 0);
+    tiles.get("project").classList.toggle("done", !!project?.path);
+  };
+  return { el, mark };
 }
 
 registerFeature({

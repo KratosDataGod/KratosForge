@@ -123,6 +123,33 @@ def test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails(svc):
     assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD
 
 
+
+def test_undo_leaves_a_shortcut_that_changed_again_since_alone(svc):
+    center_of(svc)
+    svc.delete_shortcut("ws-dev", "lh-1", "Files/raw", "events", "LH_Silver", "Sales Dev")
+    removed = svc.shortcut_changes()["changes"][0]
+    svc.api.items["lh-1"].append({"name": "events", "path": "Files/raw", "target": GOLD})  # made again in Fabric
+    with pytest.raises(RuntimeError, match="there's a shortcut at Files/raw/events again"):
+        svc.shortcut_undo(removed["id"])
+    assert [s["target"] for s in svc.api.items["lh-1"] if s["name"] == "events"] == [GOLD]
+    # Undoing an add removes only the shortcut it added, not one pointed elsewhere since.
+    svc.api.items["lh-1"] = [s for s in svc.api.items["lh-1"] if s["name"] != "events"]
+    svc.shortcut_undo(removed["id"])
+    added = svc.shortcut_changes()["changes"][0]
+    assert added["kind"] == "added"
+    next(s for s in svc.api.items["lh-1"] if s["name"] == "events")["target"] = GOLD_DEV
+    with pytest.raises(RuntimeError, match="points somewhere else now, so nothing was removed"):
+        svc.shortcut_undo(added["id"])
+    assert any(s["name"] == "events" for s in svc.api.items["lh-1"])
+    # A repoint is pointed back only while the shortcut still points where that repoint left it.
+    src = {"type": "oneLake", "workspace_id": "ws-dev2", "item_id": "lh-gold-dev", "path": "Tables/dbo/customer"}
+    svc.shortcut_repoint("ws-dev", "lh-1", "Tables/dbo", "customer", src, "LH_Silver", "Sales Dev", "Sales Dev 2")
+    repoint = svc.shortcut_changes()["changes"][0]
+    next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] = S3
+    with pytest.raises(RuntimeError, match="points somewhere else since that change"):
+        svc.shortcut_undo(repoint["id"])
+    assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == S3
+
 def test_rules_stop_dev_pointing_at_prod_and_flag_it(svc):
     src = {"type": "oneLake", "workspace_id": "ws-prod", "item_id": "lh-gold", "path": "Tables/dbo/product"}
     with pytest.raises(PermissionError, match="Dev at Prod"):

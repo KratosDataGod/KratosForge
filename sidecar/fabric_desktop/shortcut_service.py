@@ -454,10 +454,23 @@ class ShortcutMixin:
         if c is None:
             raise LookupError("That change isn't in the history any more")
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+
+        def now(d: dict[str, Any]) -> dict[str, Any] | None:
+            """The shortcut at that place in Fabric now, if there is one."""
+            return next((shortcuts_mod.describe(x) for x in api.list_shortcuts(d["workspace_id"], d["lakehouse_id"])
+                         if str(x.get("path") or "").strip("/") == d["path"] and x.get("name") == d["name"]), None)
+
+        def same(found: dict[str, Any] | None, target: Any) -> bool:
+            return found is not None and core._canon(found["rest_target"]) == core._canon(target)
+
+        # Undo changes only what the change made: a shortcut changed again since is left alone.
+        where = lambda d: f"{d['path']}/{d['name']}"  # noqa: E731
         if c["kind"] == "removed" and c.get("before"):
             b = c["before"]
             ref = {"workspace_id": b["workspace_id"], "lakehouse_id": b["lakehouse_id"], "path": b["path"],
                    "name": b["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
+            if now(b) is not None:
+                raise RuntimeError(f"Not undone: there's a shortcut at {where(b)} again, so nothing was changed.")
             api.create_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"], b["target"])
             self._all_shortcuts = None
             problem = self._sc_log("added", ref, None, b, f"Recreated (undo of change {change_id})")
@@ -465,8 +478,10 @@ class ShortcutMixin:
             b = c["before"]
             ref = {"workspace_id": b["workspace_id"], "lakehouse_id": b["lakehouse_id"], "path": b["path"],
                    "name": b["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
-            current = next((shortcuts_mod.describe(s) for s in api.list_shortcuts(b["workspace_id"], b["lakehouse_id"])
-                            if str(s.get("path") or "").strip("/") == b["path"] and s.get("name") == b["name"]), None)
+            current = now(b)
+            if not same(current, (c.get("after") or {}).get("target")):
+                raise RuntimeError(f"Not undone: {where(b)} " + ("is gone" if current is None else "points somewhere else")
+                                   + " since that change, so nothing was changed.")
             if current is not None:
                 api.delete_shortcut(b["workspace_id"], b["lakehouse_id"], b["path"], b["name"])
             try:
@@ -484,6 +499,10 @@ class ShortcutMixin:
             a = c["after"]
             ref = {"workspace_id": a["workspace_id"], "lakehouse_id": a["lakehouse_id"], "path": a["path"],
                    "name": a["name"], "workspace_name": c["workspace_name"], "lakehouse_name": c["lakehouse_name"]}
+            current = now(a)
+            if not same(current, a.get("target")):
+                raise RuntimeError(f"Not undone: {where(a)} " + ("is already gone" if current is None else
+                                   "points somewhere else now") + ", so nothing was removed.")
             api.delete_shortcut(a["workspace_id"], a["lakehouse_id"], a["path"], a["name"])
             self._all_shortcuts = None
             problem = self._sc_log("removed", ref, a, None, f"Removed (undo of change {change_id})")

@@ -105,6 +105,20 @@ def _file_lock(path: Path) -> Iterator[None]:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+def _while_shared(change: Callable[[], Any], tries: int = 50) -> None:
+    """Replace or delete a lease file. On Windows that fails (WinError 32) while another writer is
+    reading the file, which writers waiting for the lease do all the time; it is retried, for up to
+    about a second, so the lease is let go rather than left to expire."""
+    for attempt in range(tries):
+        try:
+            change()
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.02)
+
+
 class LocalBackend:
     """Lease files in a folder on this machine (local environments, and tests)."""
 
@@ -169,7 +183,7 @@ class LocalBackend:
                 return None
             tmp = self._path(key).with_suffix(f".{uuid.uuid4().hex}.tmp")
             tmp.write_bytes(data)
-            os.replace(tmp, self._path(key))
+            _while_shared(lambda: os.replace(tmp, self._path(key)))
             return self._etag(data)
 
     def delete(self, key: str, etag: str) -> bool:
@@ -177,7 +191,7 @@ class LocalBackend:
             now = self.read(key)
             if now is None or now.etag != etag:
                 return False
-            self._path(key).unlink(missing_ok=True)
+            _while_shared(lambda: self._path(key).unlink(missing_ok=True))
             return True
 
 

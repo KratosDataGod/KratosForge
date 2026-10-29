@@ -90,6 +90,10 @@ It deletes only what that ledger lists, only in that workspace, and only things 
 
 If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse recoverable for a while; it still counts toward the workspace's item limit until it is purged.
 
+## The tenant smoke test
+
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).

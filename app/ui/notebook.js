@@ -209,9 +209,9 @@ function enterEditMode(cell = selectedCell()) {
 function renderExplorer() {
   const lh = nbLakehouse(state.notebook);
   const fromLocations = nbData(state.notebook).from === "locations";
-  const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
-    onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
+  const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(state.explorerTab === id), onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
+  const tabs = h("div", { class: "explorer-tabs", role: "tablist", "aria-label": "Explorer" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {

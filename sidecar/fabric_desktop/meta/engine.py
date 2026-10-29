@@ -35,7 +35,7 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -107,6 +107,15 @@ def plural(n: int, word: str) -> str:
 
 class CheckStop(Exception):
     pass
+
+
+def type_change_refused(entity: str, changes: list[str]) -> CheckStop:
+    """The stop for column types that would narrow or change kind ("qty int64 to int32"), worded the
+    same for a batched load and an unbatched one."""
+    return CheckStop(f"schema change refused: {'; '.join(changes)} would narrow a column's type or change its kind, "
+                     "which breaks readers of the table. Nothing was written. Change the contract or the source "
+                     f"back, or, to rewrite {entity} with the new types, add this line under [contract] in its "
+                     "entity file: overwrite_schema = true (and take it out again after the run)")
 
 
 class Abandoned(Exception):
@@ -870,12 +879,8 @@ class Engine:
                         continue
                     new_ = pl.from_arrow(t.select([name]).slice(0, 0)).schema[name]
                     if new_ != old and not (name not in e.columns and drift_mod.widens(new_, old)):
-                        stop_ = CheckStop(
-                            f"schema change refused: {name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)} "
-                            "would narrow a column's type or change its kind, which breaks readers of the table. "
-                            f"Nothing was written. Change the source back, or, to rewrite {e.name} with the new "
-                            "types, add this line under [contract] in its entity file: overwrite_schema = true "
-                            "(and take it out again after the run)")
+                        stop_ = type_change_refused(
+                            e.name, [f"{name} {drift_mod.type_text(old)} to {drift_mod.type_text(new_)}"])
                         failure.append(stop_)
                         raise stop_
                 cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
@@ -1280,6 +1285,11 @@ class Engine:
             self._advance_watermark(e, df, backfill, res)
 
     def _table_schema(self, e: Entity, version: int | None = None) -> pl.Schema | None:
+        if version is not None:  # the version this run's write made: the store kept its schema
+            kept = getattr(self.store, "written_schema", lambda *a: None)
+            written = kept(self.lakehouse(e), e.schema, e.table, version)
+            if written is not None:
+                return written
         lf = self.store.scan(self.lakehouse(e), e.schema, e.table, version)
         return None if lf is None else lf.collect_schema()
 
@@ -1291,10 +1301,7 @@ class Engine:
             return
         refused = [c["detail"] for c in drift_mod.schema_changes(before, after) if c["change"] in ("narrowed", "retyped")]
         if refused:
-            raise CheckStop(f"schema change refused: {'; '.join(refused)} would narrow a column's type or change its "
-                            "kind, which breaks readers of the table. Nothing was written. Change the contract back, "
-                            f"or, to rewrite {e.name} with the new types, add this line under [contract] in its entity "
-                            "file: overwrite_schema = true (and take it out again after the run)")
+            raise type_change_refused(e.name, refused)
 
     def _schema_rows(self, e: Entity, res: RunResult) -> list[dict[str, Any]]:
         """The schema history for this run's commit: each change it made to the table's schema, with
@@ -1302,7 +1309,10 @@ class Engine:
         changes = drift_mod.schema_changes(self._schema_from, self._table_schema(e, res.delta_version))
         if not changes:
             return []
-        seen = self.store.meta("schema_history").filter(pl.col("entity") == e.name)
+        # This entity's rows only: files whose statistics rule the entity out aren't read.
+        seen, _ = self.store.read_where(META_LAKEHOUSE, "meta", "schema_history", pl.col("entity") == e.name)
+        if seen is None:
+            seen = pl.DataFrame(schema=META_SCHEMAS["schema_history"])
         if "schema_version" not in seen.columns:
             seen = seen.with_columns(schema_version=pl.lit(None, pl.Int64))
         # Rows from before schema versions were recorded have none: each of their runs counts as one, so

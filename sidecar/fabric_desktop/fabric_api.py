@@ -267,20 +267,24 @@ class FabricClient:
         raise FabricError(f"Fabric said it created the lakehouse {name}, but it isn't in the workspace yet. "
                           "Refresh the workspace in a minute, then try again.", "LakehouseNotFoundAfterCreate")
 
-    def environment_libraries(self, workspace_id: str, environment_id: str) -> list[dict[str, Any]]:
-        """The libraries published to an Environment item: [{"name", "libraryType": External|Custom, "version"}].
-        Read only (``beta=False`` is the GA contract; the preview one has another shape). An item with
-        no libraries answers 404 EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+    def environment_libraries(self, workspace_id: str, environment_id: str, staged: bool = False) -> list[dict[str, Any]]:
+        """The libraries published to an Environment item (or, with ``staged``, the ones saved but not
+        yet published): [{"name", "libraryType": External|Custom, "version"}]. Read only (``beta=False``
+        is the GA contract; the preview one has another shape). An empty list answers 404
+        EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+        where = "staging/libraries" if staged else "libraries"
         try:
-            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/libraries?beta=False", key="libraries")
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False", key="libraries")
         except FabricError as exc:
             if exc.code == "EnvironmentLibrariesNotFound":
                 return []
             raise
 
-    def environment_spark_compute(self, workspace_id: str, environment_id: str) -> dict[str, Any]:
-        """The Environment item's published Spark settings, with ``runtimeVersion``. Read only."""
-        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/sparkcompute?beta=False").json()
+    def environment_spark_compute(self, workspace_id: str, environment_id: str, staged: bool = False) -> dict[str, Any]:
+        """The Environment item's published (or, with ``staged``, unpublished) Spark settings, with
+        ``runtimeVersion``. Read only."""
+        where = "staging/sparkcompute" if staged else "sparkcompute"
+        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False").json()
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test

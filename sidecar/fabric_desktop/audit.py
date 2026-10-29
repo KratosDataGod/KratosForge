@@ -85,6 +85,7 @@ notebook_formats_import_check
 profile_get profile_report
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
+learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

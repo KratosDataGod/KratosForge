@@ -180,7 +180,7 @@ def test_every_reference_solution_passes_its_own_checks(tmp_path, module_id):
 
 
 def test_labs_import_nothing_that_reaches_fabric():
-    allowed = {"__future__", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
+    allowed = {"__future__", "datetime", "decimal", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
                "sqlcompat", "model_practices", "datasets", "checks", "content", ""}
     for path in LEARN.glob("*.py"):

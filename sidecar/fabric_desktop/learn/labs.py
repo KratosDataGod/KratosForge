@@ -12,7 +12,10 @@ lab's folder (only ever a folder under ``<data>/learn``) and starts it again.
 
 from __future__ import annotations
 
+import datetime as dt
+import decimal
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +114,42 @@ def hint(module_id: str, exercise_id: str, level: int) -> dict[str, Any]:
         return {"level": 0, "of": 0, "text": "This exercise has no hints."}
     level = min(max(1, int(level)), len(hints))
     return {"level": level, "of": len(hints), "text": hints[level - 1]}
+
+
+def _cell(v: Any) -> Any:
+    """A value the UI can show as it is: numbers, text, true/false and None pass; the rest become text."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, decimal.Decimal):
+        return float(v)
+    if isinstance(v, (dt.date, dt.datetime, dt.time)):
+        return v.isoformat()
+    return str(v)
+
+
+def run(root: Path, module_id: str, sql: str, limit: int = 200) -> dict[str, Any]:
+    """Run the learner's SQL in the lab and return the first ``limit`` rows. Like a check, it runs in a
+    transaction that is rolled back, on a connection with no file or network access."""
+    folder = lab_dir(root, module_id)
+    if not (folder / LAB_FILE).is_file():
+        raise ValueError(f"Start {module_id} first")
+    limit = min(max(1, int(limit)), 1000)
+    con = _connect(folder)
+    try:
+        checks.guard(con, sql)
+        con.begin()
+        started = time.perf_counter()
+        try:
+            cur = con.execute(sql)
+            cols = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(limit + 1) if cols else []
+        finally:
+            con.rollback()
+        ms = round((time.perf_counter() - started) * 1000)
+    finally:
+        con.close()
+    return {"columns": cols, "rows": [[_cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit,
+            "ms": ms}
 
 
 def check(root: Path, module_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:

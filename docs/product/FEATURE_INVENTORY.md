@@ -67,9 +67,9 @@ on quality.
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Implemented | 2 | 114 | 3 | 119 |
-| Partially Implemented | 1 | 10 | 1 | 12 |
+| Partially Implemented | 1 | 10 | 2 | 13 |
 | Implemented but Not Exposed | 0 | 4 | 0 | 4 |
-| Missing | 0 | 0 | 3 | 3 |
+| Missing | 0 | 0 | 2 | 2 |
 | Planned | 0 | 0 | 4 | 4 |
 | **Total** | **3** | **128** | **11** | **142** |
 <!-- END GENERATED: summary -->
@@ -149,7 +149,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Fabric > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
-| [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons. |
+| [FEAT-FAB-10](#feat-fab-10) | Data Factory items: pipelines, copy jobs, dataflows and connections | Partially Implemented | Partially Verified | Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview) | DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric. |
 | [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Landing copy job requests (stage 4.1) and platform-repo landing zones merged; try on a tenant. |
 | [FEAT-ORC-01](#feat-orc-01) | PC schedules | Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > KratosForge > Schedules (Preview) | Agent schedules cover Linux; Windows Task Scheduler runs need a Windows check. |
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant. |
@@ -170,7 +170,7 @@ on quality.
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Partially Verified | Fabric, Monitor | Check in the Windows app that a look-alike host opens in the browser (PB-008 review). |
 | [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Include publish after a rename in the tenant smoke test. |
 | [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
-| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
+| [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Partially Implemented | Unverified | Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview) | Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
 | [FEAT-FAB-13](#feat-fab-13) | Deployment pipelines and item-definition deploy | Planned | Unverified | None | Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates. |
 | [FEAT-ONE-01](#feat-one-01) | OneLake catalog | Implemented | Partially Verified | OneLake > Catalog | Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py). |
@@ -185,8 +185,8 @@ on quality.
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
-| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Scheduled health check with a Teams alert (PB-053). |
-| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
+| [FEAT-ONE-03](#feat-one-03) | OneLake shortcut command center | Implemented | Partially Verified | OneLake > Shortcuts (Preview) | Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053). |
+| [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Merge the batch-limited key reads (PB-068, #847). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
 | [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Settings > Platform > Keys (Create, Join existing, Move keys in); Data mesh > Surrogate keys > Move keys; Platform > Business keys (Preview) | Move keys into the shared Keys workspace on a live tenant (PB-002); user docs that still say one LH_Keys per environment (azure-setup.md, metadata-guide.md) need updating |
@@ -200,13 +200,13 @@ on quality.
 | [FEAT-ONE-04](#feat-one-04) | OneLake access review and data access roles | Implemented | Partially Verified | OneLake > Access (Preview) | Include in the tenant smoke test. |
 | [FEAT-PRV-02](#feat-prv-02) | Output verification rules | Implemented | Partially Verified | Prove panel (Preview) | Reuse for SQL and metadata compare (one comparison engine). |
 | [FEAT-META-03](#feat-meta-03) | Checks, quarantine and replay | Implemented | Partially Verified | Entity page > Quarantine | QA-002: replay open and compute change now check the save first (#661). |
-| [FEAT-META-07](#feat-meta-07) | Schema drift review | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read). |
+| [FEAT-META-07](#feat-meta-07) | Schema drift review and schema evolution | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table. |
 | [FEAT-META-16](#feat-meta-16) | Profiling and rule suggestions | Implemented | Partially Verified | Entity > Profile | Keep. |
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
 | [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
-| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
+| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
@@ -218,9 +218,9 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-04](#feat-shl-04) | Left rail, pages and command bar | Implemented | Partially Verified | Rail, Ctrl+K | Keep; add keyboard tests for the command bar. |
-| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078). |
+| [FEAT-SHL-05](#feat-shl-05) | Preview tags and hiding Preview features | Implemented | Partially Verified | Settings > Preview features | None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078). |
 | [FEAT-SHL-06](#feat-shl-06) | Plain-language errors and activity tray | Implemented | Partially Verified | Top bar bell | Feed incidents and agent status into the bell once incident screens exist (PB-047). |
-| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | Clean up downloaded preview files (inference: never removed). |
+| [FEAT-FAB-04](#feat-fab-04) | Item preview panel | Implemented | Partially Verified | Workspaces > item (Preview) | None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087). |
 | [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Column completion for attached tables (Prove backlog #12). |
 | [FEAT-NB-09](#feat-nb-09) | Cell dependencies and stale cells | Implemented | Partially Verified | Notebook View and Run tabs (Preview) | Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version. |
 | [FEAT-NB-10](#feat-nb-10) | New notebook wizard | Implemented | Partially Verified | Create > Notebook from a template (Preview) | Add the entry point from a lakehouse table (plan Stage 3). |
@@ -270,7 +270,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-02](#feat-shl-02) | RPC method allowlist and error redaction | Implemented | Verified | Engine boundary (no UI) | Keep; generate METHODS from the capability registry once PR-AI-003 merges so the two lists can't drift. |
-| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up). |
+| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2). |
 | [FEAT-SHL-09](#feat-shl-09) | Self-update, channels and engine install | Implemented | Partially Verified | Startup check, Settings > Updates | Code signing (PB-001); Rust tests in CI (PB-071). |
 | [FEAT-AUTH-01](#feat-auth-01) | Sign-in with no app registration | Implemented | Partially Verified | Sign-in callout, account menu | Include in the tenant smoke test (PB-002). |
 | [FEAT-AUTH-02](#feat-auth-02) | Own app registration and tenant allow-list | Implemented | Partially Verified | Settings > Account | Keep. |
@@ -370,19 +370,19 @@ on quality.
 
 ### FEAT-SHL-05
 
-**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.
+**Preview tags and hiding Preview features.** Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.
 
 - **Pillar and category:** Platform foundation; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Settings > Preview features
-- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES
+- **Evidence:** test: app/tests/ui.test.cjs Workloads is a Preview feature (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: app/ui/features.js PREVIEW_FEATURES; test: app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not
 - **Source:** `app/ui/features.js`, `app/ui/settings.js`
 - **Tests:** `app/tests/ui.test.cjs`
-- **Docs:** [docs/README.md](../README.md)
-- **Known limitations:** Hiding only hides UI; engine methods stay callable. Several docs-Preview features have no PREVIEW_FEATURES id.
+- **Docs:** [docs/README.md](../README.md), [docs/metadata-guide.md](../metadata-guide.md)
+- **Known limitations:** Hiding only hides UI; engine methods stay callable. Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so.
 - **Pull requests and issues:** [#699](https://github.com/KratosDataGod/KratosForge/pull/699)
 - **Backlog:** [PB-078](PRODUCT_BACKLOG.md#pb-078)
-- **Recommended next action:** Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).
+- **Recommended next action:** None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).
 
 ### FEAT-SHL-06
 
@@ -408,11 +408,12 @@ on quality.
 - **Where people reach it:** Whole app. Accessibility: Static checks only; no screen-reader or contrast audit recorded
 - **Evidence:** test: app/tests/ui.test.cjs every icon-only button has a name (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: app/tests/ui.test.cjs the page has a skip link and labelled controls; test: app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows
 - **Source:** `app/ui/index.html`, `app/ui/app.js`, `app/ui/styles.css`
-- **Tests:** `app/tests/ui.test.cjs`
+- **Tests:** `app/tests/ui.test.cjs`, `app/tests/browser/a11y-audit.test.cjs`
+- **Docs:** [docs/ux/accessibility-audit.md](../ux/accessibility-audit.md)
 - **Pull requests and issues:** [#92](https://github.com/KratosDataGod/KratosForge/pull/92)
 - **Owning workstream:** Enterprise readiness (FD-139)
 - **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063)
-- **Recommended next action:** Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).
+- **Recommended next action:** Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).
 
 ### FEAT-SHL-08
 
@@ -598,10 +599,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/preview.py`, `sidecar/fabric_desktop/preview_service.py`, `app/ui/item-preview.js`
 - **Tests:** `sidecar/tests/test_preview.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
-- **Known limitations:** Files download whole into the app data folder and are not cleaned up (inference). Notebook preview shows no outputs.
+- **Known limitations:** Notebook preview shows no outputs.
 - **Pull requests and issues:** [#43](https://github.com/KratosDataGod/KratosForge/pull/43)
 - **Backlog:** [PB-087](PRODUCT_BACKLOG.md#pb-087)
-- **Recommended next action:** Clean up downloaded preview files (inference: never removed).
+- **Recommended next action:** None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).
 
 ### FEAT-FAB-05
 
@@ -670,12 +671,13 @@ on quality.
 **Fabric Environment items and Spark settings.** Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.
 
 - **Pillar and category:** Local development; Fabric Integration and Deployment
-- **Status:** Missing. **Verification:** Unverified.
-- **Where people reach it:** None
-- **Evidence:** absent: no Environment item calls in sidecar/fabric_desktop/fabric_api.py
-- **Owning workstream:** Prove (FD-109)
+- **Status:** Partially Implemented. **Verification:** Unverified.
+- **Where people reach it:** Engine and CLI: fabric-desktop env-drift (read only); no screen yet (Preview)
+- **Evidence:** code: sidecar/fabric_desktop/fabric_environment.py; test: sidecar/tests/test_fabric_environment.py (passed at the PB-016 part 1 head; fakes only, not yet read on a tenant)
+- **Source:** `sidecar/fabric_desktop/fabric_environment.py`, `sidecar/fabric_desktop/environment_service.py`, `sidecar/fabric_desktop/fabric_api.py`
+- **Owning workstream:** Microsoft Fabric
 - **Backlog:** [PB-016](PRODUCT_BACKLOG.md#pb-016)
-- **Recommended next action:** Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).
+- **Recommended next action:** Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).
 
 ### FEAT-FAB-10
 
@@ -684,15 +686,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Pipelines and Orchestration
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Pipelines page > Open from workspace, Copy jobs, Dataflows and Connections tabs (Preview)
-- **Evidence:** test: sidecar/tests/test_workspace_pipelines.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_fabric_connections.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_dataflows.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/workspace-pipelines.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/df-connections.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_copy_jobs.py (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-copy-jobs.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-dataflows.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it)
+- **Evidence:** test: sidecar/tests/test_workspace_pipelines.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_fabric_connections.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_dataflows.py (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/workspace-pipelines.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: app/tests/browser/df-connections.test.cjs (daily check 2026-10-25 at 5ae85e5: engine test files passed here (137 tests); browser test files run by CI on main); test: sidecar/tests/test_workspace_copy_jobs.py (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-copy-jobs.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); test: app/tests/browser/df-dataflows.test.cjs (product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it); doc: docs/orchestration/data-factory.md#tested-on-a-tenant (tenant run 2026-10-27 at 21d318fc: the DF-6 engine checks passed (copy job run, dataflow refresh, a second run deduped by Fabric); the viewer check was skipped)
 - **Source:** `sidecar/fabric_desktop/workspace_pipelines_service.py`, `sidecar/fabric_desktop/fabric_connections_service.py`, `sidecar/fabric_desktop/workspace_dataflows_service.py`, `sidecar/fabric_desktop/orchestration/mashup.py`, `app/ui/df-connections.js`, `sidecar/fabric_desktop/orchestration/copyjob.py`, `app/ui/df-copy-jobs.js`, `app/ui/df-dataflows.js`
 - **Tests:** `sidecar/tests/test_workspace_pipelines.py`, `sidecar/tests/test_fabric_connections.py`, `sidecar/tests/test_workspace_dataflows.py`, `app/tests/browser/workspace-pipelines.test.cjs`, `app/tests/browser/df-connections.test.cjs`, `sidecar/tests/test_workspace_copy_jobs.py`, `app/tests/browser/df-copy-jobs.test.cjs`, `app/tests/browser/df-dataflows.test.cjs`
 - **Docs:** [docs/orchestration/data-factory.md](../orchestration/data-factory.md)
-- **Known limitations:** No authoring or deploy of Data Factory items yet (DF-8, DF-10). Run in Fabric and Refresh in Fabric not yet run on a tenant.
+- **Known limitations:** No authoring or deploy of Data Factory items yet (DF-8, DF-10). Run in Fabric and Refresh in Fabric were checked on a tenant through the engine only (2026-10-27), not by clicking the buttons, and not with a viewer account. Open in Fabric opens the workspace: the copy job and dataflow portal addresses aren't confirmed.
 - **Pull requests and issues:** [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741)
 - **Owning workstream:** Build full Data Factory experience (DF-1..10)
 - **Backlog:** [PB-030](PRODUCT_BACKLOG.md#pb-030), [PB-035](PRODUCT_BACKLOG.md#pb-035)
-- **Recommended next action:** DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons.
+- **Recommended next action:** DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric.
 
 ### FEAT-FAB-11
 
@@ -765,19 +767,19 @@ on quality.
 
 ### FEAT-ONE-03
 
-**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.
+**OneLake shortcut command center.** Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).
 
 - **Pillar and category:** Enterprise services; Enterprise Shared Services
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** OneLake > Shortcuts (Preview)
 - **Evidence:** test: sidecar/tests/test_shortcut_center.py::test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it; test: sidecar/tests/test_shortcut_fixes.py (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)); test: app/tests/browser/shortcut-fixes.test.cjs (CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs))
-- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `app/ui/shortcuts.js`
-- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `app/tests/browser/shortcut-fixes.test.cjs`
-- **Docs:** [docs/shortcuts.md](../shortcuts.md)
-- **Known limitations:** No scheduled check or alert. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
+- **Source:** `sidecar/fabric_desktop/shortcut_service.py`, `sidecar/fabric_desktop/shortcut_center.py`, `sidecar/fabric_desktop/shortcut_watch.py`, `app/ui/shortcuts.js`
+- **Tests:** `sidecar/tests/test_shortcut_center.py`, `sidecar/tests/test_shortcut_fixes.py`, `sidecar/tests/test_shortcut_watch.py`, `app/tests/browser/shortcut-fixes.test.cjs`
+- **Docs:** [docs/shortcuts.md](../shortcuts.md), [docs/agent.md](../agent.md)
+- **Known limitations:** The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments. The agent's scheduled check is Preview: not yet run on a live tenant. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
 - **Pull requests and issues:** [#53](https://github.com/KratosDataGod/KratosForge/pull/53), [#595](https://github.com/KratosDataGod/KratosForge/pull/595)
 - **Backlog:** [PB-053](PRODUCT_BACKLOG.md#pb-053)
-- **Recommended next action:** Scheduled health check with a Teams alert (PB-053).
+- **Recommended next action:** Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).
 
 ### FEAT-ONE-04
 
@@ -1092,7 +1094,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/scorecard.py`, `sidecar/fabric_desktop/measure.py`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md)
-- **Known limitations:** CPU/memory come from the engine process, not the child kernel (inference). Fabric CPU/memory not available.
+- **Known limitations:** With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094). Fabric CPU/memory not available.
 - **Owning workstream:** Prove (FD-119)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-094](PRODUCT_BACKLOG.md#pb-094)
 - **Recommended next action:** Measure the kernel child process when it is on (FD-119).
@@ -1135,11 +1137,11 @@ on quality.
 - **Pillar and category:** Local development; Local Development and Execution
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Data mesh > Entities > Run
-- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
+- **Evidence:** test: sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2 (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches; test: sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once (PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths); smoke: meta_run env=dev ran every sample entity locally with status ok in under a second
 - **Source:** `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/meta/store.py`
-- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`
+- **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`, `sidecar/tests/test_meta_late_rows_deletes.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** Watermark filter is strictly >, so late rows are dropped. Type 2 source repeating a key fails (plan).
+- **Known limitations:** Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed. Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead. Type 2 source repeating a key fails (plan).
 - **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#61](https://github.com/KratosDataGod/KratosForge/pull/61)
 - **Backlog:** [PB-019](PRODUCT_BACKLOG.md#pb-019)
 - **Recommended next action:** Keep; add late-arriving rows and source deletes (FD-117).
@@ -1183,11 +1185,11 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/keys.py`, `sidecar/fabric_desktop/meta_service.py`, `app/ui/meta.js`
 - **Tests:** `sidecar/tests/test_keys.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** read_keys reads the whole key table.
+- **Known limitations:** Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged.
 - **Pull requests and issues:** [#23](https://github.com/KratosDataGod/KratosForge/pull/23), [#52](https://github.com/KratosDataGod/KratosForge/pull/52)
 - **Owning workstream:** Staged roadmap (FD-115)
 - **Backlog:** [PB-068](PRODUCT_BACKLOG.md#pb-068)
-- **Recommended next action:** Stop reading whole key tables on every keyed run (FD-115).
+- **Recommended next action:** Merge the batch-limited key reads (PB-068, #847).
 
 ### FEAT-META-06
 
@@ -1208,18 +1210,18 @@ on quality.
 
 ### FEAT-META-07
 
-**Schema drift review.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate.
+**Schema drift review and schema evolution.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate. Runs add new columns in place, rewrite the table to widen a type, refuse a narrowing or a change of kind unless [contract] overwrite_schema = true (Preview), and record each schema change in meta.schema_history with its Delta version and schema version (Preview).
 
 - **Pillar and category:** Local development; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Entity page > Drift
-- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped))
-- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
-- **Tests:** `sidecar/tests/test_dataops.py`
+- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schema_evolution.py (PB-031: added columns in place, widening rewrite inside the Fabric-safe profile, narrowing refused without overwrite_schema, versioned schema history; on this PC only)
+- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
+- **Tests:** `sidecar/tests/test_dataops.py`, `sidecar/tests/test_schema_evolution.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** landing and link sources not checked (inference).
+- **Known limitations:** landing and link sources not checked (inference). widening a type still rewrites the table: the installed delta-rs (1.6.6) can't write Delta type widening, and Fabric reader support for it is unproven. not run against OneLake or read by Fabric's SQL analytics endpoint, Direct Lake or Spark.
 - **Backlog:** [PB-031](PRODUCT_BACKLOG.md#pb-031)
-- **Recommended next action:** Cover landing and link sources (inference: not read).
+- **Recommended next action:** Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table.
 
 ### FEAT-META-08
 
@@ -1461,15 +1463,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py
-- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
-- **Tests:** `sidecar/tests/test_governance.py`
-- **Docs:** [docs/governance.md](../governance.md)
-- **Known limitations:** GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced.
+- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py; test: sidecar/tests/test_policy_package.py (GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)); code: sidecar/fabric_desktop/central/policy_package.py; test: sidecar/tests/test_policy_promote_gate.py (GOV-003: a Block finding no exception covers stops promote and names the policy and finding; Warn and Advisory never do; an exception lets it through and is named; Prod fails closed when the policies can't be read, Test warns)
+- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`, `sidecar/fabric_desktop/central/policy_package.py`, `sidecar/fabric_desktop/central/checks_service.py`, `sidecar/fabric_desktop/cli.py`, `sidecar/fabric_desktop/meta_service.py`
+- **Tests:** `sidecar/tests/test_governance.py`, `sidecar/tests/test_policy_package.py`, `sidecar/tests/test_policy_promote_gate.py`
+- **Docs:** [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
+- **Known limitations:** GOV-001 registry, GOV-002 offline validation and GOV-003 Block at promote are built: a Block finding no exception covers stops promote, and HD-031's "not enforced yet" label is removed. Deploy isn't gated by policies. Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken. An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it). A Prod promote stops whenever the policies can't be read (no platform and no valid package, or a platform error), since it can't tell which are assigned; Test and Dev only warn. A rule that says unknown, and a checker that runs in Fabric, don't stop a promote. It holds for promotes through KratosForge, not for writes in the Fabric portal.
 - **Pull requests and issues:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
-- **Recommended next action:** GOV-002 offline validation, after Chris approves
+- **Recommended next action:** Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it
 
 ### FEAT-GOV-06
 

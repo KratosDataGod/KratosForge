@@ -99,6 +99,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
+  cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
@@ -106,6 +107,7 @@ const PREVIEW_FEATURES = {
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
+  vscode: "VS Code pairing",
 };
 
 function previewShown() {
@@ -126,7 +128,7 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {

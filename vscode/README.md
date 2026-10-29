@@ -25,4 +25,4 @@ npm test          # compiles, then runs test/*.test.cjs against the real engine 
 
 `src/channel.ts` is the editor channel client and `src/outputs.ts` maps KratosForge's outputs to VS Code's; neither uses the VS Code API, so both are tested without VS Code. `src/extension.ts` is the notebook controller.
 
-Licensed as KratosForge is (see the repository).
+Apache License 2.0, like the rest of KratosForge ([LICENSE](../LICENSE)).

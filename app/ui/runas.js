@@ -24,7 +24,7 @@ function raDaysLeft(iso) {
 }
 
 function raDate(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return dateText(iso);
 }
 
 function raPill(c) {

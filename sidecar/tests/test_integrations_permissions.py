@@ -314,7 +314,7 @@ def test_app_decides_approvals_and_revokes(svc):
     store = svc.integration_store
     request = store.request_approval(store.client(client["id"]), "ext_run", "Run Python", "EXECUTE_LOCAL_CODE",
                                      {"client": "Cursor"}, {"code": "1"})
-    assert [a["id"] for a in rpc(svc, "integrations_approvals")["result"]] == [request["id"]]
+    assert [a["id"] for a in svc.integrations_approvals()] == [request["id"]]
     assert rpc(svc, "integrations_decide", approval_id=request["id"], approve=False)["result"]["state"] == "denied"
     assert rpc(svc, "integrations_revoke_client", client_id=client["id"])["result"]["revoked_at"]
     assert rpc(svc, "integrations_status")["result"]["clients"] == []

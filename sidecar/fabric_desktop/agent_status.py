@@ -19,6 +19,7 @@ Record, contract 1::
      "incidents": {"enabled": true, "seconds": 300, "quiet_hours": "22:00-06:00", "quiet_except": ["critical"],
                    "escalate_after_minutes": 60, "escalate_to": "on-call",
                    "routes": [{"name", "teams", "owners", "criticality", "kinds", "envs"}]},  # no webhooks
+     "shortcut_health": {"enabled": true, "minutes": 60},  # whether it checks this environment's shortcuts
      "counts": {"queued": 0, "running": 1, ...},           # this environment's jobs
      "running": [{"job_id", "source", "attempts", "entities", "started_at"}],
      "schedules": [{"id", "next", "entities", "when", "shared"}],  # this environment's schedules; entities [] = all,
@@ -72,6 +73,7 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
         "pipeline": {"enabled": pipeline.enabled and env in pipeline.environments,
                      "entities": list(pipeline.entities), "allow_backfill": pipeline.allow_backfill},
         "incidents": incidents_summary(cfg.incidents),
+        "shortcut_health": shortcut_health_summary(cfg, env),
         "counts": queue.counts(env),
         "running": [{"job_id": j["id"], "source": j["source"], "attempts": j["attempts"],
                      "entities": j["payload"].get("entities") or [], "started_at": _iso(j["started_at"])}
@@ -92,6 +94,13 @@ def incidents_summary(inc: Any) -> dict[str, Any]:
             "escalate_to": inc.escalate_to,
             "routes": [{k: (list(v) if isinstance(v, tuple) else v) for k, v in r.items() if k != "webhook_env"}
                        for r in inc.routes]}
+
+
+def shortcut_health_summary(cfg: Any, env: str) -> dict[str, Any]:
+    """Whether this agent checks the environment's shortcuts and how often. Other agents read it, so
+    only one of them posts each break (shortcut_watch.poster). The webhook is left out."""
+    sh = getattr(cfg, "shortcut_health", None)
+    return {"enabled": bool(sh and sh.enabled and env in sh.environments), "minutes": sh.minutes if sh else None}
 
 
 def publish(backend: Any, name: str, body: dict[str, Any]) -> None:

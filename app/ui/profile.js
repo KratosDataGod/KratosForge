@@ -123,7 +123,7 @@ function profileRow(r) {
         r.excluded ? h("span", { class: "pill-s neu" }, "Excluded") : h("span", { class: "pill-s pass" }, "Verified"),
         r.origin === "backfill" ? h("span", { class: "pill-s neu" }, "Added from history") : null),
       h("div", {}, text),
-      h("div", { class: "muted-text small mono" }, `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${new Date(r.at).toLocaleString()}`),
+      h("div", { class: "muted-text small mono" }, `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${dateTimeText(r.at)}`),
       h("div", { class: "muted-text small" }, `Skills: ${r.dimensions.join(", ")}${profilePage.data.settings.progression && r.xp ? ` · +${r.xp} XP` : ""}`)),
     btn(r.excluded ? "Include" : "Exclude", null, async () => {
       const out = await attempt(() => rpc("profile_exclude", { id: r.id, excluded: !r.excluded }), "Could not change the accomplishment");
@@ -150,7 +150,7 @@ function profileAchievementsCard(pr) {
     h("h2", {}, "Achievements"),
     pr.achievements.length ? pr.achievements.map((a) => h("div", { class: "profile-badge-row" },
       h("div", { class: "profile-badge", "aria-hidden": "true" }, profileGlyph(a.badge, true)),
-      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${new Date(a.at).toLocaleDateString()} · +${a.xp} XP`))))
+      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${dateText(a.at)} · +${a.xp} XP`))))
       : h("p", { class: "muted-text" }, "None yet."),
     pr.next.length ? h("div", { class: "profile-next" }, h("div", { class: "muted-text small" }, "Next"),
       pr.next.map((n) => h("div", { class: "profile-skill" }, h("span", {}, n.name), h("span", { class: "muted-text small" }, n.progress)))) : null);
@@ -173,7 +173,7 @@ function profileJourney(p) {
   const span = pr.next_level_xp - pr.level_xp;
   const into = pr.xp - pr.level_xp;
   const got = new Set(pr.achievements.map((a) => a.id));
-  const when = (at) => (at ? new Date(at).toLocaleDateString() : "");
+  const when = (at) => dateText(at);
   const ring = h("div", { class: "profile-ring", style: `--profile-ring:${Math.round((100 * into) / span)}%`, "aria-hidden": "true" },
     h("img", { src: "wolf-forge-emblem.png", alt: "", width: 96, height: 96 }));
   const level = h("section", { class: "card pad profile-journey-level" }, ring,
@@ -216,7 +216,7 @@ function profileAchievements(p) {
         h("div", { class: `profile-shield${earned ? "" : " locked"}` }, profileGlyph(a.badge, Boolean(earned))),
         h("div", { class: "grow" },
           h("div", { class: "row wrap" }, h("b", {}, a.name), h("span", { class: `pill-s ${earned ? "pass" : "neu"}` },
-            earned ? `Earned ${new Date(earned.at).toLocaleDateString()}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
+            earned ? `Earned ${dateText(earned.at)}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
           h("div", {}, a.description),
           h("div", { class: "muted-text small" }, `How to earn it: ${a.criteria}`),
           h("div", { class: "muted-text small" }, `Evidence: ${a.evidence}`))));

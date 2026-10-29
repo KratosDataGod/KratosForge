@@ -13,8 +13,9 @@ import pytest
 
 import test_databricks_sql as dbsql_t
 import test_dbconnect as dbc_t
+import test_fabric_spark as fs_t
 from engine_conformance import CHECKS, Harness
-from fabric_desktop import connprofiles
+from fabric_desktop import app_settings, connprofiles
 from fabric_desktop.engines import dbconnect as dbc
 from fabric_desktop.engines import registry
 from fabric_desktop.engines.capabilities import EngineDescriptor, Support
@@ -110,6 +111,18 @@ def databricks_connect(tmp_path, monkeypatch):
         open_unauthorized=lambda a: a.open_session(config), contacted=lambda: len(looked_up))
 
 
+def fabric_spark(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_settings, "value", lambda key: True if key == "allow_fabric_runs" else None)
+    livy = fs_t.FakeLivy()
+    config = SessionConfig("nb", options={"workspace_id": fs_t.WS, "lakehouse_id": fs_t.LH})
+    return Harness(
+        "fabric-spark", lambda: fs_t.adapter(livy), lambda a: a.open_session(config, fs_t.ok()),
+        ok_cell=CellRequest("print('hi')", "pyspark"), error_cell=CellRequest("boom", "python"),
+        refused_cells=(CellRequest("x", "r"), sql("SELECT 1", "tsql")),
+        open_unauthorized=lambda a: a.open_session(config), contacted=lambda: len(livy.calls),
+        secrets=(fs_t.TOKEN,))
+
+
 def _runtimes(tmp_path):
     r = dbc.Runtimes(tmp_path)
     folder = r.folder("16.4")
@@ -124,7 +137,7 @@ def _runtimes(tmp_path):
 
 HARNESSES = {
     "local-python": python, "local-duckdb": duckdb, "local-sqlite": sqlite, "local-polars": polars,
-    "databricks-sql": databricks_sql, "databricks-connect": databricks_connect,
+    "databricks-sql": databricks_sql, "databricks-connect": databricks_connect, "fabric-spark": fabric_spark,
 }
 
 

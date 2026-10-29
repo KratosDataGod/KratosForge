@@ -16,13 +16,14 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   - Paged reads that can't loop forever (#944), and Fabric's own error text (#939).
   - A mypy and ruff check in CI (#1011, #1032).
   - The Apache-2.0 license (#973) and a new README (#998).
-- 4 more items moved to In review: PB-031, PB-067, PB-072 and PB-083. PB-031 can't widen a type
+- 3 more items moved to In review: PB-031, PB-072 and PB-083. PB-067's file clean-up merged (#950), but its
+  run dialog isn't built, so it stays In progress. PB-031 can't widen a type
   without a rewrite (delta-rs and the Fabric-safe profile), so its first criterion is Chris's call.
-- 24 items are In review and wait on the product owner. Two of them have changed acceptance criteria
+- 23 items are In review and wait on the product owner. Two of them have changed acceptance criteria
   (PB-049, PB-072), which also need him.
 - Inventory: 142 features. 119 are Implemented, 13 Partially Implemented, 4 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 128 Partially Verified and 11 Unverified. None has been verified on a Fabric tenant end to end.
-- Backlog: 106 items (5 P0, 31 P1, 54 P2, 16 P3). 19 are Proposed, 23 In progress, 24 In review and 40 Accepted.
+- Backlog: 106 items (5 P0, 31 P1, 54 P2, 16 P3). 19 are Proposed, 24 In progress, 23 In review and 40 Accepted.
 
 ## Workstreams
 
@@ -45,7 +46,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 24 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
+two release gates. Also waiting: acceptance of the 23 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

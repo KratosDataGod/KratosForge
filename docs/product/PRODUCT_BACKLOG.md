@@ -415,7 +415,7 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | In review |
 | [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | In review |
-| [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | In review |
+| [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | In progress |
 | [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In review |
 | [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | In progress |
 
@@ -454,11 +454,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-067
 
-**Bounded-memory runs: run dialog and orphan-file cleanup** · P2 (score 2.52) · M · confidence High · In review
+**Bounded-memory runs: run dialog and orphan-file cleanup** · P2 (score 2.52) · M · confidence High · In progress
 
 - **Problem:** The preflight estimate exists but has no screen, and a stopped batch can leave orphan files.
 - **Proposed capability:** A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.
-- **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py; Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open; A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93
+- **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py; Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open; A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui
 - **Inventory features:** [FEAT-META-06](FEATURE_INVENTORY.md#feat-meta-06)
 - **Dependencies:** Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-114)

@@ -2808,7 +2808,7 @@
         "meta_preflight has no caller in app/ui",
         "meta/batches.py",
         "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open",
-        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93"
+        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui"
       ],
       "features": [
         "FEAT-META-06"
@@ -2833,7 +2833,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In review",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
         "Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)"

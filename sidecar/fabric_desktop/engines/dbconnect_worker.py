@@ -96,8 +96,15 @@ class Worker:
             os.environ.pop(name, None)
         shown: list = []
         self.namespace.update({"spark": self.spark, "display": shown.append})
+        # stdin carries the engine's messages; a cell's input() gets end-of-file instead of eating them.
+        sys.stdin = io.StringIO("")
         self._shown = shown
-        send({"op": "started", "client": getattr(dbc, "__version__", ""),
+        try:  # databricks.connect has no __version__; the installed distribution says
+            import importlib.metadata
+            client = importlib.metadata.version("databricks-connect")
+        except Exception:  # noqa: BLE001 - silent-ok: the version only labels the session
+            client = getattr(dbc, "__version__", "")
+        send({"op": "started", "client": client,
               "python": "%d.%d" % sys.version_info[:2]})
 
     def run(self, cid, code: str, rows: int) -> None:

@@ -181,4 +181,12 @@ function sqlRunMocks(answer) {
   };
 }
 
-module.exports = { playwright, openApp, sqlRunMocks };
+// The app reads Source control's repositories once, 1.5 s after it starts (git.js). A test that counts the
+// calls one action makes waits for that read first, so it isn't counted when the page starts slowly.
+async function startupReads(app) {
+  for (const end = Date.now() + 10000; !app.calls.some((c) => c.method === "git_info"); await new Promise((r) => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error("the app's startup read of Source control (git_info) never came");
+  }
+}
+
+module.exports = { playwright, openApp, sqlRunMocks, startupReads };

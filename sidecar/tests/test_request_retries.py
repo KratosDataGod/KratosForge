@@ -190,3 +190,36 @@ def test_a_domain_approval_failing_at_fabric_never_makes_the_domain_twice(svc, w
     assert svc.platform_decide(req["id"], True)["status"] == "approved"
     assert fabric.created == [("HR", "")]
     assert [d["fabric_domain"] for d in svc.platform_domains() if d["name"] == "HR"] == ["f-hr"]
+
+
+# --------------------------------------------------------------------------- the workspace's description (#1069)
+
+
+def test_a_workspace_with_a_long_reason_keeps_its_marker_and_is_found_again(svc, who, monkeypatch):
+    """Fabric takes a workspace description of at most 4000 characters; the marker must survive the cut,
+    so approving again after a lost answer finds the workspace."""
+    real, state = svc.api.create_workspace, {"armed": True}
+
+    def fabric_limit_then_lost(name, capacity_id="", description=""):
+        if len(description) > 4000:
+            raise FabricError("400 The description is longer than 4000 characters", status=400)
+        out = real(name, capacity_id, description)
+        if state.pop("armed", False):
+            raise requests.Timeout("create_workspace timed out")
+        return out
+    monkeypatch.setattr(svc.api, "create_workspace", fabric_limit_then_lost)
+    as_user(who, DEV)
+    other = ask_workspace(svc, name="Other - Dev")
+    req = svc.platform_request("workspace", "Sales Forecasting - Dev",
+                               "Forecast models. " * 300 + f"(kratosforge request {other['id']})",
+                               {"name": "Sales Forecasting - Dev", "capacity_id": CAP, "capacity_name": "Shared F64",
+                                "domain_id": "sales", "admins": [GROUP, "Lee@Contoso.com"]})
+    as_user(who, ADMIN)
+    with pytest.raises(requests_service.StepError, match="Create the workspace"):
+        svc.platform_decide(req["id"], True)
+    assert req["id"] in [r["id"] for r in svc.platform_requests("waiting")]
+    assert svc.platform_decide(req["id"], True)["status"] == "approved"
+    made_once(svc)
+    description = svc.api.workspaces[0]["description"]
+    assert len(description) <= 4000 and description.endswith(f" (KratosForge request {req['id']})")
+    assert other["id"] not in description

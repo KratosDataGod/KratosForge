@@ -209,7 +209,7 @@ class FabricClient:
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         url = url if url.startswith("http") else f"{API}{url}"
-        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric")
+        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric", start=url)
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
@@ -656,13 +656,17 @@ class FabricClient:
         url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
         items: list[dict[str, Any]] = []
         etag = None
+        pages = Pages(f"the data access roles of item {item_id}", start=url)
         while url:
             resp = self._request("GET", url)
             etag = etag or resp.headers.get("ETag")
             body = resp.json()
             items.extend(body.get("value", []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # HD-058, as _paged; some APIs send the text "null"
+            try:  # HD-058, as _paged; some APIs send the text "null"
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""
+            except PagingError as exc:
+                raise FabricError(str(exc), "PagingStopped") from None
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

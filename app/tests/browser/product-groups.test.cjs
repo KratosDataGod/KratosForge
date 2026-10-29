@@ -3,7 +3,7 @@
 // offer (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, startupReads } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -58,6 +58,7 @@ const mocks = {
 before(async () => {
   if (skip) return;
   app = await openApp({ mocks });
+  await startupReads(app);
 });
 after(async () => { if (app) await app.close(); });
 

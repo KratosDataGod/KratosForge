@@ -299,6 +299,18 @@ def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_li
     assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
 
 
+@pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
+def test_the_memory_limit_counts_the_processes_a_cell_starts(kernel, quick_limits):
+    from fabric_desktop.kernel_proc import memory_used
+    kernel.run("kept = 1")
+    kernel.memory_limit = (memory_used(kernel.pid) or 0) + 200 * 1024 ** 2
+    child = "import time; block = b'x' * (400 * 1024 ** 2); time.sleep(60)"
+    kernel.start(f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+    assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
 def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, quick_limits, monkeypatch):
     """From a Windows venv, Popen's pid is the venv launcher (a few MB) and the interpreter is its
     child: the limit must read the pid the kernel reported, not proc.pid (#896's Windows trial)."""

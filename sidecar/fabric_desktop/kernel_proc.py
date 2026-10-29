@@ -249,6 +249,15 @@ class ProcessKernel:
             slot.setdefault("error", {"type": "KernelGone", "message": "The notebook's Python process stopped."})
             slot["done"].set()
 
+    def _memory(self, proc: subprocess.Popen[str], pid: int) -> int:
+        """Bytes the kernel uses with every process below it, so a cell can't get past the limit by
+        doing its work in a subprocess or a multiprocessing pool."""
+        pids = {pid}
+        tree = self._tree
+        if tree is not None and tree.proc is proc:
+            pids.update(tree.pids())
+        return sum(memory_used(p) or 0 for p in pids)
+
     def _watch(self, proc: subprocess.Popen[str]) -> None:
         """Enforce the limits on ``proc`` for as long as it lives."""
         while proc.poll() is None:
@@ -258,10 +267,11 @@ class ProcessKernel:
             # The interpreter's own pid, as it reported it: from a Windows venv, proc is the venv's
             # python.exe launcher, a few MB, and the real interpreter is its child (#896).
             pid = self.pid if proc is self._proc and self.pid else proc.pid
-            if self.memory_limit and (memory_used(pid) or 0) > self.memory_limit:
+            if self.memory_limit and self._memory(proc, pid) > self.memory_limit:
                 self.limit_hit = "memory"
                 self._end(proc, f"Stopped: the notebook used more than {_size(self.memory_limit)}, the memory limit "
-                                "set in Settings. Its process was ended, so variables were cleared.")
+                                "set in Settings, counting the processes its cells started. Its process was ended, "
+                                "so variables were cleared.")
                 return
             started, now = self._started_at, time.monotonic()
             if not (self._running and started is not None and self.time_limit):
@@ -618,6 +628,15 @@ class _Tree:
         self.proc = proc
         self.job = _job_for(proc) if sys.platform == "win32" else None
 
+    def pids(self) -> list[int]:
+        """The kernel process and the live processes below it: the Job Object's list on Windows, parent
+        links on Linux. Elsewhere, or when the list can't be read, just the kernel process."""
+        if sys.platform == "win32":
+            return (_job_pids(self.job) if self.job else None) or [self.proc.pid]
+        if sys.platform.startswith("linux"):
+            return [self.proc.pid, *_descendants(self.proc.pid)]
+        return [self.proc.pid]
+
     def release(self) -> None:
         """On Windows, close the job, which ends anything still in it."""
         if self.job:
@@ -707,6 +726,9 @@ def _kernel32() -> Any:
     kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
     kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    kernel32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                   ctypes.POINTER(wintypes.DWORD)]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     return kernel32
 
@@ -741,6 +763,22 @@ def _job_for(proc: subprocess.Popen[str]) -> int | None:
     return None
 
 
+def _job_pids(job: int) -> list[int] | None:
+    """The processes in the Job Object, or None if the list can't be read (more than JOB_PIDS of them)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Listed(ctypes.Structure):  # JOBOBJECT_BASIC_PROCESS_ID_LIST
+        _fields_ = [("NumberOfAssignedProcesses", wintypes.DWORD), ("NumberOfProcessIdsInList", wintypes.DWORD),
+                    ("ProcessIdList", ctypes.c_size_t * JOB_PIDS)]
+
+    listed = Listed()
+    if not _kernel32().QueryInformationJobObject(job, 3, ctypes.byref(listed), ctypes.sizeof(listed), None):
+        return None  # JobObjectBasicProcessIdList
+    return [int(listed.ProcessIdList[i]) for i in range(min(listed.NumberOfProcessIdsInList, JOB_PIDS))]
+
+
+JOB_PIDS = 1024
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 

@@ -73,3 +73,100 @@ def test_a_repeated_mailbox_continuation_stops_the_listing():
     with pytest.raises(paging.PagingError):
         control.list("requests")
     assert dfs.calls == 2
+
+
+# ---- the loops that followed next pages on their own (#968)
+
+def _roles_client(pages):
+    return client([Resp(200, body, {"ETag": '"v1"'}) for body in pages])
+
+
+ROLES_NEXT = "https://api.fabric.microsoft.com/v1/workspaces/ws1/items/lh1/dataAccessRoles?continuationToken="
+
+
+def test_data_access_roles_stop_on_a_repeated_page_or_the_cap(monkeypatch):
+    c, s = _roles_client([{"value": [{"name": "a"}], "continuationUri": ROLES_NEXT + "2"},
+                          {"value": [], "continuationUri": ROLES_NEXT + "2"}])
+    with pytest.raises(FabricError) as exc:
+        c.list_data_access_roles_tagged("ws1", "lh1")
+    assert exc.value.code == "PagingStopped" and "same next page twice" in str(exc.value) and len(s.calls) == 2
+    monkeypatch.setattr(paging, "MAX_PAGES", 3)
+    c, s = _roles_client([{"value": [], "continuationUri": ROLES_NEXT + str(i)} for i in range(5)])
+    with pytest.raises(FabricError) as exc:
+        c.list_data_access_roles_tagged("ws1", "lh1")
+    assert "isn't complete" in str(exc.value) and len(s.calls) == 3
+    c, _ = _roles_client([{"value": [{"name": "a"}], "continuationUri": ROLES_NEXT + "2"}, {"value": [{"name": "b"}]}])
+    assert c.list_data_access_roles_tagged("ws1", "lh1") == ([{"name": "a"}, {"name": "b"}], '"v1"')
+
+
+class _Tokens:
+    host = "https://adb-1.azuredatabricks.net"
+
+    def headers(self):
+        return {"Authorization": "Bearer tok"}
+
+
+class _Catalogs:
+    """Unity Catalog pages: each answer takes the next token from ``tokens``; an empty page past the first."""
+
+    def __init__(self, tokens):
+        self.tokens, self.calls = list(tokens), 0
+
+    def request(self, method, url, headers=None, timeout=None, params=None):
+        self.calls += 1
+        r = requests.Response()
+        r.status_code = 200
+        token = self.tokens.pop(0) if self.tokens else None
+        body = {"catalogs": [{"name": f"c{self.calls}"}] if self.calls < 3 else []}
+        r._content = json.dumps(body | ({"next_page_token": token} if token else {})).encode()
+        return r
+
+
+def test_a_databricks_page_token_that_repeats_with_empty_pages_stops(monkeypatch):
+    from fabric_desktop.engines.databricks_sql import Client, DatabricksError
+    http = _Catalogs(["p2", "p3", "p3", "p3"])
+    with pytest.raises(DatabricksError) as exc:
+        Client(_Tokens(), http).list("/api/2.1/unity-catalog/catalogs", "catalogs", {})
+    assert "same next page twice" in str(exc.value) and http.calls == 3
+    monkeypatch.setattr(paging, "MAX_PAGES", 4)
+    http = _Catalogs([f"p{i}" for i in range(10)])
+    with pytest.raises(DatabricksError) as exc:
+        Client(_Tokens(), http).list("/api/2.1/unity-catalog/catalogs", "catalogs", {})
+    assert "isn't complete" in str(exc.value) and http.calls == 4
+    http = _Catalogs(["p2"])
+    assert [c["name"] for c in Client(_Tokens(), http).list("/x", "catalogs", {})] == ["c1", "c2"]
+
+
+class _Vault:
+    """Key Vault secret pages whose nextLink comes from ``links``."""
+
+    def __init__(self, links):
+        self.links, self.sent = list(links), []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.sent.append(url)
+        link = self.links.pop(0) if self.links else None
+        r = requests.Response()
+        r.status_code = 200
+        r._content = json.dumps({"value": [{"id": f"https://kv.vault.azure.net/secrets/s{len(self.sent)}"}]}
+                                | ({"nextLink": link} if link else {})).encode()
+        return r
+
+
+def test_key_vault_secret_pages_stop_on_a_repeated_link_or_the_cap(monkeypatch):
+    from fabric_desktop import http_session
+    from fabric_desktop.notebook import Kernel
+    page = "https://kv.vault.azure.net/secrets?$skiptoken="
+    vault = _Vault([page + "2", page + "2"])
+    monkeypatch.setattr(http_session, "session", lambda: vault)
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    assert out["status"] == "error" and "same next page twice" in out["outputs"][-1]["evalue"]
+    assert len(vault.sent) == 2  # the token went out twice, not for ever
+    monkeypatch.setattr(paging, "MAX_PAGES", 3)
+    vault = _Vault([page + str(i) for i in range(10)])
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    assert out["status"] == "error" and "isn't complete" in out["outputs"][-1]["evalue"] and len(vault.sent) == 3
+    vault = _Vault([page + "2"])
+    out = Kernel(token=lambda audience: "tok").run("print([s.key for s in dbutils.secrets.list('kv')])")
+    assert out["status"] == "ok", out
+    assert "['s1', 's2']" in json.dumps(out["outputs"])

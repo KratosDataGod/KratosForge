@@ -656,13 +656,17 @@ class FabricClient:
         url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
         items: list[dict[str, Any]] = []
         etag = None
+        pages = Pages("data access roles")
         while url:
             resp = self._request("GET", url)
             etag = etag or resp.headers.get("ETag")
             body = resp.json()
             items.extend(body.get("value", []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # HD-058, as _paged; some APIs send the text "null"
+            try:  # HD-058 and the page guard, as _paged; some APIs send the text "null"
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""
+            except PagingError as exc:
+                raise FabricError(str(exc), "PagingStopped") from None
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

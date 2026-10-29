@@ -18,7 +18,15 @@ ROUTE = "https://contoso.webhook.office.com/hook"
 CAP = "11111111-2222-3333-4444-555555555555"
 GROUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 WS = "99999999-8888-7777-6666-555555555555"
-TODAY = dt.date.today()  # noqa: DTZ011 - the platform compares with this PC's date too
+TODAY = dt.datetime.now(dt.timezone.utc).date()  # the platform's date is UTC's (UDF_Platform runs in UTC)
+
+
+@pytest.fixture(autouse=True)
+def _same_day(monkeypatch):
+    """The platform's clock stays on TODAY, so a run that crosses midnight UTC can't put setup and checks on
+    different days. policy.py imports _today by name, so it is pinned there too."""
+    for module in (core, policy):
+        monkeypatch.setattr(module, "_today", lambda: TODAY)
 NO_PII = {"id": "no-pii-in-dev", "name": "No PII in Dev", "category": "classification", "severity": "high",
           "enforcement": "block", "rule": "no_pii_dev"}
 
@@ -293,6 +301,10 @@ class FabricDomains:
             raise FabricError(f"POST /admin/domains failed with {self.status}", status=self.status)
         self.created.append((self.me(), name, parent_id))
         return {"id": f"f-{name.lower()}", "displayName": name}
+
+    def list_admin_domains(self):
+        # what a 409 meets: a domain of that name someone made by hand, with no request's marker
+        return [{"id": "f-hr", "displayName": "HR", "description": "", "parentDomainId": ""}]
 
 
 @pytest.fixture

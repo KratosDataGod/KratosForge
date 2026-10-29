@@ -73,7 +73,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
   border-radius: 50%; border: 0; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
 }
-.avatar.signed-out { background: #8a8886; }
+.avatar.signed-out { background: var(--muted); }  /* white text at 6.2:1; #8a8886 was 3.5:1 */
 
 /* Layout */
 .body { flex: 1; display: flex; min-height: 0; }
@@ -235,7 +235,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .md-view p { margin: 0 0 6px; }
 .md-view ul { margin: 0 0 6px; padding-left: 22px; }
 .md-view code { font-family: var(--mono); font-size: 12px; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
-.md-view .placeholder { color: #a19f9d; }
+.md-view .placeholder { color: var(--muted); }
 
 .cell-status { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--muted); }
 .cell-status .ok { color: var(--accent-dark); font-weight: 600; }
@@ -416,7 +416,7 @@ h2.flush { margin: 0; }
 .subtabs .tab-count:empty { display: none; }
 .meta-body { display: flex; flex-direction: column; gap: 14px; }
 .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.arrow { color: #a19f9d; }
+.arrow { color: #8a8a8a; }  /* a graphic beside the steps: 3:1 or more on white (#945) */
 .layer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 4px; color: #fff; font-size: 11.5px; font-weight: 600; }
 .layer-chip.big { padding: 6px 10px; font-size: 12.5px; border-radius: 6px; }
 .layer-chip .count { padding: 0 6px; border-radius: 999px; background: rgba(255,255,255,0.25); font-size: 11px; }
@@ -542,7 +542,8 @@ h2.flush { margin: 0; }
 /* SQL query page */
 .sql-page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .sql-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px 16px 16px; min-height: 0; }
-.sql-tabs { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; }
+.sql-tabbar { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; }
+.sql-tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; }
 .sql-tab { display: inline-flex; align-items: center; min-height: 36px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; }
 .sql-tab.on { background: var(--surface); border-color: var(--border); font-weight: 600; }
 .sql-tab .name, .sql-tab .close, .sql-tab.add { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border: 0; background: transparent; font: inherit; font-size: 13px; color: inherit; cursor: pointer; white-space: nowrap; }
@@ -553,6 +554,7 @@ h2.flush { margin: 0; }
 .sql-actions, .sql-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .sql-edit { position: relative; height: 260px; flex: none; border-bottom: 1px solid var(--border); resize: vertical; overflow: hidden; min-height: 100px; }
 .sql-edit .cm-editor { height: 100%; }
+.sql-edit .cm-editor:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }  /* where the keyboard is (#905) */
 .sql-editor-row { display: flex; border-bottom: 1px solid var(--border); }
 .sql-editor-row .sql-edit { flex: 1; min-width: 0; border-bottom: 0; }
 .sql-compat { position: relative; width: 300px; flex: none; border-left: 1px solid var(--border); }
@@ -778,8 +780,8 @@ h2.flush { margin: 0; }
 .sql-grid th, .sql-grid td { padding: 6px 10px; border-bottom: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); text-align: left; white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
 .sql-grid th { position: sticky; top: 0; background: #fafafa; font-weight: 600; color: var(--text-2); }
 .sql-grid td.n { text-align: right; font-variant-numeric: tabular-nums; }
-.sql-grid td.null { color: #a19f9d; font-style: italic; }
-.sql-grid .i { width: 1%; text-align: right; color: #a19f9d; background: #fafafa; }
+.sql-grid td.null { color: var(--muted); font-style: italic; }
+.sql-grid .i { width: 1%; text-align: right; color: var(--muted); background: #fafafa; }
 .sql-grid .output.error { border-top: 0; }
 .sql-table-row { display: flex; align-items: center; }
 .sql-table-row .tree-row { width: auto; }
@@ -2503,3 +2505,34 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 /* Platform's environment picker, labelled and set apart from Set up's page switcher. */
 .platform-env { gap: 8px; }
 .platform-pages + .platform-env { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--border); }
+
+/* A tab row whose tablist sits beside other things (Learn more): the tabs keep the row's spacing (#961). */
+.subtabs .tab-group { display: flex; gap: 4px; }
+
+/* Schedule time zone: a search box over every Windows time zone, shown as a list (PB-048). */
+.zone-field select { padding: 4px; min-height: 0; }
+.zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
+.zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
+
+/* A folder box with Browse… beside it (#971, folderField in app.js). */
+.folder-field { display: flex; gap: 8px; align-items: center; }
+.folder-field > input { flex: 1; min-width: 0; }
+
+/* Windows High Contrast (contrast themes): WebView2 applies forced colors, which repaint every color
+   with the theme's own and drop backgrounds and box-shadows. Selected and current items are marked
+   only by those, so here they take the theme's Highlight colors, and unselected tabs lose the
+   underline the theme would otherwise draw on every one. System colors are kept as given under
+   forced colors; forced-color-adjust: none stops the theme drawing its own backplate behind the
+   text of a highlighted item. */
+@media (forced-colors: active) {
+  .rail-item.active, .tab.active, .sql-view.on, .seg button.on, .seg.on, .chip.on, .catalog-scope.on, .sql-tab.on, .tool.toggled,
+  .outline-item.active, .sqlt-group.on, .wh-p-file.on, .wh-cmp-chip.on, .wh-cmp-item.on, .wh-dep-item.on,
+  .choice-row.selected, .type-button.on, .bell.on, [aria-pressed="true"], [aria-current="page"] {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  .tab:not(.active), .sql-view:not(.on) { border-bottom-color: Canvas; }
+  .cell.selected .cell-box, .sqlt-card.on, .mesh-node.me, .card.pad.mf-domain.me { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -2px; }
+  .pill, .pill-s, .badge, .preview-tag, .cell-head .tag { border: 1px solid CanvasText; }
+  :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
+  .avatar { border: 1px solid CanvasText; }
+}

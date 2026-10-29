@@ -109,8 +109,8 @@ def lookup_key(sqlDB: fn.FabricSqlConnection, name: str, value: str) -> dict:
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def export_keys(sqlDB: fn.FabricSqlConnection, name: str, after: int) -> list:
-    return _run(sqlDB, "export_keys", name=name, after=after)
+def export_keys(sqlDB: fn.FabricSqlConnection, name: str, after: int = -2, limit: int = 50000) -> list:
+    return _run(sqlDB, "export_keys", name=name, after=after, limit=limit)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -178,7 +178,7 @@ def resolve_port(sqlDB: fn.FabricSqlConnection, product_id: str, port: str, env:
 @udf.context(argName="ctx")
 @udf.function()
 def register_link(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, consumer: str, alias: str,
-                  product_id: str, port: str, reads: dict, accepts: str = "", columns: dict = {}) -> dict:  # noqa: B006 - read only
+                  product_id: str, port: str, reads: dict, accepts: str = "", columns: dict = None) -> dict:
     return _run(sqlDB, "register_link", ctx, consumer=consumer, alias=alias, product_id=product_id, port=port,
                 reads=reads, accepts=accepts, columns=columns)
 
@@ -217,7 +217,7 @@ def save_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, te
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
-def audit(sqlDB: fn.FabricSqlConnection, limit: int) -> list:
+def audit(sqlDB: fn.FabricSqlConnection, limit: int = 100) -> list:
     return _run(sqlDB, "audit", limit=limit)
 
 
@@ -404,9 +404,10 @@ def set_classification(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
     return f"{target} is now {classification}"
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcuts(sqlDB: fn.FabricSqlConnection, lakehouses: list, shortcuts: list) -> dict:
-    return _run(sqlDB, "record_shortcuts", lakehouses=lakehouses, shortcuts=shortcuts)
+def record_shortcuts(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, lakehouses: list, shortcuts: list) -> dict:
+    return _run(sqlDB, "record_shortcuts", ctx, lakehouses=lakehouses, shortcuts=shortcuts)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -418,9 +419,10 @@ def log_shortcut_change(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcut_health(sqlDB: fn.FabricSqlConnection, results: list) -> list:
-    return _run(sqlDB, "record_shortcut_health", results=results)
+def record_shortcut_health(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, results: list) -> list:
+    return _run(sqlDB, "record_shortcut_health", ctx, results=results)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -483,7 +485,7 @@ def product_trust(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 @udf.context(argName="ctx")
 @udf.function()
 def record_endorsements(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, items: list,
-                        cleared: list) -> dict:
+                        cleared: list = None) -> dict:
     return _run(sqlDB, "record_endorsements", ctx, items=items, cleared=cleared)
 
 
@@ -516,7 +518,7 @@ def list_project_members(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunction
 @udf.context(argName="ctx")
 @udf.function()
 def set_project_member(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, user: str,
-                       role: str) -> dict:
+                       role: str = "") -> dict:
     return _run(sqlDB, "set_project_member", ctx, project=project, user=user, role=role)
 
 
@@ -735,7 +737,7 @@ def resolve_policies(sqlDB: fn.FabricSqlConnection, project: str = "", entity: s
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
 def policy_snapshot(sqlDB: fn.FabricSqlConnection, policies: list = None) -> dict:
-    return _run(sqlDB, "policy_snapshot", policies=policies or None)
+    return _run(sqlDB, "policy_snapshot", policies=policies)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -844,6 +846,14 @@ def add_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCont
 def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str,
                         item_id: str) -> list:
     return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def call_once(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, call_id: str, operation: str,
+              args: dict = None) -> dict:
+    return _run(sqlDB, "call_once", ctx, call_id=call_id, operation=operation, args=args or {})
 
 '''
 

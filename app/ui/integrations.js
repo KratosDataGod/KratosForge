@@ -29,13 +29,7 @@ const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", time
 const integ = { status: null, activity: null, watching: false, shown: new Set() };
 
 function integWhen(seconds) {
-  if (!seconds) return "Never";
-  const d = new Date(seconds * 1000);
-  const mins = Math.round((Date.now() - d) / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins} min ago`;
-  if (mins < 24 * 60) return `${Math.round(mins / 60)} h ago`;
-  return d.toLocaleDateString();
+  return seconds ? relTime(seconds * 1000) : "Never";
 }
 
 function permissionPills(ids) {
@@ -322,7 +316,7 @@ function approvalBody(a) {
       h("dt", {}, "Permission"), h("dd", {}, permissionPills([a.permission])),
       target ? h("dt", {}, "On") : null, target ? h("dd", {}, target) : null),
     s.content ? h("pre", { class: "mono", style: "max-height:260px;overflow:auto;white-space:pre-wrap;padding:8px;border:1px solid var(--border);border-radius:6px" }, s.content.text) : null,
-    h("p", { class: "muted-text small" }, `Asked at ${new Date(a.created_at * 1000).toLocaleTimeString()}. Cancelled after 5 minutes if you don't answer. `,
+    h("p", { class: "muted-text small" }, `Asked at ${timeText(a.created_at * 1000)}. Cancelled after 5 minutes if you don't answer. `,
       "Approvals are made only here, never from the AI tool. Text the tool sends can't approve anything."));
 }
 

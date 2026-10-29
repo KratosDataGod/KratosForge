@@ -627,6 +627,8 @@ class LocalSparkSession(SparkSession):
         from .localdata import delta as local_delta
         _in_attached(tree)
         change = delta_dml.parse_tree(tree)
+        if change is None or change.source is None:  # parse_tree refuses a MERGE without USING itself
+            raise ValueError("MERGE INTO needs USING (the rows to merge).")
         _preview_on("MERGE INTO")
         _refuse_auto_merge(self)
         if not change.schema and self._is_local(change.table):
@@ -658,6 +660,8 @@ class LocalSparkSession(SparkSession):
         from . import delta_dml
         _in_attached(tree)
         change = delta_dml.parse_tree(tree)
+        if change is None:  # an Update or Delete tree always parses to a change
+            raise ValueError("Only UPDATE and DELETE are changed here.")
         what = change.kind.upper()
         _preview_on(what)
         if not change.schema and self._is_local(change.table):

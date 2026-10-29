@@ -9,7 +9,8 @@ these makes what was asked for first, as the person approving, and only then app
     workspace_access  gives the person or group the role in that workspace
     domain            creates the domain (or subdomain) in Fabric and keeps it in the platform linked to
                       it (platform_create_domain); one whose parent isn't in Fabric is saved in the
-                      platform only. A retry finds a domain the platform already has.
+                      platform only. A retry finds a domain the platform already has, or one in
+                      Fabric whose description carries this request's marker (#1042).
     exception         records the exception in the platform's catalog (core, through policy.py)
     data              nothing to make: accepting says the producing team will build the product or
                       change, and the note says how and when
@@ -25,6 +26,7 @@ import logging
 from typing import Any
 
 from .. import access as access_mod
+from ..errors import NotSetUp
 from ..redact import describe
 from . import core
 
@@ -45,6 +47,8 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     missing = f"The platform can't {what} yet: UDF_Platform is older than this app. {REPAIR}"
     try:
         return catalog.call(op, **kwargs)
+    except NotSetUp:
+        raise  # its own words say what to do; Finish or repair wouldn't help
     except LookupError as exc:
         _log.info("%s: %s", op, describe(exc))
         raise LookupError(missing) from exc
@@ -144,14 +148,17 @@ class RequestsMixin:
 
         def create() -> Any:
             try:
-                return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
+                return self._create_domain(domain, in_fabric, marker)  # type: ignore[attr-defined]
             except PermissionError as exc:
                 raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
                                       f"{name} in the platform only (New domain on Data mesh > Domains, without Also "
                                       "create it in Fabric) and approve it again.") from exc
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
-        self._rq_step(step, create)
+        marker = f"(KratosForge request {req['id']})"
+        _, adopted = self._rq_step(step, create)
+        if adopted:
+            return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
         if in_fabric or parent is None:
             return {}
         return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "

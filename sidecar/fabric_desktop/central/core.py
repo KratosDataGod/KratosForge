@@ -62,7 +62,7 @@ import datetime as dt
 import json
 import re
 import uuid
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
@@ -484,8 +484,9 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
 
     A business key already here must already have the same key; anything else is refused, so a
     migration never renumbers a key. The identity continues after the highest key. A key table
-    that isn't there yet is created, which only a platform admin may do."""
+    that isn't there yet is created. Copying keys in is a migration: only a platform admin may."""
     name = key_name(name)
+    require_admin(db, by, "copy keys in")
     _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
@@ -2470,13 +2471,42 @@ def _definition(s: dict[str, Any]) -> dict[str, Any]:
             "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": s.get("target") or {}}
 
 
-def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[dict[str, Any]]) -> dict[str, Any]:
+def _shortcut_changer(db: Db, by: str) -> Callable[[str], bool]:
+    """Who may change what the inventory says about a lakehouse's shortcuts in a way that could hide a
+    problem (a removal, a repoint, a healthy mark): a platform admin, or a member of a project with a
+    product port in that lakehouse. Anyone may report a new shortcut or a broken one."""
+    if is_admin(db, by):
+        return lambda lakehouse_id: True
+    who, seen = _who(by), {}
+
+    def may(lakehouse_id: str) -> bool:
+        lakehouse_id = str(lakehouse_id or "")
+        if lakehouse_id not in seen:
+            projects = {r["project"] for r in db.rows(
+                f"SELECT DISTINCT p.project AS project FROM {db.t('catalog', 'port')} o JOIN {db.t('catalog', 'product')} p "
+                "ON p.id = o.product_id WHERE o.lakehouse_id = ?", (lakehouse_id,))} if lakehouse_id else set()
+            seen[lakehouse_id] = bool(who) and any(who in _stored_members(db, pr) for pr in projects)
+        return seen[lakehouse_id]
+    return may
+
+
+def _skipped(sid: str, kind: str) -> dict[str, Any]:
+    return {"kind": "skipped", "shortcut_id": sid, "change": kind,
+            "why": "only a platform admin, or a member of a project with a product in this lakehouse, can record it"}
+
+
+def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[dict[str, Any]],
+                     by: str = "") -> dict[str, Any]:
     """A scan of some lakehouses: ``lakehouses`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name}]
     were all read, ``shortcuts`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name, path, name,
     target}] is everything in them. Records what's new, gone or pointing somewhere else since the last
-    scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline."""
+    scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline.
+
+    A removal or a repoint changes the inventory only from someone who may change that lakehouse's
+    (_shortcut_changer); from anyone else a removal is skipped and a repoint is recorded as reported,
+    leaving the shortcut, its health and its accepted risks as they were. Both are listed in ``skipped``."""
     ensure_shortcut_risks(db)
-    now = _now()
+    now, may, skipped = _now(), _shortcut_changer(db, by), []
     scanned = {str(l["lakehouse_id"]): l for l in lakehouses if l.get("lakehouse_id")}
     seen = {}
     for s in shortcuts:
@@ -2500,34 +2530,55 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
         if before is None:
             row |= {"health": "not_checked", "health_detail": "", "checked_at": "", "first_seen": now}
             if str(s["lakehouse_id"]) not in first:
-                changes.append(_change(db, "added", sid, s, None, _definition(s), "", "scan"))
+                changes.append(_change(db, "added", sid, s, None, _definition(s), by, "scan"))
         elif _canon(json.loads(before.get("target") or "{}")) != row["target"]:
-            changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), "", "scan"))
+            if not may(s["lakehouse_id"]):
+                changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), by,
+                                       "scan", "reported: not applied to the inventory"))
+                skipped.append(_skipped(sid, "repointed"))
+                continue
+            changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), by, "scan"))
             row |= {"health": "not_checked", "health_detail": "", "checked_at": ""}
             row |= {col: str(s.get(col) or "") for col in _SHORTCUT_ADDED}
-            _end_risks(db, sid, "", "it was repointed (seen at scan)")
+            _end_risks(db, sid, by, "it was repointed (seen at scan)")
         _upsert(db, "catalog", "shortcut", "id", row)
     for sid, before in stored.items():
         if sid not in seen:
-            changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, "", "scan"))
+            if not may(before.get("lakehouse_id")):
+                skipped.append(_skipped(sid, "removed"))
+                continue
+            changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, by, "scan"))
             db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
-            _end_risks(db, sid, "", "it was removed (seen at scan)")
+            _end_risks(db, sid, by, "it was removed (seen at scan)")
     for lh in scanned:
         _upsert(db, "catalog", "shortcut_scope", "lakehouse_id",
                 {"lakehouse_id": lh, "first_scan": (_row(db, "shortcut_scope", "lakehouse_id", lh) or {}).get("first_scan") or now,
                  "last_scan": now})
+    _audit(db, by, "shortcut scan", ",".join(sorted(scanned)),
+           {"changes": len(changes), "skipped": len(skipped)} if changes or skipped else None)
     db.commit()
-    return {"changes": changes, "baseline": sorted(first)}
+    return {"changes": changes, "baseline": sorted(first), "skipped": skipped}
 
 
 def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dict[str, Any] | None = None,
                         after: dict[str, Any] | None = None, note: str = "", by: str = "") -> dict[str, Any]:
     """A change made from the app, recorded with who made it, and the inventory updated to match
-    so the next scan doesn't count it again."""
+    so the next scan doesn't count it again. A removal or a repoint changes the inventory only from
+    someone who may change that lakehouse's shortcuts (_shortcut_changer): anyone else's removal is
+    refused (the next scan by someone who may records it) and their repoint is recorded as reported."""
     if kind not in ("added", "removed", "repointed"):
         raise PlatformError("kind is added, removed or repointed")
     ensure_shortcut_risks(db)
     sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
+    if kind != "added" and not _shortcut_changer(db, by)(shortcut.get("lakehouse_id")):
+        if kind == "removed":
+            raise PlatformError("The shortcut is removed, but only a platform admin, or a member of a project with a "
+                                "product in this lakehouse, can record that; their next scan does")
+        out = _change(db, kind, sid, shortcut, before, after, by, "app",
+                      ("reported: not applied to the inventory" + (f"; {note}" if note else "")))
+        _audit(db, by, "shortcut repointed (reported)", sid, {"note": note} if note else None)
+        db.commit()
+        return out
     out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
     if kind == "removed":
         db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
@@ -2549,9 +2600,12 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
     return out
 
 
-def record_shortcut_health(db: Db, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change."""
-    now, changes = _now(), []
+def record_shortcut_health(db: Db, results: list[dict[str, Any]], by: str = "") -> list[dict[str, Any]]:
+    """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change. Anyone
+    may report a shortcut broken; any other result (even the same health again, which would freshen
+    the check's time and detail) is recorded only from someone who may change that lakehouse's
+    shortcuts (_shortcut_changer), and is otherwise listed as skipped."""
+    now, changes, may, done = _now(), [], _shortcut_changer(db, by), 0
     for r in results:
         if r.get("health") not in HEALTH:
             raise PlatformError(f"health is one of {', '.join(HEALTH)}")
@@ -2559,12 +2613,20 @@ def record_shortcut_health(db: Db, results: list[dict[str, Any]]) -> list[dict[s
         if row is None:
             continue
         was = row.get("health") or "not_checked"
+        if r["health"] != "broken" and not may(row.get("lakehouse_id")):
+            changes.append(_skipped(row["id"], r["health"]))
+            continue
         if r["health"] == "broken" and was != "broken":
-            changes.append(_change(db, "broke", row["id"], row, None, None, "", "check", r.get("detail", "")))
+            changes.append(_change(db, "broke", row["id"], row, None, None, by, "check", r.get("detail", "")))
         elif was == "broken" and r["health"] == "healthy":
-            changes.append(_change(db, "fixed", row["id"], row, None, None, "", "check"))
+            changes.append(_change(db, "fixed", row["id"], row, None, None, by, "check"))
         db.run(f"UPDATE {db.t('catalog', 'shortcut')} SET health = ?, health_detail = ?, checked_at = ? WHERE id = ?",
                (r["health"], str(r.get("detail") or ""), now, row["id"]))
+        done += 1
+    if changes or done:
+        _audit(db, by, "shortcut health", f"{done} checked",
+               {"changes": [c["kind"] for c in changes if c["kind"] != "skipped"],
+                "skipped": sum(c["kind"] == "skipped" for c in changes)})
     db.commit()
     return changes
 

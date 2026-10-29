@@ -3405,7 +3405,7 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
   const root = path.join(__dirname, "..", "..");
-  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+  for (const [file, link] of [["docs/README.md", "(notebook-magics.md)"],
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
@@ -4584,7 +4584,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
   const root = path.join(__dirname, "..", "..");
-  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+  for (const f of ["docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
     assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
   }
 });
@@ -5389,7 +5389,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
-    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],

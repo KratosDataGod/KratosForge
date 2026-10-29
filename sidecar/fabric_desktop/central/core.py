@@ -47,8 +47,10 @@ Tables (T-SQL schema.table; SQLite schema__table):
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
-    platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
-                         accepted shortcut risks, policy exceptions, endorsement scans, every product's
+    shortcut inventory   anyone records a new or a broken shortcut; a removal, a repoint or a healthy mark
+                         comes from a platform admin or a member of a project with a product in that lakehouse
+    platform admins      domains, key tables, copying keys in, source systems, landing zones, glossary, admins,
+                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, every product's
                          business terms, and every request
     domain owners        glossary terms of their domain
     product owners       access requests to their product, their product's business terms, and the semantic

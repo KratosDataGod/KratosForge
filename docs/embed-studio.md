@@ -35,6 +35,10 @@ No app registration or service principal is used, and nothing is kept in KratosF
 
 A link in a table or matrix opens in your default browser, and only an `https` link. Other links (in a text box or on a button) don't open yet. The embed frame itself can't open windows or take over the app's window.
 
+## Exporting
+
+The embed frame may save files, so Power BI's **Export data** works as it does in Fabric: it saves to this PC, and only when your tenant's export settings and your permissions allow it.
+
 ## When it can't open
 
 The report area says what happened and the one thing to do next:
@@ -46,7 +50,7 @@ The report area says what happened and the one thing to do next:
 | Your sign-in to Power BI has expired | **Sign in**: the content reopens |
 | The workspace's capacity isn't running | Resume it in Fabric, or ask your capacity admin |
 
-Power BI's own error, with its request id, stays in the Events panel for **Report a problem**.
+Power BI's own error, with its request id, stays in the Events panel for **Report a problem**. An error Power BI carries on from once the content is showing (one visual that failed, say) goes only to the Events panel, and the content stays in view.
 
 ## Not yet
 

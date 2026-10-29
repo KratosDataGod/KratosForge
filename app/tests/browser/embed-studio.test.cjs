@@ -148,12 +148,17 @@ test("a link in the report opens in the default browser, only over https", { ski
 });
 
 test("Power BI's error shows what to do, never offers to resume capacity, and Copy events has no token", { skip }, async () => {
-  await fromHost({ event: "error", detail: { message: "LoadReportFailed", errorCode: "403", detailedMessage: "Forbidden",
+  // A visual that fails on a working report is only an event: the report stays in view.
+  await fromHost({ event: "error", detail: { message: "visualRenderFailed", level: 3 } });
+  await page().locator(".pbi-events li", { hasText: "visualRenderFailed" }).waitFor();
+  assert.strictEqual(await page().locator(".pbi-problem").count(), 0, "a non-fatal error after loading keeps the report");
+  assert.strictEqual(await page().locator("iframe.pbi-frame.pbi-hidden").count(), 0);
+  await fromHost({ event: "error", detail: { message: "LoadReportFailed", errorCode: "403", detailedMessage: "Forbidden", level: 6,
     technicalDetails: { requestId: "req-1" } } });
   const card = page().locator(".pbi-problem");
   await card.waitFor();
   assert.match(await card.textContent(), /Your account can't open this/);
-  await fromHost({ event: "error", detail: { message: "CapacityNotActive", detailedMessage: "The capacity is paused" } });
+  await fromHost({ event: "error", detail: { message: "CapacityNotActive", detailedMessage: "The capacity is paused", level: "Fatal" } });
   await page().getByText("The workspace's capacity isn't running").waitFor();
   assert.strictEqual(await page().getByRole("button", { name: /resume/i }).count(), 0, "Embed Studio never resumes a capacity");
   await fromHost({ event: "rendered", detail: {} });

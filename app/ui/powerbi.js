@@ -198,6 +198,12 @@ function pbiProblem(detail, item) {
     body: String(d.detailedMessage || d.message || "Power BI didn't say why.").slice(0, 400), primary: fabric };
 }
 
+// Power BI's TraceType Fatal (6), or an expired sign-in, which stops the content whatever its level.
+function pbiFatal(detail) {
+  const d = detail || {};
+  return d.level === 6 || d.level === "Fatal" || String(d.errorCode || "") === "401" || /TokenExpired/i.test(String(d.message || ""));
+}
+
 // An engine error from opening the content (pbi_embed_content or pbi_embed_token), as a problem card.
 function pbiOpenProblem(err) {
   const text = String(err?.message || err || "");
@@ -263,7 +269,7 @@ async function renderEmbedStudio() {
   opened[item.item_id] = Date.now();
   pbiWrite(PBI_OPENED_KEY, opened);
 
-  const s = { content: null, pages: [], active: null, events: [], problem: null, timer: null, link: null, stopped: false, started: 0 };
+  const s = { content: null, pages: [], active: null, events: [], problem: null, timer: null, link: null, stopped: false, started: 0, loaded: false };
   pbiStudio.session = s;
   const live = () => !s.stopped && pbiStudio.session === s && state.view === "embedstudio";
   const frame = h("iframe", { class: "pbi-frame", title: `${item.name}, drawn by Power BI`,
@@ -369,8 +375,14 @@ async function renderEmbedStudio() {
     while (eventList.childElementCount > PBI_EVENTS_KEPT) eventList.firstElementChild.remove();
     eventList.scrollTop = eventList.scrollHeight;
     if (name === "pageChanged" && detail?.newPage?.name) { s.active = detail.newPage.name; drawPages(); }
-    if (name === "error") { s.problem = pbiProblem(detail, item); drawProblem(); }
-    if (name === "loaded" || name === "rendered") { if (s.problem) { s.problem = null; drawProblem(); } }
+    // Once the content has loaded, Power BI also raises errors it carries on from (a visual that failed, a
+    // refused page change): those stay in the Events list. The card covers the content only when it couldn't
+    // load, when Power BI calls the error fatal, or when the sign-in ran out.
+    if (name === "error" && (!s.loaded || pbiFatal(detail))) { s.problem = pbiProblem(detail, item); drawProblem(); }
+    if (name === "loaded" || name === "rendered" || name === "tileLoaded") {
+      s.loaded = true;
+      if (s.problem) { s.problem = null; drawProblem(); }
+    }
     if (name === "dataHyperlinkClicked" && /^https:\/\//i.test(String(detail?.url || ""))) openLink(String(detail.url));
   }
 
@@ -393,6 +405,7 @@ async function renderEmbedStudio() {
 
   async function embed() {
     s.problem = null;
+    s.loaded = false;
     drawProblem();
     try {
       const [content, token] = await Promise.all([

@@ -87,9 +87,9 @@ def test_a_result_larger_than_the_byte_cap_is_an_error(duck, monkeypatch):
     assert res.status == "error" and res.table is None and "larger than" in res.outputs[-1]["evalue"]
 
 
-def test_only_duckdb_and_sqlite_claim_result_and_polars_says_why_not():
+def test_which_engines_claim_result_and_polars_says_why_not():
     claims = {e.id for e in registry.ENGINES.values() if e.capability("result").available}
-    assert claims == {"local-duckdb", "local-sqlite"}
+    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark"}
     assert registry.get("local-polars").capability("result").note
 
 
@@ -222,3 +222,23 @@ def test_sqlite_keeps_a_column_that_is_null_in_one_batch(lite):
     res = lite.execute(sql(code, rows=11_000))
     assert res.status == "ok" and res.table.num_rows == 11_000
     assert res.table.column("late").null_count == 10_000
+
+
+def test_duckdb_against_fabric_spark_on_a_fake_needs_the_copy_confirm_then_matches(duck):
+    import test_fabric_spark as fs_t
+    from fabric_desktop import app_settings
+    mp = pytest.MonkeyPatch()
+    mp.setattr(app_settings, "value", lambda key: True if key == "allow_fabric_runs" else None)
+    try:
+        livy = fs_t.FakeLivy()
+        spark = fs_t.open_session(livy)
+        query = sql("SELECT id, name, amount FROM sales")
+        local = sql("SELECT id::BIGINT AS id, CASE WHEN id = 2 THEN NULL ELSE name END AS name, "
+                    "amount::DECIMAL(10, 2) AS amount FROM t")
+        with pytest.raises(cmp.CopyNotConfirmed):
+            cmp.compare(duck, spark, local, right_request=query)
+        assert livy.statements == {}
+        report = cmp.compare(duck, spark, local, right_request=query, rules={"keys": ["id"]}, copy_confirmed=True)
+        assert report["result"] == "match" and report["right"]["engine"] == "fabric-spark"
+    finally:
+        mp.undo()

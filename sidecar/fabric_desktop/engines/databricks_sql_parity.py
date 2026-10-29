@@ -9,6 +9,7 @@ gives none). ``outcome`` is what this version of sqlglot and DuckDB do with it:
 
     same          runs on this PC and gives the documented value
     differs       runs, but gives another value: check results that use it on the warehouse
+    varies        runs, and gives the documented value on some machines and not others (hash order)
     error         translates, but DuckDB refuses the translated SQL
     untranslated  sqlglot can't read or translate it
 
@@ -33,7 +34,7 @@ class Case:
     group: str
     sql: str          # a SELECT whose first column of the first row is the answer
     expected: Any     # the value Databricks documents
-    outcome: str      # same | differs | error | untranslated (this version)
+    outcome: str      # same | differs | varies | error | untranslated (this version)
     note: str = ""
 
 
@@ -211,7 +212,8 @@ def same(got: Any, want: Any) -> bool:
 
 def table_markdown() -> str:
     """The docs text: the functions that don't answer the same, as a table, then the ones that do."""
-    words = {"differs": "Different result", "error": "Doesn't run", "untranslated": "Not translated"}
+    words = {"differs": "Different result", "varies": "Can differ", "error": "Doesn't run",
+             "untranslated": "Not translated"}
     rows = [f"Of {len(CASES)} checks on commonly used Databricks SQL built-in functions, these are the functions the "
             "DuckDB engine doesn't answer the same way.", "",
             "| Function | Group | On this PC | What to know |", "| --- | --- | --- | --- |"]

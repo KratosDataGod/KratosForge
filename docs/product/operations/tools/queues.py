@@ -26,6 +26,7 @@ README = OPS / "README.md"
 BACKLOG = ROOT / "docs" / "product" / "PRODUCT_BACKLOG.json"
 INVENTORY = ROOT / "docs" / "product" / "FEATURE_INVENTORY.json"
 BEGIN, END = "<!-- BEGIN GENERATED: queues -->", "<!-- END GENERATED: queues -->"
+SIDE_BEGIN, SIDE_END = "<!-- BEGIN GENERATED: side-programs -->", "<!-- END GENERATED: side-programs -->"
 REPO = os.environ.get("GITHUB_REPOSITORY", "KratosDataGod/KratosForge")
 
 
@@ -94,10 +95,50 @@ def check() -> tuple[list[str], list[str]]:
         for sid in ws.get("backlog", []):
             if sid not in backlog and sid not in queues.get("new_stories", {}):
                 errors.append(f"{key}: backlog story {sid} doesn't exist")
+    errors += _check_side(queues, seen)
     text = README.read_text(encoding="utf-8")
-    if not errors and BEGIN in text and text != _rendered(text, queues, backlog):
+    if not errors and (BEGIN in text or SIDE_BEGIN in text) and text != _rendered(text, queues, backlog):
         errors.append("README.md's queue table is out of date: run queues.py render")
     return errors, short
+
+
+def _check_side(queues: dict[str, Any], seen: dict[str, str]) -> list[str]:
+    """Side programs: a separate thread's stories under one workstream, with their own cap on PRs at review."""
+    errors: list[str] = []
+    keys = {ws["key"] for ws in queues["workstreams"]}
+    statuses = queues["rules"].get("side_program_statuses", ["active", "ready", "blocked", "review"])
+    for sp in queues.get("side_programs", []):
+        key = sp.get("key") or "?"
+        for field in ("key", "name", "thread"):
+            if not sp.get(field):
+                errors.append(f"side program {key}: no {field}")
+        if sp.get("workstream") not in keys:
+            errors.append(f"side program {key}: workstream {sp.get('workstream')} doesn't exist")
+        if not isinstance(sp.get("review_cap"), int) or not 1 <= sp["review_cap"] <= 4:
+            errors.append(f"side program {key}: review_cap must be 1 to 4")
+        if not sp.get("stories"):
+            errors.append(f"side program {key}: no stories")
+        for st in sp.get("stories", []):
+            if not (isinstance(st.get("issue"), int) and st.get("title")):
+                errors.append(f"side program {key}: a story needs an issue number and a title")
+                continue
+            if st.get("status") not in statuses:
+                errors.append(f"side program {key}: #{st['issue']} has status {st.get('status')}, not one of {', '.join(statuses)}")
+            sid = f"#{st['issue']}"
+            if sid in seen:
+                errors.append(f"{sid} is queued in both {seen[sid]} and {key}")
+            seen[sid] = key
+    return errors
+
+
+def side_table(queues: dict[str, Any]) -> str:
+    rows = ["| Side program | Workstream | Thread | Review cap | Stories |", "| --- | --- | --- | --- | --- |"]
+    names = {ws["key"]: ws["name"] for ws in queues["workstreams"]}
+    for sp in queues.get("side_programs", []):
+        stories = "<br>".join(f"{st['status']}: {st['title']} ({_issue_link(st)})" + (f" ({st['note']})" if st.get("note") else "")
+                              for st in sp["stories"])
+        rows.append(f"| {sp['name']} | {names.get(sp['workstream'], sp['workstream'])} | {sp['thread']} | {sp['review_cap']} | {stories} |")
+    return "\n".join(rows)
 
 
 def _issue_link(slot: dict[str, Any]) -> str:
@@ -118,10 +159,17 @@ def table(queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) -> str:
     return "\n".join(rows)
 
 
+def _replace(text: str, begin: str, end: str, body: str) -> str:
+    if begin not in text:
+        return text
+    head, rest = text.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    return f"{head}{begin}\n{body}\n{end}{tail}"
+
+
 def _rendered(text: str, queues: dict[str, Any], backlog: dict[str, dict[str, Any]]) -> str:
-    head, rest = text.split(BEGIN, 1)
-    _, tail = rest.split(END, 1)
-    return f"{head}{BEGIN}\n{table(queues, backlog)}\n{END}{tail}"
+    text = _replace(text, BEGIN, END, table(queues, backlog))
+    return _replace(text, SIDE_BEGIN, SIDE_END, side_table(queues))
 
 
 def render() -> None:
@@ -210,6 +258,7 @@ def report(gh: dict[str, Any], today: dt.date) -> str:
         items = by_status.get(status, [])
         lines.append(f"- **{status}** ({len(items)})" + ("".join(f"\n  - {t}" for t in items)))
     lines += ["", "## Work queues", table(queues, backlog), "",
+              "## Side programs", side_table(queues), "",
               "## Token utilization",
               "Not measurable here: neither GitHub nor the Claude threads can read the subscription allocation, "
               "so no percentage is reported. Proxies: open story issues per status above, and workstreams "

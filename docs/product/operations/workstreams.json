@@ -12,7 +12,13 @@
       "pillar:<fabric|databricks|snowflake|shared>",
       "status:<active|ready|blocked|review>"
     ],
-    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers."
+    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers.",
+    "side_program_statuses": [
+      "active",
+      "ready",
+      "blocked",
+      "review"
+    ]
   },
   "workstreams": [
     {
@@ -233,5 +239,72 @@
       "next_action": "Hosts-table guard test (#959, #917 has merged); then the next ready story."
     }
   ],
-  "new_stories": {}
+  "new_stories": {},
+  "side_programs": [
+    {
+      "key": "learn",
+      "name": "Learning and developer excellence",
+      "workstream": "devex",
+      "thread": "Build learning and developer excellence",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 1064,
+          "title": "[LX-01] Every best-practice rule explained, with About on each finding",
+          "status": "review"
+        },
+        {
+          "issue": 1067,
+          "title": "[LX-04] Learn mockup on the design canvas",
+          "status": "active"
+        },
+        {
+          "issue": 1065,
+          "title": "[LX-02] Learning content format, loader and CI checks",
+          "status": "ready"
+        },
+        {
+          "issue": 1066,
+          "title": "[LX-03] Local lab runner: seeded datasets, checks, reset, publish guard",
+          "status": "ready"
+        },
+        {
+          "issue": 1068,
+          "title": "[LX-05..08] Learn page, learning modes, lab evidence in the profile, first content",
+          "status": "blocked",
+          "note": "Waits on the LX-04 mockup and Chris's go"
+        }
+      ]
+    },
+    {
+      "key": "pbe",
+      "name": "Power BI Embed Studio",
+      "workstream": "devex",
+      "thread": "Build Power BI embedded development experience",
+      "review_cap": 2,
+      "stories": [
+        {
+          "issue": 1127,
+          "title": "PBE-03 Power BI embed host frame: pbiembed scheme, its own policy, main-window pop-up rule",
+          "status": "active"
+        },
+        {
+          "issue": 1128,
+          "title": "PBE-04 Power BI embed token and discovery calls in the engine",
+          "status": "active"
+        },
+        {
+          "issue": 1129,
+          "title": "PBE-05 Mock Power BI frame for browser tests",
+          "status": "ready"
+        },
+        {
+          "issue": 1130,
+          "title": "PBE-06 Embed Studio screen: open a Power BI report (Preview)",
+          "status": "blocked",
+          "note": "Waits on the Embed Studio mockup"
+        }
+      ]
+    }
+  ]
 }

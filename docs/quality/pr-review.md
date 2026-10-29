@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #926 16959173 | Accessibility fixes, main merge (after #932) | PASS at 16959173 (carried from 5d140245) | 9.2 | Outside docs/ux/accessibility-audit.md, the PR's own delta is identical to 5d140245 (sorted +/- lines compared against the merge-base), and it merges main cleanly. The audit doc takes main's version, re-run on the merged code: Notebook 18/0(0), SQL query 22/0(0), Command bar 18/0(0); main's Data mesh entity rows are kept; the to-be-fixed list is now None. Owner: browser 658 pass with the 7 known container-only failures; ui.test 301/0. Nit: the line "Filed to be fixed in #905" above None could say #905 is done. |
+
 | #799 d0dd3481 | Leftover staging lakehouses, permissions.md conflict with #906 | PASS at d0dd3481 (carried from f7c12c3c) | 9.0 | Release management merged main. Against main, the Item.ReadWrite.All row differs only in #799's deleting clause (live test, and confirming Remove on a leftover Dataflow Gen2 staging lakehouse); #906's env-drift clause is kept as on main. Otherwise the PR's own delta is identical to f7c12c3c, and it merges main cleanly. RM: ui.test 301/0; xray/docs tests 41 passed. |
 
 | #1012 b9f5890d | exportrace PR opened | PASS (carried) | 9.3 | The PR head is the reviewed branch head b9f5890d. |

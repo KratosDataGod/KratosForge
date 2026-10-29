@@ -2512,6 +2512,10 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
 
+/* A folder box with Browse… beside it (#971, folderField in app.js). */
+.folder-field { display: flex; gap: 8px; align-items: center; }
+.folder-field > input { flex: 1; min-width: 0; }
+
 /* Windows High Contrast (contrast themes): WebView2 applies forced colors, which repaint every color
    with the theme's own and drop backgrounds and box-shadows. Selected and current items are marked
    only by those, so here they take the theme's Highlight colors, and unselected tabs lose the

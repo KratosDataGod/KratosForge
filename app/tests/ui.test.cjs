@@ -5439,3 +5439,45 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
   assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
 });
+
+// #971: every box that asks for a folder on this PC has Browse… beside it (folderField in app.js),
+// so nobody has to type a path. A box is a folder box when its placeholder is a Windows path, its
+// name ends in "folder", or its field's label does (a folder name or a OneLake path is not one).
+test("every folder box on this PC has a Browse… button", () => {
+  const folderish = (text) => /(^|\s)folder$/i.test(text.trim());
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const inputs = new Map();
+    for (const m of src.matchAll(/const (\w+) = h\("input", \{([^}]*)\}/g)) inputs.set(m[1], m[2]);
+    const boxes = new Set();
+    for (const [v, attrs] of inputs) {
+      const label = attrs.match(/"aria-label": "([^"]*)"/)?.[1] || "";
+      if (/type: "file"/.test(attrs)) continue; // already the browser's own folder picker
+      if (/placeholder: "C:\\\\/.test(attrs) || folderish(label)) boxes.add(v);
+    }
+    for (const m of src.matchAll(/h\("label", \{ class: "field" \}, "([^"]*)", (\w+)\)/g)) {
+      if (folderish(m[1]) && inputs.has(m[2])) boxes.add(m[2]);
+    }
+    for (const v of boxes) if (!src.includes(`folderField(${v},`)) missing.push(`${name}: ${v}`);
+    // Inside a <label>, a box with no aria-label of its own would be named "Folder Browse for …".
+    for (const [, v] of src.matchAll(/(?<!function )folderField\((\w+),/g)) {
+      if (inputs.has(v) && !/"aria-label": /.test(inputs.get(v))) missing.push(`${name}: ${v} has no aria-label`);
+    }
+    // Field lists, such as gitPathDialog's: a folder field says which folder, so it gets Browse….
+    for (const m of src.matchAll(/\{ label: "([^"]*)",([^}]*)\}/g)) {
+      if ((folderish(m[1]) || /placeholder: "C:\\\\/.test(m[2])) && /placeholder:/.test(m[2]) && !/\bfolder: "/.test(m[2])) {
+        missing.push(`${name}: field "${m[1]}"`);
+      }
+    }
+  }
+  assert.deepStrictEqual(missing, [], "folder boxes without Browse… (wrap the input in folderField)");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const helper = app.match(/function folderField\(input, name = "a folder"\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(helper, /if \(input\.readOnly \|\| !window\.__TAURI__\?\.core\) return input;/, "a locked box gets no button");
+  assert.match(helper, /invoke\("pick_folder", \{ start: input\.value\.trim\(\) \|\| null \}\)/);
+  assert.match(helper, /if \(!chosen\) return;/, "Cancel leaves the box as it was");
+  assert.match(helper, /browse\.disabled = true;[\s\S]*\.finally\(\(\) => \{ browse\.disabled = false; \}\)/, "one dialog at a time");
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
+});

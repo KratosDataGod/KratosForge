@@ -1318,6 +1318,11 @@ def _names(value: Any) -> set[str]:
     return {x.strip().lower() for x in re.split(r"[,;]", str(value or "")) if x.strip()}
 
 
+def is_sign_in_name(text: str) -> bool:
+    """Whether ``text`` can be a caller's sign-in name (UPN), the only thing an admin is matched by."""
+    return bool(_EMAIL.match(str(text or "")))
+
+
 def list_admins(db: Db) -> list[dict[str, Any]]:
     return sorted(db.rows(f"SELECT * FROM {db.t('catalog', 'admin')}"), key=lambda a: a["user_name"])
 
@@ -1359,8 +1364,9 @@ def claim_admin(db: Db, by: str = "") -> dict[str, Any]:
 def add_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
     require_admin(db, by, "add platform admins")
     who = _who(user)
-    if not who:
-        raise PlatformError("Give the new admin's sign-in name, like ana@contoso.com")
+    # Admins are matched by the sign-in name Fabric gives the function, so anything else never matches.
+    if not is_sign_in_name(who):
+        raise PlatformError("Give the new admin's sign-in name, like ana@contoso.com. Groups can't be platform admins.")
     _upsert(db, "catalog", "admin", "user_name", {"user_name": who, "added_at": _now(), "added_by": _who(by)})
     _audit(db, by, "add admin", who)
     db.commit()
@@ -1371,6 +1377,8 @@ def remove_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
     require_admin(db, by, "remove platform admins")
     who = _who(user)
     admins = list_admins(db)
+    if who not in [a["user_name"] for a in admins]:
+        raise PlatformError(f"{who or 'Nobody'} isn't a platform admin")
     if [a["user_name"] for a in admins] == [who]:
         raise PlatformError("A platform keeps at least one admin. Add another before removing this one.")
     db.run(f"DELETE FROM {db.t('catalog', 'admin')} WHERE user_name = ?", (who,))

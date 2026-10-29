@@ -285,6 +285,29 @@ def test_a_role_write_sent_through_call_once_still_refuses_anyone_without_the_ro
     assert _dump(path) == before  # the change, and its call id too
 
 
+# The documented model (docs/security.md, "Personal data in the platform's catalog"): the catalog is readable by
+# everyone with Viewer on the Platform workspace, and keys by everyone who can read the Keys workspace, so these
+# reads answer anyone signed in in full. "Private" on a data product means it can't be linked without a grant,
+# not that it's hidden. Narrowing one here alone would be false security (the same rows are readable over SQL);
+# widening or narrowing any of them is a design decision, made with SQL-level permissions, not a change here.
+OPEN_READS = {
+    "audit": {}, "list_products": {}, "list_product_items": {"product_id": "crm/c360"}, "list_grants": {},
+    "lookup_key": {"name": "customer", "value": "C-1"}, "export_keys": {"name": "customer"},
+}
+
+
+def test_open_reads_answer_anyone_signed_in_in_full(seeded, tmp_path):
+    path = _copy(seeded, tmp_path)
+    LocalPlatform(path, lambda: ADMIN).call("issue_keys", name="customer", business_keys=["C-1", "C-2"])
+    answers = {user: {op: LocalPlatform(path, lambda: user).call(op, **args) for op, args in OPEN_READS.items()}
+               for user in (ADMIN, NOBODY)}
+    assert answers[NOBODY] == answers[ADMIN]
+    seen = answers[NOBODY]
+    assert any(p["id"] == "crm/c360" and p["access"] == "private" for p in seen["list_products"])
+    assert [g["product_id"] for g in seen["list_grants"]] == ["crm/c360"] and seen["list_product_items"]
+    assert seen["lookup_key"] and len(seen["export_keys"]) >= 2 and seen["audit"]
+
+
 @pytest.mark.parametrize("user", [ADMIN, NOBODY])
 @pytest.mark.parametrize("op", sorted(READS))
 def test_a_read_changes_nothing_whoever_calls_it(seeded, tmp_path, op, user):

@@ -117,6 +117,7 @@ nav = [
     { "Multiple workers design" = "workloads/multi-worker.md" },
     { "FinOps program plan" = "finops/plan.md" },
     { "Optimize program plan" = "optimize/plan.md" },
+    { "Writing a Learn lesson" = "learn/writing-lessons.md" },
     { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
     { "Enterprise backlog" = "product/enterprise-backlog.md" },
     { "Enterprise decisions" = "product/implementation-decisions.md" },

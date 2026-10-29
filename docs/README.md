@@ -14,7 +14,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
-| Know which engine runs my code, and set up Fabric, Databricks or both | [Engines and connection profiles](engines.md) (Preview) |
+| Know which engine runs my code, and set up Fabric, Databricks, Snowflake or a mix | [Engines and connection profiles](engines.md) (Preview) |
 | Query a folder of data files with SQL on my PC | [Local data projects](local-data.md) |
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
@@ -44,7 +44,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [end-user-terms.md](end-user-terms.md) | Admins, legal | Draft end-user terms (not in effect), including the conditions for shipping Microsoft's ODBC driver |
 | [evidence-pack.md](evidence-pack.md) | Security reviewers, IT | Everything a security review needs in one place: data flows, documents, build and release evidence, and what is still open |
 | [security.md](security.md) | Admins, security reviewers | The threat model: what is protected, trust boundaries, how updates are checked, and what is still open |
-| [hardening/README.md](hardening/README.md) | Security reviewers, platform owners | The enterprise hardening audit: scorecard, [findings](hardening/findings.md), [backlog](hardening/backlog.md) and [release gates](hardening/readiness-checklist.md) |
+| [hardening/README.md](hardening/README.md) | Security reviewers, platform owners | The enterprise hardening audit: scorecard, [findings](hardening/findings.md), [backlog](hardening/backlog.md), [release gates](hardening/readiness-checklist.md) and [engine call limits](hardening/engine-call-limits.md) |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [notebook-spark-on-this-pc.md](notebook-spark-on-this-pc.md) | Engineers | Which PySpark methods and Spark settings work on this PC |
@@ -75,7 +75,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
 | [notebook-editor/select-and-run-parts.md](notebook-editor/select-and-run-parts.md) | Engineers, analysts | Select several cells and act on them; run selected cells or selected text |
 | [notebook-editor/organise-cells.md](notebook-editor/organise-cells.md) | Engineers, analysts | Collapse heading sections, cell titles and tags, duplicate and drag cells |
-| [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine and Databricks SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks or both (Preview) |
+| [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark, SQL or pandas |
@@ -114,6 +114,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [animation-style-guide.md](animation-style-guide.md) | Contributors, designers | The four animation tiers (Ember, Spark, Forge, Titan), brand fire and winter colours, motifs, timing and reduced-motion rules |
 | [ux/README.md](ux/README.md) | Contributors, product and release managers | UX and simplicity audit: scorecard, configuration, navigation, workflows, docs coverage, backlog (UX-nnn), usability release gates |
 | [ux/action-first.md](ux/action-first.md) | Contributors, product and release managers | Action-first standard, review checklist, measured baseline and backlog (AF-n); the shared action framework |
+| [ux/accessibility-audit.md](ux/accessibility-audit.md) | Contributors, UX reviewers | The automated accessibility audit: WCAG 2.1 A and AA, keyboard and focus results for every page in light and dark, and what is still to judge by hand |
 | [enterprise-roadmap.md](enterprise-roadmap.md) | Platform owners | Milestones for running at enterprise scale |
 | [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |

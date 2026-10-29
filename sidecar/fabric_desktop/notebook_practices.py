@@ -19,6 +19,7 @@ from typing import Any
 from .git.secrets import scan_text
 
 SEVERITIES = ("Error", "Warning", "Info")
+DOCS = "notebook-best-practices.md"   # each rule has a section there, anchored by its id: #nb001
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,12 @@ _WRITES = {"saveAsTable", "insertInto", "save", "write_deltalake"}
 def rules() -> list[dict[str, Any]]:
     """Every notebook rule, as a governance template lists them."""
     return [{"id": r.id, "kind": "notebook", "severity": r.severity, "category": r.category, "name": r.name,
-             "description": r.description, "scheduled_only": r.scheduled_only} for r in RULES]
+             "description": r.description, "url": url(r.id), "scheduled_only": r.scheduled_only} for r in RULES]
+
+
+def url(rule_id: str) -> str:
+    """The docs section that explains a rule (open_doc opens it)."""
+    return f"{DOCS}#{rule_id.lower()}"
 
 
 def check(sources: list[str], scheduled: bool = False,
@@ -109,7 +115,7 @@ def _finding(rule_id: str, cell: int, line: int, settings: dict[str, dict[str, A
     where = f"cell {cell}, line {line}"
     return {"rule_id": rule_id, "severity": severity, "rule": rule.name, "category": rule.category,
             "object_type": "Cell", "object": f"{where}: {detail}" if detail else where, "cell": cell, "line": line,
-            "description": rule.description, "url": ""}
+            "description": rule.description, "url": url(rule_id)}
 
 
 def _cell(source: str, scheduled: bool, counts: dict[str, list[tuple[int, int]]], n: int) -> Iterator[tuple[str, int]]:

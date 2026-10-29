@@ -10,7 +10,7 @@ const page = () => app.page;
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ viewport: { width: 1440, height: 900 }, mocks: { readiness_check: () => [] } });
+  app = await openApp({ engine: ["app_settings"], viewport: { width: 1440, height: 900 }, mocks: { readiness_check: () => [] } });
 });
 after(async () => { if (app) await app.close(); });
 
@@ -35,6 +35,26 @@ test("Right moves to the next tab on rows that weren't tablists before", { skip 
   await arrowRight(() => go("platform"), "#view .subtabs", "Platform");
   await arrowRight(() => go("metadata"), ".meta-groups", "Data mesh");
   await arrowRight(() => go("onelake"), ".onelake-tabs .tab-group", "OneLake");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+// Settings' row (General, Integrations) is drawn only while Preview features show (#1061).
+test("Settings' tab row moves with Right, Home and End", { skip }, async () => {
+  await page().evaluate(() => { state.settingsTab = "general"; go("settings"); });
+  const list = "#view .subtabs";
+  await page().locator(`${list} [role=tab]`).first().waitFor();
+  assert.strictEqual(await page().locator(list).getAttribute("role"), "tablist", "Settings' row is a tablist");
+  const on = (name) => page().waitForFunction((n) => {
+    const t = document.querySelector('#view .subtabs [role=tab][aria-selected="true"]');
+    return t && t.innerText.startsWith(n) && document.activeElement === t;
+  }, name);
+  await page().locator(`${list} [role=tab][aria-selected="true"]`).focus();
+  await page().keyboard.press("ArrowRight");
+  await on("Integrations");
+  await page().keyboard.press("Home");
+  await on("General");
+  await page().keyboard.press("End");
+  await on("Integrations");
   assert.deepStrictEqual(app.errors, []);
 });
 

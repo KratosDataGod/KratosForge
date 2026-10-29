@@ -43,6 +43,12 @@ test("the panel lists the findings with the notebook's cell numbers", { skip }, 
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-practices.png") });
 });
 
+test("About NB003 opens the rule's section of the docs (LX-01)", { skip }, async () => {
+  await pane().locator("[data-rule=NB003] .learn-more").click();
+  const opened = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "open_doc").map((c) => c.args.page));
+  assert.deepStrictEqual(opened, ["notebook-best-practices.md#nb003"]);
+});
+
 test("Go to cell selects the cell and puts the cursor on the line", { skip }, async () => {
   await pane().locator("[data-rule=NB003] .link-btn").click();
   const at = await page().evaluate(() => {

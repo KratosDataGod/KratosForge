@@ -39,9 +39,21 @@ def _today():
 TODAY, TODAY_TYPED = _today()
 
 
+def _connect(path):
+    """A file database without a journal file or a flush per commit. The repair test opens one fresh
+    database per schema statement, each committed many times; on Windows every commit's journal file
+    and flush cost enough (with the virus scanner looking at each new file) that one parameter took
+    30 to 40 s and, on a busy runner, passed the 300 s test limit. A transaction that isn't committed
+    is still rolled back when the connection closes, which is what the test relies on."""
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode = MEMORY")
+    conn.execute("PRAGMA synchronous = OFF")
+    return conn
+
+
 def _build(path, shape):
     """The shape, with one row in each table whose every value names its table and column."""
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     rows = {}
     for i in shape["tables"]:
         name, cols = SHAPES["tables"][i]
@@ -57,7 +69,7 @@ def _build(path, shape):
 
 
 def _check(path, rows):
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     try:
         got = _shape(conn)
         missing = {t: sorted(set(cols) - set(got.get(t, []))) for t, cols in TODAY.items()
@@ -76,7 +88,7 @@ def _check(path, rows):
 
 
 def _repair(path):
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     try:
         return core.ensure_schema(core.Db(conn, "sqlite"))
     finally:

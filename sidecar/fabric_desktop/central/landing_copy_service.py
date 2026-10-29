@@ -24,7 +24,7 @@ from ..fabric_run import schedule_configuration
 from ..redact import describe
 from ..orchestration import copyjob_build
 from . import core
-from .requests_service import StepError
+from .requests_service import ITEM_DESCRIPTION, StepError, marked, request_marker
 
 _log = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class LandingCopyMixin:
         where = self._lc_where(req, env)
         api = self._rq_fabric()  # type: ignore[attr-defined]
         source, name = req["target"], copyjob_build.job_name(req["target"])
-        marker = f"(KratosForge request {req['id']})"
+        marker = request_marker(req)
 
         def find_or_create() -> tuple[dict[str, Any], bool]:
             same = [i for i in api.list_items(where["workspace_id"])
@@ -127,7 +127,7 @@ class LandingCopyMixin:
             job = copyjob_build.content(spec, source, where["workspace_id"], where["lakehouse_id"])
             why = str(req.get("reason") or "").strip()
             created = api.save_item(where["workspace_id"], COPY_JOB_TYPE, name, copyjob_build.parts(job),
-                                    f"Lands {source} in the landing zone. {why} {marker}".strip()[:4000])
+                                    marked(f"Lands {source} in the landing zone. {why}", marker, ITEM_DESCRIPTION))
             return created, True
 
         item, created = self._rq_step(f"Create the Copy job {name}", find_or_create)  # type: ignore[attr-defined]

@@ -24,6 +24,11 @@
       "setup": "setup.sql",
       "starter": "starter.sql",
       "solution": "solution.sql",
+      "hints": [
+        "The starter returns every column and every row. Which three columns does the question name?",
+        "WHERE region = 'North' AND amount > 100 keeps the right rows. Order 5 is exactly 100, so > leaves it out.",
+        "ORDER BY amount DESC puts the largest first."
+      ],
       "checks": [{"kind": "result_matches", "ordered": true}],
       "expected": {
         "columns": ["order_id", "customer", "amount"],

@@ -294,6 +294,46 @@ def _fabric_type(t: pa.DataType, column: str) -> pa.DataType:
     return t
 
 
+def delta_writable(t: pa.DataType) -> bool:
+    """Whether delta-rs writes a column of type ``t`` as it is. Unsigned integers, float16, decimals
+    over 38 digits, TIME and INTERVAL it refuses with a raw error; NULL (no type) it writes as a void
+    column Spark can't use, and an append of one hangs it (deltalake 1.6.6)."""
+    if pa.types.is_unsigned_integer(t) or pa.types.is_float16(t) or pa.types.is_null(t) or pa.types.is_time(t) \
+            or pa.types.is_duration(t) or pa.types.is_interval(t) or (pa.types.is_decimal(t) and t.precision > 38):
+        return False
+    if pa.types.is_dictionary(t):
+        return delta_writable(t.value_type)
+    if pa.types.is_map(t):
+        return delta_writable(t.key_type) and delta_writable(t.item_type)
+    if pa.types.is_struct(t):
+        return all(delta_writable(f.type) for f in t)
+    value = getattr(t, "value_type", None)  # lists of every kind
+    return value is None or delta_writable(value)
+
+
+def delta_safe(schema: pa.Schema, existing: Any = None) -> pa.Schema:
+    """``schema`` with each column delta-rs can't write (delta_writable) in the type Fabric reads,
+    as fabric_schema writes it, or fabric_schema's plain error saying how to cast it. Every other
+    column is left exactly as it is, so tables written today keep their types. ``existing``, for an
+    append: a function giving the table's column types by lower-case name, so an all-NULL column
+    takes the table's type."""
+    if all(delta_writable(f.type) for f in schema):
+        return schema
+    table: dict[str, pa.DataType] | None = None
+    fields = []
+    for f in schema:
+        if delta_writable(f.type):
+            fields.append(f)
+            continue
+        if pa.types.is_null(f.type) and existing is not None:
+            table = existing() if table is None else table
+            if f.name.lower() in table:
+                fields.append(pa.field(f.name, table[f.name.lower()], nullable=True))
+                continue
+        fields.append(pa.field(f.name, _fabric_type(f.type, f.name), nullable=True, metadata=f.metadata))
+    return pa.schema(fields, metadata=schema.metadata)
+
+
 def fits(source: pa.Schema, target: pa.Schema) -> list[str]:
     """Why rows of ``source`` can't be added to a table of ``target`` as they are (empty: they can).
 

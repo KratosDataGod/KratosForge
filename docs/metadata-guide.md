@@ -141,6 +141,8 @@ Replayed quarantine rows go in the same way.
 
 **Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
 
+Columns are written in the types Fabric reads, as a Local data project writes them. An unsigned integer (a Polars count such as `len()` is one) becomes the next larger signed type, and float16 becomes float. A TIME, an INTERVAL, or a column that is NULL in every row (with no type) stops the load before anything is written, with a message naming the table and column and saying how to cast it. When rows are appended, a column that is NULL in every row takes the table's type.
+
 ### Late rows and source deletes (Preview)
 
 These are settings in your entity files, not a screen, so **Settings > Preview features** has nothing to hide for them.

@@ -10,7 +10,7 @@ function nbvGroups(versions, today = new Date()) {
   const label = (iso) => {
     const d = new Date(iso);
     const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
-    return days === 0 ? "Today" : days === 1 ? "Yesterday" : d.toLocaleDateString();
+    return days === 0 ? "Today" : days === 1 ? "Yesterday" : dateText(d);
   };
   const out = [];
   for (const v of versions) {

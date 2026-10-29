@@ -65,7 +65,7 @@ import json
 import re
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable, cast
 from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
@@ -2983,7 +2983,7 @@ def call_once(db: Db, call_id: str, operation: str, args: dict[str, Any] | None 
     args = dict(args or {})
     if "by" in args:
         raise PlatformError("Who makes a change is the caller, never an argument")
-    fn = OPERATIONS[op]
+    fn = cast(Callable[..., Any], OPERATIONS[op])  # OPERATIONS is built below this function
     takes_by = "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]
     who = _who(by)
     calls = db.t("catalog", "call")

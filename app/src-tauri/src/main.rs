@@ -2080,6 +2080,47 @@ fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
         .unwrap()
 }
 
+
+/// The Power BI embed host (Embed Studio, PBE-03; docs/architecture/power-bi-embedding.md). Microsoft's
+/// powerbi-client SDK needs a page that frames app.powerbi.com, and the main window's policy frames no
+/// remote site. So the shell serves the host page from this scheme (`http://pbiembed.localhost` on
+/// Windows), to the main window only, with a policy of its own: its own scripts and styles, frames only
+/// from app.powerbi.com, no fetches. The main window's `frame-src` adds only this scheme. The page takes
+/// a fixed list of commands from the main window by postMessage (embed-host/host.js). Its origin isn't the
+/// app's, so the Tauri API refuses it like any remote page.
+const EMBED_SCHEME: &str = "pbiembed";
+const EMBED_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
+    frame-src https://app.powerbi.com; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'; \
+    frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost";
+
+/// The host's files, built into the exe: the page, its script and style, and the vendored SDK.
+fn embed_host_file(path: &str) -> Option<(&'static str, &'static [u8])> {
+    match path {
+        "/host.html" => Some(("text/html; charset=utf-8", include_bytes!("../embed-host/host.html"))),
+        "/host.js" => Some(("text/javascript; charset=utf-8", include_bytes!("../embed-host/host.js"))),
+        "/host.css" => Some(("text/css; charset=utf-8", include_bytes!("../embed-host/host.css"))),
+        "/vendor/powerbi.min.js" => Some(("text/javascript; charset=utf-8", include_bytes!("../embed-host/vendor/powerbi.min.js"))),
+        _ => None,
+    }
+}
+
+/// A host file, for the app's own window only: the Fabric view and the pop-out windows get nothing.
+fn embed_host(webview: &str, path: &str) -> tauri::http::Response<Vec<u8>> {
+    let builder = tauri::http::Response::builder();
+    match (webview, embed_host_file(path)) {
+        ("main", Some((kind, body))) => builder
+            .header("Content-Type", kind)
+            .header("Content-Security-Policy", EMBED_CSP)
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Referrer-Policy", "no-referrer")
+            .header("Cache-Control", "no-store")
+            .body(body.to_vec())
+            .unwrap(),
+        ("main", None) => builder.status(404).body(Vec::new()).unwrap(),
+        _ => builder.status(403).body(Vec::new()).unwrap(),
+    }
+}
+
 /// A kratosforge:// link the app was started with, waiting for the page to ask for it (the page
 /// isn't listening yet when the app starts).
 struct PendingLink(Mutex<Option<String>>);
@@ -2170,6 +2211,7 @@ fn main() {
         })
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default(), installing: Default::default() })
         .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
+        .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
@@ -2496,5 +2538,57 @@ mod fabric_nav_tests {
         assert_eq!(with("http://adfs.contoso.com/adfs/ls/"), FabricNav::Refuse);
         // Without the policy, the same host leaves the view.
         assert_eq!(nav("https://adfs.contoso.com/adfs/ls/"), FabricNav::Browser);
+    }
+}
+
+#[cfg(test)]
+mod embed_host_tests {
+    use super::*;
+
+    fn header(r: &tauri::http::Response<Vec<u8>>, name: &str) -> String {
+        r.headers().get(name).map(|v| v.to_str().unwrap().to_string()).unwrap_or_default()
+    }
+
+    #[test]
+    fn the_main_window_gets_each_host_file_with_the_host_policy() {
+        for path in ["/host.html", "/host.js", "/host.css", "/vendor/powerbi.min.js"] {
+            let r = embed_host("main", path);
+            assert_eq!(r.status(), 200, "{path}");
+            assert!(!r.body().is_empty(), "{path}");
+            assert_eq!(header(&r, "Content-Security-Policy"), EMBED_CSP);
+            assert_eq!(header(&r, "X-Content-Type-Options"), "nosniff");
+        }
+        assert!(header(&embed_host("main", "/host.html"), "Content-Type").starts_with("text/html"));
+    }
+
+    #[test]
+    fn other_webviews_and_other_paths_get_nothing() {
+        for view in ["fabric", "fabric-pop-out", "pop-out-runs", "pop-out-fabric", ""] {
+            let r = embed_host(view, "/host.html");
+            assert_eq!(r.status(), 403, "{view}");
+            assert!(r.body().is_empty());
+        }
+        for path in ["/", "/index.html", "/host.html/", "/../host.html", "/vendor/", "/HOST.HTML", "/vendor/powerbi.js"] {
+            assert_eq!(embed_host("main", path).status(), 404, "{path}");
+        }
+    }
+
+    #[test]
+    fn the_host_policy_frames_only_power_bi_and_fetches_nothing() {
+        let parts: Vec<&str> = EMBED_CSP.split(';').map(str::trim).collect();
+        assert!(parts.contains(&"default-src 'none'"));
+        assert!(parts.contains(&"frame-src https://app.powerbi.com"));
+        assert!(parts.contains(&"connect-src 'none'"));
+        assert!(parts.contains(&"script-src 'self'"));
+        assert!(!EMBED_CSP.contains("unsafe"), "no inline or eval in the host");
+    }
+
+    #[test]
+    fn the_main_window_frames_the_host_scheme_but_never_power_bi_itself() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let frames = conf["app"]["security"]["csp"]["frame-src"].as_str().unwrap();
+        assert!(frames.split_whitespace().any(|s| s == "http://pbiembed.localhost"));
+        assert!(!frames.contains("powerbi.com"), "{frames}");
+        assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
     }
 }

@@ -61,7 +61,8 @@ The main window's policy is set in `app/src-tauri/tauri.conf.json` (`app.securit
 
 ```
 default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
-connect-src ipc: http://ipc.localhost; frame-src nbout: http://nbout.localhost https://nbout.localhost;
+connect-src ipc: http://ipc.localhost; frame-src nbout: http://nbout.localhost https://nbout.localhost
+  pbiembed: http://pbiembed.localhost https://pbiembed.localhost;
 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
@@ -69,9 +70,25 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 - **Styles:** `styles.css`, plus the code editor's `<style>` element, which carries the nonce Tauri adds to `style-src` on each load. Inline style attributes aren't allowed; the UI sets styles through the DOM (`element.style`), which the policy doesn't restrict. No `'unsafe-inline'`.
 - **Images:** the app's own files and `data:` (notebook charts). Nothing is loaded from the internet.
 - **Connections:** only the shell (Tauri's IPC). The UI never calls the engine's local HTTP API or any web address; the engine makes every network call.
-- **Frames:** only notebook HTML output. The Fabric view (Monitoring hub, OneLake catalog, Fabric's sign-in) is a separate webview, not a frame, so this policy doesn't apply to it; app sign-in runs in the engine and the system browser.
+- **Frames:** only notebook HTML output and the Power BI embed host (below), both served by the shell. No remote site. The Fabric view (Monitoring hub, OneLake catalog, Fabric's sign-in) is a separate webview, not a frame, so this policy doesn't apply to it; app sign-in runs in the engine and the system browser.
 
 Notebook HTML output comes from whoever wrote the notebook, so it never runs in the app's origin. The shell serves a small frame page from its `nbout:` scheme (`http://nbout.localhost` on Windows), for the main window only. The page loads it in an `<iframe sandbox="allow-scripts">` without `allow-same-origin`, posts it the HTML, and the frame writes the HTML into itself. The frame keeps its own policy: inline scripts and styles (and `eval`, which some charting libraries use) are allowed, because the output needs them and can reach nothing; images, fonts and media only as `data:` or `blob:`; `default-src 'none'`, so no fetches, beacons or remote resources. A content security policy doesn't cover WebRTC, so script in a notebook written to leak data could still send it out through a WebRTC connection; treat a notebook from someone you don't trust like a script you were sent. Its origin is opaque and it never receives the shell's invoke key, so it can't call the Tauri API, and the main window's `frame-src` stops it from navigating itself to another site. HTML output that loads its scripts from the internet (Plotly with `include_plotlyjs="cdn"`, for example) shows nothing; the engine's own Plotly output inlines plotly.js. Altair charts reach the frame as their Vega-Lite spec, written into the frame's script with every `<` escaped, together with the Vega libraries the app ships (`app/ui/vendor/vega`), so they draw there and never run in the app's page.
+
+The Power BI embed host (Embed Studio, Preview, not on screen yet: PBE-03 in [Power BI embedding](architecture/power-bi-embedding.md)) is a second frame page the shell serves, from its `pbiembed:` scheme (`http://pbiembed.localhost` on Windows), for the main window only. It holds Microsoft's `powerbi-client` SDK (vendored in `app/src-tauri/embed-host/vendor`, checked against the npm tarball's hash by a test) and has its own policy:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+frame-src https://app.powerbi.com; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none';
+frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost
+```
+
+- It frames `https://app.powerbi.com` and nothing else, and fetches nothing. The SDK posts the person's token to its frame with target origin `*`, so `frame-src` is what keeps that frame, and the token, on Power BI. The host also refuses an embed address on any other host before the SDK sees it.
+- Only the app's own window can frame it (`frame-ancestors`), and the shell serves its files to no other webview.
+- It acts only on a fixed list of commands (embed, new token, pages, change page, reload, full screen, reset), only from its parent window on one of the app's origins, and answers only that origin. Messages from Power BI's frame, or anything else, are ignored.
+- Events go back to the app with every key that looks like a token or secret removed.
+- The token comes from the engine (`pbi_embed_token`, PBE-04) and lives only in memory: the app's window, the host frame and Power BI's frame. It is never written to disk or a log.
+- Its origin isn't the app's, so the Tauri API refuses it like any remote page.
+- Pop-ups from the frame open nothing (checked in WebView2 156, PBE-01). Opening Power BI's links in the default browser comes with the screen.
 
 ## Data copied to this PC
 

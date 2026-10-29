@@ -28,9 +28,20 @@ def saved_policy_in_tmp(monkeypatch, tmp_path):
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
 
 
+@pytest.fixture(autouse=True)
+def no_lakehouse_left_attached(monkeypatch):
+    """The attached lakehouse is the engine's one module global (lakehouse._attached). A test that
+    attaches one would otherwise leave it for every later test, so a notebook test passed or failed
+    depending on which file ran before it."""
+    from fabric_desktop import lakehouse
+    monkeypatch.setattr(lakehouse, "_attached", None)
+
+
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.
+# Under pytest-xdist (CI) os._exit ends only that worker: xdist reports the test as crashed, starts
+# another worker and the run still fails, with the stacks in the log.
 TEST_TIME_LIMIT = float(os.environ.get("FD_TEST_TIME_LIMIT", "300"))
 
 

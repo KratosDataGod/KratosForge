@@ -1210,6 +1210,8 @@ def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -
         if f in fields:
             items = fields[f] if isinstance(fields[f], list) else [x.strip() for x in str(fields[f] or "").split(",")]
             row[f] = json.dumps(sorted({str(x).strip() for x in items if str(x).strip()}))
+    if all(str(row.get(f) or "") == str(current.get(f) or "") for f in fields):
+        return _enrichment_out(current)  # nothing changes: nothing is written or recorded
     row["updated_at"], row["updated_by"] = _now(), by
     _upsert(db, "catalog", "enrichment", "target", row)
     _audit(db, by, "enrich", target, {k: fields[k] for k in fields})

@@ -1358,6 +1358,11 @@ def test_catalog_text_is_saved_by_the_projects_members_and_certified_by_its_doma
     bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "", "description": "Customers"})
     with pytest.raises(core.PlatformError, match="Only crm's members"):
         olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "description": "Mine"})
+    audit = lambda: [a for a in platform.call("audit") if a["action"] == "enrich"]  # noqa: E731
+    seen = audit()
+    eve.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})  # unchanged: writes nothing
+    assert audit() == seen
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["updated_by"] == "bo@example.com"
     olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})  # not a member: certifying only
     assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["certified"] == "yes"
     with pytest.raises(core.PlatformError, match="Only the owners of crm's domain"):

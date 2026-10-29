@@ -299,20 +299,47 @@ def test_a_sql_cell_hands_back_its_whole_result_typed_from_sparks_schema():
     assert ".limit(11)" in sent["code"] and "table" not in r.as_dict()
 
 
-def test_the_query_goes_in_as_a_string_literal_only():
-    query = "SELECT '\\'); import os; os.system(\"x\") #' AS q"
-    code = fs._result_code(query, 5)
-    seen = {}
+def _run_result_code(code, fields, rows):
+    """Run a generated result statement against fakes of spark and pyspark.sql.functions."""
+    import sys
+    import types
+    seen = {"selected": []}
+    F = types.ModuleType("pyspark.sql.functions")
+    F.col = lambda c: ("col", c)
+    for name, mod in (("pyspark", types.ModuleType("pyspark")), ("pyspark.sql", types.ModuleType("pyspark.sql"))):
+        sys.modules.setdefault(name, mod)
+    sys.modules["pyspark.sql"].functions = F
+
+    class Field:
+        def __init__(self, name, t):
+            self.name, self.dataType = name, type("T", (), {"simpleString": lambda _self, t=t: t})()
 
     class Df:
-        schema = type("S", (), {"fields": []})()
+        schema = type("S", (), {"fields": [Field(n, t) for n, t in fields]})()
+        columns = [n for n, _ in fields]
+
+        def toDF(self, *names):
+            seen["renamed"] = list(names)
+            return self
+
+        def select(self, cols):
+            seen["selected"] = [c.alias_name if hasattr(c, "alias_name") else c for c in cols]
+            return self
 
         def limit(self, n):
             seen["limit"] = n
             return self
 
         def collect(self):
-            return []
+            return rows
+
+    class Aliased(tuple):
+        def alias(self, name):
+            out = Aliased(self)
+            out.alias_name = (*self, name)
+            return out
+
+    F.date_format = lambda c, fmt: Aliased(("date_format", c, fmt))
 
     class Spark:
         def sql(self, text):
@@ -320,9 +347,41 @@ def test_the_query_goes_in_as_a_string_literal_only():
             return Df()
 
     printed = []
-    exec(code, {"spark": Spark(), "print": printed.append})   # noqa: S102 - the generated statement, on fakes
-    assert seen == {"sql": query, "limit": 6}
-    assert json.loads(printed[0]) == {"mark": fs.RESULT_MARK, "fields": [], "rows": []}
+    scope = {"spark": Spark(), "print": printed.append}
+    old = sys.modules.get("pyspark.sql.functions")
+    sys.modules["pyspark.sql.functions"] = F
+    try:
+        exec(code, scope)   # noqa: S102 - the generated statement, on fakes
+    finally:
+        if old is None:
+            sys.modules.pop("pyspark.sql.functions", None)
+        else:
+            sys.modules["pyspark.sql.functions"] = old
+    return seen, json.loads(printed[0]), scope
+
+
+def test_the_query_goes_in_as_a_string_literal_only():
+    query = "SELECT '\\'); import os; os.system(\"x\") #' AS q"
+    seen, printed, scope = _run_result_code(fs._result_code(query, 5), [], [])
+    assert seen["sql"] == query and seen["limit"] == 6
+    assert printed == {"mark": fs.RESULT_MARK, "fields": [], "rows": []}
+
+
+def test_timestamps_are_formatted_by_spark_and_the_session_namespace_is_left_clean():
+    fields = [["id", "bigint"], ["at", "timestamp"], ["id", "string"]]
+    seen, printed, scope = _run_result_code(fs._result_code("SELECT 1", 5), fields, [[1, "2024-01-01 10:00:00.000000", "x"]])
+    assert seen["renamed"] == ["c0", "c1", "c2"]   # duplicate names can't clash
+    assert seen["selected"] == [("col", "c0"), ("date_format", "c1", "yyyy-MM-dd HH:mm:ss.SSSSSS", "c1"), ("col", "c2")]
+    assert printed["fields"] == fields and printed["rows"] == [["1", "2024-01-01 10:00:00.000000", "x"]]
+    assert not [k for k in scope if k.startswith("_kf_")]
+
+
+def test_columns_kept_as_text_are_named():
+    livy = FakeLivy()
+    livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": [["d", "date"], ["n", "bigint"]],
+                                   "rows": [["not a date", "1"]]})
+    r = open_session(livy).execute(CellRequest("SELECT d, n FROM t", "sql", result_rows=10))
+    assert r.status == "ok" and r.outputs[0] == {"type": "stream", "text": "Kept as text: d (date).\n"}
 
 
 def test_more_rows_than_asked_for_is_an_error():
@@ -359,3 +418,7 @@ def test_a_value_that_doesnt_read_as_its_type_stays_text():
     r = open_session(livy).execute(CellRequest("SELECT d, tags FROM t", "sql", result_rows=10))
     assert r.status == "ok" and r.table.column("d").to_pylist() == ["not a date"]
     assert str(r.table.schema.field("tags").type) == "string"
+
+
+def test_the_result_note_says_the_cap():
+    assert "256 MB" in fs.FABRIC_SPARK.capability("result").note

@@ -79,8 +79,9 @@ FABRIC_SPARK = EngineDescriptor(
                         "not per cell. An open session uses capacity units until it ends."),
         "compat": Support("partial", "The cell's language is checked before sending; Spark checks the code.", _T),
         "result": Support("partial", "SQL cells only, one query. Spark sends the rows as JSON with its schema and "
-                          "this PC types them back; nested types (arrays, maps, structs) and binary come back as "
-                          f"text. More rows than asked for, or over {RESULT_BYTES // 2**20} MB, is an error. "
+                          "this PC types them back; timestamps as the session's time zone shows them; nested types "
+                          "(arrays, maps, structs) and binary come back as text, and the cell says which. "
+                          f"More rows than asked for, or over {RESULT_BYTES // 2**20} MB, is an error. "
                           "The rows are copied onto this PC.", _T),
     },
     requirements=("A Fabric workspace on a capacity, and Contributor on it", "A lakehouse for the session",
@@ -183,13 +184,22 @@ def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, 
 
 def _result_code(query: str, rows: int) -> str:
     """A PySpark statement that runs one Spark SQL query and prints its result as JSON: at most
-    ``rows`` + 1 rows, so "more than asked for" is known without collecting everything."""
+    ``rows`` + 1 rows, so "more than asked for" is known without collecting everything.
+
+    Timestamps are formatted by Spark in the session's time zone, so they read as the query shows
+    them; collect() would turn them into the driver's local time. Columns are renamed c0, c1... first,
+    so duplicate or odd names can't clash. The statement's own names are deleted at the end."""
     return ("import json as _kf_json\n"
+            "from pyspark.sql import functions as _kf_F\n"
             f"_kf_df = spark.sql({query!r})\n"
+            "_kf_fields = [[f.name, f.dataType.simpleString()] for f in _kf_df.schema.fields]\n"
+            "_kf_df = _kf_df.toDF(*['c%d' % i for i in range(len(_kf_fields))]).select(["
+            "_kf_F.date_format('c%d' % i, 'yyyy-MM-dd HH:mm:ss.SSSSSS').alias('c%d' % i) "
+            "if t in ('timestamp', 'timestamp_ntz') else _kf_F.col('c%d' % i) for i, (n, t) in enumerate(_kf_fields)])\n"
             f"_kf_rows = _kf_df.limit({int(rows) + 1}).collect()\n"
-            f"print(_kf_json.dumps({{'mark': {RESULT_MARK!r}, "
-            "'fields': [[f.name, f.dataType.simpleString()] for f in _kf_df.schema.fields], "
-            "'rows': [[None if v is None else str(v) for v in r] for r in _kf_rows]}))\n")
+            f"print(_kf_json.dumps({{'mark': {RESULT_MARK!r}, 'fields': _kf_fields, "
+            "'rows': [[None if v is None else str(v) for v in r] for r in _kf_rows]}))\n"
+            "del _kf_json, _kf_F, _kf_df, _kf_fields, _kf_rows\n")
 
 
 def _arrow_type(spark_type: str) -> Any:
@@ -206,8 +216,9 @@ def _arrow_type(spark_type: str) -> Any:
     return pa.string()
 
 
-def _result_table(text: str, result_rows: int) -> pa.Table:
-    """The table a result statement printed. Raises when it has more rows or bytes than allowed."""
+def _result_table(text: str, result_rows: int) -> tuple[pa.Table, list[str]]:
+    """The table a result statement printed, and the columns kept as text (with their Spark type).
+    Raises when it has more rows or bytes than allowed."""
     import pyarrow as pa
 
     from .local_sql import _too_big, _too_many
@@ -223,14 +234,17 @@ def _result_table(text: str, result_rows: int) -> pa.Table:
     fields, rows = printed.get("fields") or [], printed.get("rows") or []
     if len(rows) > result_rows:
         raise _too_many(result_rows)
-    columns = {}
+    columns, as_text = {}, []
     for i, (name, spark_type) in enumerate(fields):
         values = pa.array([r[i] for r in rows], pa.string())
+        target = _arrow_type(str(spark_type))
         try:
-            columns[str(name)] = values.cast(_arrow_type(str(spark_type)))
+            columns[str(name)] = values.cast(target)
         except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            columns[str(name)] = values   # kept as text when a value doesn't read as its type
-    return pa.table(columns) if columns else pa.table({})
+            columns[str(name)], target = values, pa.string()   # a value that doesn't read as its type
+        if target == pa.string() and spark_type != "string":
+            as_text.append(f"{name} ({spark_type})")
+    return (pa.table(columns) if columns else pa.table({})), as_text
 
 
 class FabricSparkSession:
@@ -334,10 +348,11 @@ class FabricSparkSession:
         from .local_sql import ResultTooLarge, _table_output
         text = str((output.get("data") or {}).get("text/plain") or "")
         try:
-            table = _result_table(text, request.result_rows)
+            table, as_text = _result_table(text, request.result_rows)
         except (ResultTooLarge, FabricSparkError) as exc:
             return [{"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}], None, None, "error"
-        return [_table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
+        note = [{"type": "stream", "text": f"Kept as text: {', '.join(as_text)}.\n"}] if as_text else []
+        return [*note, _table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
 
     def cancel(self) -> bool:
         if not self._lock.locked():

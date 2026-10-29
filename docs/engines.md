@@ -273,7 +273,8 @@ its own SQL, so a query and its translation can be checked against each other.
 - A remote engine's result would be copied onto this PC. That never happens on its own: the caller
   asks you first, and approving the session itself doesn't count. Fabric Spark is the only remote
   engine that returns whole results so far, for SQL cells: Spark sends the rows as JSON with its
-  schema, and this PC types them back. Nested types and binary come back as text.
+  schema, and this PC types them back. Timestamps read as the session's time zone shows them.
+  Nested types and binary come back as text, and the cell says which columns.
 - Both results stay in memory and are gone when the comparison is returned. Nothing is written.
 
 ## Remote compute needs your say-so

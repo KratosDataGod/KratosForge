@@ -541,3 +541,20 @@ def test_a_lookback_change_is_not_a_logic_change(tmp_path):
     before = Project(s.root).entities["bronze.events"].logic_hash()
     s.write_entity('lookback = "2 hours"')
     assert Project(s.root).entities["bronze.events"].logic_hash() == before
+
+
+def test_a_kept_column_a_load_leaves_empty_keeps_its_type_next_to_marked_rows(tmp_path):
+    """Soft deletes with PB-031's fit: the new rows take the table's types before the marked rows join them."""
+    new, old = both(tmp_path, load='deletes = "soft"\nmax_deletes = "50%"')
+    for s in (new, old):
+        write_deltalake(str(s.src), rows([1, 2, 3], at(10)).with_columns(pl.lit(7, dtype=pl.Int64).alias("score")).to_arrow(),
+                        mode="overwrite", schema_mode="overwrite")
+        s.run()
+        assert s.table().schema["score"] == pl.Int64
+        empty = rows([1, 3], at(11)).with_columns(pl.lit(None, dtype=pl.String).alias("score"))
+        write_deltalake(str(s.src), empty.to_arrow(), mode="overwrite", schema_mode="overwrite")
+        res = s.engine(DAY2).run("bronze.events")
+        assert res.status == "ok", res.message
+        t = s.table()
+        assert t.schema["score"] == pl.Int64 and t["is_deleted"].to_list() == [False, True, False]
+        assert t["score"].to_list() == [None, 7, None]  # the marked row keeps its value

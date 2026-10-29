@@ -678,6 +678,8 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
         rename = s.get("source", {}).get("rename", {})
         if not isinstance(rename, dict) or not all(isinstance(v, str) for v in rename.values()):
             errors.append(f'{e.name}: source rename maps a source column to a contract column, like {{ cust_id = "customer_id" }}')
+        if not isinstance(s.get("contract", {}).get("overwrite_schema", False), bool):
+            errors.append(f"{e.name}: contract overwrite_schema is true or false")
 
         # No mixing: never read a later layer; the same layer only when the layer allows it.
         me = project.layer_index(e.layer)

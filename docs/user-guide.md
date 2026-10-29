@@ -76,6 +76,7 @@ Some pages add their own keys to the list while you're on them: **Ctrl+S** saves
 The bell keeps a list of what happened in this app on this PC:
 
 - **Runs that are still going**, including ones in Fabric. It follows a Fabric run until it ends, even if you go to another page, and tells you how it ended.
+  A running Fabric job this app started has **Cancel run** ([Preview](#cancel-a-fabric-run-preview)).
 - **Results you can reopen**, such as the result of a Run all.
 - **Every error**, explained in a sentence ("Your sign-in expired", "You don't have permission for that in this workspace"), with the technical text folded under **Details**. When you report a problem, the most recent errors are included for you.
 
@@ -261,7 +262,7 @@ Click an item's row (not its name) to see it in a panel on the right, without le
 | You click | The panel shows |
 | --- | --- |
 | A table | Its first 100 rows, its column types (the **Schema** tab) and its row count, read on this PC from OneLake |
-| A data file (CSV, TSV, Parquet, JSON) | Its first 100 rows. Files over 200 MB aren't downloaded for a preview |
+| A data file (CSV, TSV, Parquet, JSON) | Its first 100 rows. Files over 200 MB aren't downloaded for a preview, and a previewed file is deleted from this PC as soon as its rows are read |
 | A text file (txt, md, py, sql, yaml and similar) | The start of the file |
 | A notebook | Its cells, read only, from its Fabric definition. Outputs aren't shown, since Fabric keeps them with each run |
 | A lakehouse | Its tables and files. Click one to preview it; **Back** returns to the lakehouse |
@@ -432,7 +433,7 @@ A policy's **Where it applies** tab lists its exceptions in force. One that ends
 
 **Platform > Governance > Templates** lists reusable policy definitions: four **Built in** ones (table names, product owners, sensitive column labels and a data contract) and your organization's own (**Yours**). A platform admin chooses **Use** to make a policy draft from one, and any policy can be saved with **Save as template** from its page. Platform admins add templates, and can let domain owners add them too.
 
-**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. It is warn only: nothing is blocked. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
+**Platform > Governance > Check this project** checks the open metadata project against the policies in force for it. **Check now** runs on this PC and lists what to look at, with a fix where a safe one exists (**Label it**) or a link to where to fix it. Check now stops nothing; a promote stops on a finding of a **Block** policy that no exception covers. A finding an approved exception covers says **Excepted until <date>: <why>**, and **Ask for an exception** sends the request. A data product's page (Data mesh > Products) also shows its **Checklist**. Details in [Governance policies](governance.md#best-practices-checks-and-templates-preview).
 
 ## Fabric
 
@@ -452,7 +453,7 @@ The portal used to have its own page in the left rail; that place now holds [Opt
 What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize and the central lakehouse](optimize/README.md).
 
 - Until this PC is connected to an optimization lakehouse, the line under the title says results are from this PC only, and the buttons at the top right share them with your team: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
-- **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
+- **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements. Before this PC is connected to an optimization lakehouse, **Recommended improvements** lists what this PC's last [Estate X-ray](#estate-x-ray-preview) scan found, most severe first, up to five, each with the X-ray's own fix (**Optimize**, **Vacuum**, **Open notebook**, **Open in Fabric**, **Review access** or **See cost**). **Optimize** and **Vacuum** ask first, as they do on Home, and a started fix shows as submitted. It reads the saved scan and never starts one; scan from Home.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
 - **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (estimated from Fabric runs of the same table, never from their time on this PC; Not known when the table hasn't run in Fabric in the last 90 days), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
 - **Settings history** (Preview): what your capacity and tenant settings were at each read, and what changed between two reads, kept in the central lakehouse. **Read capacities now** reads the capacities you can see, and with **Include capacity overrides (administrators)** ticked, a Fabric administrator also reads the tenant settings each capacity overrides; **Read tenant settings (administrators)** needs a Fabric administrator. The first read asks before it creates the tables. Who changed a setting, and exactly when, aren't known. See [Settings history tab](optimize/README.md#settings-history-tab).
@@ -473,6 +474,10 @@ Monitor has a tab for each source: **KratosForge** and **Fabric**. Another sourc
   - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
 
 **Fabric** has two pages: **Monitoring hub**, Fabric's own Monitoring hub for everything in your workspaces, on the whole page, with **Back**, **Home**, **Reload** and **Open in browser** on the view row; and **Schedules** (Preview), the schedules in Fabric's own job scheduler, with how their last run went, **On/Off**, **Open** and **Remove** (which deletes the schedule in Fabric; past runs stay). Fabric schedules run on capacity even when your PC is off.
+
+### Cancel a Fabric run (Preview)
+
+A Fabric job this app started that is still running has **Cancel** on its row in **Runs** and **Cancel run** in the bell. Both ask first: the confirmation names the run and the workspace, and the safe choice, **Keep running**, has the focus. Cancelling asks Fabric to stop the job. Fabric stops it in its own time, so the row reads **Cancelling…** until Fabric reports **Cancelled**; the bell then shows **Cancelled**, which isn't counted as a problem. What the job already wrote stays written, and the capacity it used so far is still used. A cancelled run can't be resumed: run it again to start over. Cancelling works even when a policy turns runs in Fabric off. Jobs that this app didn't start aren't listed, so they have no Cancel here; stop them in Fabric's Monitoring hub on the **Fabric** tab.
 
 ### Pipeline runs in Monitor (Preview)
 
@@ -749,7 +754,7 @@ The one list of Preview features, with where each one is, is on the [documentati
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses, your Windows user name in paths, and tenant, workspace and item ids. You can read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 

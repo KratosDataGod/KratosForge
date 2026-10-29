@@ -1232,7 +1232,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1359,6 +1359,17 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.strictEqual(fabric.text, "No environment");
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
+});
+
+test("Monitor > Runs calls a job file's run a job run, not a notebook write (PB-079)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function historyKind\([\s\S]*?\n}\n/)[0]}; this.historyKind = historyKind;`, ctx);
+  assert.strictEqual(ctx.historyKind({ job: "Notebook write to Sales" }), "Notebook write");
+  assert.strictEqual(ctx.historyKind({ job: "daily_sales" }), "Job run");
+  assert.strictEqual(ctx.historyKind({}), "Job run");
+  assert.match(src, /activity: r\.job, kind: historyKind\(r\)/);
+  assert.doesNotMatch(src, /kind: "Notebook write"/);
 });
 
 test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
@@ -3240,6 +3251,22 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
+test("sizes read the same on every page", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function sizeText\([\s\S]*?\n}\n/)[0]}; this.f = sizeText;`, ctx);
+  const cases = [[0, "0 B"], [17, "17 B"], [1023, "1023 B"], [1024, "1.0 KB"], [2048, "2.0 KB"], [1.5 * 1024 ** 2, "1.5 MB"],
+    [99.5 * 1024 ** 2, "99.5 MB"], [212 * 1024 ** 2, "212 MB"], [1023.97 * 1024, "1.0 MB"], [1.1 * 1024 ** 3, "1.1 GB"],
+    [5 * 1024 ** 4, "5.0 TB"], ["2048", "2.0 KB"], [-1, ""], [null, ""], [undefined, ""], ["", ""], [NaN, ""]];
+  for (const [n, want] of cases) assert.strictEqual(ctx.f(n), want, String(n));
+  // Side by side keeps decimal sizes for uploads, beside the decimal MB/s of the line they went over.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
+    assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
 // L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
 // red, and the Resources tab keeps its snippets under the files.
 test("notebook resource names, sizes and the Resources tab", () => {
@@ -3247,8 +3274,8 @@ test("notebook resource names, sizes and the Resources tab", () => {
   const ctx = {};
   vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
 ${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
-${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
-this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = sizeText;`, ctx);
   for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
   for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
     assert.notStrictEqual(ctx.problem(bad), "", bad);
@@ -4656,7 +4683,8 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
   vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.api = { renderQueryProfile, qprofileText, qprofileBytes };", ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0] + src +
+    "\nthis.api = { renderQueryProfile, qprofileText, sizeText };", ctx);
   const o = { frame: "f", spark: true };
   const box = ctx.api.renderQueryProfile(o);
   assert.strictEqual(calls.length, 0, "nothing runs until asked");
@@ -4688,7 +4716,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
   allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Run again")).attrs.onclick();
   await new Promise((r) => setImmediate(r));
   assert.match(text(box), /Run the cell again/);
-  assert.strictEqual(ctx.api.qprofileBytes(1.1 * 1024 ** 3), "1.1 GB");
+  assert.strictEqual(ctx.api.sizeText(1.1 * 1024 ** 3), "1.1 GB");
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /o\.frame && o\.spark \? seg\("qprofile", "Query profile"\) : null/);
   assert.match(nb, /previewMarked\("queryProfile"/);
@@ -4744,7 +4772,7 @@ test("Share adds another notebook to this session, and a notebook that shares on
     { notebook: "Customer churn", process: true, status: "idle", pid: 11, memory_bytes: 1, cells_run: 1, last_used: 1, active: false, shared_with: [] }] };
   const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     preview: (_id, n) => n, previewMarked: (_id, n) => n, toast: (t) => toasts.push(t), attempt: (fn) => fn(),
-    when: String, formatBytes: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
+    when: String, sizeText: String, go: () => {}, openNotebook: () => {}, renderNotebook: () => {},
     closeDialog: () => {}, showDialog: (title, body) => dialogs.push(body),
     confirmDialog: async (title, text, ok, opts) => { confirms.push([title, text, ok, opts.danger]); return true; },
     openNotebooks: new Map([["Sales cleanup", {}], ["Sales report", {}]]), state: { notebook: { name: "Sales cleanup" }, view: "notebook" },
@@ -5121,7 +5149,7 @@ test("Files on this PC says what local writes hold and where", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`${meta.match(/function formatBytes\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
+  vm.runInNewContext(`${fs.readFileSync(path.join(ui, "app.js"), "utf8").match(/function sizeText\([\s\S]*?\n}\n/)[0]}${src.match(/function localWritesText\([\s\S]*?\n}\n/)[0]}; this.f = localWritesText;`, ctx);
   assert.strictEqual(ctx.f({ files: 0, folder: "C:\\x\\staging", uploading: { files: 0 } }), "Empty · C:\\x\\staging");
   assert.strictEqual(ctx.f({ files: 2, bytes: 3 * 1024 ** 3, folder: "C:\\x\\staging", uploading: { files: 2, bytes: 3 * 1024 ** 3 } }),
     "3.0 GB in 2 files, 2 waiting to upload or left over (3.0 GB) · C:\\x\\staging");
@@ -5247,4 +5275,70 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(run, /riskGate\(\{ id: `fabric:\$\{j\.workspace_id\}:\$\{j\.id\}`, action: "run_item"/, "Run now spends capacity: the risk check comes first");
   assert.match(confirm, /central \? landsIn\(r\.lands_in, central\)/, "the approver sees the zone and lakehouse it lands in");
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
+});
+
+// PB-078: every feature the docs call Preview is one Settings > Preview features knows (an id in
+// PREVIEW_FEATURES), or the docs say why it has none: it has no screen yet, or it's a setting in a
+// file rather than a screen, which show_preview can't hide.
+test("every feature the docs call Preview has a Preview id, or the docs say why not", () => {
+  const root = path.join(__dirname, "..", "..");
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
+  // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
+  const BY_ID = {
+    validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
+    sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
+    debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
+    fabricRun: ["Run in Fabric and schedules", "W6 Publish or run a notebook in Fabric"], notebookRuns: ["Recent runs", "Notebook runs"],
+    sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
+    notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
+    incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
+    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
+    pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
+      "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
+    pipelineRuns: ["Pipeline runs in Monitor"], cancelFabricRun: ["Cancel a Fabric run"], sourceControl: ["Source control"], profile: ["Profile"],
+    platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
+      "Platform notices", "Semantic model rules"],
+    mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
+    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+    lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
+    bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
+    updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
+  };
+  // A "(Preview)" heading with no id, and the words in its own page that say why.
+  const NO_ID = {
+    "Reliability objectives": ["docs/metadata-guide.md", /settings in your project files rather than screens/],
+    "Late rows and source deletes": ["docs/metadata-guide.md", /settings in your entity files, not a screen/],
+    "Schema changes": ["docs/metadata-guide.md", /how runs treat a table's schema, not a screen of its own/],
+    "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
+    "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
+    "Local data projects": ["docs/local-data.md", /the screens for it come next/],
+    "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
+    "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
+    "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+  };
+  const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
+  for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (["product", "quality"].includes(e.name) ? [] : walk(path.join(dir, e.name))) : e.name.endsWith(".md") ? [path.join(dir, e.name)] : []);
+  const missing = [];
+  for (const file of walk(path.join(root, "docs"))) {
+    for (const [, name] of fs.readFileSync(file, "utf8").matchAll(/^#+ (.+?) \(Preview\)\s*$/gm)) {
+      if (!idOf.has(name) && !NO_ID[name]) missing.push(`${path.relative(root, file)}: ${name}`);
+    }
+  }
+  assert.deepStrictEqual(missing, [], "each (Preview) heading needs an id in BY_ID, or a NO_ID reason its page gives");
+  for (const [name, [file, why]] of Object.entries(NO_ID)) {
+    assert.match(fs.readFileSync(path.join(root, file), "utf8"), why, `${file} says why ${name} has no Preview id`);
+  }
+  // The ones PB-078 named: batch_by and objectives are project settings, the rest have ids.
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"),
+    /settings in your project files rather than screens, such as reading \*\*in batches\*\* \(`batch_by`\), \[reliability objectives\]/);
+  for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
+  assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
 });

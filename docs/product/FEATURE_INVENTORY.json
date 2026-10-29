@@ -222,7 +222,7 @@
     {
       "id": "FEAT-SHL-05",
       "name": "Preview tags and hiding Preview features",
-      "description": "Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.",
+      "description": "Features not tried on a live tenant carry a Preview tag (71 ids) and can be hidden in Settings or by policy.",
       "pillar": "Platform foundation",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -236,6 +236,10 @@
         {
           "kind": "code",
           "ref": "app/ui/features.js PREVIEW_FEATURES"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs every feature the docs call Preview has a Preview id, or the docs say why not"
         }
       ],
       "source": [
@@ -246,7 +250,8 @@
         "app/tests/ui.test.cjs"
       ],
       "docs": [
-        "docs/README.md"
+        "docs/README.md",
+        "docs/metadata-guide.md"
       ],
       "ui": {
         "surface": "Settings > Preview features",
@@ -254,9 +259,9 @@
       },
       "limitations": [
         "Hiding only hides UI; engine methods stay callable",
-        "Several docs-Preview features have no PREVIEW_FEATURES id"
+        "Preview settings in project and agent files (batch_by, objectives, shared schedules) can't be hidden: the docs say so"
       ],
-      "next_action": "Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).",
+      "next_action": "None for Preview ids: a UI test maps every docs (Preview) heading to an id or to the reason its page gives (PB-078).",
       "backlog": [
         "PB-078"
       ],
@@ -335,7 +340,8 @@
         "app/ui/styles.css"
       ],
       "tests": [
-        "app/tests/ui.test.cjs"
+        "app/tests/ui.test.cjs",
+        "app/tests/browser/a11y-audit.test.cjs"
       ],
       "ui": {
         "surface": "Whole app",
@@ -346,9 +352,12 @@
         92
       ],
       "workstream": "Enterprise readiness (FD-139)",
-      "next_action": "Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).",
+      "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
       "backlog": [
         "PB-063"
+      ],
+      "docs": [
+        "docs/ux/accessibility-audit.md"
       ]
     },
     {
@@ -955,13 +964,12 @@
         "preview": true
       },
       "limitations": [
-        "Files download whole into the app data folder and are not cleaned up (inference)",
         "Notebook preview shows no outputs"
       ],
       "prs": [
         43
       ],
-      "next_action": "Clean up downloaded preview files (inference: never removed).",
+      "next_action": "None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).",
       "backlog": [
         "PB-087"
       ]
@@ -1167,21 +1175,30 @@
       "description": "Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.",
       "pillar": "Local development",
       "category": "Fabric Integration and Deployment",
-      "status": "Missing",
+      "status": "Partially Implemented",
       "verification": "Unverified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no Environment item calls in sidecar/fabric_desktop/fabric_api.py"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_environment.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_environment.py",
+          "note": "passed at the PB-016 part 1 head; fakes only, not yet read on a tenant"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/fabric_environment.py",
+        "sidecar/fabric_desktop/environment_service.py",
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Engine and CLI: fabric-desktop env-drift (read only); no screen yet",
+        "preview": true
       },
-      "workstream": "Prove (FD-109)",
-      "next_action": "Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).",
+      "workstream": "Microsoft Fabric",
+      "next_action": "Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).",
       "backlog": [
         "PB-016"
       ]
@@ -1591,7 +1608,7 @@
     {
       "id": "FEAT-ONE-03",
       "name": "OneLake shortcut command center",
-      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests.",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint (one or many), finding a moved lakehouse, accepting a crossed environment, and requests. The agent can check its environments' shortcuts on a schedule and post each break to Teams once (Preview).",
       "pillar": "Enterprise services",
       "category": "Enterprise Shared Services",
       "status": "Implemented",
@@ -1620,22 +1637,26 @@
       "source": [
         "sidecar/fabric_desktop/shortcut_service.py",
         "sidecar/fabric_desktop/shortcut_center.py",
+        "sidecar/fabric_desktop/shortcut_watch.py",
         "app/ui/shortcuts.js"
       ],
       "tests": [
         "sidecar/tests/test_shortcut_center.py",
         "sidecar/tests/test_shortcut_fixes.py",
+        "sidecar/tests/test_shortcut_watch.py",
         "app/tests/browser/shortcut-fixes.test.cjs"
       ],
       "docs": [
-        "docs/shortcuts.md"
+        "docs/shortcuts.md",
+        "docs/agent.md"
       ],
       "ui": {
         "surface": "OneLake > Shortcuts",
         "preview": true
       },
       "limitations": [
-        "No scheduled check or alert",
+        "The scheduled check runs in the agent only (not the desktop app), on the shortcuts of the agent's own environments",
+        "The agent's scheduled check is Preview: not yet run on a live tenant",
         "Approved request creates the shortcut in one lakehouse only",
         "OneLake error codes unseen on a tenant"
       ],
@@ -1643,7 +1664,7 @@
         53,
         595
       ],
-      "next_action": "Scheduled health check with a Teams alert (PB-053).",
+      "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
         "PB-053"
       ]
@@ -2771,7 +2792,7 @@
         "preview": true
       },
       "limitations": [
-        "CPU/memory come from the engine process, not the child kernel (inference)",
+        "With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094)",
         "Fabric CPU/memory not available"
       ],
       "workstream": "Prove (FD-119)",
@@ -2923,6 +2944,11 @@
           "ref": "sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches"
         },
         {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta_late_rows_deletes.py::test_a_late_row_inside_the_lookback_lands_exactly_once",
+          "note": "PB-019: [load] lookback and deletes (soft or hard), MERGE and rewrite paths"
+        },
+        {
           "kind": "smoke",
           "ref": "meta_run env=dev ran every sample entity locally with status ok in under a second"
         }
@@ -2933,7 +2959,8 @@
       ],
       "tests": [
         "sidecar/tests/test_meta.py",
-        "sidecar/tests/test_large_tables.py"
+        "sidecar/tests/test_large_tables.py",
+        "sidecar/tests/test_meta_late_rows_deletes.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
@@ -2943,7 +2970,8 @@
         "preview": false
       },
       "limitations": [
-        "Watermark filter is strictly >, so late rows are dropped",
+        "Watermark filter is strictly > unless [load] lookback is set; rows older than the lookback are still missed",
+        "Source deletes ([load] deletes) are found only on incremental runs of a Delta source with keys, by reading every source key; a run that would delete more than [load] max_deletes (20% of live keys by default) or meets an unreadable source key stops instead",
         "Type 2 source repeating a key fails (plan)"
       ],
       "prs": [
@@ -3146,8 +3174,8 @@
     },
     {
       "id": "FEAT-META-07",
-      "name": "Schema drift review",
-      "description": "Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate.",
+      "name": "Schema drift review and schema evolution",
+      "description": "Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate. Runs add new columns in place, rewrite the table to widen a type, refuse a narrowing or a change of kind unless [contract] overwrite_schema = true (Preview), and record each schema change in meta.schema_history with its Delta version and schema version (Preview).",
       "pillar": "Local development",
       "category": "Data Governance and Quality",
       "status": "Implemented",
@@ -3157,15 +3185,22 @@
           "kind": "test",
           "ref": "sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schema_evolution.py",
+          "note": "PB-031: added columns in place, widening rewrite inside the Fabric-safe profile, narrowing refused without overwrite_schema, versioned schema history; on this PC only"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/meta/drift.py",
+        "sidecar/fabric_desktop/meta/engine.py",
         "sidecar/fabric_desktop/dataops_service.py",
         "app/ui/dataops.js"
       ],
       "tests": [
-        "sidecar/tests/test_dataops.py"
+        "sidecar/tests/test_dataops.py",
+        "sidecar/tests/test_schema_evolution.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
@@ -3175,9 +3210,11 @@
         "preview": false
       },
       "limitations": [
-        "landing and link sources not checked (inference)"
+        "landing and link sources not checked (inference)",
+        "widening a type still rewrites the table: the installed delta-rs (1.6.6) can't write Delta type widening, and Fabric reader support for it is unproven",
+        "not run against OneLake or read by Fabric's SQL analytics endpoint, Direct Lake or Spark"
       ],
-      "next_action": "Cover landing and link sources (inference: not read).",
+      "next_action": "Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table.",
       "backlog": [
         "PB-031"
       ]
@@ -3933,31 +3970,55 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/central/governance_service.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_package.py",
+          "note": "GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/central/policy_package.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_promote_gate.py",
+          "note": "GOV-003: a Block finding no exception covers stops promote and names the policy and finding; Warn and Advisory never do; an exception lets it through and is named; Prod fails closed when the policies can't be read, Test warns"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/central/policy.py",
         "sidecar/fabric_desktop/central/governance_service.py",
-        "app/ui/governance.js"
+        "app/ui/governance.js",
+        "sidecar/fabric_desktop/central/policy_package.py",
+        "sidecar/fabric_desktop/central/checks_service.py",
+        "sidecar/fabric_desktop/cli.py",
+        "sidecar/fabric_desktop/meta_service.py"
       ],
       "tests": [
-        "sidecar/tests/test_governance.py"
+        "sidecar/tests/test_governance.py",
+        "sidecar/tests/test_policy_package.py",
+        "sidecar/tests/test_policy_promote_gate.py"
       ],
       "docs": [
-        "docs/governance.md"
+        "docs/governance.md",
+        "docs/governance-guide.md"
       ],
       "ui": {
         "surface": "None",
         "preview": false
       },
       "limitations": [
-        "GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced"
+        "GOV-001 registry, GOV-002 offline validation and GOV-003 Block at promote are built: a Block finding no exception covers stops promote, and HD-031's \"not enforced yet\" label is removed. Deploy isn't gated by policies",
+        "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken",
+        "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)",
+        "A Prod promote stops whenever the policies can't be read (no platform and no valid package, or a platform error), since it can't tell which are assigned; Test and Dev only warn. A rule that says unknown, and a checker that runs in Fabric, don't stop a promote. It holds for promotes through KratosForge, not for writes in the Fabric portal"
       ],
       "prs": [
         119
       ],
       "workstream": "Enterprise governance foundation",
-      "next_action": "GOV-002 offline validation, after Chris approves",
+      "next_action": "Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it",
       "backlog": [
         "PB-056",
         "PB-057"

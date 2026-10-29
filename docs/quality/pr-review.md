@@ -6,6 +6,14 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #979 28ac3050 | PB-031 schema guard, main merge | PASS at 28ac3050 (carried from b3944c0c) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to b3944c0c. |
+
+| #989 a6c3480c | UDF parity, main merge | PASS at a6c3480c (carried from ec854570) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to ec854570. |
+
+| #992 e7595987 | Typed platform client errors, main merge | PASS at e7595987 (carried from a369c391) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to a369c391. |
+
+| #1003 0030b779 | Typed errors survive wrappers, main merge | PASS at 0030b779 (carried from 4351768b) | 9.2 | Second quality reviewer. Main merged to 1c2ba84b; the change set against main is identical to 4351768b. |
+
 | #993 3e2f0b50 | SF-00 Snowflake connection profiles | PASS at 3e2f0b50 (carried from 7c7285a) | 9.2 | Second quality reviewer. The only change is a test-only Windows key path; the escaped-form check keeps the assertion. 86 passed; ui 301/0 with main merged. Needs Chris's go. |
 
 | #995 d7990305 | SF-04 Snowflake SQL on this PC | PASS at d7990305 (carried from 6538085) | 9.1 | Second quality reviewer. Main merge only; the change set is identical. 118 passed; ui 302/0. Needs Chris's go. |

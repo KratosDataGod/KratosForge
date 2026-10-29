@@ -45,6 +45,7 @@
     poll_seconds = 30
     claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
     take_over = false                     # true: take over requests from an agent that stopped reporting (Preview)
+    require_run = false                   # true: only take requests whose pipeline_run checks out in Fabric (Preview)
 
     [shortcut_health]                     # optional: check the environments' shortcuts, post each break to Teams
     enabled = true                        # off when left out
@@ -129,6 +130,7 @@ class PipelineConfig:
     retention_days: float = 14.0
     claim: str = "always"  # or "when_free": only claim a request while a worker is free
     take_over: bool = False  # take over requests held by an agent that stopped reporting (mailbox.py)
+    require_run: bool = False  # reject requests whose pipeline_run doesn't check out in Fabric (mailbox.py)
 
 
 @dataclass(frozen=True)
@@ -359,7 +361,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
     pipe_envs = [str(e) for e in pipe.get("environments") or envs]
     errors += [f"pipeline.environments: {e} isn't in agent.environments" for e in pipe_envs if e not in envs]
-    for key in ("enabled", "allow_backfill", "take_over"):
+    for key in ("enabled", "allow_backfill", "take_over", "require_run"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")
     pipeline = PipelineConfig(enabled=pipe.get("enabled") is True, environments=pipe_envs,
@@ -367,7 +369,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
-                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True)
+                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True,
+                              require_run=pipe.get("require_run") is True)
     if pipeline.claim not in ("always", "when_free"):
         errors.append('pipeline.claim: "always" or "when_free"')
     for s in schedules:
@@ -378,6 +381,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
             errors.append(f"{where}: a shared schedule goes through the {s.env} mailbox; enable [pipeline] for {s.env}")
         if s.backfill and not pipeline.allow_backfill:
             errors.append(f"{where}: a shared backfill needs pipeline.allow_backfill = true")
+        if pipeline.require_run:
+            errors.append(f"{where}: a shared schedule's requests name no pipeline run, so pipeline.require_run must be false")
         if pipeline.entities:
             if not s.entities:
                 errors.append(f"{where}: list its entities; pipeline.entities only takes {', '.join(pipeline.entities)}")

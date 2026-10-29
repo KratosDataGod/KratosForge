@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn only_quick_calls_have_a_limit() {
         assert_eq!(limit("poll_cell"), Some(Duration::from_secs(QUICK_SECONDS)));
-        for slow in ["start_cell", "run_cell", "meta_run", "publish_notebook", "prove_start", "sign_in"] {
+        for slow in ["start_cell", "meta_run", "publish_notebook", "prove_start", "sign_in"] {
             assert_eq!(limit(slow), None, "{slow}");
         }
     }

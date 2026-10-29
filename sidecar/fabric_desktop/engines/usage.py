@@ -30,6 +30,7 @@ UNITS = {
     "rows": "rows",
     "fabric_cu_seconds": "Fabric capacity unit seconds",
     "databricks_dbu": "Databricks units (DBU)",
+    "snowflake_credits": "Snowflake credits",
     "warehouse_seconds": "SQL warehouse seconds",
 }
 

@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "cdbb967",
-    "date": "2026-10-27",
+    "commit": "b19b7456f5cb50a4957ac6cb432706d96fffc3bd",
+    "date": "2026-10-28",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -19,7 +19,9 @@
       "Product check 2026-10-26 23:42 at 73c4ae4: PRs #742 to #791, with #725 and #726, merged after #752; their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-27 at 6159e50: PRs merged after #797 (#560, #449, #701, #763, #765, #782, #788 to #809); their rows were updated. Other rows were not re-read.",
       "Product check 2026-10-27 23:42 at 2225e28: PRs #811 to #826 merged after #812; their rows were updated, and the inventory text the #815 implementation reviews named stale was corrected.",
-      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read."
+      "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read.",
+      "Acceptance of the 2026-10-28 In review batch recorded (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); stale limitations on FEAT-REL-01, SQL-01, NB-07 and SQL-02 corrected from main's code.",
+      "Product check 2026-10-28 23:42 at b19b7456f5cb50a4957ac6cb432706d96fffc3bd: PRs #828 to #972 merged after #839; their rows were updated, and backlog items link their story issues. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -117,6 +119,9 @@
       "backlog": [
         "PB-010",
         "PB-098"
+      ],
+      "prs": [
+        930
       ]
     },
     {
@@ -177,6 +182,11 @@
         {
           "kind": "code",
           "ref": "app/ui/features.js registerFeature, paletteItems, openPalette"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/command-bar.test.cjs",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -184,7 +194,8 @@
         "app/ui/app.js"
       ],
       "tests": [
-        "app/tests/ui.test.cjs"
+        "app/tests/ui.test.cjs",
+        "app/tests/browser/command-bar.test.cjs"
       ],
       "docs": [
         "docs/ui-guidelines.md",
@@ -216,7 +227,10 @@
         806,
         825,
         826,
-        827
+        827,
+        865,
+        879,
+        943
       ]
     },
     {
@@ -266,7 +280,9 @@
         "PB-078"
       ],
       "prs": [
-        699
+        699,
+        874,
+        972
       ]
     },
     {
@@ -332,6 +348,11 @@
         {
           "kind": "test",
           "ref": "app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/a11y-audit.test.cjs",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -349,7 +370,8 @@
         "accessibility": "Static checks only; no screen-reader or contrast audit recorded"
       },
       "prs": [
-        92
+        92,
+        907
       ],
       "workstream": "Enterprise readiness (FD-139)",
       "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
@@ -358,6 +380,9 @@
       ],
       "docs": [
         "docs/ux/accessibility-audit.md"
+      ],
+      "limitations": [
+        "The automated audit's findings are filed as #905 and #945; no Narrator pass on Windows yet"
       ]
     },
     {
@@ -414,7 +439,9 @@
         680,
         699,
         757,
-        769
+        769,
+        843,
+        957
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -820,6 +847,11 @@
           "kind": "doc",
           "ref": "docs/README.md",
           "note": "Listing workspaces and items used on the maintainer's tenant"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_retry_after.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -827,7 +859,8 @@
       ],
       "tests": [
         "sidecar/tests/test_fabric_api.py",
-        "sidecar/tests/test_cloud.py"
+        "sidecar/tests/test_cloud.py",
+        "sidecar/tests/test_retry_after.py"
       ],
       "docs": [
         "docs/permissions.md"
@@ -845,6 +878,10 @@
       "backlog": [
         "PB-002",
         "PB-051"
+      ],
+      "prs": [
+        918,
+        923
       ]
     },
     {
@@ -946,6 +983,11 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_preview.py::test_service_guards_files"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_preview.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -967,7 +1009,8 @@
         "Notebook preview shows no outputs"
       ],
       "prs": [
-        43
+        43,
+        885
       ],
       "next_action": "None for downloads: a previewed file is removed once read, a download stops at 200 MB, and one left behind goes at the next start (PB-087).",
       "backlog": [
@@ -1097,6 +1140,16 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_policy.py::test_fabric_runs_can_be_turned_off"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_cancel_fabric_run_asks_fabric_and_marks_the_run_until_it_ends",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/fabric-cancel.test.cjs",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -1105,7 +1158,9 @@
         "app/ui/app.js"
       ],
       "tests": [
-        "sidecar/tests/test_cloud.py"
+        "sidecar/tests/test_cloud.py",
+        "sidecar/tests/test_cloud.py::test_cancel_fabric_run_asks_fabric_and_marks_the_run_until_it_ends",
+        "app/tests/browser/fabric-cancel.test.cjs"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1115,13 +1170,17 @@
         "preview": true
       },
       "limitations": [
-        "Cancel is reachable only as a workload action in Monitor > KratosForge > Operations > Workloads, not from Monitor > Runs or the tray",
-        "UI requires an attached lakehouse"
+        "UI requires an attached lakehouse",
+        "Cancel from Monitor > Runs and the tray is Preview"
       ],
       "next_action": "Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.",
       "backlog": [
         "PB-002",
         "PB-043"
+      ],
+      "prs": [
+        875,
+        972
       ]
     },
     {
@@ -1141,15 +1200,39 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_schedules.py::test_one_list_has_this_pc_and_fabric"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_time_zones.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schedules.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/schedules-edit.test.cjs",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/schedules-time-zones.test.cjs",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/schedule_service.py",
         "sidecar/fabric_desktop/fabric_run.py",
-        "app/ui/schedules.js"
+        "app/ui/schedules.js",
+        "sidecar/fabric_desktop/time_zones.py"
       ],
       "tests": [
-        "sidecar/tests/test_schedules.py"
+        "sidecar/tests/test_schedules.py",
+        "sidecar/tests/test_time_zones.py",
+        "app/tests/browser/schedules-edit.test.cjs",
+        "app/tests/browser/schedules-time-zones.test.cjs"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1159,14 +1242,14 @@
         "preview": true
       },
       "limitations": [
-        "No edit of a schedule's time",
-        "Remove has no confirmation",
-        "12 hard-coded time zones",
         "all_schedules may prompt a sign-in (inference)"
       ],
       "next_action": "Allow editing a schedule's time; use the quiet token path in all_schedules.",
       "backlog": [
         "PB-048"
+      ],
+      "prs": [
+        881
       ]
     },
     {
@@ -1175,21 +1258,30 @@
       "description": "Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.",
       "pillar": "Local development",
       "category": "Fabric Integration and Deployment",
-      "status": "Missing",
+      "status": "Partially Implemented",
       "verification": "Unverified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no Environment item calls in sidecar/fabric_desktop/fabric_api.py"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_environment.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_environment.py",
+          "note": "passed at the PB-016 part 1 head; fakes only, not yet read on a tenant"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/fabric_environment.py",
+        "sidecar/fabric_desktop/environment_service.py",
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
       "ui": {
-        "surface": "None",
-        "preview": false
+        "surface": "Engine and CLI: fabric-desktop env-drift (read only); no screen yet",
+        "preview": true
       },
-      "workstream": "Prove (FD-109)",
-      "next_action": "Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).",
+      "workstream": "Microsoft Fabric",
+      "next_action": "Read on a tenant (PB-002 run); show drift in the run dialog after a UX check; part 2 (pin from an item, attach a notebook) needs Chris's go (PB-016).",
       "backlog": [
         "PB-016"
       ]
@@ -1242,6 +1334,11 @@
           "kind": "test",
           "ref": "app/tests/browser/df-dataflows.test.cjs",
           "note": "product check 2026-10-26 at bb084c6: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/orchestration/data-factory.md#tested-on-a-tenant",
+          "note": "tenant run 2026-10-27 at 21d318fc: the DF-6 engine checks passed (copy job run, dataflow refresh, a second run deduped by Fabric); the viewer check was skipped"
         }
       ],
       "source": [
@@ -1259,7 +1356,7 @@
         "preview": true
       },
       "workstream": "Build full Data Factory experience (DF-1..10)",
-      "next_action": "DF-8 deploy through the platform repo needs Chris's go; tenant run of the DF-6 buttons.",
+      "next_action": "DF-8 deploy through the platform repo needs Chris's go; confirm the copy job and dataflow portal addresses for Open in Fabric.",
       "backlog": [
         "PB-030",
         "PB-035"
@@ -1296,7 +1393,8 @@
       ],
       "limitations": [
         "No authoring or deploy of Data Factory items yet (DF-8, DF-10)",
-        "Run in Fabric and Refresh in Fabric not yet run on a tenant"
+        "Run in Fabric and Refresh in Fabric were checked on a tenant through the engine only (2026-10-27), not by clicking the buttons, and not with a viewer account",
+        "Open in Fabric opens the workspace: the copy job and dataflow portal addresses aren't confirmed"
       ]
     },
     {
@@ -1386,6 +1484,11 @@
           "kind": "doc",
           "ref": "docs/warehouse.md#tested-on-a-tenant",
           "note": "tenant run 2026-10-27 at 21d318fc: 25 of 26 checks passed; WH-10.7 failed and was fixed by #808"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_warehouse_connect.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -1429,7 +1532,8 @@
         "app/tests/browser/warehouse-deploy.test.cjs",
         "app/tests/browser/warehouse-plan.test.cjs",
         "sidecar/tests/test_warehouse_monitoring.py",
-        "app/tests/browser/warehouse-monitoring.test.cjs"
+        "app/tests/browser/warehouse-monitoring.test.cjs",
+        "sidecar/tests/test_warehouse_connect.py"
       ],
       "docs": [
         "docs/warehouse.md",
@@ -1463,7 +1567,9 @@
         809,
         823,
         833,
-        835
+        835,
+        912,
+        949
       ],
       "limitations": [
         "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
@@ -1578,7 +1684,7 @@
       "evidence": [
         {
           "kind": "code",
-          "ref": "sidecar/fabric_desktop/service.py endorsements always returns available:false"
+          "ref": "sidecar/fabric_desktop/service.py endorsements always returns available:false, with ENDORSED_FILTER_REASON naming where endorsement shows"
         }
       ],
       "source": [
@@ -1591,7 +1697,7 @@
         "surface": "OneLake > Catalog (greyed out)",
         "preview": false
       },
-      "next_action": "Endorsement now shows on data products (#627, FEAT-MESH-04); a catalog filter is still missing (PB-083).",
+      "next_action": "The filter stays off and its reason now says where endorsement shows (#856): the admin tenant scan reads only data products' items (#627, FEAT-MESH-04). Reading it for every catalog item is still missing (PB-083).",
       "backlog": [
         "PB-083"
       ]
@@ -1623,6 +1729,11 @@
           "kind": "test",
           "ref": "app/tests/browser/shortcut-fixes.test.cjs",
           "note": "CI run 2235 on main at 524e6a3 passed (engine, UI, browser and Rust jobs)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shortcut_watch.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -1653,7 +1764,8 @@
       ],
       "prs": [
         53,
-        595
+        595,
+        902
       ],
       "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
@@ -2115,7 +2227,8 @@
         545,
         547,
         585,
-        633
+        633,
+        890
       ]
     },
     {
@@ -2241,7 +2354,7 @@
         "preview": false
       },
       "limitations": [
-        "Regex-based; flags variableLibrary notebooks as Fabric-only although they run on the PC",
+        "Regex-based",
         "No 'unknown' outcome"
       ],
       "prs": [
@@ -2427,6 +2540,11 @@
         {
           "kind": "smoke",
           "ref": "preview_job on examples/sales_by_region.toml returned 3 rows; CLI lists preview/run"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_measurement.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -2435,7 +2553,8 @@
         "sidecar/fabric_desktop/cli.py"
       ],
       "tests": [
-        "sidecar/tests/test_local.py"
+        "sidecar/tests/test_local.py",
+        "sidecar/tests/test_measurement.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -2445,13 +2564,16 @@
         "preview": false
       },
       "limitations": [
-        "No UI; Monitor labels its history as 'Notebook write' (inference)",
-        "No managed-table write guard (inference)"
+        "No managed-table write guard (inference)",
+        "No UI; Monitor and Optimize label its runs Job run"
       ],
       "next_action": "Decide: expose jobs in the app or mark them a CLI/agent feature and document so (PB-079).",
       "backlog": [
         "PB-079",
         "PB-099"
+      ],
+      "prs": [
+        908
       ]
     },
     {
@@ -2512,11 +2634,9 @@
         "preview": false
       },
       "limitations": [
-        "Plain textarea, no autocomplete or formatting",
         "Read-only",
         "Download CSV re-runs the query",
-        "No cancel",
-        "Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run"
+        "Engine and browser tests run with Fabric faked"
       ],
       "prs": [
         118,
@@ -2568,7 +2688,7 @@
         "preview": false
       },
       "limitations": [
-        "MERGE, UPDATE, DELETE print a note and report status ok, so Run all continues"
+        "MERGE, UPDATE and DELETE in a %%sql cell stop the run and say they run in Fabric"
       ],
       "next_action": "Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013).",
       "backlog": [
@@ -2766,6 +2886,11 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/measure.py RunMeter"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_kernel_process.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -2773,7 +2898,8 @@
         "sidecar/fabric_desktop/measure.py"
       ],
       "tests": [
-        "app/tests/ui.test.cjs"
+        "app/tests/ui.test.cjs",
+        "sidecar/tests/test_kernel_process.py"
       ],
       "docs": [
         "docs/prove/how-proofs-work.md"
@@ -2783,14 +2909,17 @@
         "preview": true
       },
       "limitations": [
-        "With notebooks in their own process, CPU/memory are the kernel process only, not processes its cells start (PB-094)",
-        "Fabric CPU/memory not available"
+        "Fabric CPU/memory not available",
+        "CPU and memory are the kernel process's own, not processes its cells start"
       ],
       "workstream": "Prove (FD-119)",
       "next_action": "Measure the kernel child process when it is on (FD-119).",
       "backlog": [
         "PB-050",
         "PB-094"
+      ],
+      "prs": [
+        895
       ]
     },
     {
@@ -3087,14 +3216,15 @@
         "preview": false
       },
       "limitations": [
-        "read_keys reads the whole key table"
+        "Local and lakehouse key runs read only the batch's key rows (PB-068, #847); the platform key service is unchanged"
       ],
       "prs": [
         23,
-        52
+        52,
+        866
       ],
       "workstream": "Staged roadmap (FD-115)",
-      "next_action": "Stop reading whole key tables on every keyed run (FD-115).",
+      "next_action": "Merge the batch-limited key reads (PB-068, #847).",
       "backlog": [
         "PB-068"
       ]
@@ -3227,6 +3357,11 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_meaningful_diffs.py::test_comments_order_and_spacing_are_not_changes"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -3247,11 +3382,12 @@
         "preview": false
       },
       "limitations": [
-        "Compare reads whole tables",
-        "meta_diff against Git head has no UI caller"
+        "meta_diff against Git head has no UI caller",
+        "Above 5,000,000 rows a compare is counts, totals and a row checksum, so it says that tables differ, not which rows"
       ],
       "prs": [
-        75
+        75,
+        897
       ],
       "next_action": "Batch the compare for large tables.",
       "backlog": [
@@ -3759,6 +3895,11 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_dataops.py::test_freshness_within_hours"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sealed_settings.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -3767,7 +3908,8 @@
         "app/ui/dataops.js"
       ],
       "tests": [
-        "sidecar/tests/test_dataops.py"
+        "sidecar/tests/test_dataops.py",
+        "sidecar/tests/test_sealed_settings.py"
       ],
       "docs": [
         "docs/metadata-guide.md"
@@ -3783,6 +3925,9 @@
       "next_action": "Merge with incidents so a late table posts once (agent.md notes duplicates).",
       "backlog": [
         "PB-084"
+      ],
+      "prs": [
+        957
       ]
     },
     {
@@ -3875,7 +4020,8 @@
         "preview": true
       },
       "limitations": [
-        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)"
+        "Adding an exception to exceptions.toml records no request, approval or audit entry, and its approver is free text (PB-059 review finding 1, waiting on the FD-129 owner)",
+        "FD-129 narrowed to policy exceptions (Chris, 2026-10-28): exceptions.toml stays outside the request flow"
       ],
       "workstream": "Enterprise governance foundation (FD-129)",
       "next_action": "Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1).",
@@ -3975,6 +4121,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_policy_promote_gate.py",
           "note": "GOV-003: a Block finding no exception covers stops promote and names the policy and finding; Warn and Advisory never do; an exception lets it through and is named; Prod fails closed when the policies can't be read, Test warns"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_package.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -4006,7 +4157,9 @@
         "A Prod promote stops whenever the policies can't be read (no platform and no valid package, or a platform error), since it can't tell which are assigned; Test and Dev only warn. A rule that says unknown, and a checker that runs in Fabric, don't stop a promote. It holds for promotes through KratosForge, not for writes in the Fabric portal"
       ],
       "prs": [
-        119
+        119,
+        844,
+        882
       ],
       "workstream": "Enterprise governance foundation",
       "next_action": "Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it",
@@ -4412,8 +4565,10 @@
         824,
         825,
         827,
+        828,
         834,
-        836
+        836,
+        844
       ],
       "next_action": "Data mesh now holds Home, Domains, Products and Requests (#801-#806); Purview and endorsement live checks wait on Chris's tenant run.",
       "backlog": [
@@ -4822,7 +4977,9 @@
       ],
       "prs": [
         63,
-        72
+        72,
+        842,
+        934
       ],
       "workstream": "Workloads",
       "next_action": "Shared ownership (stage 2B); an 'on agents' view.",
@@ -4901,7 +5058,8 @@
         125,
         127,
         682,
-        770
+        770,
+        842
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -5368,8 +5526,9 @@
           "ref": ".github/workflows/ci.yml audit, sbom-app, engine, release jobs"
         },
         {
-          "kind": "absent",
-          "ref": "CI not run in this assessment"
+          "kind": "test",
+          "ref": "sidecar/tests/test_audit_exceptions.py",
+          "note": "Passed at b19b7456 in the 2026-10-28 23:42 product check"
         }
       ],
       "source": [
@@ -5377,15 +5536,15 @@
         "sidecar/constraints.txt"
       ],
       "docs": [
-        "docs/security.md"
+        "docs/security.md",
+        ".github/audit-exceptions.txt"
       ],
       "ui": {
         "surface": "Releases",
         "preview": false
       },
       "limitations": [
-        "docs.yml and codex-review.yml use tag-pinned actions; zensical install unpinned",
-        "release doesn't wait for audit"
+        "docs.yml and codex-review.yml use tag-pinned actions; zensical install unpinned"
       ],
       "prs": [
         86,
@@ -5393,13 +5552,19 @@
         674,
         679,
         715,
-        768
+        768,
+        867,
+        911,
+        917
       ],
       "workstream": "Enterprise readiness (FD-103)",
       "next_action": "SH-8: docs and Codex review workflow actions pinned by commit (#674).",
       "backlog": [
         "PB-010",
         "PB-074"
+      ],
+      "tests": [
+        "sidecar/tests/test_audit_exceptions.py"
       ]
     },
     {
@@ -5432,12 +5597,12 @@
         "preview": false
       },
       "limitations": [
-        "Only the newest build per channel",
-        "Promote can't choose a build; SBOMs not copied",
-        "cargo test never runs"
+        "No policy setting pins one build: IT turns off auto_update and installs the build-<commit> release it wants"
       ],
       "prs": [
-        111
+        111,
+        911,
+        952
       ],
       "next_action": "Per-build release assets for pinning and rollback (PB-064).",
       "backlog": [
@@ -5819,7 +5984,10 @@
         123
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-002)",
-      "next_action": "Check against a live tenant's capacities (PB-002)"
+      "next_action": "Check against a live tenant's capacities (PB-002)",
+      "backlog": [
+        "PB-088"
+      ]
     },
     {
       "id": "FEAT-LDE-01",

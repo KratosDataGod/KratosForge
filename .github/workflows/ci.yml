@@ -41,8 +41,10 @@ jobs:
             exit 0
           fi
           # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
-          # it changes against the base it will merge into.
-          files="$(git diff --name-only HEAD^1 HEAD)"
+          # it changes against the base it will merge into. -z lists every path as itself: without it, git
+          # quotes and escapes a path with non-ASCII letters, a quote or a tab, and the patterns below
+          # would miss it. A newline in a name splits it in two, and its first part still matches.
+          files="$(git diff --name-only -z HEAD^1 HEAD | tr '\0' '\n')"
           printf 'Changed:\n%s\n' "$files"
           has() { grep -qE "$1" <<< "$files"; }
           # Nothing changed (or the diff failed to list anything): run everything.

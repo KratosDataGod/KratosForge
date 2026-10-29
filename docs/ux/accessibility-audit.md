@@ -29,12 +29,12 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Source control | dark | 5 | 0 (0) | none | 0 | 0 | 0 |
 | Settings | light | 21 | 0 (0) | none | 32 | 0 | 0 |
 | Settings | dark | 21 | 0 (0) | none | 0 | 0 | 0 |
-| Notebook | light | 17 | 1 (1) | color-contrast (5) | 32 | 1 | 0 |
-| Notebook | dark | 17 | 1 (1) | color-contrast (5) | 0 | 0 | 0 |
-| SQL query | light | 22 | 1 (1) | color-contrast (2) | 21 | 0 | 1 |
-| SQL query | dark | 22 | 1 (1) | color-contrast (2) | 0 | 0 | 0 |
-| Command bar (Ctrl+K) | light | 17 | 1 (1) | none | 98 | 0 | 0 |
-| Command bar (Ctrl+K) | dark | 17 | 1 (1) | none | 0 | 0 | 0 |
+| Notebook | light | 18 | 0 (0) | color-contrast (5) | 38 | 0 | 0 |
+| Notebook | dark | 18 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
+| SQL query | light | 22 | 0 (0) | color-contrast (2) | 21 | 0 | 0 |
+| SQL query | dark | 22 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 98 | 0 | 0 |
+| Command bar (Ctrl+K) | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
 | Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 14 | 0 | 0 |
 | Data mesh entity | dark | 15 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
 | Shell (top bar and rail) | light | 13 | 0 (0) | none | 18 | 0 | 0 |
@@ -46,14 +46,7 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 
 Filed to be fixed in [#905](https://github.com/KratosDataGod/KratosForge/issues/905); the test fails on any serious or critical rule violation, or keyboard or focus finding, not listed here.
 
-- **Notebook** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
-- **Notebook**: keyboard: Tab returns to button.tool.small "Run cell", 12 Tab stops later never reached (Escape, then Tab, used to leave each code editor)
-- **Notebook** (dark): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `div[data-language="python"]`, `div[data-language="sql"]`
-- **SQL query** (light): aria-required-children, critical: Certain ARIA roles must contain particular children. At `.sql-tabs`
-- **SQL query**: `div.cm-content "SQL query"` shows no focus ring
-- **SQL query** (dark): aria-required-children, critical: Certain ARIA roles must contain particular children. At `.sql-tabs`
-- **Command bar (Ctrl+K)** (light): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `.palette-list`
-- **Command bar (Ctrl+K)** (dark): aria-input-field-name, serious: ARIA input fields must have an accessible name. At `.palette-list`
+None.
 
 ## Needs a look
 

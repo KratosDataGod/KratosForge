@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #1003 4351768b | Typed errors survive the wrappers; classify_error decides by type first (#963), draft | PASS | 9.2 | classify_error now checks NotSetUp, then PermissionError or HTTP 401/403, 429, transient statuses and typed ConnectionError/TimeoutError, and only then falls back to wording for untyped errors. The order of the wording checks is unchanged. NotSetUp passes through the four call-or-repair wrappers (central requests, platform catalog, meta sources, shortcut risks) instead of becoming "Finish or repair". Moving keys reopens the environments it already closed, then re-raises NotSetUp/PermissionError; any other failure still says Finish or repair. Merges main cleanly. Tests: test_typed_errors 18 at head, 10 of them fail on main (reproduced); typed_errors, silent_except and workload/central/platform/keys/shortcut/meta/mesh/monitor 406 passed; py_compile clean. Touches workloads/model.py, so it needs Workload management's sign-off. |
+
 | runcell 2ed7647d (#965, no PR yet) | HD-050 slice 3, nit taken | PASS | 9.3 | One test-only commit on bfab63d3. threading.Timer(120, proc.kill) starts after Popen and is cancelled in finally. A hung engine then makes readline return '', json.loads fails, and so does the test, as with the old timeout=120. Tests at head: test_notebook + silent_except 46 passed. |
 
 | Category | Weight | A 9 looks like | A 5 looks like |

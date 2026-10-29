@@ -64,7 +64,6 @@ ANYONE = {
     "issue_keys": 'core.py: "everyone: ... issuing keys from existing key tables"',
     "register_project": "core.py register_project: \"the first to record a project owns it\" (later changes: members)",
     "register_link": 'core.py: "everyone: ... links" (refused when the product is not open to the project)',
-    "save_enrichment": 'core.py: "everyone: ... catalog text"',
     "request": 'core.py: "everyone: ... requests"',
     "note_seen": "note_seen: records that the caller used the platform today",
     "call_once": "runs the named change under that change's own role check (pinned below); reads, repeatable "
@@ -168,6 +167,7 @@ ROLE_WRITES = [
     ("save_landing_zone", ADMIN, lambda db: {"zone": {"name": "People", "domain_id": "sales"}}),
     ("switch_landing_reads", ADMIN, lambda db: {}),
     ("delete_landing_zone", ADMIN, lambda db: {"id": core.list_landing_zones(db)[-1]["id"]}),
+    ("save_enrichment", MEMBER, lambda db: {"target": "ledger:gold.ledger", "fields": {"description": "Every posting"}}),
     ("set_project_member", MEMBER, lambda db: {"project": "ledger", "user": NOBODY, "role": "member"}),
     ("record_request_progress", ADMIN, lambda db: {"id": _requests(db)["key_table"], "made": {"name": "supplier"}}),
     ("decide_request", ADMIN, lambda db: {"id": _requests(db)["key_table"], "approve": True}),

@@ -55,7 +55,8 @@ only reach Power BI. The host page also refuses an embed URL whose host isn't `a
 Checked so far: the SDK embeds under that policy in Chromium with no violations. It sizes its frame
 through `element.style`, which `style-src 'self'` allows; only `preload()` sets a `style` attribute,
 and Embed Studio doesn't call it. What still needs the WebView2 check (PBE-01): framing from a local
-scheme, Power BI's storage inside that frame, pop-ups and downloads.
+scheme, whether `frame-ancestors` with the app's own origins is honoured on a custom-scheme page,
+Power BI's storage inside that frame, pop-ups and downloads.
 
 ### Pop-ups and downloads
 
@@ -92,7 +93,7 @@ What Microsoft's SDK supports for each content type. "Embed Studio" is the plann
 | Dashboard | `type: "dashboard"` | `tileClicked` event | No filters or bookmarks | Phase 2 |
 | Dashboard tile | `type: "tile"` with `dashboardId` | `tileClicked`, `tileLoaded` | Tile only, no dashboard context | Phase 2 |
 | Paginated report | `type: "report"` with the paginated report's embed URL | `parameterValues`, parameter panel settings | No bootstrap, no multi-value parameters, no `rdl:` parameters, no real-time (push) semantic models | Phase 2 |
-| Q&A | Retired | – | Microsoft retires Q&A, embedded included, by the end of December 2026 (message center MC1218421) | Not built |
+| Q&A | Retired | – | Microsoft retires Q&A, embedded included, by the end of December 2026, as announced in the Microsoft 365 message center (MC1218421, visible to tenant admins) | Not built |
 | New report | `type: "create"` with a semantic model | Authoring with `powerbi-report-authoring` | Saves to Fabric | Phase 6, development copy first |
 | Semantic model | Not embedded | – | – | Links to the existing model tools (data dictionary, Direct Lake check, BPA) |
 

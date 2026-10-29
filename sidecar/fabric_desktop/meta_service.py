@@ -856,6 +856,8 @@ class MetaMixin:
     def _read_platform_sources(self) -> list[dict[str, Any]]:
         try:
             return self._catalog().call("list_sources")  # type: ignore[attr-defined]
+        except NotSetUp:
+            raise  # its own words say what to do; Finish or repair wouldn't help
         except LookupError as exc:
             raise LookupError(f"{exc} After an update, a platform admin runs Platform > Settings > Finish or repair.") from exc
 

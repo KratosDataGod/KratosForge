@@ -4177,6 +4177,21 @@ test("Markdown and JSON cell outputs render without new HTML sinks", () => {
   assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
 });
 
+// Snowflake SQL on DuckDB (SF-04): the translation report is plain text in a <pre>, never HTML.
+test("The Snowflake translation output renders as text", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = /function renderOutput\([\s\S]*?\n}\n/.exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined) });
+  const ctx = { h: el };
+  vm.createContext(ctx);
+  vm.runInContext(fn + "this.r = renderOutput;", ctx);
+  const evil = "Statement 1: <img src=x onerror=alert(1)>";
+  const out = ctx.r({ type: "translation", text: evil, statements: [] }, null);
+  assert.strictEqual(out.attrs.class, "output translation-output");
+  assert.strictEqual(out.kids[0].tag, "pre");
+  assert.deepStrictEqual(out.kids[0].kids, [evil]);
+});
+
 // IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
 // completions carry lazy docs; other languages get none of it.
 test("Python cells get hover, signature help, syntax errors and completion docs", () => {
@@ -5318,6 +5333,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],

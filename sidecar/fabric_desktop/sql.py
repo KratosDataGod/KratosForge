@@ -97,7 +97,8 @@ def spark_fixes(statement: exp.Expression) -> exp.Expression:
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
 # answers as Spark does ({0}, {1} are the arguments). Lambda names can't clash with a column.
 _ANON_TEMPLATES = {
-    "PMOD": "((({0}) % ({1})) + ({1})) % ({1})",
+    # Spark's MathUtils.pmod: the remainder, moved by the divisor only when it's negative.
+    "PMOD": "CASE WHEN ({0}) % ({1}) < 0 THEN ((({0}) % ({1})) + ({1})) % ({1}) ELSE ({0}) % ({1}) END",
     "ARRAYS_OVERLAP": "CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL WHEN LIST_HAS_ANY({0}, {1}) THEN TRUE "
                       "WHEN LEN({0}) > 0 AND LEN({1}) > 0 AND (LIST_POSITION({0}, NULL) IS NOT NULL "
                       "OR LIST_POSITION({1}, NULL) IS NOT NULL) THEN NULL ELSE FALSE END",
@@ -121,7 +122,7 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     dayofweek counts Sunday as 1, sort_array puts NULL first ascending and last descending,
     array_sort puts NULL last, percentile interpolates, array_distinct, array_union, array_intersect
     and array_except keep first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
-    next_day take text, and pmod is never negative. Deepest first, so a rewritten argument is
+    next_day take text, and pmod moves a negative remainder by the divisor. Deepest first, so a rewritten argument is
     written out already rewritten."""
     found = list(statement.find_all(exp.DayOfWeek, exp.SortArray, exp.ArraySort, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Anonymous))

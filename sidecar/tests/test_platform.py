@@ -782,7 +782,7 @@ class _FakeFabric:
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
         if self.status != 200:
-            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
+            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized", status=self.status)
         return self.domains
 
     def list_admin_domain_role_assignments(self, domain_id):

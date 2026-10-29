@@ -388,6 +388,13 @@ def _delta_safe(schema: pa.Schema, table: str, mode: str) -> pa.Schema:
             return {f.name.lower(): f.type for f in pa.schema(open_table(table).schema().to_arrow())}
         except TableNotFoundError:
             return {}
+    if naive := local_delta.naive_timestamps(schema):
+        listed = ", ".join(naive)
+        raise ValueError(f"Column{'s' if len(naive) > 1 else ''} {listed} hold{'' if len(naive) > 1 else 's'} timestamps "
+                         "without a time zone, which Delta stores in a form Fabric can't read (timestampNtz). Nothing was "
+                         "written. Give them a time zone first: in Polars .dt.replace_time_zone(\"UTC\"), in pandas "
+                         ".dt.tz_localize(\"UTC\"), in Spark SQL CAST(x AS TIMESTAMP), or with "
+                         "to_utc_timestamp(x, 'your zone').")
     return local_delta.delta_safe(schema, existing if mode == "append" else None)
 
 

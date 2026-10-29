@@ -352,6 +352,7 @@ class Engine:
         self._schema_from: pl.Schema | None = None  # the table's schema before this run's commit
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
         self._pending_quarantine = []
+        unsaved = ""  # the schema history's note, if it couldn't be saved: kept whatever the run's message becomes
         try:
             with self.table_lock(e):
                 self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
@@ -366,11 +367,12 @@ class Engine:
                     self._record_files(e, res)
                 finally:
                     # Still under the lock, so the next run of this entity reads this run's schema version
-                    # and numbers its own after it. _after_commit never raises.
-                    if res.delta_version is not None:
-                        self._after_commit(res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
-                                           lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res),
-                                                                            metadata=m))
+                    # and numbers its own after it. The lock is held through _after_commit's few short retries
+                    # on a slow meta lakehouse; it never raises.
+                    if res.delta_version is not None and not self._after_commit(
+                            res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
+                            lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res), metadata=m)):
+                        unsaved = res.steps[-1].detail
         except Abandoned:
             raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
@@ -385,6 +387,8 @@ class Engine:
             res.status, res.message, res.retryable = "failed", f"{type(ex).__name__}: {ex}", is_retryable(ex)
         finally:
             self._pending_quarantine = []  # a run that didn't commit quarantines nothing
+            if unsaved and unsaved not in res.message:  # a failure after the commit replaced the message
+                res.message = f"{res.message}; {unsaved}" if res.message else unsaved
         seconds = round(time.perf_counter() - started, 3)
         log = [{
             "run_id": self.run_id, "batch_id": batch_id, "entity": name, "env": self.store.env,

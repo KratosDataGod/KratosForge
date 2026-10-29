@@ -353,3 +353,21 @@ def test_a_schema_history_that_cant_be_saved_leaves_the_run_ok_and_says_so(tmp_p
     res = s.run()
     assert "couldn't save the schema history (OSError: the meta lakehouse is read only)" in res.message
     assert s.table().height == 3
+
+
+def test_a_failure_after_the_commit_keeps_the_note_that_the_schema_history_wasnt_saved(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    append = s.store.meta_append
+
+    def no_history(table, rows, metadata=None):
+        if table == "schema_history":
+            raise OSError("the meta lakehouse is read only")
+        append(table, rows, metadata=metadata)
+    monkeypatch.setattr(s.store, "meta_append", no_history)
+    engine = s.engine()
+    monkeypatch.setattr(engine, "_record_files", lambda e, res: (_ for _ in ()).throw(OSError("files not recorded")))
+    res = engine.run("bronze.events")
+    assert res.status == "failed" and res.delta_version is not None
+    assert res.message == ("OSError: files not recorded; "
+                           "couldn't save the schema history (OSError: the meta lakehouse is read only)")

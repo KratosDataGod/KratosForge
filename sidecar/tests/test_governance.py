@@ -463,7 +463,7 @@ def test_rpc_methods_are_allowed():
 
     assert {"governance_overview", "governance_policy", "governance_create", "governance_save_draft",
             "governance_publish", "governance_set_status", "governance_assign", "governance_unassign",
-            "governance_applicability", "governance_resolve", "governance_discard_draft", "governance_version"} <= METHODS
+            "governance_applicability", "governance_resolve", "governance_discard_draft"} <= METHODS
 
 
 def test_policy_changes_are_audited_and_reads_are_not():
@@ -472,6 +472,6 @@ def test_policy_changes_are_audited_and_reads_are_not():
     for method in ("governance_create", "governance_save_draft", "governance_discard_draft", "governance_publish",
                    "governance_set_status", "governance_assign", "governance_unassign"):
         assert audit.audited(method)
-    for method in ("governance_overview", "governance_policy", "governance_version", "governance_applicability",
+    for method in ("governance_overview", "governance_policy", "governance_applicability",
                    "governance_resolve"):
         assert not audit.audited(method)

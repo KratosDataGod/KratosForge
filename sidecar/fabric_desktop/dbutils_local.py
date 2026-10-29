@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import http_session
+from .paging import Pages
 from .notebookutils_local import Host, NotebookExit, on_vault, vault_url
 from .retrying import send_with_retry
 
@@ -182,6 +183,7 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
         headers = {"Authorization": f"Bearer {token('keyvault')}"}
         names: list[SecretMetadata] = []
         params: dict[str, str] | None = {"api-version": "7.4"}
+        pages = Pages(f"the secrets in Key Vault {vault(scope)}", start=url)
         while url:
             resp = send_with_retry(lambda u=url, p=params: http_session.session().get(u, params=p, headers=headers,
                                                                                       timeout=30), "GET")
@@ -194,6 +196,7 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             url, params = body.get("nextLink"), None
             if url and not on_vault(url, vault(scope)):
                 raise ValueError(f"Key Vault {vault(scope)} answered with a next page on another host; stopped listing.")
+            url = pages.follow(url) if url else url  # a repeated page or too many stops it, never a short list
         return names
 
     def listScopes() -> list[SecretScope]:  # noqa: N802

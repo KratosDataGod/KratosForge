@@ -184,7 +184,7 @@ def test_import_never_replaces_a_notebook_and_reports_free_names(svc):
     check = svc.notebook_formats_import_check("Sales.py", text)
     assert check["format"] == "Fabric notebook source"
     assert check["notebooks"] == [{"name": "Sales (2)", "source_name": "Sales", "folder": "", "cells": 4, "markdown": 1,
-                                   "languages": ["%%sql", "python"]}]
+                                   "languages": ["%%sql", "python"], "notes": []}]
     assert not (svc.notebooks.folder / "Sales (2).ipynb").exists()  # the check writes nothing
     out = svc.notebook_formats_import("Sales.py", text)
     assert out["created"] == ["Sales (2)"]
@@ -236,3 +236,115 @@ def test_a_damaged_dbc_entry_gives_a_plain_message():
         data[i] ^= 0xFF  # corrupt the compressed bytes
     with pytest.raises(ValueError, match="is damaged"):
         nbf.parse_dbc(bytes(data))
+
+
+# ---- what a Databricks conversion doesn't carry over (#854)
+
+DBX = "\n".join([
+    "# Databricks notebook source",
+    "# DBTITLE 1,Parameters",
+    'dbutils.widgets.text("run_date", "2026-10-28")',
+    'run_date = dbutils.widgets.get("run_date")',
+    "", "# COMMAND ----------", "",
+    "# MAGIC %sh",
+    "# MAGIC ls -la",
+    "", "# COMMAND ----------", "",
+    "# MAGIC %fs ls dbfs:/mnt/raw",
+    "", "# COMMAND ----------", "",
+    'dbutils.fs.mount("wasbs://raw@acct.blob.core.windows.net", "/mnt/raw")',
+    'files = dbutils.fs.ls("/tmp")',
+    "", "# COMMAND ----------", "",
+    "# MAGIC %md-sandbox",
+    "# MAGIC <div style='color:red'>Note</div>",
+    "", "# COMMAND ----------", "",
+    "# MAGIC %run ./shared/setup",
+    "", "# COMMAND ----------", "",
+    "# MAGIC %scala",
+    "# MAGIC val x = 1",
+])
+
+
+def _by_cell(notes):
+    out = {}
+    for n in notes:
+        out.setdefault(n["cell"], []).append((n["kind"], n["what"]))
+    return out
+
+
+def test_a_databricks_import_lists_each_dropped_or_changed_construct_with_its_cell():
+    parsed = nbf.parse_source(DBX, "nb.py")
+    cells, notes = parsed["cells"], _by_cell(parsed["notes"])
+    assert [c["source"].split("\n")[0] for c in cells] == [
+        'dbutils.widgets.text("run_date", "2026-10-28")', "%%sh", "%fs ls dbfs:/mnt/raw",
+        'dbutils.fs.mount("wasbs://raw@acct.blob.core.windows.net", "/mnt/raw")', "<div style='color:red'>Note</div>",
+        "%run ./shared/setup", "%%spark"]
+    # Widgets and dbutils.fs.ls run here as written: nothing to say about cell 1 but its title.
+    assert notes[1] == [("dropped", "The cell title 'Parameters': KratosForge cells have no titles.")]
+    assert notes[2] == [("changed", "%sh became %%sh, KratosForge's way to mark the language.")]
+    assert [k for k, _ in notes[3]] == ["check"] and "dbfs:/" in notes[3][0][1]
+    assert [k for k, _ in notes[4]] == ["check"] and "mounts" in notes[4][0][1]
+    assert notes[5][0][0] == "changed" and "md-sandbox" in notes[5][0][1]
+    assert notes[6][0][0] == "check" and "%run" in notes[6][0][1]
+    assert notes[7][0][0] == "changed" and "%%spark" in notes[7][0][1]
+
+
+def test_widgets_sh_fs_and_dbutils_survive_a_round_trip_through_databricks_source():
+    cells = nbf.parse_source(DBX, "nb.py")["cells"]
+    again = nbf.parse_source(nbf.to_databricks_py(cells), "nb.py")
+    assert again["cells"] == cells
+    # The second import reports the same constructs, less what the first one already settled: the
+    # title it dropped and the sandbox it made plain markdown.
+    first = nbf.parse_source(DBX, "nb.py")["notes"]
+    assert again["notes"] == [n for n in first if "title" not in n["what"] and "md-sandbox" not in n["what"]]
+    exported = nbf.to_databricks_py(cells)
+    for kept in ('# MAGIC %sh', "# MAGIC %fs ls dbfs:/mnt/raw", 'dbutils.widgets.get("run_date")',
+                 'dbutils.fs.mount(', "# MAGIC %run ./shared/setup", "# MAGIC %scala"):
+        assert kept in exported
+
+
+def test_a_databricks_export_lists_what_databricks_source_cant_hold():
+    cells = [
+        {"type": "code", "source": "run_date = ''", "meta": {"tags": ["parameters"], "frozen": True}},
+        {"type": "code", "source": "%%configure\n{\"conf\": {}}"},
+        {"type": "code", "source": "%%sql\nSELECT 1", "outputs": [{"type": "text", "text": "1"}]},
+        {"type": "code", "source": "notebookutils.fs.ls('Files/')"},
+        {"type": "code", "source": "%%pyspark\nx = 1"},
+        {"type": "markdown", "source": "# Title"},
+    ]
+    notes = nbf.databricks_export_notes(cells, {"lakehouse_id": "lh-1"})
+    whole = [n["what"] for n in notes if n["cell"] is None]
+    assert any("lakehouse" in w for w in whole) and any("Outputs" in w for w in whole)
+    by = _by_cell(notes)
+    assert {k for k, _ in by[1]} == {"dropped"} and any("widgets" in w for _, w in by[1]) and any("frozen" in w for _, w in by[1])
+    assert by[2] == [("check", "%%configure has no Databricks equivalent. The cell is kept as written, so it won't run "
+                               "there until it's rewritten.")]
+    assert by[3] == [("changed", "%%sql became %sql, Databricks' way to mark the language.")]
+    assert by[4][0][0] == "check" and "dbutils" in by[4][0][1]
+    assert 5 not in by and 6 not in by
+    assert nbf.databricks_export_notes([{"type": "code", "source": "x = 1"}]) == []
+    mixed = nbf.databricks_export_notes([{"type": "code", "source": "%pip install rich\nimport rich"}])
+    assert [n["kind"] for n in mixed] == ["check"] and "%pip is all magic" in mixed[0]["what"]
+    assert nbf.databricks_export_notes([{"type": "code", "source": "%run ./a\n%run ./b"}]) == []
+    assert "# MAGIC %pip install rich\n# MAGIC import rich" in nbf.to_databricks_py([{"type": "code", "source": "%pip install rich\nimport rich"}])
+
+
+def test_a_dbc_import_reports_titles_results_hidden_cells_and_dashboards():
+    doc = json.loads(_dbc_doc("Load", "python", ["%md # Load", "x = 1", "%sh ls"]))
+    doc["commands"][1].update(commandTitle="Load it", results={"data": "1"}, hideCommandCode=True)
+    doc["dashboards"] = [{"title": "Daily"}]
+    nb = nbf.parse_dbc(_dbc([("Load.python", json.dumps(doc))]))[0]
+    by = _by_cell(nb["notes"])
+    assert [w for _, w in by[None]] == ["The notebook's dashboards: KratosForge has no notebook dashboards."]
+    assert [k for k, _ in by[2]] == ["dropped"] * 3
+    assert by[3] == [("changed", "%sh became %%sh, KratosForge's way to mark the language.")]
+
+
+def test_import_check_and_import_carry_the_notes_and_other_formats_have_none(svc):
+    check = svc.notebook_formats_import_check("nb.py", DBX)
+    assert check["notebooks"][0]["notes"] == nbf.parse_source(DBX, "nb.py")["notes"]
+    out = svc.notebook_formats_import("nb.py", DBX)
+    assert out["notes"] == {"nb": check["notebooks"][0]["notes"]}
+    assert svc.notebook_formats_import("plain.py", nbf.to_fabric_py(CELLS))["notes"] == {}
+    exported = svc.notebook_export("Sales", CELLS, "databricks_py")
+    assert [n["cell"] for n in exported["notes"]] == [2, 4]
+    assert svc.notebook_export("Sales", CELLS, "fabric_py")["notes"] == []

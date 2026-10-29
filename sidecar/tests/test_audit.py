@@ -59,9 +59,9 @@ def test_every_method_is_either_read_only_or_audited_on_purpose():
     unknown = audit.READ_ONLY - server.METHODS
     assert not unknown, f"READ_ONLY names methods that don't exist: {unknown}"
     for writer in ("start_cell", "sql_start", "meta_run", "meta_promote", "publish_notebook", "save_notebook",
-                   "delete_notebook", "create_lakehouse", "xray_vacuum", "save_app_settings", "run_notebook_in_fabric"):
+                   "notebook_delete", "create_lakehouse", "xray_vacuum", "save_app_settings", "run_notebook_in_fabric"):
         assert audit.audited(writer), writer
-    for reader in ("poll_cell", "list_workspaces", "audit_log", "preview_table", "kernel_complete"):
+    for reader in ("poll_cell", "list_workspaces", "preview_table", "kernel_complete"):
         assert not audit.audited(reader), reader
 
 

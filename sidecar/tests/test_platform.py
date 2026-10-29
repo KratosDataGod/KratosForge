@@ -1380,3 +1380,32 @@ def test_only_a_lakehouses_project_members_or_an_admin_hide_a_shortcut_problem(p
     assert platform.call("list_shortcut_risks") == [], "an applied repoint ends the accepted risk"
     assert [c["kind"] for c in bo.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"}])] == []
     assert any(a["action"] == "shortcut scan" and a["by_user"] == "bo@example.com" for a in platform.call("audit"))
+
+
+def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("log_shortcut_change", kind="added", shortcut=_sc("lh1", "x", a), after={"target": a})  # anyone adds
+    [x] = platform.call("list_seen_shortcuts")
+    platform.call("accept_shortcut_risk", shortcut_id=x["id"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "404"}])
+    with pytest.raises(core.PlatformError, match="only a platform admin, or a member of a project"):
+        eve.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", a), before={"target": a})
+    out = eve.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    assert out["note"].startswith("reported") and out["by_user"] == "eve@example.com"
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "broken" and x["target"]["path"] == "Tables/a" and len(platform.call("list_shortcut_risks")) == 1
+    # A non-member's same-health report doesn't freshen the check either; a broken one always lands.
+    when = x["checked_at"]
+    assert [c["kind"] for c in eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "healthy"}])] == ["skipped"]
+    eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "still 404"}])
+    assert platform.call("list_seen_shortcuts")[0]["health_detail"] == "still 404"
+    bo.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
+    bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
+    assert platform.call("list_seen_shortcuts") == []

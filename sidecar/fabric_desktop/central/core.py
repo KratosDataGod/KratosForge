@@ -2563,11 +2563,22 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
 def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dict[str, Any] | None = None,
                         after: dict[str, Any] | None = None, note: str = "", by: str = "") -> dict[str, Any]:
     """A change made from the app, recorded with who made it, and the inventory updated to match
-    so the next scan doesn't count it again."""
+    so the next scan doesn't count it again. A removal or a repoint changes the inventory only from
+    someone who may change that lakehouse's shortcuts (_shortcut_changer): anyone else's removal is
+    refused (the next scan by someone who may records it) and their repoint is recorded as reported."""
     if kind not in ("added", "removed", "repointed"):
         raise PlatformError("kind is added, removed or repointed")
     ensure_shortcut_risks(db)
     sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
+    if kind != "added" and not _shortcut_changer(db, by)(shortcut.get("lakehouse_id")):
+        if kind == "removed":
+            raise PlatformError("The shortcut is removed, but only a platform admin, or a member of a project with a "
+                                "product in this lakehouse, can record that; their next scan does")
+        out = _change(db, kind, sid, shortcut, before, after, by, "app",
+                      ("reported: not applied to the inventory" + (f"; {note}" if note else "")))
+        _audit(db, by, "shortcut repointed (reported)", sid, {"note": note} if note else None)
+        db.commit()
+        return out
     out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
     if kind == "removed":
         db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
@@ -2591,8 +2602,9 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
 
 def record_shortcut_health(db: Db, results: list[dict[str, Any]], by: str = "") -> list[dict[str, Any]]:
     """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change. Anyone
-    may report a shortcut broken; any other new health is recorded only from someone who may change
-    that lakehouse's shortcuts (_shortcut_changer), and is otherwise listed as skipped."""
+    may report a shortcut broken; any other result (even the same health again, which would freshen
+    the check's time and detail) is recorded only from someone who may change that lakehouse's
+    shortcuts (_shortcut_changer), and is otherwise listed as skipped."""
     now, changes, may, done = _now(), [], _shortcut_changer(db, by), 0
     for r in results:
         if r.get("health") not in HEALTH:
@@ -2601,7 +2613,7 @@ def record_shortcut_health(db: Db, results: list[dict[str, Any]], by: str = "") 
         if row is None:
             continue
         was = row.get("health") or "not_checked"
-        if r["health"] != "broken" and r["health"] != was and not may(row.get("lakehouse_id")):
+        if r["health"] != "broken" and not may(row.get("lakehouse_id")):
             changes.append(_skipped(row["id"], r["health"]))
             continue
         if r["health"] == "broken" and was != "broken":

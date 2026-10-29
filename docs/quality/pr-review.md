@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| runcell 2ed7647d (#965, no PR yet) | HD-050 slice 3, nit taken | PASS | 9.3 | One test-only commit on bfab63d3. threading.Timer(120, proc.kill) starts after Popen and is cancelled in finally. A hung engine then makes readline return '', json.loads fails, and so does the test, as with the old timeout=120. Tests at head: test_notebook + silent_except 46 passed. |
+
 | Category | Weight | A 9 looks like | A 5 looks like |
 | --- | --- | --- | --- |
 | Functional correctness | 20% | Does what it says on every path, including failures; nothing reports success after a failure | Happy path works; some failure path guesses, or reports success |

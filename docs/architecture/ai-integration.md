@@ -214,7 +214,7 @@ Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go 
 
 ## 7a. Audit
 
-Every call through `Registry.invoke` gets one audit line, whatever happened to it, and so does every request the HTTP server refuses before it reaches `invoke` (no token, a browser `Origin`, a bad `Host`, rate limited). Refusals are written at most once per reason and caller every 10 seconds, with a count of the ones in between, so a flood can't fill the disk.
+Every call through `Registry.invoke` gets one audit line, whatever happened to it, and so does every request the HTTP server refuses before it reaches `invoke` (no token, a browser `Origin`, a bad `Host`, another Windows account, rate limited). Refusals are written at most once per reason and caller every 10 seconds, with a count of the ones in between, so a flood can't fill the disk.
 
 | Field | What it holds |
 | --- | --- |
@@ -257,7 +257,7 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 
 - External clients and everything they send are untrusted, and so is everything they read (notebook text, data, metadata). Nothing read is ever treated as an instruction or as authorization.
 - No capability returns a token, secret, connection string or credential. Results and errors pass through secret redaction.
-- The HTTP listener binds to `127.0.0.1`, requires a per-client bearer token, checks `Host` and `Origin` (DNS rebinding), limits request size, rate and concurrency, and stops with the app.
+- The HTTP listener binds to `127.0.0.1`, requires a per-client bearer token, checks `Host` and `Origin` (DNS rebinding), on Windows answers only programs running as the same Windows account (`integrations/peer.py`) and doesn't start when another account's program holds its port, limits request size, rate and concurrency, and stops with the app.
 - **What this boundary is not:** it protects against an AI tool that only has KratosForge's interfaces, including one misled by a prompt injection. It does not protect against a tool that already runs arbitrary commands as you on the PC: that tool can read your files and the sign-in cache directly. Approvals for `EXECUTE_LOCAL_CODE` exist because running code is equivalent to that level of access.
 
 ## 10. Compatibility and limits

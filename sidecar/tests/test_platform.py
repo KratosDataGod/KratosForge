@@ -6,6 +6,7 @@ import types
 
 import polars as pl
 import pytest
+import requests
 
 from fabric_desktop.central import core, udf
 from fabric_desktop.central.client import FabricPlatform, LocalPlatform, PlatformKeys
@@ -198,6 +199,74 @@ def test_fabric_platform_calls_the_function_and_drops_by(monkeypatch):
     assert fp.call("issue_keys", name="customer", business_keys=["a"], by="me") == {"keys": {"a": 1}, "inserted": 1}
     assert sent["url"].endswith("/workspaces/ws/userDataFunctions/fn/functions/issue_keys/invoke")
     assert sent["auth"] == "Bearer tok" and "by" not in sent["body"]
+
+
+GATEWAY_PAGE = b"<html>\n<head><title>502 Bad Gateway</title></head>\n<body>Bad Gateway</body>\n</html>"
+
+
+def answering(status, content=b"", reason=""):
+    """A FabricPlatform whose UDF_Platform answers every call with this status and body."""
+    resp = requests.Response()
+    resp.status_code, resp._content, resp.reason, resp.encoding = status, content, reason, "utf-8"
+
+    class Session:
+        def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
+            return resp
+
+    return FabricPlatform(lambda: "tok", "ws", "fn", session=Session())
+
+
+@pytest.mark.parametrize("status,content,reason", [
+    (502, GATEWAY_PAGE, "Bad Gateway"),
+    (503, b'{"errors": [{"message": "Service Unavailable"}]}', "Service Unavailable"),
+    (500, b"", "Internal Server Error"),
+    (429, b"Too many requests", "Too Many Requests"),
+])
+def test_a_5xx_or_429_says_the_platform_couldnt_be_reached(status, content, reason):
+    with pytest.raises(requests.HTTPError) as err:
+        answering(status, content, reason).call("key_stats", name="customer")
+    assert not isinstance(err.value, core.PlatformError), "a passing outage isn't the platform's own answer"
+    assert isinstance(err.value, requests.RequestException), "what the can't-be-reached fallbacks catch"
+    assert str(err.value) == (f"UDF_Platform couldn't be reached to key stats: Fabric answered {status} {reason}. "
+                              "Try again in a few minutes.")
+    assert err.value.response.status_code == status
+
+
+def test_a_4xx_that_isnt_json_is_a_platform_error_with_the_start_of_the_text():
+    with pytest.raises(core.PlatformError) as err:
+        answering(400, b"Bad request:\n  the function input isn't valid " + b"x" * 500).call("issue_keys", name="c")
+    text = str(err.value)
+    assert text.startswith("The platform couldn't issue keys: UDF_Platform answered 400 with something that isn't JSON: "
+                           "Bad request: the function input isn't valid xxx")
+    assert len(text) < 450
+
+
+@pytest.mark.parametrize("content,kind", [(b"[1, 2]", "JSON that isn't an object"), (b'"done"', "JSON that isn't an object"),
+                                          (b"null", "JSON that isn't an object"),
+                                          (GATEWAY_PAGE, "something that isn't JSON")])
+def test_a_200_that_isnt_a_json_object_is_a_platform_error(content, kind):
+    with pytest.raises(core.PlatformError, match=f"^The platform couldn't key stats: UDF_Platform answered 200 with {kind}: "):
+        answering(200, content).call("key_stats", name="customer")
+
+
+def test_the_401_403_and_404_messages_are_unchanged():
+    for status in (401, 403):
+        with pytest.raises(PermissionError) as err:
+            answering(status, GATEWAY_PAGE).call("key_stats", name="customer")
+        assert str(err.value) == ("The platform refused this call. Ask your platform team for at least Viewer "
+                                  "on the Platform workspace and Execute on UDF_Platform.")
+    with pytest.raises(LookupError) as err:
+        answering(404, GATEWAY_PAGE).call("key_stats", name="customer")
+    assert str(err.value) == "UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace."
+
+
+def test_a_4xx_or_failed_json_answer_still_names_its_errors():
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't issue keys: name is required; too many$"):
+        answering(400, b'{"errors": [{"message": "name is required"}, "too many"]}').call("issue_keys", name="")
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't key stats: no table$"):
+        answering(200, b'{"status": "Failed", "errors": [{"message": "no table"}]}').call("key_stats", name="c")
+    assert answering(200, b'{"output": {"created": true}}').call("key_stats", name="c") == {"created": True}
+    assert answering(200, b"").call("key_stats", name="c") == {}
 
 
 def test_function_app_has_a_function_per_operation_and_compiles():

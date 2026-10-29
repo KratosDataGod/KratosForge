@@ -21,7 +21,7 @@ let templates = [
 ];
 let last = null;
 const result = () => ({ project: "Sales Forecasting", checked_at: new Date(Date.now() - 5 * 60e3).toISOString(), where: "this PC",
-  enforcement: "Warn only: nothing is blocked.", problems: [], inactive: [], offline: true,
+  enforcement: "Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers.", problems: [], inactive: [], offline: true,
   package_note: "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.",
   counts: { to_look_at: 2, unknown: 0, excepted: 0, passing: 1, policies: 3 },
   policies: [
@@ -106,13 +106,13 @@ test("deleting your template asks first, drawn as a danger", { skip }, async () 
   assert.deepStrictEqual(callsOf("governance_template_delete"), [{ id: "no-pii-in-dev" }]);
 });
 
-test("Check now runs on this PC, says how many to look at and that nothing is blocked", { skip }, async () => {
+test("Check now runs on this PC, says how many to look at and what a promote stops on", { skip }, async () => {
   await openView("check", ".bp-check-head");
   assert.match(await page().textContent(".bp-summary"), /Sales Forecasting: not checked yet/);
   await page().click('.bp-check-head button:has-text("Check now")');
   await page().waitForSelector('.bp-summary:has-text("2 to look at")');
   assert.strictEqual((await page().textContent(".bp-summary")).trim(), "Sales Forecasting: 2 to look at");
-  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Warn only: nothing is blocked. "
+  assert.strictEqual((await page().textContent(".bp-when")).trim(), "Checked on this PC 5 min ago. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers. "
     + "Checked offline with the policy package taken 2 days ago (2026-10-26 09:00 UTC) from the platform on this PC (platform-prod.sqlite): crm.json.");
   const names = await page().textContent('[data-policy="table-names"]');
   assert.match(names, /Table names/);

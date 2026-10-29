@@ -307,8 +307,10 @@ def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, qui
     launcher = kernel._proc.pid
     kernel.pid = interpreter = launcher + 100_000  # what a venv launcher's child would report
     monkeypatch.setattr(kernel_proc, "memory_used", lambda pid: 10 * 1024 ** 3 if pid == interpreter else 5 * 1024 ** 2)
-    kernel.memory_limit = 1024 ** 3
+    # The limit goes on once the cell is running: set before, the watcher could end the process before
+    # start, which would then run the cell in a fresh process under its real pid and never hit the limit.
     kernel.start("import time\ntime.sleep(30)")
+    kernel.memory_limit = 1024 ** 3
     snap = until_done(kernel)
     assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
 

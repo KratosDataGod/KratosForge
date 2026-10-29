@@ -29,10 +29,10 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Source control | dark | 5 | 0 (0) | none | 0 | 0 | 0 |
 | Settings | light | 21 | 0 (0) | none | 32 | 0 | 0 |
 | Settings | dark | 21 | 0 (0) | none | 0 | 0 | 0 |
-| Notebook | light | 18 | 0 (0) | color-contrast (5) | 38 | 0 | 0 |
-| Notebook | dark | 18 | 0 (0) | color-contrast (5) | 0 | 0 | 0 |
-| SQL query | light | 22 | 0 (0) | color-contrast (2) | 21 | 0 | 0 |
-| SQL query | dark | 22 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| Notebook | light | 18 | 0 (0) | color-contrast (2) | 38 | 0 | 0 |
+| Notebook | dark | 18 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
+| SQL query | light | 22 | 0 (0) | none | 21 | 0 | 0 |
+| SQL query | dark | 22 | 0 (0) | none | 0 | 0 | 0 |
 | Command bar (Ctrl+K) | light | 18 | 0 (0) | none | 98 | 0 | 0 |
 | Command bar (Ctrl+K) | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
 | Data mesh entity | light | 15 | 0 (0) | color-contrast (5) | 14 | 0 | 0 |
@@ -50,10 +50,9 @@ None.
 
 ## Needs a look
 
-Checks axe couldn't decide by itself (for example text over a gradient or an image). Each needs a person to judge.
+Checks axe couldn't decide by itself (for example a glyph, a line number, or text over a gradient or an image), each with a person's verdict and the measured contrast.
 
-- **Home**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable.card.pad:nth-child(4) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable.card.pad:nth-child(10) > .fold-head > .fold-toggle[title="Hide"] > .chev`
-- **Workspaces**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.click:nth-child(1) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`, `.click:nth-child(2) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`
-- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`
-- **SQL query**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.cm-lineNumbers > .cm-activeLineGutter.cm-gutterElement`, `.cm-gutterElement:nth-child(3)`
-- **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow:nth-child(2)`, `.arrow:nth-child(4)`, `.arrow:nth-child(6)`, `.arrow:nth-child(8)`, `#entity-toml`
+- **Home**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable.card.pad:nth-child(4) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable.card.pad:nth-child(10) > .fold-head > .fold-toggle[title="Hide"] > .chev`. Pass: the fold arrow is #616161 on white, 6.2:1 (3:1 needed for a control's graphic).
+- **Workspaces**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.click:nth-child(1) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`, `.click:nth-child(2) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`. Pass: the favorite star is #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa (3:1 needed for a control's graphic); its button is named.
+- **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `span[title="Fold line"]`. Pass: the drag grip is #616161, 6.2:1, and hidden from assistive tech; the cell's Move up and Move down buttons do the same from the keyboard. Pass: the fold marker is #616161 on white, 6.2:1.
+- **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).

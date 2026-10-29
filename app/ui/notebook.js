@@ -725,7 +725,7 @@ const editorTheme = CM.EditorView.theme({
   "&": { fontSize: "13px" },
   "&.cm-focused": { outline: "none" },
   ".cm-content": { fontFamily: "var(--mono)", padding: "8px 0", lineHeight: "20px" },
-  ".cm-gutters": { background: "transparent", border: "none", color: "#a19f9d", fontFamily: "var(--mono)" },
+  ".cm-gutters": { background: "transparent", border: "none", color: "var(--muted)", fontFamily: "var(--mono)" },  // 4.5:1 or more (#945)
   ".cm-activeLine": { background: "transparent" },
   "&.cm-focused .cm-activeLine": { background: "rgba(27, 54, 100, 0.04)" },
   ".cm-activeLineGutter": { background: "transparent" },

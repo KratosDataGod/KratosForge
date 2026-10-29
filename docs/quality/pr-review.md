@@ -10,7 +10,7 @@ Each category is scored 0 to 10 from evidence in the diff, the tests and the [st
 
 | 2026-10-29 | #1082 4541b4e0 (draft) | Sign-in message for #1079 moved above the expired-sign-in row | PASS 9.2 (carry) | Carry from ccfbc398 with the optional nit applied. The one row moved and nothing else changed. |
 
-| 2026-10-29 | #1063 06d64660 (draft) | LX-01 rule docs links, UX review nits | PASS 9.3 (carry) | Carry from 2cfba71b. The only changes are the ' · ' separator shown only when there is a link, two doc sentences, and the SQ008 example naming columns instead of SELECT *. Merges clean. |
+| 2026-10-29 | #1063 06d64660 (draft) | LX-01 rule docs links, UX review nits | PASS 9.3 (carry) | Carry from 2cfba71b. The only changes are the ' · ' separator shown only when there is a link, two doc sentences, and the SQ006 example naming columns instead of SELECT *. Merges clean. |
 
 | 2026-10-29 | #1082 ccfbc398 (draft, refs #1079) | Sign-in: say plainly when Windows sign-in won't give a token for one service | PASS 9.1 | One friendlyError row for Status_IncorrectConfiguration and AADSTS65002, placed before the generic SignInError rows so it wins over them. Two ui.test cases, and a troubleshooting row that points to an own app registration as the way around it. Nit: the row comes after the expired-sign-in row, so a message that also carried 401 would read as expired; neither error text does today. ui.test 306 passed, merges clean. |
 

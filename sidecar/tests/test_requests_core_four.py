@@ -290,6 +290,36 @@ def test_approving_workspace_access_adds_the_role_as_the_approver(svc, who):
     assert {r["status"] for r in svc.platform_requests()} >= {"approved"}
 
 
+@pytest.mark.parametrize("kind", ["user", "group"])
+@pytest.mark.parametrize("have, asked, after, note", [
+    ("Admin", "Viewer", "Admin", "already had Admin, so it was kept"),
+    ("Member", "Contributor", "Member", "already had Member, so it was kept"),
+    ("Contributor", "Contributor", "Contributor", "has Contributor there"),
+    ("Viewer", "Member", "Member", None),
+], ids=["admin kept", "member kept", "same role", "lower raised"])
+def test_approving_workspace_access_never_lowers_a_role(svc, who, kind, have, asked, after, note):
+    """A request asks for access, so approving one never takes any away: a higher role is kept."""
+    principal = {"id": GROUP, "type": "Group"} if kind == "group" else {
+        "id": DEV, "type": "User", "userDetails": {"userPrincipalName": DEV}}
+    svc.api.roles[WS] = [{"id": "r1", "role": have, "principal": principal}]
+    as_user(who, DEV)
+    ask = {"workspace_id": WS, "role": asked} | (
+        {"who": "group", "group_id": GROUP, "group_name": "Sales Engineers"} if kind == "group" else {})
+    req = svc.platform_request("workspace_access", "", "", ask)
+    as_user(who, ADMIN)
+    out = svc.platform_decide(req["id"], True)
+    assert [r["role"] for r in svc.api.roles[WS]] == [after]
+    assert out["status"] == "approved"
+    changed = [c for c in svc.api.calls if c[0] in ("update_role_assignment", "add_role_assignment", "add_by_email")]
+    if note is None:
+        assert changed == [("update_role_assignment", ADMIN, WS, "r1", asked)]
+        assert "next" not in out and "kept" not in out["made"]
+    else:
+        assert changed == []
+        whom = "the group Sales Engineers" if kind == "group" else DEV
+        assert out["next"] == [f"{whom} {note}"] and out["made"]["kept"] == have
+
+
 class FabricDomains:
     """Fabric's admin domains API: refuses with ``status`` when set, as Fabric would."""
 

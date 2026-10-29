@@ -20,7 +20,7 @@ from typing import Any
 from . import model_dictionary, semantic
 
 SEVERITIES = ("Error", "Warning", "Info")
-URL = "semantic-model-rules.md"
+DOCS = "semantic-model-rules.md"   # each rule has a section there, anchored by its id: #sm001
 SCD2_TYPES = {"valid_from": "dateTime", "valid_to": "dateTime", "is_current": "boolean", "row_hash": "string"}
 _SPECIAL = re.compile(r"[\t\r\n]|^\s|\s$")
 
@@ -62,7 +62,12 @@ _BY_ID = {r.id: r for r in RULES}
 def rules() -> list[dict[str, Any]]:
     """Every semantic model rule, as a governance template lists them."""
     return [{"id": r.id, "kind": "model", "severity": r.severity, "category": r.category, "name": r.name,
-             "description": r.description, "url": URL} for r in RULES]
+             "description": r.description, "url": url(r.id)} for r in RULES]
+
+
+def url(rule_id: str) -> str:
+    """The docs section that explains a rule (open_doc opens it)."""
+    return f"{DOCS}#{rule_id.lower()}"
 
 
 def _known_type(e: Any, column: str, contract: str) -> str | None:
@@ -162,5 +167,5 @@ def _finding(rule_id: str, settings: dict[str, dict[str, Any]], object_type: str
     severity = own.get("severity") if own.get("severity") in SEVERITIES else rule.severity
     fix = fix or ({"action": "open_entity", "label": "Open the entity", "entity": entity} if entity else None)
     return {"rule_id": rule_id, "severity": severity, "rule": rule.name, "category": rule.category,
-            "object_type": object_type, "object": obj, "description": f"{detail} {rule.description}", "url": URL,
+            "object_type": object_type, "object": obj, "description": f"{detail} {rule.description}", "url": url(rule_id),
             **({"fix": fix} if fix else {})}

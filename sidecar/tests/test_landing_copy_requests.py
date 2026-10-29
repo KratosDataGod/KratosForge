@@ -242,3 +242,27 @@ def test_with_one_landing_workspace_the_request_says_which_zone_it_lands_in(svc,
     assert api.items[0]["workspaceId"] == "ws-landing"
     assert json.loads(api.items[0]["parts"][copyjob.CONTENT])["properties"]["destination"]["connectionSettings"][
         "typeProperties"]["artifactId"] == "lh-shared"
+
+
+# --------------------------------------------------------------------------- the Copy job's description (#1069)
+
+
+def test_a_long_reason_still_makes_the_copy_job_with_its_marker(svc, who, api):
+    """Fabric's Create Item takes a description of at most 256 characters."""
+    real = api.save_item
+
+    def fabric_limit(workspace_id, item_type, name, parts=None, description=""):
+        if len(description) > 256:
+            raise RuntimeError("400 The description is longer than 256 characters")
+        return real(workspace_id, item_type, name, parts, description)
+    api.save_item = fabric_limit
+    who["user"] = DEV
+    other = svc.platform_request("source", "crm", "x", {"owner": "sales-data@contoso.com", "expected_hours": "24"})
+    req = svc.platform_request("source", "erp", f"{'Customer 360 needs ERP customers. ' * 30} (KratosForge request "
+                               f"{other['id']})", {"owner": "sales-data@contoso.com", "expected_hours": "24",
+                                                   "copy": COPY})
+    who["user"] = ADMIN
+    assert svc.platform_decide(req["id"], True)["status"] == "approved"
+    description = api.items[0]["description"]
+    assert len(description) <= 256 and description.endswith(f" (KratosForge request {req['id']})")
+    assert description.startswith("Lands erp in the landing zone.") and other["id"] not in description

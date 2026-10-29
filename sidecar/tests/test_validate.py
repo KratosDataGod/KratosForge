@@ -71,7 +71,7 @@ def test_a_secret_in_code_is_an_error_and_is_shown_masked():
 
 
 def test_where_it_runs_decides_whether_a_fabric_only_cell_is_an_error():
-    cells = [code("%%sql\nMERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET *")]
+    cells = [code("%%sql\nUPDATE dbo.t SET x = 1 WHERE id = 2")]
     sev = {where: [f["severity"] for f in findings(validate.check(cells, LH, where), "runs_on_pc")]
            for where in ("pc", "fabric", None)}
     assert sev == {"pc": ["error"], "fabric": ["info"], None: ["warning"]}
@@ -115,7 +115,8 @@ def test_spark_notebooks_get_a_clean_run_on_this_pcs_spark():
 
 def test_spark_features_this_pc_lacks_stop_a_pc_run():
     stops = lambda src: [r["text"] for r in compute_check([code(src)], LH)["local"]["reasons"]]
-    assert "in place with spark.sql" in stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id')")[0]
+    assert stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id WHEN MATCHED THEN DELETE')") == []  # PB-015
+    assert "in place with spark.sql" in stops("spark.sql('UPDATE dbo.t SET x = 1 WHERE id = 2')")[0]
     assert stops('spark.sql("""\n  DELETE FROM dbo.t WHERE x = 1""")')
     assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")")
     assert "replaceWhere" in stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')")[0]

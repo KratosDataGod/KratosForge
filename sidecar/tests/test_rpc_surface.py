@@ -25,9 +25,9 @@ UI = Path(__file__).resolve().parents[2] / "app" / "ui"
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
-_QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
+_QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
@@ -75,9 +75,7 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
-    "governance_version": _NO_SCREEN,
     "kernel_info": _NO_SCREEN,
-    "meta_git_status": _NO_SCREEN,
     "optimize_inspect": _NO_SCREEN,
     "optimize_share_local_runs": _LOCAL_RUNS,
     "risk_acknowledgements": _NO_SCREEN,
@@ -85,18 +83,9 @@ NO_UI_CALLER: dict[str, str] = {
     "sql_dialects": _NO_SCREEN,
     "sql_executions": _NO_SCREEN,
     "usage_imports": _NO_SCREEN,
-    "usage_reconciliation": _NO_SCREEN,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     # Listed by QA-017 as having no screen.
-    "audit_log": _QA017,
-    "delete_notebook": _QA017,
-    "git_ops": _QA017,
-    "git_scan": _QA017,
-    "meta_diff": _QA017,
-    "meta_preview": _QA017,
-    "notebook_diff": _QA017,
     "platform_sources": _QA017,
-    "workload_actions": _QA017,
 }
 
 
@@ -133,7 +122,11 @@ REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_pat
            # cli.py, agent.py), never by RPC name.
            "placement_advice", "notebook_environment", "pipeline_activity_registry", "pipeline_inspect",
            "pipeline_validate", "receipt_export", "receipts_list", "run_sql", "preview_job", "run_job",
-           "environment_fabric_drift")
+           "environment_fabric_drift",
+           # Slice 5 (#1087, QA-017): nothing called these, in-process or by RPC name. The Service
+           # methods stay for tests and engine code; a screen that needs one adds it back with its caller.
+           "audit_log", "delete_notebook", "git_ops", "git_scan", "meta_diff", "meta_preview", "notebook_diff",
+           "workload_actions", "governance_version", "meta_git_status", "usage_reconciliation")
 
 
 def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):

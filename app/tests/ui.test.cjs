@@ -983,6 +983,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.match(say("SignInError: broker_error: Status_IncorrectConfiguration, error code 3399614466"), /for this service/);  // #1079
+  assert.match(say("SignInError: AADSTS65002: Consent between first party application and first party resource"), /for this service/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
   assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -3930,6 +3932,27 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
 });
 
+// #854: what a Databricks import or export didn't carry over, one row per note with its cell.
+test("Databricks conversion notes show each construct with its cell, on import and after export", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`const h = (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k != null) });
+${src.match(/const NBF_NOTE_KINDS = [^\n]*/)[0]}
+${src.match(/function nbfPlural\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
+this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
+  const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path"]);
+  const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
+  assert.strictEqual(blocks.length, 1);
+  assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);
+  assert.match(src, /\.\.\.nbfCheckNotes\(check\)\);/);
+  assert.match(src, /showDialog\("What Databricks source doesn't hold"/);
+});
+
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
 function notebookVersionsHelpers() {
   const ctx = { registerFeature: () => {} };
@@ -5414,6 +5437,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Fabric Spark": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],

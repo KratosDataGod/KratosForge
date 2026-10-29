@@ -50,10 +50,11 @@ Who may change what (the caller is always who Fabric says it is, see udf.py):
     platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
                          accepted shortcut risks, policy exceptions, endorsement scans, every product's
                          business terms, and every request
-    domain owners        glossary terms of their domain
+    domain owners        glossary terms of their domain, certifying catalog entries of their domain's projects
     product owners       access requests to their product, their product's business terms, and the semantic
                          models and reports grouped under it
-    everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
+    project members      their project's catalog text (descriptions, tags, terms, steward)
+    everyone             reading, issuing keys from existing key tables, products, links, requests
 """
 
 from __future__ import annotations

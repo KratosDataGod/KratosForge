@@ -45,7 +45,7 @@ def test_sql_line_magic_returns_a_dataframe_inside_python():
 
 def test_sql_line_magic_refuses_in_place_changes_and_needs_a_query():
     k = Kernel()
-    for change in ("UPDATE a SET v = 1 WHERE id = 2", "MERGE INTO LH_Keys.keys.a USING b ON a.id = b.id WHEN MATCHED THEN DELETE"):
+    for change in ("UPDATE LH_Keys.keys.a SET v = 1 WHERE id = 2", "MERGE INTO LH_Keys.keys.a USING b ON a.id = b.id WHEN MATCHED THEN DELETE"):
         out = k.run(f"x = %sql {change}")
         assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
     out = k.run("x = %sql")
@@ -92,7 +92,7 @@ def test_environment_check_parses_cells_with_assigned_magics():
 
 def test_compute_check_and_proof_catch_sql_line_writes():
     cells = [{"type": "code", "source": "from fabric_desktop import lakehouse\n"
-                                        "x = %sql DELETE FROM dbo.sales WHERE id = 1"}]
+                                        "x = %sql DELETE FROM LH_Keys.dbo.sales WHERE id = 1"}]
     local = compute_check(cells, LH)["local"]
     assert not local["ok"] and "in place" in local["reasons"][0]["text"]
     assert local["reasons"][0]["code"].startswith("x = %sql DELETE")
@@ -164,7 +164,7 @@ def test_reading_tools_understand_databricks_headers():
 
 def test_compute_check_sees_databricks_scala_and_sql_writes():
     cells = [{"type": "code", "source": "%scala\nval x = 1"},
-             {"type": "code", "source": "%sql\nDELETE FROM dbo.sales WHERE id = 1"},
+             {"type": "code", "source": "%sql\nDELETE FROM LH_Keys.dbo.sales WHERE id = 1"},
              {"type": "code", "source": "%md # fine"}]
     reasons = compute_check(cells, LH)["local"]["reasons"]
     assert [(r["cell"], r["text"][:12]) for r in reasons] == [(1, "uses a Scala"), (2, "changes tabl")]

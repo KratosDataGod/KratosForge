@@ -90,7 +90,8 @@ def _notebook_by_name(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
 
 
 def _notebook_timeout(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
-    policy = a.raw.get("policy") if isinstance(a.raw.get("policy"), dict) else {}
+    raw_policy = a.raw.get("policy")
+    policy: dict[str, Any] = raw_policy if isinstance(raw_policy, dict) else {}
     secs = timespan(policy.get("timeout"))
     if a.type not in NOTEBOOK_TYPES or secs is None or secs <= NOTEBOOK_MAX_SECONDS:
         return []
@@ -153,7 +154,8 @@ def _no_fabric_equivalent(a: Activity, imp: ImportedPipeline) -> list[Diagnostic
 def _child_pipeline(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
     tp = a.type_properties
     if a.type == "ExecutePipeline":
-        ref = tp.get("pipeline") if isinstance(tp.get("pipeline"), dict) else {}
+        raw_ref = tp.get("pipeline")
+        ref: dict[str, Any] = raw_ref if isinstance(raw_ref, dict) else {}
         name = ref.get("referenceName")
         if isinstance(name, str) and _GUID.match(name) and isinstance(tp.get("workspaceId"), str):
             return []
@@ -174,13 +176,14 @@ def _key_vault(a: Activity, imp: ImportedPipeline) -> list[Diagnostic]:
     refs = list(_refs(a, "AzureKeyVaultSecret"))
     linked = next(((p, t) for p, t in _expressions(a) if "linkedService()" in t.replace(" ", "")), None)
     if refs or linked:
-        path = refs[0][0] if refs else linked[0]
+        path = refs[0][0] if refs else linked[0] if linked else a.path
         out.append(_warn(a, "key_vault_linked_service", f"{a.name}: reads a secret through a Key Vault linked "
                          "service. Fabric has no linked services, so the secret can't be read that way there.", path,
                          "Read the secret with a Web activity that calls Key Vault, with secure input and output on."))
     url = a.type_properties.get("url")
     url = url.get("value") if isinstance(url, dict) else url
-    policy = a.raw.get("policy") if isinstance(a.raw.get("policy"), dict) else {}
+    raw_policy = a.raw.get("policy")
+    policy: dict[str, Any] = raw_policy if isinstance(raw_policy, dict) else {}
     if a.type == "WebActivity" and isinstance(url, str) and "vault.azure.net" in url.lower() \
             and policy.get("secureOutput") is not True:
         out.append(_warn(a, "secret_in_run_history", f"{a.name}: calls Key Vault without secure output. Fabric keeps "

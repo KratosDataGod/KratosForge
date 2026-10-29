@@ -4,7 +4,9 @@ KratosForge is building a full development experience for Fabric warehouses, the
 
 ## The Warehouse page
 
-In **Workspaces**, open a workspace and press **SQL query** on a **Warehouse** or **SQL analytics endpoint** row. The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target.
+In **Workspaces**, open a workspace and click a **Warehouse** or **SQL analytics endpoint** by its name (a **Warehouse** in the OneLake catalog too). The Warehouse page opens: the SQL editor, the compatibility check and the managed results you know from lakehouse queries, with the warehouse as the target. **Open in Fabric** on the same row opens Fabric's own editor instead. To have a name open Fabric's editor, choose **Fabric portal** under **Open warehouses in** (Settings › Advanced › SQL queries); then the row has **SQL query** for this page, as before. With preview features hidden, a name opens Fabric.
+
+From **Workspaces > Fabric portal**, **Open in KratosForge** opens the warehouse or SQL analytics endpoint Fabric is showing on this page.
 
 - **It runs in Fabric and uses capacity.** Unlike a lakehouse query, which runs on this PC, a warehouse query runs on the warehouse. The first run on each warehouse after the app starts asks you to confirm.
 - **It reads until you allow changes.** Until **Allow changes** is ticked, one statement that reads is sent; DDL, DML, `EXEC`, variables and anything that reaches outside the warehouse (`OPENROWSET`) are refused before Fabric is asked anything. With it ticked, a script may change the warehouse after it shows what it changes and you confirm: see [Changing the warehouse](#changing-the-warehouse).
@@ -76,7 +78,8 @@ WH_Gold.Warehouse/
 - **What it won't do**: change a column's type or nullability, remove a column, or add one that's NOT NULL or not last. Those would rebuild the table, so the deploy says so and doesn't offer them: write that change as a script and run it yourself.
 - **A file runs only its own object.** A change is offered only when its file is one batch that defines that object and nothing else: a table's file only `CREATE TABLE` with its columns, a schema's only `CREATE SCHEMA`. A file with another batch after `GO` (a `DROP` or `TRUNCATE`, say), another statement (also after a `;` in a view), or `CREATE TABLE ... AS SELECT` isn't offered, and says why. Keep one object per file, as Import writes them.
 - **Each change is checked first** by the same engine check as any warehouse change (see [Changing the warehouse](#changing-the-warehouse)). A change it would refuse, such as a procedure that commits, isn't offered, and says why.
-- **Test and Prod deploy only what's in Git**: every change's file tracked by Git and the same as the last commit (a file Git ignores counts as not committed), and the branch pushed. The engine holds back any other change when it plans the deploy, so the page can't offer it. Dev deploys the files as they are on this PC, and says which aren't committed. In Prod, or a workspace with no environment, you type the warehouse's name.
+- **Test and Prod deploy only what's in Git**: every change's file tracked by Git and the same as the last commit (a file Git ignores counts as not committed), and the branch pushed. The engine holds back any other change when it plans the deploy, so the page can't offer it. The engine works out the environment itself from the open metadata project (the strictest one that names the warehouse's workspace, Keys workspaces included), so a workspace counts as Dev only when the project maps it to Dev; a workspace no environment names, or no metadata project at all, deploys like Prod. Dev deploys the files as they are on this PC, and says which aren't committed. In Prod, or a workspace with no environment, you type the warehouse's name.
+- **Each change runs only against what the preview showed.** In the change's own transaction, before it runs, the engine reads that object again from the catalog: absent, or there with the same definition (a view, procedure or function) or the same column names (a table; a column whose type changed but kept its name still counts as the same). If someone changed, dropped or created it since the preview, nothing is sent and the deploy stops there: "WH_Gold's dbo.v_sales changed since the preview, so nothing was sent. Compare again." The check is best-effort against a change someone else commits at the same moment. These catalog reads run in Fabric with the change, so they use a little capacity.
 - **Each change runs on its own**, as a confirmed warehouse change in its own transaction, in order. The deploy stops at the first that fails and lists what went in, what failed and why, and what didn't run. Each change is recorded in the audit log like any warehouse change: who, which warehouse and how many rows, never the SQL.
 - Afterwards the explorer and the comparison are read again.
 - **Warehouse changes** in Settings › Advanced › SQL queries turns deploys off too.
@@ -87,8 +90,9 @@ The left side lists the warehouse's schemas, and in each its **Tables**, **Views
 
 - Click a table or view to run `SELECT TOP (100) *` on it (in the current tab when it's empty, else a new one).
 - Open a table or view to see its columns with their T-SQL types, such as `decimal(18,2)` or `nvarchar(100)`. Click a column, procedure or function to type its quoted name in the editor.
-- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab and never runs: this page runs only queries that read. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
+- **Script as** (an object's **⋯** button, or right-click): **Select top 100 rows**, **Script as CREATE**, **Script as ALTER** (views, procedures and functions) and **Script as DROP**. The script opens in a new tab, headed *Opened, not run*: running it is up to you, and a script that changes the warehouse needs **Allow changes** and a confirm ([Changing the warehouse](#changing-the-warehouse)). Objects in Fabric's own schemas (`queryinsights`, `_rsc`, `sys`) have no ALTER or DROP. A table's CREATE is built from the columns already listed, so it asks Fabric nothing. A view, procedure or function's definition is read from `sys.sql_modules` (one catalog query in Fabric), and ALTER turns its leading `CREATE` or `CREATE OR ALTER` into `ALTER`. A table's CREATE carries column names, types and NULL or NOT NULL only, not constraints.
 - **Filter objects** narrows the tree by name or schema. **Refresh** lists them again.
+- **With the keyboard:** Tab reaches the tree, the up and down arrows move, right opens a row (or goes into it), left closes it (or goes to its parent), Home and End jump to the first and last row, and Enter does what a click does. Shift+F10 or the menu key opens **Script as** on an object.
 - The editor completes table, view and column names from the same list, without asking Fabric again.
 
 A SQL analytics endpoint is found through its lakehouse, which Fabric gives the same name in the same workspace. If the lakehouse isn't in the list, the row has no **SQL query** button; use **Open in Fabric**.
@@ -222,9 +226,26 @@ Above the result, three views, on every SQL page (lakehouse, local project and w
 
 A query that returns several result sets isn't possible yet: the page sends one statement at a time. That comes with warehouse writes and scripts, which wait on their own decision.
 
-The page is tagged Preview until a query has been run on a tenant. Settings can hide preview features.
+The page stays tagged Preview until the app's own sign-in has run a query on a tenant: the [tenant run](#tested-on-a-tenant) used another sign-in. Settings can hide preview features.
 
 How a run works underneath (states, limits, what is refused): [Running SQL queries](sql-execution.md#queries-on-a-warehouse-preview).
+
+## Tested on a tenant
+
+On 2026-10-27 the warehouse checks were run against a real Fabric tenant, with main at `21d318fc`. They used the throwaway workspace `kf_tenant_test` on a Trial capacity and about 20 short warehouse queries. The engine ran from its own process, with the page's confirm logic ported to Python, so the app's window wasn't used. 25 of the 26 checks passed:
+
+- **Changes (WH-10):** a change was refused while **Allow changes** was off, then previewed, confirmed and committed once it was on. A failed statement and **Stop** each kept nothing. `GRANT`, `BEGIN TRAN` and an `EXEC` the rules don't allow were refused before anything was sent. The audit log had one entry per run, none with SQL.
+- **Project (WH-11 to WH-13):** importing the warehouse to files, comparing them with the warehouse and deploying all worked.
+
+The run found two bugs, both fixed since:
+
+- **WH-10.7 failed** ([#807](https://github.com/KratosDataGod/KratosForge/issues/807)). A workspace that belonged to no environment but had "test" in its name was taken for Test, so the page never asked for the warehouse name. Since [#808](https://github.com/KratosDataGod/KratosForge/pull/808), the environment comes only from the metadata project, and a workspace that isn't mapped counts as Prod ([Changing the warehouse](#changing-the-warehouse)).
+- **Import picked up Fabric's own schemas** `queryinsights` and `_rsc`. Since [#809](https://github.com/KratosDataGod/KratosForge/pull/809), Import, Compare and Deploy leave out `queryinsights`, `_rsc`, `sys` and `information_schema`.
+
+Still not checked on a tenant:
+
+- **The app's own Azure SQL sign-in.** The app had no saved Azure SQL sign-in to use without asking, so the run used the Azure CLI's sign-in instead. Fabric accepted that token, but whether Microsoft's sign-in app can get a token for `https://database.windows.net/user_impersonation` is still unknown ([permissions](permissions.md)).
+- **The Monitoring tab** (WH-19): see [Monitoring](#monitoring-preview).
 
 ## The plan
 

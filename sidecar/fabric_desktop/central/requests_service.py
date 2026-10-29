@@ -9,7 +9,8 @@ these makes what was asked for first, as the person approving, and only then app
     workspace_access  gives the person or group the role in that workspace
     domain            creates the domain (or subdomain) in Fabric and keeps it in the platform linked to
                       it (platform_create_domain); one whose parent isn't in Fabric is saved in the
-                      platform only. A retry finds a domain the platform already has.
+                      platform only. A retry finds a domain the platform already has, or one in
+                      Fabric whose description carries this request's marker (#1042).
     exception         records the exception in the platform's catalog (core, through policy.py)
     data              nothing to make: accepting says the producing team will build the product or
                       change, and the note says how and when
@@ -22,20 +23,55 @@ retry finds it instead of making it twice. Nothing here posts anything but gover
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from .. import access as access_mod
+from ..errors import NotSetUp
 from ..redact import describe
 from . import core
 
 _log = logging.getLogger(__name__)
 
 NEW_KINDS = ("workspace", "workspace_access", "domain", "exception", "data")
+
+# Fabric's longest description for what an approval makes: a workspace, and a domain or an item (Copy job)
+WORKSPACE_DESCRIPTION, DOMAIN_DESCRIPTION, ITEM_DESCRIPTION = 4000, 256, 256
+_MARKER_WORDS = re.compile(r"kratosforge\s*request", re.I)
+
+
+def request_marker(req: dict[str, Any]) -> str:
+    """What an approval puts in the description of what it makes, so approving again finds it."""
+    return f"(KratosForge request {req['id']})"
+
+
+def marked(typed: str, mark: str, limit: int) -> str:
+    """A description for Fabric: the typed text, cut to fit ``limit`` with ``mark`` kept whole at its end.
+    The typed text never keeps marker words, so no request's marker can be planted in it (#1069)."""
+    while _MARKER_WORDS.search(typed):  # until none is left, so removing one can't leave another behind
+        typed = _MARKER_WORDS.sub("", typed)
+    typed = typed.strip()[:max(0, limit - len(mark) - 1)].rstrip()
+    return f"{typed} {mark}".strip()
 REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
 class StepError(RuntimeError):
     """A step of carrying out a request failed: the request is still waiting."""
+
+
+def _rank(role: str) -> int:
+    return core.WORKSPACE_ROLES.index(role)
+
+
+def _assigned(assignments: Any, who: dict[str, Any]) -> dict[str, Any] | None:
+    """The role assignment given directly to ``who`` (a request's principal), if any."""
+    found = None
+    for r in assignments:
+        p = access_mod.principal(r.get("principal") or {})
+        if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
+                who.get("email") and str(p["email"]).lower() == who["email"]):
+            found = r
+    return found
 
 
 def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
@@ -45,6 +81,8 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     missing = f"The platform can't {what} yet: UDF_Platform is older than this app. {REPAIR}"
     try:
         return catalog.call(op, **kwargs)
+    except NotSetUp:
+        raise  # its own words say what to do; Finish or repair wouldn't help
     except LookupError as exc:
         _log.info("%s: %s", op, describe(exc))
         raise LookupError(missing) from exc
@@ -77,6 +115,32 @@ class RequestsMixin:
                 raise LookupError(f"The platform can't take this kind of request yet: UDF_Platform is older "
                                   f"than this app. {REPAIR}") from exc
             raise
+
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        """Each waiting workspace access request the viewer can decide says the role its person or group
+        has in that workspace today (``today``: ``{"role": "Admin"}``, ``{"role": ""}`` for none of its
+        own, or ``{"checked": False}``), read from Fabric as the viewer once per workspace and never
+        stored, so the approver sees whether approving changes anything (#1108)."""
+        out = super().platform_requests(status)  # type: ignore[misc]
+        asks = [r for r in out if r.get("kind") == "workspace_access" and r.get("status") == "waiting"
+                and r.get("can_decide")]
+        roles: dict[str, list[Any] | None] = {}
+        for r in asks:
+            d = r.get("detail") or {}
+            wid = str(d.get("workspace_id") or "")
+            if wid not in roles:
+                try:
+                    roles[wid] = list(self._rq_fabric().list_role_assignments(wid))
+                except Exception as exc:  # noqa: BLE001 - the row says it couldn't check; approving still works
+                    _log.info("Couldn't read the roles in %s: %s", wid, describe(exc))
+                    roles[wid] = None
+            have = roles[wid]
+            if have is None:
+                r["today"] = {"checked": False}
+            else:
+                found = _assigned(have, d.get("principal") or {})
+                r["today"] = {"role": str((found or {}).get("role") or "")}
+        return out
 
     def _rq_name_free(self, name: str) -> None:
         """Refuse a new workspace whose name is taken, as far as the person asking can see."""
@@ -144,14 +208,17 @@ class RequestsMixin:
 
         def create() -> Any:
             try:
-                return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
+                return self._create_domain(domain, in_fabric, marker)  # type: ignore[attr-defined]
             except PermissionError as exc:
                 raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
                                       f"{name} in the platform only (New domain on Data mesh > Domains, without Also "
                                       "create it in Fabric) and approve it again.") from exc
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
-        self._rq_step(step, create)
+        marker = request_marker(req)
+        _, adopted = self._rq_step(step, create)
+        if adopted:
+            return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
         if in_fabric or parent is None:
             return {}
         return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
@@ -164,7 +231,7 @@ class RequestsMixin:
         capacity = (d.get("capacity_id") or capacity_id or "").strip()
         if not capacity:
             raise core.PlatformError("Pick a capacity for the workspace: the request didn't name one")
-        marker = f"(KratosForge request {req['id']})"
+        marker = request_marker(req)
 
         def find_or_create() -> tuple[dict[str, Any], bool]:
             same = [w for w in api.list_workspaces() if str(w.get("displayName") or "").lower() == name.lower()]
@@ -176,7 +243,7 @@ class RequestsMixin:
                 raise core.PlatformError(f"A workspace named {name} already exists and this request didn't make "
                                          "it. Decline the request, or ask for another name.")
             why = str(req.get("reason") or "").strip()
-            return api.create_workspace(name, capacity, f"{why} {marker}".strip()[:4000]), True
+            return api.create_workspace(name, capacity, marked(why, marker, WORKSPACE_DESCRIPTION)), True
 
         ws, created = self._rq_step(f"Create the workspace {name}", find_or_create)
         wid = ws["id"]
@@ -228,18 +295,24 @@ class RequestsMixin:
         who, role, wid = d["principal"], d["role"], d["workspace_id"]
         label = who.get("name") or who.get("email") or who.get("id")
 
-        def give() -> None:
-            current = None
-            for r in api.list_role_assignments(wid):
-                p = access_mod.principal(r.get("principal") or {})
-                if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
-                        who.get("email") and str(p["email"]).lower() == who["email"]):
-                    current = r
+        def give() -> str:
+            """The role they already had and kept, or "" when this gave or raised it."""
+            current = _assigned(api.list_role_assignments(wid), who)
             if current is None:
                 self._rq_add(api, wid, who, role)
-            elif current.get("role") != role:
-                api.update_role_assignment(wid, current["id"], role)
+                return ""
+            have = str(current.get("role") or "")
+            # A request asks for access, so approving one never lowers a role: a higher one is kept.
+            if have in core.WORKSPACE_ROLES and _rank(have) >= _rank(role):
+                return have
+            api.update_role_assignment(wid, current["id"], role)
+            return ""
 
-        self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
+        kept = self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
         self._rq_progress(req, {"assigned": True})
-        return {"assigned": True}
+        if not kept:
+            return {"assigned": True}
+        whom = f"the group {label}" if who.get("type") == "Group" else label
+        # The same role may be this approval's own work on a retry, so that only says where things stand.
+        note = f"{whom} has {kept} there" if kept == role else f"{whom} already had {kept}, so it was kept"
+        return {"assigned": True, "kept": kept, "next": [note]}

@@ -45,10 +45,10 @@ function whName(schema, name) {
 
 const WH_DROP_KIND = { U: "TABLE", V: "VIEW", P: "PROCEDURE", FN: "FUNCTION" };
 
-// The first line of every script: where it came from, and that this page won't run it.
+// The first lines of every script: where it came from, and that opening it ran nothing.
 function whScriptHeader(ref, verb) {
   return `-- ${verb} script from ${ref.name}, ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC.\n` +
-    "-- This page runs only queries that read, so it won't run this script.\n";
+    "-- Opened, not run.\n";
 }
 
 // CREATE TABLE from the explorer's columns (names, T-SQL types, NULL or NOT NULL).
@@ -73,6 +73,7 @@ async function whDefinition(ref, o) {
 }
 
 // The Script as menu items for an object. open(title, text) opens a script tab; query(name) runs SELECT TOP (100).
+// Fabric's own schemas (queryinsights, _rsc, sys) can't be changed, so their objects have no ALTER or DROP.
 function whScriptItems(ref, o, cols, { open, query }) {
   const full = whName(o.schema, o.name);
   const drop = () => open(`${o.name} (DROP)`, `${whScriptHeader(ref, "DROP")}DROP ${WH_DROP_KIND[o.type]} ${full};\n`);
@@ -87,14 +88,15 @@ function whScriptItems(ref, o, cols, { open, query }) {
   };
   const items = [];
   if (o.type === "U" || o.type === "V") items.push({ label: "Select top 100 rows", icon: "play", action: () => query(full) });
+  const fabric = whFabricSchema(o.schema);
   if (o.type === "U") {
     items.push({ label: "Script as CREATE", icon: "code", action: () => open(`${o.name} (CREATE)`, `${whScriptHeader(ref, "CREATE")}${whCreateTable(o, cols || [])}`) });
   } else {
-    items.push({ label: "Script as CREATE", icon: "code", action: module("CREATE") },
-      { label: "Script as ALTER", icon: "code", action: module("ALTER") });
+    items.push({ label: "Script as CREATE", icon: "code", action: module("CREATE") });
+    if (!fabric) items.push({ label: "Script as ALTER", icon: "code", action: module("ALTER") });
   }
-  items.push({ label: "Script as DROP", icon: "code", action: drop },
-    { info: "Scripts open in a new tab and don't run" });
+  if (!fabric) items.push({ label: "Script as DROP", icon: "code", action: drop });
+  items.push({ info: fabric ? `${o.schema} is Fabric's own schema, so it can't be changed` : "Scripts open in a new tab and don't run" });
   return items;
 }
 
@@ -160,19 +162,51 @@ function warehouseSqlProvider(ref) {
 // The explorer box. actions: load() lists the objects (asking first, since it runs in Fabric),
 // query(name) opens SELECT TOP (100) on a table or view, insert(text) types a name in the editor,
 // open(title, text) opens a script in a new tab without running it. Each object's ⋯ button (or a
-// right-click) has Script as.
+// right-click, or Shift+F10) has Script as. The objects are a tree: one row takes Tab, the arrow keys
+// move and open, Home and End jump, and Enter does what a click does.
 function whExplorer(ref, actions) {
   const box = h("div", { class: "explorer-content" });
+  const tree = h("div", { role: "tree", "aria-label": `Objects in ${ref.name}`, class: "wh-tree", onkeydown: treeKeys,
+    onfocusin: (e) => { const it = treeItemOf(e.target); if (it) sqlPage.whFocus = it.dataset.tid; } });
   const open = sqlPage.whOpen ||= new Set();
   const filter = h("input", { type: "search", class: "wh-filter", placeholder: "Filter objects", "aria-label": "Filter objects",
     value: sqlPage.whFilter || "", oninput: (e) => { sqlPage.whFilter = e.target.value; draw(); } });
   const toggle = (id) => { if (open.has(id)) open.delete(id); else open.add(id); draw(); };
-  const row = (depth, label, attrs = {}, ...rest) => h("button", { class: "tree-row", style: `padding-left:${6 + depth * 16}px`, ...attrs },
-    ...rest, h("span", { class: "label" }, label));
+  const row = (depth, label, attrs = {}, ...rest) => h("button", { class: "tree-row", style: `padding-left:${6 + depth * 16}px`,
+    role: "treeitem", "aria-level": String(depth + 1), tabindex: "-1", ...attrs }, ...rest, h("span", { class: "label" }, label));
+  // The tree row a key or focus came from: an object's chevron and ⋯ buttons count as its row.
+  const treeItemOf = (el) => el.closest?.("[role=treeitem]") || el.closest?.(".wh-object")?.querySelector("[role=treeitem]");
+
+  function treeKeys(e) {
+    const cur = treeItemOf(e.target);
+    if (!cur || e.altKey || e.ctrlKey || e.metaKey) return;
+    const items = [...tree.querySelectorAll("[role=treeitem]")];
+    const at = items.indexOf(cur);
+    const level = Number(cur.getAttribute("aria-level"));
+    const expanded = cur.getAttribute("aria-expanded");
+    const move = (it) => { if (it) { items.forEach((x) => { x.tabIndex = -1; }); it.tabIndex = 0; it.focus(); } };
+    if (e.key === "ArrowDown") move(items[at + 1]);
+    else if (e.key === "ArrowUp") move(items[at - 1]);
+    else if (e.key === "Home") move(items[0]);
+    else if (e.key === "End") move(items[items.length - 1]);
+    else if (e.key === "ArrowRight") {
+      if (expanded === "false") toggle(cur.dataset.tid);
+      else if (expanded === "true") move(items[at + 1]);
+      else return;
+    } else if (e.key === "ArrowLeft") {
+      if (expanded === "true") toggle(cur.dataset.tid);
+      else move(items.slice(0, at).reverse().find((x) => Number(x.getAttribute("aria-level")) < level));
+    } else if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+      if (!cur.closest(".wh-object")) return;
+      cur.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    } else return;
+    e.preventDefault();
+  }
 
   function draw() {
     const cat = sqlPage.catalog?.key === sqlRefKey(ref) ? sqlPage.catalog : null;
     filter.hidden = cat?.state !== "done";
+    const hadFocus = tree.contains(document.activeElement);
     if (!cat || cat.state === "idle") {
       box.replaceChildren(h("p", { class: "muted-text wh-note" }, "Lists schemas, tables, views, procedures and functions from the warehouse's catalog."),
         btn("List objects", "sync", actions.load, "tool outline small", { title: "Runs two catalog queries in Fabric (uses capacity)" }));
@@ -188,18 +222,18 @@ function whExplorer(ref, actions) {
     const shown = cat.objects.filter((o) => !term || o.name.toLowerCase().includes(term) || o.schema.toLowerCase().includes(term));
     const rows = [];
     const schemas = [...new Set(shown.map((o) => o.schema))];
-    if (!schemas.length) rows.push(h("div", { class: "tree-row muted" }, term ? "Nothing matches." : "This warehouse has no tables, views, procedures or functions yet."));
+    const empty = !schemas.length && h("div", { class: "tree-row muted" }, term ? "Nothing matches." : "This warehouse has no tables, views, procedures or functions yet.");
     for (const schema of schemas) {
       const sid = `s:${schema}`;
       const sOpen = term || !open.has(sid);  // schemas start open
-      rows.push(row(0, schema, { class: "tree-row chev", "aria-expanded": String(!!sOpen), onclick: () => toggle(sid) }, chevron(sOpen), icon("folder", 15)));
+      rows.push(row(0, schema, { class: "tree-row chev", "aria-expanded": String(!!sOpen), "data-tid": sid, onclick: () => toggle(sid) }, chevron(sOpen), icon("folder", 15)));
       if (!sOpen) continue;
       for (const [type, label] of WH_OBJECT_GROUPS) {
         const objs = shown.filter((o) => o.schema === schema && o.type === type);
         if (!objs.length) continue;
         const gid = `g:${schema}.${type}`;
         const gOpen = term || (type === "U" ? !open.has(gid) : open.has(gid));  // tables start open
-        rows.push(row(1, `${label} (${objs.length})`, { class: "tree-row chev", "aria-expanded": String(!!gOpen), onclick: () => toggle(gid) }, chevron(gOpen)));
+        rows.push(row(1, `${label} (${objs.length})`, { class: "tree-row chev", "aria-expanded": String(!!gOpen), "data-tid": gid, onclick: () => toggle(gid) }, chevron(gOpen)));
         if (!gOpen) continue;
         for (const o of objs) {
           const full = whName(o.schema, o.name);
@@ -210,16 +244,22 @@ function whExplorer(ref, actions) {
             e.preventDefault();
             showMenu(e.currentTarget.closest(".sql-table-row").querySelector(".wh-more"), whScriptItems(ref, o, cols, actions));
           };
-          rows.push(h("div", { class: "sql-table-row wh-object", oncontextmenu: menu },
+          // The name is the tree row; the chevron and ⋯ are for the mouse (the arrow keys and Shift+F10 do the same).
+          rows.push(h("div", { class: "sql-table-row wh-object", role: "none", oncontextmenu: menu },
             readable ? h("button", { class: "tree-row chev", "aria-label": open.has(oid) ? `Hide columns of ${o.name}` : `Show columns of ${o.name}`,
+              "aria-expanded": String(open.has(oid)), tabindex: "-1",
               style: "padding-left:38px", onclick: () => toggle(oid) }, chevron(open.has(oid))) : h("span", { class: "wh-indent" }),
-            h("button", { class: "tree-row", title: readable ? `Query ${full}` : `Insert ${full}`,
+            h("button", { class: "tree-row", role: "treeitem", "aria-level": "3", tabindex: "-1", "data-tid": oid,
+              ...(readable ? { "aria-expanded": String(open.has(oid)) } : {}),
+              title: readable ? `Query ${full}` : `Insert ${full}`,
               onclick: () => (readable ? actions.query(full) : actions.insert(full)) },
             icon(WH_ICONS[o.type] || "code", 15), h("span", { class: "label" }, o.name)),
-            h("button", { class: "tree-row wh-more", "aria-label": `Script ${o.name}`, "aria-haspopup": "menu", title: "Script as...", onclick: menu }, "⋯")));
+            h("button", { class: "tree-row wh-more", "aria-label": `Script ${o.name}`, "aria-haspopup": "menu", tabindex: "-1",
+              title: "Script as... (Shift+F10)", onclick: menu }, "⋯")));
           if (readable && open.has(oid)) {
             for (const c of cols || []) {
               rows.push(h("button", { class: "tree-row sql-col", style: "padding-left:70px", title: `Insert ${c.name}`,
+                role: "treeitem", "aria-level": "4", tabindex: "-1", "data-tid": `c:${o.schema}.${o.name}.${c.name}`,
                 onclick: () => actions.insert(sqlQuoteIdent(c.name, "warehouse")) },
               h("span", { class: "label" }, c.name), h("span", { class: "hint" }, c.type)));
             }
@@ -227,9 +267,15 @@ function whExplorer(ref, actions) {
         }
       }
     }
-    rows.push(h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${cat.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. `,
-      h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")));
-    box.replaceChildren(...rows);
+    tree.replaceChildren(...rows);
+    // One row takes Tab: the one last focused, else the first.
+    const items = [...tree.querySelectorAll("[role=treeitem]")];
+    const cur = items.find((x) => x.dataset.tid === sqlPage.whFocus) || items[0];
+    if (cur) cur.tabIndex = 0;
+    box.replaceChildren(...(empty ? [empty] : [tree]),
+      h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${timeText(cat.at)}. `,
+        h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")));
+    if (cur && hadFocus) cur.focus();  // after the tree is back in the page, or the focus is lost
   }
   draw();
   return { el: h("div", { class: "wh-explorer" }, filter, box), draw };

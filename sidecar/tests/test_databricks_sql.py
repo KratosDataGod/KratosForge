@@ -427,3 +427,30 @@ def test_a_statement_running_too_long_is_cancelled_and_reported():
 
 def test_the_engine_says_cells_can_change_data_without_another_confirm():
     assert any("no further confirm" in x for x in registry.get("databricks-sql").limitations)
+
+
+@pytest.mark.parametrize("status,path,code,hint", [
+    (403, "/api/2.0/sql/warehouses/wh1", "", "CAN USE on the SQL warehouse."),
+    (404, "/api/2.0/sql/warehouses/wh1", "", "Check the SQL warehouse ID"),
+    (404, "/api/2.0/sql/statements/s1", "", "run the cell again"),
+    (403, "/api/2.1/clusters/list", "", "CAN ATTACH TO"),
+    (404, "/api/2.1/clusters/get", "", "Check the cluster ID"),
+    (404, "/api/2.1/unity-catalog/metastore_summary", "", "no Unity Catalog metastore assigned"),
+    (404, "/api/2.1/unity-catalog/catalogs", "METASTORE_DOES_NOT_EXIST", "no Unity Catalog metastore assigned"),
+    (403, "/api/2.1/unity-catalog/tables", "", "USE CATALOG and USE SCHEMA"),
+    (403, "/api/2.0/preview/scim/v2/Me", "", "its own user details"),
+    (401, "/api/2.1/clusters/list", "", "Sign in again."),
+    (429, "/api/2.0/sql/statements", "", "busy"),
+    (403, "/api/2.0/other", "", "Ask a workspace admin"),
+    (500, "/api/2.0/sql/warehouses", "", ""),
+])
+def test_each_api_says_what_to_check_when_it_refuses(status, path, code, hint):
+    got = dbsql.refusal_hint(status, path, code)
+    assert (hint in got) if hint else got == ""
+
+
+def test_a_refusal_names_the_api_that_refused_and_never_a_token():
+    resp = Resp(404, {"error_code": "NOT_FOUND", "message": "nothing here for " + PAT})
+    msg = dbsql.Client._refusal(resp, "/api/2.1/clusters/get")
+    assert msg.startswith("Databricks refused the request (HTTP 404).") and msg.endswith("Check the cluster ID and the workspace.")
+    assert PAT not in msg and "warehouse" not in msg

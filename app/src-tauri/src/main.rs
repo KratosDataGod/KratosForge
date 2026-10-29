@@ -16,9 +16,11 @@ use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 mod deep_link;
 mod engine_patch;
 mod exe_name;
+mod folder_pick;
 mod policy_file;
 mod policy_trust;
 mod replies;
+mod signature;
 mod update_guard;
 mod vscode_link;
 mod watchdog;
@@ -235,13 +237,36 @@ fn release_tag() -> &'static str {
 /// Python and its unsigned packages are not involved. The channel's release, or with
 /// `"auto_update": false` only this build's own (update_guard::engine_tags).
 fn engine_tags() -> Vec<String> {
-    update_guard::engine_tags(auto_update_allowed(), release_tag(), BUILD_COMMIT)
+    update_guard::engine_tags(!own_engine_only(), release_tag(), BUILD_COMMIT)
 }
 
-/// With `"auto_update": false` the engine must be this exe's own build, never a newer one (#418).
+/// Whether this exe is Authenticode-signed (signature.rs), read once. A signature Windows won't
+/// vouch for counts as signed, so the stricter rules hold.
+fn signed_build() -> bool {
+    static SIGNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SIGNED.get_or_init(|| std::env::current_exe().is_ok_and(|exe| !matches!(signature::signer(&exe), Ok(None))))
+}
+
+/// Whether only this exe's own engine may be installed and run: with `"auto_update": false`
+/// (#418), and for a signed build. A signed build checks who signed each app update, and the
+/// engine is code too: it runs only the engine whose checksum it was built with, so a new engine
+/// only ever arrives inside a signed app update.
+fn own_engine_only() -> bool {
+    !auto_update_allowed() || signed_build()
+}
+
+/// Only this exe's own engine build when own_engine_only, never a newer one (#418).
 fn check_engine_build(commit: &str) -> Result<(), String> {
-    if auto_update_allowed() || commit.eq_ignore_ascii_case(BUILD_COMMIT) {
+    if !own_engine_only() || commit.eq_ignore_ascii_case(BUILD_COMMIT) {
         return Ok(());
+    }
+    if auto_update_allowed() {
+        return Err(format!(
+            "This signed build runs only its own engine (build {}), and the engine offered is build {}, so it wasn't \
+             installed. The next app update brings its engine with it.",
+            BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT),
+            commit.get(..7).unwrap_or(commit)
+        ));
     }
     Err(format!(
         "Your organization rolls out builds itself, and the engine offered is build {}, not this app's build {}, \
@@ -308,9 +333,15 @@ fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<Strin
 /// Checks a downloaded zip of `build`'s engine against the checksum baked into this exe for its
 /// own engine (BUILD_ENGINE_SHA256 or BUILD_ENGINE_UPDATE_SHA256). An engine of another build
 /// (a self-updating PC moving to a newer one) or an exe built without one is checked only
-/// against its release, as before.
-fn check_pinned_engine(actual_sha256: &str, pinned: &str, build: Option<&str>, own_build: &str) -> Result<(), String> {
+/// against its release, as before, unless `strict` (a signed build): then only this exe's own
+/// build with its pinned checksum is accepted.
+fn check_pinned_engine(actual_sha256: &str, pinned: &str, build: Option<&str>, own_build: &str, strict: bool) -> Result<(), String> {
     let own = build.is_none_or(|b| b.eq_ignore_ascii_case(own_build));
+    if strict && (!own || pinned.is_empty()) {
+        return Err("This signed build runs only the engine it was built with, and this download isn't that engine, \
+             so it wasn't installed."
+            .into());
+    }
     if pinned.is_empty() || !own || pinned.eq_ignore_ascii_case(actual_sha256) {
         return Ok(());
     }
@@ -331,7 +362,8 @@ fn engine_root() -> PathBuf {
 }
 
 /// This build's engine, or failing that another build's, which can still run the
-/// startup check that then updates this exe or the engine.
+/// startup check that then updates this exe or the engine. A signed build runs only its own
+/// (own_engine_only); a missing one is installed from this build's release.
 fn engine_python() -> Option<PathBuf> {
     if !bundled() {
         return None;
@@ -339,6 +371,9 @@ fn engine_python() -> Option<PathBuf> {
     let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
     if exact.exists() {
         return Some(exact);
+    }
+    if signed_build() {
+        return None;
     }
     std::fs::read_dir(engine_root())
         .ok()?
@@ -985,6 +1020,13 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
                 BUILD_COMMIT.get(..12).unwrap_or(BUILD_COMMIT)
             ));
         }
+        if signed_build() && auto_update_allowed() && missing_release_file(&e) {
+            return Err(format!(
+                "This signed build runs only its own engine, and its release (build {}) no longer has one to download, \
+                 so none was installed. Download the current KratosForge from the releases page.",
+                BUILD_COMMIT.get(..7).unwrap_or(BUILD_COMMIT)
+            ));
+        }
         if !auto_update_allowed() && missing_release_file(&e) {
             return Err(format!(
                 "Your organization rolls out builds itself, and this app's build ({}) no longer has an engine to \
@@ -1008,7 +1050,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     say("Checking the download…");
     let sha = sha256_file(&zip)?;
     let named = match check_engine_zip(&sha, &release)
-        .and_then(|named| check_pinned_engine(&sha, BUILD_ENGINE_SHA256, named.as_deref(), BUILD_COMMIT).map(|()| named))
+        .and_then(|named| check_pinned_engine(&sha, BUILD_ENGINE_SHA256, named.as_deref(), BUILD_COMMIT, signed_build()).map(|()| named))
     {
         Ok(named) => named,
         Err(e) => {
@@ -1104,7 +1146,13 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         return Ok(None);
     }
     check_engine_build(&commit)?;
-    let Some(source) = engine_patch::find_runtime(root, &runtime) else { return Ok(None) };
+    let Some(source) = engine_patch::find_runtime(root, &runtime) else {
+        if engine_python().is_some() {
+            // Say why the big download, so it doesn't look like the small update stopped working.
+            say("This build updates Python's packages, so the whole engine is downloaded this once.");
+        }
+        return Ok(None);
+    };
     let state = update_state();
     let seen = update_guard::check_manifest(&release, update_guard::load_seen(&state, tag_used).as_ref(), unix_now())?;
 
@@ -1120,7 +1168,7 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         .and_then(|()| sha256_file(&zip))
         .and_then(|sha| {
             engine_patch::check_update_zip(&sha, &update_sha)?;
-            check_pinned_engine(&sha, BUILD_ENGINE_UPDATE_SHA256, Some(&commit), BUILD_COMMIT)
+            check_pinned_engine(&sha, BUILD_ENGINE_UPDATE_SHA256, Some(&commit), BUILD_COMMIT, signed_build())
         });
     if let Err(e) = checked {
         let _ = std::fs::remove_file(&zip);
@@ -1279,6 +1327,12 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
                 });
             }
         }
+    }
+    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
+    // the download was checked against comes from the same release as the file.
+    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(why);
     }
     update_guard::hand_over(&mut ExeHandover {
         app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
@@ -1791,6 +1845,28 @@ async fn fabric_view_action(app: tauri::AppHandle, window: tauri::Window, action
     }
 }
 
+/// The Fabric page the calling window's view shows, without its query or fragment, so the page can
+/// offer to open the same item itself (Open in KratosForge). None when it isn't on Fabric.
+#[tauri::command]
+async fn fabric_view_url(app: tauri::AppHandle, window: tauri::Window) -> Result<Option<String>, String> {
+    let label = fabric_view_label(window.label())?;
+    let Some(view) = app.get_webview(label) else { return Ok(None) };
+    Ok(fabric_page_address(&view.url().map_err(|e| e.to_string())?))
+}
+
+fn fabric_page_address(url: &Url) -> Option<String> {
+    if url.scheme() != "https" || url.host_str() != Some("app.fabric.microsoft.com") {
+        return None;
+    }
+    let mut page = url.clone();
+    page.set_query(None);
+    page.set_fragment(None);
+    let _ = page.set_username("");
+    let _ = page.set_password(None);
+    let _ = page.set_port(None);
+    Some(page.to_string())
+}
+
 /// Signs the Fabric view out and forgets its saved sign-in; the sidecar forgets its own.
 #[tauri::command]
 async fn fabric_view_sign_out(app: tauri::AppHandle) -> Result<(), String> {
@@ -2032,6 +2108,20 @@ fn add_to_vscode(client_id: String, insiders: bool) -> Result<(), String> {
     open_with_handler(&link, if insiders { "VS Code Insiders. Is it installed?" } else { "VS Code. Is it installed?" })
 }
 
+/// Browse… beside a folder box (#971): the Windows folder dialog, owned by the window that asked.
+/// Returns the chosen folder, or None when the person cancels. The dialog gets a thread of its
+/// own, so it never shares a COM apartment with anything else.
+#[tauri::command]
+async fn pick_folder(window: tauri::Window, start: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    let owner = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    #[cfg(not(windows))]
+    let owner = { let _ = &window; 0 };
+    tauri::async_runtime::spawn_blocking(move || std::thread::spawn(move || folder_pick::pick(owner, start)).join())
+        .await.map_err(|e| e.to_string())?
+        .map_err(|_| "The folder dialog stopped unexpectedly".to_string())?
+}
+
 /// Opens one of this repository's docs pages in the default browser, such as
 /// "xray-fixes.md#small-files". Only pages under docs/ on GitHub.
 #[tauri::command]
@@ -2164,6 +2254,9 @@ fn register_link_scheme() {
     });
 }
 
+/// Why a link isn't opened when the policy file turns links off.
+const LINKS_OFF: &str = "Your organization turned off kratosforge:// links.";
+
 /// This copy's instance lock, kept for the life of the process except while an update hands over.
 static INSTANCE: deep_link::InstanceLock = deep_link::InstanceLock::new();
 
@@ -2184,7 +2277,11 @@ fn claim_single_instance(url: Option<&str>, updating: bool) -> Option<Option<std
 fn main() {
     // A link is read before anything else. One that doesn't read as a link is never handed on:
     // the app only says it wasn't opened (and why, when this copy is the one that runs).
+    // An organization that turned links off (register_link_scheme: false) gets none: no listener on
+    // 127.0.0.1, and a link given on the command line is only refused.
+    let links_on = policy_allows_link_scheme(&policy_text());
     let link = deep_link::link_arg(&std::env::args().collect::<Vec<_>>()).map(|url| match deep_link::parse(&url) {
+        Ok(_) if !links_on => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(LINKS_OFF.into())),
         Ok(parsed) => (url, parsed),
         Err(e) => (deep_link::REFUSED.to_string(), deep_link::Link::Refused(e)),
     });
@@ -2201,9 +2298,11 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(PendingLink(Mutex::new(pending)))
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
-            if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
+            if !links_on {
+                deep_link::forget_port(&data_dir());
+            } else if let Err(e) = deep_link::listen(&data_dir(), move |link| show_link(&handle, link)) {
                 eprintln!("kratosforge:// links from other copies won't arrive: {e}");
             }
             register_link_scheme();
@@ -2215,7 +2314,7 @@ fn main() {
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
-            fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link,
+            fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])
         .run(tauri::generate_context!())
@@ -2312,14 +2411,25 @@ mod integrity_tests {
     #[test]
     fn this_builds_engine_must_match_the_checksum_baked_into_the_exe() {
         let (pin, other) = ("ab".repeat(32), "cd".repeat(32));
-        assert_eq!(check_pinned_engine(&pin.to_uppercase(), &pin, Some(BUILD), BUILD), Ok(()));
-        assert_eq!(check_pinned_engine(&pin, &pin, None, BUILD), Ok(()));
-        let err = check_pinned_engine(&other, &pin, Some(&BUILD.to_uppercase()), BUILD).unwrap_err();
+        assert_eq!(check_pinned_engine(&pin.to_uppercase(), &pin, Some(BUILD), BUILD, false), Ok(()));
+        assert_eq!(check_pinned_engine(&pin, &pin, None, BUILD, false), Ok(()));
+        let err = check_pinned_engine(&other, &pin, Some(&BUILD.to_uppercase()), BUILD, false).unwrap_err();
         assert!(err.contains("isn't the engine this app was built with"), "{err}");
-        assert!(check_pinned_engine(&other, &pin, None, BUILD).is_err());  // no build named: treated as this one
+        assert!(check_pinned_engine(&other, &pin, None, BUILD, false).is_err());  // no build named: treated as this one
         // Another build's engine (self-updating to a newer one) and local builds with no pin.
-        assert_eq!(check_pinned_engine(&other, &pin, Some(&"1".repeat(40)), BUILD), Ok(()));
-        assert_eq!(check_pinned_engine(&other, "", Some(BUILD), BUILD), Ok(()));
+        assert_eq!(check_pinned_engine(&other, &pin, Some(&"1".repeat(40)), BUILD, false), Ok(()));
+        assert_eq!(check_pinned_engine(&other, "", Some(BUILD), BUILD, false), Ok(()));
+    }
+
+    #[test]
+    fn a_signed_build_takes_only_its_own_pinned_engine() {
+        let (pin, other) = ("ab".repeat(32), "cd".repeat(32));
+        assert_eq!(check_pinned_engine(&pin, &pin, Some(BUILD), BUILD, true), Ok(()));
+        assert!(check_pinned_engine(&other, &pin, Some(BUILD), BUILD, true).is_err());
+        // Another build's engine, even one matching its own release, and an exe with no pin.
+        let err = check_pinned_engine(&other, &pin, Some(&"1".repeat(40)), BUILD, true).unwrap_err();
+        assert!(err.contains("runs only the engine it was built with"), "{err}");
+        assert!(check_pinned_engine(&pin, "", Some(BUILD), BUILD, true).is_err());
     }
 
     #[test]
@@ -2365,6 +2475,17 @@ mod integrity_tests {
 #[cfg(test)]
 mod fabric_nav_tests {
     use super::*;
+
+    #[test]
+    fn the_page_address_is_fabric_only_and_drops_the_query() {
+        let page = |u: &str| fabric_page_address(&Url::parse(u).unwrap());
+        assert_eq!(page("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh?experience=fabric-developer&ctid=t#x"),
+                   Some("https://app.fabric.microsoft.com/groups/ws/datawarehouses/wh".into()));
+        assert_eq!(page("https://login.microsoftonline.com/common/oauth2"), None);
+        assert_eq!(page("http://app.fabric.microsoft.com/groups/ws"), None);
+        assert_eq!(page("https://u:p@app.fabric.microsoft.com:8443/groups/ws"),
+                   Some("https://app.fabric.microsoft.com/groups/ws".into()));
+    }
 
     fn nav(url: &str) -> FabricNav {
         fabric_nav(&Url::parse(url).unwrap(), false, &[])

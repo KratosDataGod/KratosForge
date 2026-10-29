@@ -55,6 +55,12 @@ test("T-SQL gets a Best practices chip with the count, and its tab lists the fin
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-practices.png") });
 });
 
+test("About SQ002 opens the rule's section of the docs (LX-01)", { skip }, async () => {
+  await panel().locator("[data-rule=SQ002] .learn-more").click();
+  const opened = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "open_doc").map((c) => c.args.page));
+  assert.deepStrictEqual(opened, ["sql-best-practices.md#sq002"]);
+});
+
 test("Line n selects the place in the editor", { skip }, async () => {
   await panel().locator("[data-rule=SQ002] .link-btn").click();
   const sel = await page().evaluate(() => {

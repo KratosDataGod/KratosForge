@@ -87,6 +87,11 @@ Keys:
                      views (KQL querysets) in Fabric; reading monitoring still works (default true)
     wh_monitoring_auto  the workspaces whose warehouses get monitoring views without asking again,
                      by workspace id; the person adds one when they tick it on the build confirm
+    wh_open_in       what opening a warehouse or SQL analytics endpoint by its name does: "kratosforge"
+                     opens the Warehouse page, "fabric" Fabric's own editor in the Fabric portal tab
+                     (default kratosforge; Open in Fabric stays on every row)
+    fabric_full_screen  the Fabric portal tab fills the window, with a slim bar to leave full
+                     screen (default false; the tab's Full screen button sets it)
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -187,6 +192,11 @@ CHOICES = {"onelake_writes": ("local_first", "direct"), "onelake_compression": (
 DEFAULTS.update({"onelake_writes": "local_first", "onelake_compression": "zstd", "onelake_skip_unchanged": True})
 TYPES.update({"onelake_writes": str, "onelake_compression": str, "onelake_skip_unchanged": bool})
 USER_KEYS += ("onelake_writes", "onelake_compression", "onelake_skip_unchanged")
+# Opening a warehouse by its name, and the Fabric portal tab's full screen (app.js renderFabric).
+CHOICES["wh_open_in"] = ("kratosforge", "fabric")
+DEFAULTS.update({"wh_open_in": "kratosforge", "fabric_full_screen": False})
+TYPES.update({"wh_open_in": str, "fabric_full_screen": bool})
+USER_KEYS += ("wh_open_in", "fabric_full_screen")
 # Layout (app/ui/features.js applyAppearance): how every page shows the same things; nothing is hidden.
 CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks": ("tags", "dots"),
                 "ui_density": ("comfortable", "compact")})

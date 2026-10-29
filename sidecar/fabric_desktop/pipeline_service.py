@@ -17,6 +17,7 @@ from typing import Any
 from .orchestration import definition, expressions
 from .orchestration.activities import default_registry
 from .orchestration.definition import Activity, DefinitionError, ImportedPipeline
+from .orchestration.gotchas import check as fabric_differences
 from .orchestration.runner import PipelineRun, RunRefused
 from .orchestration.runs import RunStore
 from .orchestration.validate import own_json, summary, validate
@@ -218,7 +219,8 @@ class PipelineRunMixin:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
         return {"ok": not problems, "problems": problems, "pipeline": run.pipeline.name,
-                "mocked": sorted(run.mocks), "registry_version": run.registry.version}
+                "mocked": sorted(run.mocks), "registry_version": run.registry.version,
+                "fabric_differences": fabric_differences(run.imp)}
 
     def pipeline_run_start(self, text: str | None = None, path: str | None = None,
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,

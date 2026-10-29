@@ -70,7 +70,7 @@ For an incident about a metadata table, the incident page lists the published da
 There will be two choices, set by IT:
 
 - **KratosForge** (default): incidents are kept in the central KratosForge lakehouse with numbers, priorities, SLAs and full history, for teams without a service desk.
-- **Your service desk**: KratosForge is pointed at ServiceNow, Jira Service Management or another tool. A problem it finds opens a ticket there, with its number and link kept here so the same problem never opens two tickets, and recovery adds a note to the ticket. **Monitor > Operations > Incidents** shows your service desk's own page inside the app, signed in through its single sign-on, the way Fabric's own pages are shown today.
+- **Your service desk**: KratosForge is pointed at ServiceNow, Jira Service Management or another tool. A problem it finds opens a ticket there, with its number and link kept here so the same problem never opens two tickets, and recovery adds a note to the ticket. **Monitor > KratosForge > Operations > Incidents** shows your service desk's own page inside the app, signed in through its single sign-on, the way Fabric's own pages are shown today.
 
 KratosForge doesn't try to be a full service desk: change management, problem records, approvals and the service catalog stay in your service desk.
 

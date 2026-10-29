@@ -49,7 +49,7 @@ A check that depends on an earlier one that failed is marked Skipped, with the r
 
 ## Opt-in checks
 
-These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run the first three, or name one or more with `--check <id>`:
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run all but `notebook.run`, or name one or more with `--check <id>`:
 
 ```powershell
 fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
@@ -60,8 +60,11 @@ fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric       
 | Check id | What it does and writes | What it proves |
 | --- | --- | --- |
 | `delta.concurrent` | Two writers append 50 rows each at the same moment to `dbo.livetest_concurrent` in the test lakehouse, through the same write path notebooks and jobs use. Writes to OneLake, which uses capacity. | Both commits land (version 2), the row count is the sum, no row is lost. The detail says which writer had to retry after losing the commit race, if either did. |
+| `lease.onelake` | Holds a table write lease on `dbo.livetest_lease` (a small file under `Files/_fabric_desktop/leases` in the test lakehouse) and, while it is held, has a second writer try to take it, replace it with a stale ETag and wait for it. A few small OneLake writes, which use capacity. | OneLake honours the conditional requests (`If-None-Match: *`, `If-Match`) that per-table write leases rely on, so two KratosForge writers never write one table at once. If it fails, two writers can overlap on that tenant. |
+| `delta.merge_profile` | Writes `dbo.livetest_merge`, then runs `MERGE INTO ... WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *` on it the way the app's SQL does, under the table's lease. Writes 4 rows to OneLake, which uses capacity. | The MERGE lands (one row updated, one inserted) and the table stays in the Fabric-safe Delta profile (reader 1, writer 2, no deletion vectors), so Fabric's SQL analytics endpoint and Direct Lake still read it. |
 | `notebook.publish` | Publishes a two-cell notebook item `fdlt_<run id>_nb` the way **Publish to Fabric** does, reads its definition back and compares the cells. Creating an item uses capacity. | Publishing and reading notebook definitions work with your tenant. |
 | `pipeline.definition` | Creates a DataPipeline item `fdlt_<run id>_pl` with one Wait activity, reads its definition back, parses it and exports it again. Creating an item uses capacity. | The app reads Fabric's pipeline definitions and round-trips them without loss. |
+| `pipeline.mailbox` | Writes a run request under `Files/_fabric_desktop` in the test lakehouse. Two in-memory agents read it: the first takes it, the second must leave it alone, and a cancel file ends it `cancelled`. The request names a pipeline run that doesn't exist, which must be reported as not found. Nothing is run. Writes a few small files to OneLake, which uses capacity. | The [pipeline mailbox](agent.md#run-from-a-fabric-pipeline)'s conditional writes (`If-None-Match`, `If-Match`) work on OneLake, and the run lookup works with your sign-in. |
 | `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |
 
 `notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. It also stays skipped when `notebook.publish` failed, for example when the cells read back differ, so no capacity is spent running a notebook that wasn't published as written. Your organization's policy can block runs in Fabric; the check then fails with that reason.
@@ -90,12 +93,73 @@ It deletes only what that ledger lists, only in that workspace, and only things 
 
 If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse recoverable for a while; it still counts toward the workspace's item limit until it is purged.
 
+## The tenant smoke test
+
+The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).
 - Shortcuts, data access roles and the platform's SQL database.
 
 These need longer runs or capacity time; they will be added as more opt-in checks.
+
+## Databricks live test
+
+The Databricks SQL warehouse and Databricks Connect engines are in Preview and tested against fakes. This live test runs them, through the same code notebooks use, against a real Azure Databricks workspace. It signs in, lists Unity Catalog catalogs, runs queries on a SQL warehouse, runs a cell on a cluster through Databricks Connect, cancels a long statement and a long Spark job, closes both sessions, checks that errors come back as errors, and writes a report.
+
+It creates nothing in the workspace: no tables, schemas, files, jobs or clusters. It does start compute. A stopped warehouse or a terminated cluster starts when the test uses it, and bills Databricks units (DBU) until its own auto-stop.
+
+### Before you start
+
+1. **Pick or create a SQL warehouse for tests.** The smallest is enough: a serverless 2X-Small with **Auto stop** set to the minimum.
+2. **For Databricks Connect, pick or create a cluster** on Databricks Runtime 16 or later, in **Dedicated** (single user) access mode, with Unity Catalog. A single node is enough. Set **Terminate after** to 10 minutes. In KratosForge, install databricks-connect for its runtime from **Engines** first.
+3. **Tag them for tests.** On the warehouse and on the cluster, add a custom tag with the key `fabric-desktop-live-test`. The value doesn't matter. Only someone with CAN MANAGE can add it, which is the point: the live test refuses compute without it.
+4. **Sign in with the Databricks CLI:** `databricks auth login --host <workspace url> --profile kf-test`. You need CAN USE on the warehouse, CAN ATTACH TO on the cluster, and USE CATALOG on at least one catalog.
+
+The live test also refuses a warehouse or cluster whose name contains "prod", "prd" or "production" as a word, or that has auto-stop turned off.
+
+### Run it
+
+```powershell
+fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id> --dry-run   # signs in to nothing
+fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id>             # asks "Run it?", then runs
+```
+
+Leave out `--cluster` to test only the SQL warehouse. Use `--host <workspace url>` instead of `--profile` to sign in with `databricks auth login --host`. Add `--stop-compute` to stop the warehouse and terminate the cluster afterwards. They are only stopped if they were stopped when the run began, so the test never stops compute someone else was using. Answering "Run it?" (or passing `--yes`) is the confirmation the engines need before they start remote compute.
+
+The exit code is 0 when every check passed, 1 when one failed, and 2 when the warehouse or cluster was refused or the run wasn't started.
+
+### What it checks
+
+| Check | What it proves |
+| --- | --- |
+| Get a token for the workspace | Sign-in from the CLI profile works |
+| Read the SQL warehouse, read the cluster | You can see them. The safety checks run here, before anything starts. Reading never starts them |
+| Open a Databricks SQL session | The engine opens on the warehouse |
+| List Unity Catalog catalogs | The Catalog pane's API works with your privileges |
+| Run a query on the warehouse | Statement Execution works; a stopped warehouse starts; 5 rows come back |
+| A failing statement is reported as an error | The warehouse's error reaches the cell, naming the missing table |
+| Cancel a running statement | Cancel stops the statement on the warehouse |
+| Close the SQL session | Closing works |
+| Open a Databricks Connect session | The cluster's runtime, the installed client and this PC's Python match, and the session connects |
+| Run a cell on the cluster | `spark.range(5).count()` returns 5 from the cluster |
+| Cancel a running Spark job | Cancel interrupts the job on the cluster |
+| Close the session | The session's process on this PC ends |
+| A missing warehouse is reported as an error | The workspace's errors reach the app as errors |
+| The workspace refuses a bad token | A request with a bad token fails with 401 or 403 |
+
+Results go to `live-test-results/<run id>/`, in `summary.md` and `result.json` (`"schema": "databricks-live-test-result@1"`). They name the workspace, warehouse and cluster, and never hold a token. `left_running` lists what the run started and left to its auto-stop.
+
+### By hand
+
+After an unattended run passes, check these in the app once, on the same warehouse and cluster:
+
+1. On **Engines**, the Databricks SQL warehouse and Databricks Connect engines ask before starting the warehouse or cluster, and name it.
+2. A SQL cell on the warehouse shows a table. Cancel on a long cell stops it.
+3. The Catalog pane lists the catalogs, then a catalog's schemas, then a schema's tables, without starting a stopped warehouse.
+4. A PySpark cell through Databricks Connect shows the first rows of a DataFrame. Stopping the engine ends its process (it no longer appears in Task Manager).
+5. A connection profile with remote compute set to **never** refuses both engines.
 
 ## T-SQL contract cases
 

@@ -41,6 +41,8 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import hashlib
+import logging
 import re
 import struct
 import time
@@ -59,6 +61,27 @@ HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
 BATCH_ROWS = 65_536
 PROGRESS_SECONDS = 0.25
 LOGIN_TIMEOUT_S = 60
+# Azure SQL's transient login errors (a warehouse resuming, a busy service, not enough resources):
+# only the connect is tried again, before anything is sent, so a change is never sent twice.
+TRANSIENT_LOGIN_ERRORS = (40197, 40501, 40613, 49918, 49919, 49920, 10928, 10929, 4221)
+# The same errors by their text: mssql-python's message ("Driver Error: ...; DDBC Error:
+# [Microsoft][SQL Server]...") has no error number, which only pyodbc appends.
+_TRANSIENT_TEXTS = (
+    (40613, re.compile(r"is not currently available", re.IGNORECASE)),
+    (40501, re.compile(r"service is currently busy", re.IGNORECASE)),
+    (49918, re.compile(r"not enough resources to process request", re.IGNORECASE)),
+    (49919, re.compile(r"too many create or update operations in progress", re.IGNORECASE)),
+    (49920, re.compile(r"too many operations in progress", re.IGNORECASE)),
+    (40197, re.compile(r"encountered an error processing your request", re.IGNORECASE)),
+    (10928, re.compile(r"resource id\s*:\s*\d+\.\s*the \w+ limit for the database is \d+ and has been reached", re.IGNORECASE)),
+    (10929, re.compile(r"resource id\s*:\s*\d+\.\s*the \w+ minimum guarantee is", re.IGNORECASE)),
+    (4221, re.compile(r"HADR_DATABASE_WAIT_FOR_TRANSITION_TO_VERSIONING", re.IGNORECASE)),
+)
+CONNECT_TRIES = 4
+CONNECT_WAITS = (5, 10, 20)  # seconds before tries 2, 3 and 4
+CONNECT_DEADLINE_S = 120  # all tries and waits together; each try's login timeout is cut to fit
+_ERROR_NUMBER = re.compile(r"\((\d{4,5})\)")  # pyodbc's "... (40613)"
+_log = logging.getLogger(__name__)
 _OUTSIDE = {"openrowset", "openquery", "opendatasource"}
 _GO = re.compile(r"^[ \t]*GO[ \t]*;?[ \t]*$", re.IGNORECASE | re.MULTILINE)
 # Comments, strings and quoted names in one left-to-right pass, so whichever starts first wins: a
@@ -246,6 +269,107 @@ def connect(server: str, database: str, token: str, login_timeout: int = LOGIN_T
         autocommit=False, timeout=login_timeout)
 
 
+def transient_login_error(exc: BaseException) -> int | None:
+    """The error number when ``exc`` is a connect failure worth another try, else None. A login
+    timeout counts (0); a refused login (18456, 40532 and the rest) never does. Read from the
+    message's text, since mssql-python doesn't give the number."""
+    text = str(exc)
+    if "login timeout" in text.lower() or "HYT00" in text:
+        return 0
+    numbers = {int(n) for n in _ERROR_NUMBER.findall(text)} & set(TRANSIENT_LOGIN_ERRORS)
+    if numbers:
+        return min(numbers)
+    return next((number for number, pattern in _TRANSIENT_TEXTS if pattern.search(text)), None)
+
+
+def open_connection(server: str, database: str, token: Callable[[], str],
+                    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> Any:
+    """``connect``, tried again (with a fresh token) while the warehouse turns logins away for a
+    passing reason, for up to CONNECT_TRIES tries within CONNECT_DEADLINE_S. Stop ends this process,
+    so it also ends a wait between tries."""
+    deadline = clock() + CONNECT_DEADLINE_S
+    attempt = 0
+    while True:
+        attempt += 1
+        login_timeout = max(1, min(LOGIN_TIMEOUT_S, int(deadline - clock())))
+        try:
+            return connect(server, database, token(), login_timeout=login_timeout)
+        except Exception as exc:
+            number = transient_login_error(exc)
+            if number is None:
+                raise
+            wait = CONNECT_WAITS[min(attempt - 1, len(CONNECT_WAITS) - 1)]
+            if attempt >= CONNECT_TRIES or clock() + wait >= deadline:
+                raise ConnectionError(
+                    f"The warehouse didn't accept a connection after {attempt} tries (it may be resuming, or busy). "
+                    "Try again in a minute. " + (f"Last error {number}." if number else "The login timed out.")) from exc
+            _log.info("The warehouse turned the login away (%s); trying again in %ss (%s of %s)",
+                      number or "login timeout", wait, attempt + 1, CONNECT_TRIES)
+            sleep(wait)
+
+
+# ---- deploy preconditions (#947): a change runs only against the object its preview saw
+
+PRECONDITION_KINDS = ("schema", "table", "view", "procedure", "function")
+PRECONDITION_KEYS = ("kind", "schema", "name", "exists", "definition", "columns")
+_MODULE_TYPES = {"view": ("V",), "procedure": ("P",), "function": ("FN", "IF", "TF")}
+_FINGERPRINT = re.compile(r"[0-9a-f]{64}")
+_TRAILING_GO = re.compile(r"\n[ \t]*GO[ \t]*;?[ \t]*\s*$", re.IGNORECASE)
+
+
+def definition_fingerprint(text: str) -> str:
+    """A view's, procedure's or function's definition as one hash: the text the catalog gives
+    (sys.sql_modules), without a trailing GO and the blank space around it."""
+    body = _TRAILING_GO.sub("", "\n" + str(text).replace("\r\n", "\n")).strip()
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def precondition_problem(p: Any) -> str | None:
+    """Why ``p`` isn't a precondition a deploy change can carry, or None:
+    {"kind", "schema", "name", "exists"} plus, when it exists, "definition" (a view, procedure or
+    function's fingerprint) or "columns" (a table's column names, in order)."""
+    if not isinstance(p, dict) or p.get("kind") not in PRECONDITION_KINDS or not isinstance(p.get("exists"), bool):
+        return "a precondition names the object's kind and whether it exists"
+    if not all(isinstance(p.get(k), str) and 0 < len(p[k]) <= 128 for k in ("schema", "name")):
+        return "a precondition names the object's schema and name"
+    if p["exists"] and p["kind"] in _MODULE_TYPES and not (isinstance(p.get("definition"), str)
+                                                          and _FINGERPRINT.fullmatch(p["definition"])):
+        return "a precondition on an existing view, procedure or function gives its definition's fingerprint"
+    if p["exists"] and p["kind"] == "table" and not (isinstance(p.get("columns"), list) and 0 < len(p["columns"]) <= 1024
+                                                      and all(isinstance(c, str) and 0 < len(c) <= 128 for c in p["columns"])):
+        return "a precondition on an existing table gives its column names"
+    return None
+
+
+def _bracket(name: str) -> str:
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _now(cursor: Any, sql: str, value: str) -> list[Any]:
+    cursor.execute(sql, value)
+    return [row[0] for row in cursor.fetchall()]
+
+
+def object_changed(cursor: Any, p: dict[str, Any]) -> bool:
+    """Whether the object ``p`` names is no longer as the preview saw it. Reads the catalog in the
+    change's own transaction, so what it reads is what the change runs against."""
+    full = f"{_bracket(p['schema'])}.{_bracket(p['name'])}"
+    if p["kind"] == "schema":
+        found = _now(cursor, "SELECT s.name FROM sys.schemas AS s WHERE s.name = ?", p["name"])
+        return bool(found) != p["exists"]
+    types = _now(cursor, "SELECT RTRIM(o.type) FROM sys.objects AS o WHERE o.object_id = OBJECT_ID(?)", full)
+    wanted = ("U",) if p["kind"] == "table" else _MODULE_TYPES[p["kind"]]
+    if not p["exists"]:
+        return bool(types)  # someone made it since the preview
+    if not types or str(types[0]) not in wanted:
+        return True
+    if p["kind"] == "table":
+        names = _now(cursor, "SELECT c.name FROM sys.columns AS c WHERE c.object_id = OBJECT_ID(?) ORDER BY c.column_id", full)
+        return [str(n) for n in names] != list(p["columns"])
+    definition = _now(cursor, "SELECT m.definition FROM sys.sql_modules AS m WHERE m.object_id = OBJECT_ID(?)", full)
+    return not definition or definition_fingerprint(str(definition[0] or "")) != p["definition"]
+
+
 def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None]) -> None:
     """Run the job's query and stream the last result's rows into the job's Arrow IPC file. A job
     with ``writes`` runs its batches in one transaction and commits it once they all succeeded. A job
@@ -262,7 +386,7 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
                     + ("A warehouse change can't do this." if writes else "A warehouse run only reads."))
         return
     wh = job["warehouse"]
-    con = connect(wh["server"], wh["database"], token())
+    con = open_connection(wh["server"], wh["database"], token)
     committed = False
     try:
         if job.get("time_limit_s"):
@@ -273,6 +397,13 @@ def run(job: dict[str, Any], token: Callable[[], str], say: Callable[..., None])
         result: tuple[int, list[int], Any] | None = None
         affected = 0
         plan = bool(job.get("plan")) and not writes
+        precondition = job.get("precondition") if writes else None
+        if precondition and object_changed(cursor, precondition):
+            say("error", kind="changed", message=f"{job.get('warehouse', {}).get('database') or 'The warehouse'}'s "
+                f"{precondition['schema']}.{precondition['name']} changed since the preview, so nothing was sent. "
+                "Compare again." if precondition["kind"] != "schema" else
+                f"Schema {precondition['name']} changed since the preview, so nothing was sent. Compare again.")
+            return
         if plan:
             cursor.execute("SET SHOWPLAN_XML ON")  # its own batch, as T-SQL requires
         for batch in (batches(job["query"]) if writes else [job["query"]]):

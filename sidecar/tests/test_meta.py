@@ -7,8 +7,9 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from fabric_desktop.meta import Engine, GateError, Layer, LocalStore, Project, impact, promote, run_order, validate
-from fabric_desktop.meta.engine import scd2_invariants
+from fabric_desktop.meta import Engine, GateError, Layer, LocalStore, impact, promote, run_order, validate
+from fabric_desktop.meta.engine import scd1_merge, scd2_invariants, scd2_merge
+from fabric_desktop.meta.project import Entity
 from fabric_desktop.meta.templates import entity_text, init_project
 
 D = dt.date
@@ -197,7 +198,11 @@ def test_02_source_adds_a_column(repo):
     assert "channel" in repo.table("bronze.orders").columns
     assert "add them to the contract" in bronze.steps[1].detail
     assert "channel" not in repo.table("silver.orders").columns
-    assert repo.dev.meta("schema_history")["columns"].to_list() == ["channel"]
+    changed = repo.dev.meta("schema_history").filter(pl.col("change") != "created")  # each table's first schema
+    assert changed["columns"].to_list() == ["channel"]
+    assert changed.row(0, named=True) | {"at": None} == {
+        "entity": "bronze.orders", "run_id": bronze.run_id, "change": "added", "columns": "channel", "at": None,
+        "detail": "channel string", "breaking": False, "delta_version": bronze.delta_version, "schema_version": 2}
     assert silver.status == "ok"
 
     edit_entity(root, "silver.orders", 'net_amount = "float64"', 'net_amount = "float64"\nchannel = "string"')
@@ -348,6 +353,34 @@ def test_04d_history_from_the_load_date_sends_older_facts_to_unknown(tmp_path):
     r.reload().engine().run_many()
     assert value(r.table("gold.fact_sales"), "order_id", 100, "customer_sk") == -1
 
+
+
+@pytest.mark.parametrize("mode", ["scd1", "scd2"])
+def test_04e_new_rows_get_the_same_keys_whatever_order_they_arrive_in(mode):
+    # The joins before key assignment keep no row order, so the keys go in business-key order.
+    spec = {"load": {"mode": mode}, "contract": {"keys": ["region", "customer_id"]},
+            "scd": {"surrogate_key": "customer_sk", "tracked": ["city"]}}
+    e = Entity("gold.dim_customer", spec, Path("dim_customer.toml"))
+
+    def merge(existing, incoming):
+        if mode == "scd1":
+            return scd1_merge(existing, incoming, e)[0]
+        return scd2_merge(existing, incoming, e, DAY2)[0]
+
+    def keys(df):
+        return {(r["region"], r["customer_id"], r["city"]): r["customer_sk"]
+                for r in df.filter(pl.col("customer_sk") != -1).iter_rows(named=True)}
+
+    first = pl.DataFrame({"region": ["b", "a", "a|x", "a"], "customer_id": [1, 2, 1, 1],
+                          "city": ["Oslo", "Rome", "Lima", "Kyiv"]})
+    existing = merge(None, first)
+    assert all(keys(merge(None, first.sample(fraction=1, shuffle=True, seed=s))) == keys(existing) for s in range(5))
+    assert keys(existing)[("a", 1, "Kyiv")] == 1  # sorted on every key part
+    later = pl.DataFrame({"region": ["c", "b", "a", "a"], "customer_id": [9, 1, 3, 2],
+                          "city": ["Pisa", "Bergen", "Nice", "Rome"]})
+    runs = [keys(merge(existing, later.sample(fraction=1, shuffle=True, seed=s))) for s in range(5)]
+    assert all(r == runs[0] for r in runs)
+    assert runs[0][("a", 3, "Nice")] < runs[0][("c", 9, "Pisa")]
 
 # ----------------------------------------------------------------------------- 5. custom Python
 
@@ -755,6 +788,13 @@ def test_service_round_trip(tmp_path):
     assert ent["impact"] == ["gold.fact_sales"] and ent["preview"]["total"] == 5
     bad = call("meta_save_entity", name="silver.orders", text="name = ")
     assert "isn't valid TOML" in bad["error"]
+    before = set(tmp_path.rglob("*.toml"))
+    for name in ("silver.../x", "silver.a/b", "silver.a\\b", "silver..t", "silver.c:x", "silver/../../x.t"):
+        out = call("meta_save_entity", name="silver.orders", text=f"name = '{name}'")  # a literal string, so a backslash stays one
+        assert "Not saved" in out["error"] and "name" in out["error"], (name, out)
+        out = call("meta_new_entity", template="dim1", name=name, source="silver.orders", keys=["order_id"])
+        assert "name" in out["error"] and "already exists" not in out["error"], (name, out)
+    assert set(tmp_path.rglob("*.toml")) == before  # no file written anywhere
     blocked = call("meta_delete_entity", name="silver.orders")
     assert blocked["error"].startswith("Blocked by the save gate:\n- can't delete silver.orders")
     new = call("meta_new_entity", template="dim1", name="gold.dim_product", source="silver.orders",

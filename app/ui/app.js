@@ -3010,7 +3010,8 @@ async function checkComponents(afterInstall = false) {
       const result = await invoke("update_sidecar");
       if (result?.engine) {
         // Check again with the new engine: it may be a newer build than this exe, and
-        // it may be blocked from loading.
+        // it may be blocked from loading. Its first start is slow (Windows scans each new file).
+        set("sidecar", "busy", "Starting the new engine for the first time…");
         return checkComponents(true);
       }
       set("sidecar", "ok", `Updated to build ${short(app.commit)}`);

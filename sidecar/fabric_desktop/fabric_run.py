@@ -260,9 +260,6 @@ _FABRIC_ONLY = [
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
     (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
-    # MERGE INTO runs on this PC (spark_local.py, PB-015); UPDATE and DELETE don't yet.
-    (re.compile(r"\bspark\.sql\(\s*[rfbu]*[\"']+\s*(UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I),
-     "changes table rows in place with spark.sql (UPDATE or DELETE), which runs in Fabric only"),
     (re.compile(r"\.option\(\s*[\"'](replaceWhere|partitionOverwriteMode)[\"']", re.I),
      "uses a write option this PC doesn't have (replaceWhere or partitionOverwriteMode); ignoring it would replace the whole table"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
@@ -270,8 +267,8 @@ _FABRIC_ONLY = [
 ]
 # Databricks' utilities: this PC has them, Fabric has notebookutils instead.
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
-_SQL_WRITE = re.compile(r"\b(UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
-_SQL_MERGE = re.compile(r"\bMERGE\s+INTO\b", re.I)
+# MERGE INTO, UPDATE and DELETE run on this PC (spark_local.py, PB-015), into the attached lakehouse.
+_SQL_CHANGE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 # A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
 _SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
 
@@ -285,14 +282,12 @@ def _literal_sql(m: re.Match[str]) -> str:
 
 
 def _sql_in_place(sql: str) -> bool:
-    """SQL that changes rows in place and so runs in Fabric only: UPDATE, DELETE, or a MERGE this PC
-    doesn't run (into another lakehouse, or with Preview features off; spark_local.merge_runs_here)."""
-    if _SQL_WRITE.search(sql):
-        return True
-    if not _SQL_MERGE.search(sql):
+    """SQL that changes rows in place in a way this PC doesn't run, and so runs in Fabric only: a
+    MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off (spark_local.change_runs_here)."""
+    if not _SQL_CHANGE.search(sql):
         return False
     from . import spark_local
-    return not spark_local.merge_runs_here(sql)
+    return not spark_local.change_runs_here(sql)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
 
@@ -322,18 +317,17 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             local.append({"cell": n, "text": "runs T-SQL in a Fabric Warehouse or SQL endpoint (%%tsql)", "code": _snippet(source)})
         elif language == "sql":
             if _sql_in_place(magics.cell(source).body):
-                local.append({"cell": n, "text": "changes table rows in place (UPDATE, DELETE, or MERGE into another lakehouse), which runs in Fabric only",
+                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source)})
         else:
             hit = next(((m, text) for rx, text in _FABRIC_ONLY if (m := rx.search(source))), None)
-            hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE into another lakehouse, or with "
-                                   "Preview features off), which runs in Fabric only")
-                               for m in _SPARK_SQL_LITERAL.finditer(source)
-                               if _SQL_MERGE.search(sql := _literal_sql(m)) and _sql_in_place(sql)), None)
+            hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                   "lakehouse, or with Preview features off), which runs in Fabric only")
+                               for m in _SPARK_SQL_LITERAL.finditer(source) if _sql_in_place(_literal_sql(m))), None)
             if hit:
                 local.append({"cell": n, "text": hit[1], "code": _snippet(source, hit[0])})
             elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest)), None):
-                local.append({"cell": n, "text": "changes table rows in place (UPDATE, DELETE, or MERGE into another lakehouse), which runs in Fabric only",
+                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
         if m := _DBUTILS.search(source):
             fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "

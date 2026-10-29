@@ -34,7 +34,6 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 
-_UNSUPPORTED_SQL = re.compile(r"^\s*(UPDATE|DELETE\s+FROM)\b", re.I)
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
@@ -258,11 +257,11 @@ _AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
 _SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
 
 
-def merge_runs_here(query: str) -> bool:
-    """Whether ``query`` is a MERGE this PC runs (PB-015): one MERGE INTO a table of the attached
-    lakehouse, named table or schema.table (or with the attached lakehouse's name in front), with
-    Preview features on. A MERGE into another lakehouse (a Data mesh template's keys MERGE,
-    LH_Keys.keys.customer) still runs in Fabric only."""
+def change_runs_here(query: str) -> bool:
+    """Whether ``query`` is a change this PC runs (PB-015): one MERGE INTO, UPDATE or DELETE of a
+    table of the attached lakehouse, named table or schema.table (or with the attached lakehouse's
+    name in front), with Preview features on. A change to another lakehouse (a Data mesh template's
+    keys MERGE, LH_Keys.keys.customer) still runs in Fabric only."""
     import sqlglot
     from sqlglot import exp
 
@@ -271,17 +270,17 @@ def merge_runs_here(query: str) -> bool:
         return False
     try:
         trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
-        if len(trees) != 1 or not isinstance(trees[0], exp.Merge):
+        if len(trees) != 1 or not isinstance(trees[0], (exp.Merge, exp.Update, exp.Delete)):
             return False
         _in_attached(trees[0])
         change = delta_dml.parse_tree(trees[0])
     except (ValueError, sqlglot.errors.SqlglotError):
         return False
-    return change is not None and change.kind == "merge"
+    return change is not None
 
 
 def _in_attached(tree: Any) -> None:
-    """Drop the attached lakehouse's own name from a MERGE's target (Sales.dbo.sales, or Sales.sales
+    """Drop the attached lakehouse's own name from a MERGE's, UPDATE's or DELETE's target (Sales.dbo.sales, or Sales.sales
     in a lakehouse without schemas), as table_ref does for reads and writes."""
     from sqlglot import exp
     current, target = lakehouse._attached, tree.this
@@ -523,21 +522,19 @@ class LocalSparkSession(SparkSession):
     def sql(self, sqlQuery: str, **kwargs: Any) -> DataFrame:  # noqa: N803
         if kwargs:
             sqlQuery = sqlQuery.format(**kwargs)
-        if _RESTORE.match(sqlQuery):
+        head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if _RESTORE.match(head):
             raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
                              "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
-        if _UNSUPPORTED_SQL.match(sqlQuery):
-            raise ValueError("UPDATE and DELETE change tables in place, which runs in Fabric. On this PC, MERGE INTO "
-                             "runs (Preview), or read with spark.sql and write with df.write.saveAsTable.")
-        if _SCHEMA_EVOLUTION.match(delta_dml_comments.sub("", sqlQuery)):
+        if _SCHEMA_EVOLUTION.match(head):
             raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
                                       "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
         statements = _sql.parse(sqlQuery)
         from sqlglot import exp
-        if len(statements) > 1 and any(isinstance(s, exp.Merge) for s in statements):
-            # The MERGE would commit before a later statement could fail; Spark runs one statement per call.
-            raise ValueError("spark.sql runs MERGE INTO only as the only statement in the call. Nothing ran. "
-                             "Call spark.sql once for each statement.")
+        if len(statements) > 1 and any(isinstance(s, (exp.Merge, exp.Update, exp.Delete)) for s in statements):
+            # The change would commit before a later statement could fail; Spark runs one statement per call.
+            raise ValueError("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
+                             "Nothing ran. Call spark.sql once for each statement.")
         result: DataFrame | None = None
         for statement in statements:
             result = self._statement(statement)
@@ -548,6 +545,8 @@ class LocalSparkSession(SparkSession):
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         if isinstance(statement, exp.Merge):
             return self._merge(statement)
+        if isinstance(statement, (exp.Update, exp.Delete)):
+            return self._update_or_delete(statement)
         # DROP TABLE and TRUNCATE TABLE on a lakehouse table; a temp view is DuckDB's to drop.
         if isinstance(statement, exp.TruncateTable) or (
                 isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
@@ -649,6 +648,25 @@ class LocalSparkSession(SparkSession):
         return self._from_arrow_dataset(pa.table({
             "num_affected_rows": [affected], "num_updated_rows": [result.rows_updated],
             "num_deleted_rows": [result.rows_deleted], "num_inserted_rows": [result.rows_inserted]}))
+
+    def _update_or_delete(self, tree: Any) -> DataFrame:
+        """UPDATE or DELETE FROM a lakehouse table (PB-015, Preview): delta-rs makes the change in one
+        commit (lakehouse.change_table). Returns Spark's count as a one-row DataFrame."""
+        from . import delta_dml
+        _in_attached(tree)
+        change = delta_dml.parse_tree(tree)
+        if change is None:  # an Update or Delete tree always parses to a change
+            raise ValueError("Only UPDATE and DELETE are changed here.")
+        what = change.kind.upper()
+        _preview_on(what)
+        if not change.schema and self._is_local(change.table):
+            raise ValueError(f"{what} {change.table}: {change.table} is a temp view on this PC. {what} changes a "
+                             "Delta table of the attached lakehouse.")
+        if _columns(change.name) is None:
+            raise ValueError(f"Table {change.name} doesn't exist, so {what} has nothing to change.")
+        result = lakehouse.change_table(change)
+        return self._from_arrow_dataset(pa.table({
+            "num_affected_rows": [result.rows_updated if change.kind == "update" else result.rows_deleted]}))
 
     def _one_match_each(self, change: Any, source: pa.Table) -> None:
         """Spark refuses a MERGE in which one row of the table matches two source rows (which one
@@ -843,8 +861,8 @@ _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # typ
 
 class LocalDeltaTable:
     """``from delta.tables import DeltaTable`` on this PC: reading a table's history and details, and
-    ``merge`` (Preview, PB-015), which runs as a MERGE INTO through spark.sql. Other changes made
-    through it (update, delete, restore, vacuum, optimize) run in Fabric."""
+    ``merge``, ``update`` and ``delete`` (Preview, PB-015), which run as MERGE INTO, UPDATE and
+    DELETE through spark.sql. Other changes made through it (restore, vacuum, optimize) run in Fabric."""
 
     def __init__(self, name: str, alias: str = ""):
         self._name = name
@@ -900,11 +918,21 @@ class LocalDeltaTable:
         _preview_on("DeltaTable.merge")
         return LocalMergeBuilder(self, source, condition)
 
-    def update(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("update")
+    def update(self, condition: Any = None, set: dict[str, Any] | None = None) -> None:  # noqa: A002
+        _preview_on("DeltaTable.update")
+        if not set:
+            raise ValueError("update needs the columns to set, as a dict of column name to SQL text or Column.")
+        sets = ", ".join(f"{k} = {_sql_text(v)}" for k, v in set.items())
+        where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
+        session().sql(f"UPDATE {self._name}{f' AS {self._alias}' if self._alias else ''} SET {sets}{where}")
 
-    def delete(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("delete")
+    def updateExpr(self, condition: Any = None, set: dict[str, str] | None = None) -> None:  # noqa: N802, A002
+        self.update(condition, set)
+
+    def delete(self, condition: Any = None) -> None:
+        _preview_on("DeltaTable.delete")
+        where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
+        session().sql(f"DELETE FROM {self._name}{f' AS {self._alias}' if self._alias else ''}{where}")
 
     def vacuum(self, *_a: Any, **_kw: Any) -> Any:
         return self._in_fabric("vacuum")

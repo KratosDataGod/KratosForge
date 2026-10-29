@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1101 dba0abf1 | Databricks workspace discovery (Preview) | PASS carry | RM merge of main (#1096, #1106) on 51ba02c1. Remerge diff: engines.md keeps both sections unchanged, and ui.test NO_ID keeps main's BY_ID moves plus the discovery reason. Every other file matches 51ba02c1 (same patch-id). ui 308/0 on this head. |
+
 | 2026-10-29 | #1120 147f0a20 | FS-04 pipeline gotchas PG1-PG10 (warnings) | PASS 9.2 | Delta only narrows Optionals in orchestration/gotchas.py, with no change in behaviour. Merge result: mypy ratchet passes (exit 0), 330 tests pass, ruff clean. Earlier checks still hold: ui 307/0, no text overlap with skills-for-fabric, no REGISTRY_VERSION collision. |
 
 | 2026-10-29 | #1122 b2db2b8e | mypy ratchet fails when mypy can't run | PASS 9.3 | Merge result: test_mypy_ratchet + silent_except 22 pass. Without mypy, system python3 now exits 1 with the install hint; the pinned venv still passes (exit 0). Exit 1 with counted errors and exit 0 behave as before. Install hint names constraints files that exist. |

@@ -30,7 +30,7 @@ Chris authorized ORCH-002 on 2026-10-18 and ORCH-003 the same day ("Good idea. D
 
 - 2026-10-17, Chris approved the ORCH-001 plan ("go") with these defaults: files and pasted JSON only, no `getDefinition` calls to the tenant; hand-built fixtures until he exports real ones from his non-prod workspace (secrets removed); no UI in ORCH-001, and any pipeline screen gets a mockup first.
 - The import is not stored anywhere in ORCH-001. ORCH-003 decides where imported pipelines and their runs live.
-- ORCH-002: nothing is `local` or `simulated` until an adapter that executes has tests; Fabric-only type names are unverified until a tenant export confirms them; changing an entry needs a `REGISTRY_VERSION` bump, a changelog line in `activity-registry.md` and the new fingerprint in the test.
+- ORCH-002: an entry is `local` or `simulated` only with an adapter that executes and has tests (15 `local` at registry version 7); Fabric-only type names are unverified until a tenant export confirms them; changing an entry needs a `REGISTRY_VERSION` bump, a changelog line in `activity-registry.md` and the new fingerprint in the test.
 - ORCH-003: the agent job queue isn't used (it can't schedule activities); a whole pipeline run could become one agent job later, with the Workload program. ORCH-004 made Notebook `local` through Validate notebook's clean kernel instead of Prove's proof path (which also runs in Fabric). Expressions use only the functions in `evaluate.FUNCTIONS`; add one with a test and a line in local-runs.md. Timeouts are real time; `wait_scale` shortens waits only.
 - Diagnostics have `code`, `severity` (error, warning, info), `message`, `path` (JSON path), `activity` and `hint`. Codes are stable: tools and later stages may match on them.
 

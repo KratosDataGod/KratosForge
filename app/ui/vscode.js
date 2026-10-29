@@ -150,7 +150,8 @@ function vscodeRunCard(status, refresh) {
   };
   const rows = status.pairings || [];
   return h("section", { class: "card pad" },
-    h("div", { class: "row" }, h("h2", {}, "VS Code"), previewTag()),
+    // Always shown: a pairing that is on must stay where it can be turned off.
+    previewMarked("vscode", h("div", { class: "row" }, h("h2", {}, "VS Code"))),
     settingRow("Let VS Code run notebooks",
       status.blocked || "A VS Code window you pair runs cells in each notebook's own session on this PC, without asking each time. Writing to OneLake still asks here, every time.",
       toggle, status.blocked ? "policy" : null),
@@ -159,7 +160,7 @@ function vscodeRunCard(status, refresh) {
         h("thead", {}, h("tr", {}, h("th", {}, "Paired window"), h("th", {}, "Kept"), h("th", {}, "Last used"), h("th", {}, ""))),
         h("tbody", {}, rows.map((p) => h("tr", {},
           h("td", {}, h("code", {}, p.window), h("div", { class: "muted-text small" }, p.client)),
-          h("td", {}, p.expires ? `Until ${new Date(p.expires * 1000).toLocaleString()}` : KEEP_LABEL.session),
+          h("td", {}, p.expires ? `Until ${dateTimeText(p.expires * 1000)}` : KEEP_LABEL.session),
           h("td", {}, p.last_used ? integWhen(p.last_used) : "Not yet"),
           h("td", { class: "n" }, btn("End", null, () => end(p), "tool outline small", { "aria-label": `End pairing with ${p.window}` }))))))
       : h("p", { class: "muted-text" }, "No VS Code window is paired. In VS Code, pick KratosForge as a notebook's kernel to pair it.")) : null,

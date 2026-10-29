@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #1012 b9f5890d | exportrace PR opened | PASS (carried) | 9.3 | The PR head is the reviewed branch head b9f5890d. |
+
 | (no PR yet) exportrace b9f5890d (Codebase audit) | Plus: test_onelake_writes cancel flake | PASS | 9.3 | a32d4255 plus one test-only commit. In test_cancel_drops_writes_that_havent_started, the first write sets started before it waits on the gate, and the test waits for started before cancelling. Without that, a late worker thread meant both writes were dropped, as the queue promises (two notices, the flake on #889 and #986). Reproduced here by delaying write_queue.Queue._work 0.3 s: fails at a32d4255, passes at head. onelake_writes + silent_except 45 passed. |
 
 | (no PR yet) quotepath 08399b8f (Codebase audit) | CI changes job: -z path list (nit taken) | PASS | 9.3 | git diff --name-only -z piped through tr '\0' '\n' lists every path unquoted. A newline in a name splits it, and the first part still matches; a split docs path only stops counting as docs-only, which fails safe. Under GitHub's bash -eo pipefail a git failure still ends the step (checked here: exit 128, nothing after it ran). The YAML parses. |

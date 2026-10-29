@@ -131,7 +131,7 @@ Anyone's scan adds new shortcuts, and anyone's health check can mark one broken.
 
 Every change keeps the shortcut's full definition:
 
-- **Undo** on a repointed shortcut points it back; on an added one, removes it.
+- **Undo** on a repointed shortcut points it back; on an added one, removes it. It first checks the shortcut in Fabric is still as that change left it (pointing at the same target, or for a removed one, nothing in its place). If it has changed again since, Undo says so and changes nothing. Undo and Recreate show only on a change that was applied and made by a platform admin or a member of a project with a product in that lakehouse; a reported change, or one logged by someone else, has neither.
 - **Recreate** on a removed shortcut makes it again, with the same name, place and target.
 
 Both ask first, follow the shortcut rules, and never touch the data the shortcut points at. The history is kept by the platform, so the whole team shares one history.

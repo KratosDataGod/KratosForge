@@ -2608,6 +2608,9 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
         if kind == "removed":
             raise PlatformError("The shortcut is removed, but only a platform admin, or a member of a project with a "
                                 "product in this lakehouse, can record that; their next scan does")
+        # What it pointed at comes from the inventory, not the caller; a reported change can't be undone.
+        stored = _row(db, "shortcut", "id", sid)
+        before = _definition(_shortcut_out(stored)) if stored else None
         out = _change(db, kind, sid, shortcut, before, after, by, "app",
                       ("reported: not applied to the inventory" + (f"; {note}" if note else "")))
         _audit(db, by, "shortcut repointed (reported)", sid, {"note": note} if note else None)
@@ -2677,7 +2680,28 @@ def shortcut_changes(db: Db, days: int = 30, limit: int = 500, shortcut: str = "
         sql += " AND shortcut_id = ?"
         params.append(shortcut)
     rows = sorted(db.rows(sql, params), key=lambda r: r["at"], reverse=True)
-    return [_change_out(r) for r in rows[:int(limit)]]
+    changers: dict[str, Callable[[str], bool]] = {}
+    out = []
+    for r in rows[:int(limit)]:
+        c = _change_out(r)
+        c["undoable"] = _undoable(db, c, changers)
+        out.append(c)
+    return out
+
+
+def _undoable(db: Db, c: dict[str, Any], changers: dict[str, Callable[[str], bool]]) -> bool:
+    """Undo acts with the rights of whoever clicks it, on the definitions the change row holds. So it's
+    offered only for a change that was applied (not reported) and whose author may change shortcuts in
+    every lakehouse those definitions name, as they stand now (_shortcut_changer)."""
+    if c["kind"] not in ("added", "removed", "repointed") or str(c.get("note") or "").startswith("reported"):
+        return False
+    lakes = {str(d.get("lakehouse_id") or "") for d in (c.get("before"), c.get("after")) if isinstance(d, dict)}
+    if not lakes or "" in lakes:
+        return False
+    who = str(c.get("by_user") or "")
+    if who not in changers:
+        changers[who] = _shortcut_changer(db, who)
+    return all(changers[who](lh) for lh in lakes)
 
 
 def shortcut_rules(db: Db) -> dict[str, Any]:

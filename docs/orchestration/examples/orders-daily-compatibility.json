@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "7",
+  "registry_version": "8",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -756,6 +756,7 @@
   "notes": [
     "Classifications describe what this version does today; 'planned' is a proposal, not support.",
     "Nothing here was run, and no Fabric call was made to produce this report.",
-    "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the activities this version can't run on this PC, so running the pipeline today uses capacity for each of them; 'fabric_only' lists those that can only ever run in Fabric."
+    "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the activities this version can't run on this PC, so running the pipeline today uses capacity for each of them; 'fabric_only' lists those that can only ever run in Fabric.",
+    "Some warnings are known places where a pipeline that runs here fails in Fabric (fabric_differences in the registry). They never stop a local run."
   ]
 }

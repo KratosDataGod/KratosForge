@@ -682,6 +682,8 @@ def _pipeline(args: argparse.Namespace) -> int:
             if s["needs_fabric_capacity"]:
                 print("these can't run on this PC yet, and Fabric meters every activity run"
                       + (f"; Fabric only: {', '.join(s['fabric_only'])}" if s["fabric_only"] else ""))
+            from .orchestration.gotchas import CODES
+            _print_fabric_differences([d for d in result["diagnostics"] if d["code"] in CODES])
             c = result["counts"]
             print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
             return 0 if result["ok"] else 1
@@ -717,6 +719,11 @@ def _pipeline_schedule(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_fabric_differences(found: list[dict]) -> None:
+    for d in found:
+        print(f"in Fabric: {d['message']} {d['hint']}".rstrip())
+
+
 def _pipeline_run(args: argparse.Namespace) -> int:
     from .orchestration import load
     from .orchestration.definition import DefinitionError
@@ -747,6 +754,9 @@ def _pipeline_run(args: argparse.Namespace) -> int:
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
+    if not args.json:
+        from .orchestration.gotchas import check as fabric_differences
+        _print_fabric_differences(fabric_differences(imp))
     try:
         problems = run.check()
         acts = imp.pipeline.all_activities()

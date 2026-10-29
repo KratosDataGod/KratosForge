@@ -215,6 +215,11 @@ jobs:
             --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
           [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"
           exit $status
+      # CI's own tools (sidecar/ci-constraints.txt) never ship, so an advisory against one is
+      # reported in the log but doesn't hold Preview back.
+      - name: CI tools (sidecar/ci-constraints.txt, advisory only)
+        continue-on-error: true
+        run: pip-audit -r sidecar/ci-constraints.txt --no-deps --disable-pip --progress-spinner off
       # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:

@@ -1,5 +1,6 @@
 # Tools only CI runs, never part of the engine: kept out of constraints.txt, whose packages the
-# audit job checks before Preview publishes (an advisory against a CI tool doesn't block a release).
+# audit job checks before Preview publishes (an advisory against a CI tool doesn't block a release;
+# the audit job still reports this file's advisories in its log).
 # The lint job installs with -c constraints.txt -c ci-constraints.txt.
 
 # The type check (lint job, .github/scripts/mypy_ratchet.py).

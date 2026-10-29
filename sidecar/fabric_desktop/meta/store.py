@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import fnmatch
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,9 +20,15 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
-from ..leases import check_held
+from ..errors import NotSetUp
+from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
+from ..redact import describe
+
+_log = logging.getLogger(__name__)
+_LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
+                                     "left for VACUUM"}
 
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
@@ -41,8 +48,11 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "dq_results": {"run_id": pl.String, "entity": pl.String, "check": pl.String, "failed": pl.Int64,
                    "action": pl.String},
     "watermarks": {"entity": pl.String, "value": pl.String, "run_id": pl.String, "at": pl.String},
+    # One row per kind of change a commit made to an entity's table (meta/drift.py schema_changes):
+    # the Delta version that made it and the entity's schema version. Older rows don't have the last four.
     "schema_history": {"entity": pl.String, "run_id": pl.String, "change": pl.String, "columns": pl.String,
-                       "at": pl.String},
+                       "at": pl.String, "detail": pl.String, "breaking": pl.Boolean, "delta_version": pl.Int64,
+                       "schema_version": pl.Int64},
     # A promote's release record (meta/release.py): the commit, whether the files matched it, the
     # engine, and the full receipt. Older rows don't have these columns and read as empty.
     "deployments": {"env": pl.String, "version": pl.String, "source_env": pl.String, "at": pl.String,
@@ -206,13 +216,13 @@ class Store:
         except TableNotFoundError:
             return None
 
-    def count(self, lakehouse: str, schema: str, table: str) -> int:
+    def count(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> int:
         """Rows in the table, from the Delta log's file statistics: no data is read. A file written
         without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
         the rows are counted from the files themselves."""
         uri = self.uri(lakehouse, schema, table)
         try:
-            dt_ = DeltaTable(uri, storage_options=self.options())
+            dt_ = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             return 0
         actions = pa.table(dt_.get_add_actions(flatten=True))
@@ -277,12 +287,30 @@ class Store:
         if read_version is not None:
             target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
             extra = {"mode": "overwrite", "predicate": "true"}
+        self.last_cleanup = None
+        before: set[str] | None = None
+        if self.removes_unwritten:
+            try:
+                before = self._data_files(lakehouse, schema, table)
+            except Exception as exc:  # noqa: BLE001 - the write goes ahead; only its cleanup is lost
+                _log.warning("Couldn't list %s.%s before writing it: %s", schema, table, describe(exc))
         try:
             check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
                             schema_mode="overwrite" if read_version is not None else None,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
+            if not self.removes_unwritten:
+                self.last_cleanup = {"removed": 0, "note": "the files this write left are left for VACUUM: in OneLake "
+                                                           "another writer's files that aren't committed yet can't be "
+                                                           "told apart from them"}
+            elif isinstance(exc, LeaseLost):
+                self.last_cleanup = dict(_LEASE_LOST)
+            elif before is None:
+                self.last_cleanup = {"removed": 0, "note": "couldn't list the table's files before the write, so any "
+                                                           "it left are left for VACUUM"}
+            else:
+                self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
@@ -311,6 +339,51 @@ class Store:
         safe = self._delta_safe(uri, schema, table, data.schema, True)
         return data.cast(safe) if safe != data.schema else data
 
+    # ---- files a write that didn't commit left behind (PB-067)
+
+    # What the last write_stream that failed did about its files: {"removed": n, "note": text}, or None.
+    last_cleanup: dict[str, Any] | None = None
+    # Only on this PC: the run's lease covers every writer of a local table. In OneLake a Fabric job can
+    # be writing the same table, and its uncommitted files look just like this write's, so they're
+    # all left for VACUUM there.
+    removes_unwritten = False
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        """The table folder's files outside _delta_log, as paths relative to the folder."""
+        raise NotImplementedError
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        raise NotImplementedError
+
+    def _remove_unwritten(self, lakehouse: str, schema: str, table: str, before: set[str],
+                          read_version: int | None) -> dict[str, Any]:
+        """After a stream that didn't commit: remove the data files it wrote. Those are the files that
+        weren't in the folder when it started and that no version of the table's log names. Only
+        while the log is still at ``read_version``: a commit by another writer meanwhile means
+        another writer was at work, and its files can't be told from these, so they are all left
+        for VACUUM. The run holds the table's lease (leases.py), so no other run of this app writes it;
+        a run that no longer holds it (expired, taken over) removes nothing, since the new holder's
+        files can't be told from these either."""
+        try:
+            check_held()
+        except LeaseLost:
+            return dict(_LEASE_LOST)
+        try:
+            current = open_table(self.uri(lakehouse, schema, table), self.options())
+            if (current.version() if current is not None else None) != read_version:
+                return {"removed": 0, "note": "another writer committed to the table meanwhile, so the files this "
+                                              "write left are left for VACUUM"}
+            # With no commit since the write started, no version of the log can name a file that wasn't
+            # there then; the latest version's files are left out anyway, to be sure.
+            named = set(pa.table(current.get_add_actions()).column("path").to_pylist()) if current is not None else set()
+            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if p not in named)
+            self._delete_data_files(lakehouse, schema, table, new)
+            return {"removed": len(new), "note": f"removed {len(new)} data file{'' if len(new) == 1 else 's'} this write left"}
+        except Exception as exc:  # noqa: BLE001 - the write's own error is what the run reports
+            _log.warning("Couldn't remove the files a failed write left in %s.%s: %s", schema, table, describe(exc))
+            return {"removed": 0, "note": f"couldn't remove the files this write left ({describe(exc)}); VACUUM "
+                                          "removes them later"}
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a
         write computed from it can commit against that same version."""
@@ -319,6 +392,37 @@ class Store:
         except TableNotFoundError:
             return None, None
         return pl.from_arrow(t.to_pyarrow_table()), t.version()
+
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        """Only the rows matching ``where`` (and only ``columns``), with the Delta version they were
+        read at (default the latest), as read_at gives the whole table. Files whose statistics rule
+        ``where`` out are skipped, so a few rows of a large table cost a few files. (None, None)
+        when there's no table."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None, None
+        lf = lazy(t, uri, options).filter(where)
+        return (lf.select(columns) if columns else lf).collect(), t.version()
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        """The highest value of ``column`` (None when there are no rows or no table), from the Delta
+        log's file statistics when every file has them, so no data is read. A file without them
+        means the column itself is read (that column only)."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        t = open_table(uri, options, version)
+        if t is None:
+            return None
+        actions = pa.table(t.get_add_actions(flatten=True))
+        name = f"max.{column}"
+        if name in actions.column_names and actions.num_rows and actions.column(name).null_count == 0:
+            # A file's max can be a row since deleted (a deletion vector), so this can be higher
+            # than the true max, never lower.
+            return max(actions.column(name).to_pylist())
+        return lazy(t, uri, options).select(pl.col(column).max()).collect().item()
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         """Create an empty table, only if there is none: never overwrites one another writer made or
@@ -369,7 +473,8 @@ class Store:
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
-               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+               read_version: int | None = None, new_from: tuple[str, int] | None = None,
+               delete_flag: str | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
@@ -381,7 +486,9 @@ class Store:
         it, so a commit by another writer since then raises CommitFailedError instead of being
         merged over (new surrogate keys depend on the keys the table already had). ``new_from``
         (column, first new key) makes rows from that key up part of what the MERGE reads, so a
-        concurrent insert there conflicts.
+        concurrent insert there conflicts. ``delete_flag`` names a boolean column of ``df``: its true
+        rows delete the matching table rows instead (the source deletes of [load] deletes = "hard"),
+        in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
         data = self._merge_source(uri, schema, table, df)
@@ -397,9 +504,17 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        metrics = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
-                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
-            .when_matched_update_all().when_not_matched_insert_all().execute()
+        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
+                              commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        if delete_flag:
+            # Rows flagged in df remove their match from the table; the flag itself is never written.
+            flag = f"coalesce(s.`{delete_flag}`, false)"  # a null flag is a row to keep, never one dropped
+            merger = merger.when_matched_delete(flag) \
+                .when_matched_update_all(except_cols=[delete_flag]) \
+                .when_not_matched_insert_all(predicate=f"NOT {flag}", except_cols=[delete_flag])
+        else:
+            merger = merger.when_matched_update_all().when_not_matched_insert_all()
+        metrics = merger.execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version(), metrics
@@ -481,8 +596,21 @@ class LocalStore(Store):
     def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
         return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
 
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        return local_retry(lambda: super(LocalStore, self).scan(lakehouse, schema, table, version))
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def read_where(self, lakehouse: str, schema: str, table: str, where: pl.Expr,
+                   columns: list[str] | None = None, version: int | None = None
+                   ) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_where(lakehouse, schema, table, where, columns,
+                                                                       version))
+
+    def column_max(self, lakehouse: str, schema: str, table: str, column: str,
+                   version: int | None = None) -> Any:
+        return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
     def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
         return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
@@ -493,6 +621,20 @@ class LocalStore(Store):
 
     def landing_lakehouse(self, zone: dict[str, Any]) -> str:
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
+
+    removes_unwritten = True
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        root = Path(self.uri(lakehouse, schema, table))
+        if not root.is_dir():
+            return set()
+        return {p.relative_to(root).as_posix() for p in root.rglob("*")
+                if p.is_file() and p.relative_to(root).parts[0] != "_delta_log"}
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        root = Path(self.uri(lakehouse, schema, table))
+        for rel in paths:
+            (root / rel).unlink(missing_ok=True)
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:
@@ -531,7 +673,7 @@ class OneLakeStore(Store):
     def _lakehouse_id(self, lakehouse: str) -> str:
         if lakehouse not in self.lakehouse_ids:
             how = "run Dev to create it" if self.env == "dev" else "promote to create it"
-            raise LookupError(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
+            raise NotSetUp(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
         return self.lakehouse_ids[lakehouse]
 
     def workspace_of(self, lakehouse: str) -> str:

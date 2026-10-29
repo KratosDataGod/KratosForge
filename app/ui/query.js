@@ -130,7 +130,7 @@ async function warehouseRunOk(ref) {
 // WH-08: the Messages view: what the last run did, from its status. Never the SQL.
 function sqlMessages(ex, tab, target) {
   if (!ex) return h("p", { class: "muted-text", style: "padding:12px 16px" }, tab.error ? tab.error.replace(/^Error: /, "") : "No query has run in this tab yet.");
-  const time = (s) => (s ? new Date(s * 1000).toLocaleTimeString() : "");
+  const time = (s) => (s ? timeText(s * 1000, { seconds: true }) : "");
   const lines = [`Target: ${target}`];
   if (ex.created) lines.push(`Queued at ${time(ex.created)}`);
   if (ex.started) lines.push(`Started at ${time(ex.started)}`);

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
-from test_prove import call  # noqa: F401
+from test_prove import call, run_cell  # noqa: F401
 
 from fabric_desktop.environments import Environments, check_name, check_packages
 from fabric_desktop.service import Service
@@ -126,12 +126,12 @@ def test_attached_notebook_imports_the_package_and_others_dont(tmp_path, monkeyp
         assert job["state"] == "done", job["log"]
         assert call(s, "environment_attach", notebook="A", name="DS") == {"notebook": "A", "environment": "DS",
                                                                          "restart_needed": False}
-        assert call(s, "run_cell", code="import demo_pkg\ndemo_pkg.VERSION", notebook="A")["outputs"] == \
+        assert run_cell(s, "import demo_pkg\ndemo_pkg.VERSION", notebook="A")["outputs"] == \
             [{"type": "text", "text": "'2.0'"}]
-        out = call(s, "run_cell", code="import demo_pkg", notebook="B")
+        out = run_cell(s, "import demo_pkg", notebook="B")
         assert out["status"] == "error" and "demo_pkg" in str(out["outputs"])
         # The engine's own packages come first: an environment can't replace them.
-        last = call(s, "run_cell", code="import sys\nsys.path[-1]", notebook="A")["outputs"][0]["text"]
+        last = run_cell(s, "import sys\nsys.path[-1]", notebook="A")["outputs"][0]["text"]
         assert last.strip("'").replace("\\\\", "\\") == str(s.environments.site_packages("DS"))
         assert call(s, "notebook_environments", notebook="A")["current"] == "DS"
         assert call(s, "environment_delete", name="DS") == {"deleted": "DS", "detached": ["A"]}
@@ -191,7 +191,7 @@ def test_percent_pip_in_a_cell_installs_waits_and_says_when_to_restart(tmp_path,
     call(s, "save_app_settings", changes={"kernel_process": True})
 
     def cell(code, notebook="NB"):
-        out = call(s, "run_cell", code=code, notebook=notebook)
+        out = run_cell(s, code, notebook=notebook)
         return out["status"], "".join(o.get("text", "") + str(o.get("evalue", "")) for o in out["outputs"])
     try:
         # No environment yet: one is made and attached; this session started without it.

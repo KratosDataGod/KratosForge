@@ -6,6 +6,7 @@ import types
 
 import polars as pl
 import pytest
+import requests
 
 from fabric_desktop.central import core, udf
 from fabric_desktop.central.client import FabricPlatform, LocalPlatform, PlatformKeys
@@ -64,6 +65,7 @@ class _SqlServer:
 
 def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     monkeypatch.setattr(core, "ensure_key_table", lambda *a: None)
+    monkeypatch.setattr(core, "require_admin", lambda *a: None)
     conn = _SqlServer()
     rows = [[i, f"bk{i}", "2026-01-01"] for i in range(1, 2501)]
     out = core.import_keys(core.Db(conn, "tsql"), "customer", rows)
@@ -92,6 +94,8 @@ def test_two_runs_at_once_never_get_two_keys_for_one_business_key(platform):
 
 
 def test_import_keeps_numbers_and_refuses_to_renumber(platform):
+    with pytest.raises(core.PlatformError, match="Only platform admins can copy keys in"):
+        _as(platform, "eve@example.com").call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"]])
     out = platform.call("import_keys", name="customer", rows=[[5, "x", "2026-01-01"], [9, "y", "2026-01-02"]])
     assert out == {"imported": 2, "already_there": 0}
     assert platform.call("import_keys", name="customer", rows=[[5, "x", ""]])["already_there"] == 1
@@ -162,6 +166,7 @@ def test_links_respect_product_access(platform):
 
 
 def test_enrichment_changes_only_the_fields_given(platform):
+    platform.call("register_project", project={"name": "crm"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
                                                                             "tags": "pii, gold, pii"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"classification": "confidential"})
@@ -198,6 +203,75 @@ def test_fabric_platform_calls_the_function_and_drops_by(monkeypatch):
     assert fp.call("issue_keys", name="customer", business_keys=["a"], by="me") == {"keys": {"a": 1}, "inserted": 1}
     assert sent["url"].endswith("/workspaces/ws/userDataFunctions/fn/functions/issue_keys/invoke")
     assert sent["auth"] == "Bearer tok" and "by" not in sent["body"]
+
+
+GATEWAY_PAGE = b"<html>\n<head><title>502 Bad Gateway</title></head>\n<body>Bad Gateway</body>\n</html>"
+
+
+def answering(status, content=b"", reason=""):
+    """A FabricPlatform whose UDF_Platform answers every call with this status and body."""
+    resp = requests.Response()
+    resp.status_code, resp._content, resp.reason, resp.encoding = status, content, reason, "utf-8"
+    resp._content_consumed = True  # read in full, as requests leaves a response it has read
+
+    class Session:
+        def post(self, url, json=None, timeout=None, headers=None):  # noqa: A002 - requests' own name
+            return resp
+
+    return FabricPlatform(lambda: "tok", "ws", "fn", session=Session(), sleep=lambda _s: None)
+
+
+@pytest.mark.parametrize("status,content,reason", [
+    (502, GATEWAY_PAGE, "Bad Gateway"),
+    (503, b'{"errors": [{"message": "Service Unavailable"}]}', "Service Unavailable"),
+    (500, b"", "Internal Server Error"),
+    (429, b"Too many requests", "Too Many Requests"),
+])
+def test_a_5xx_or_429_says_the_platform_couldnt_be_reached(status, content, reason):
+    with pytest.raises(requests.HTTPError) as err:
+        answering(status, content, reason).call("key_stats", name="customer")
+    assert not isinstance(err.value, core.PlatformError), "a passing outage isn't the platform's own answer"
+    assert isinstance(err.value, requests.RequestException), "what the can't-be-reached fallbacks catch"
+    assert str(err.value) == (f"UDF_Platform couldn't be reached to key stats: Fabric answered {status} {reason}. "
+                              "Try again in a few minutes.")
+    assert err.value.response.status_code == status
+
+
+def test_a_4xx_that_isnt_json_is_a_platform_error_with_the_start_of_the_text():
+    with pytest.raises(core.PlatformError) as err:
+        answering(400, b"Bad request:\n  the function input isn't valid " + b"x" * 500).call("issue_keys", name="c")
+    text = str(err.value)
+    assert text.startswith("The platform couldn't issue keys: UDF_Platform answered 400 with something that isn't JSON: "
+                           "Bad request: the function input isn't valid xxx")
+    assert len(text) < 450
+
+
+@pytest.mark.parametrize("content,kind", [(b"[1, 2]", "JSON that isn't an object"), (b'"done"', "JSON that isn't an object"),
+                                          (b"null", "JSON that isn't an object"),
+                                          (GATEWAY_PAGE, "something that isn't JSON")])
+def test_a_200_that_isnt_a_json_object_is_a_platform_error(content, kind):
+    with pytest.raises(core.PlatformError, match=f"^The platform couldn't key stats: UDF_Platform answered 200 with {kind}: "):
+        answering(200, content).call("key_stats", name="customer")
+
+
+def test_the_401_403_and_404_messages_are_unchanged():
+    for status in (401, 403):
+        with pytest.raises(PermissionError) as err:
+            answering(status, GATEWAY_PAGE).call("key_stats", name="customer")
+        assert str(err.value) == ("The platform refused this call. Ask your platform team for at least Viewer "
+                                  "on the Platform workspace and Execute on UDF_Platform.")
+    with pytest.raises(LookupError) as err:
+        answering(404, GATEWAY_PAGE).call("key_stats", name="customer")
+    assert str(err.value) == "UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace."
+
+
+def test_a_4xx_or_failed_json_answer_still_names_its_errors():
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't issue keys: name is required; too many$"):
+        answering(400, b'{"errors": [{"message": "name is required"}, "too many"]}').call("issue_keys", name="")
+    with pytest.raises(core.PlatformError, match=r"^The platform couldn't key stats: no table$"):
+        answering(200, b'{"status": "Failed", "errors": [{"message": "no table"}]}').call("key_stats", name="c")
+    assert answering(200, b'{"output": {"created": true}}').call("key_stats", name="c") == {"created": True}
+    assert answering(200, b"").call("key_stats", name="c") == {}
 
 
 def test_function_app_has_a_function_per_operation_and_compiles():
@@ -713,7 +787,7 @@ class _FakeFabric:
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
         if self.status != 200:
-            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
+            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized", status=self.status)
         return self.domains
 
     def list_admin_domain_role_assignments(self, domain_id):
@@ -1268,3 +1342,108 @@ def test_a_project_recorded_by_an_object_id_with_a_team_as_owner_isnt_claimed(pl
     with pytest.raises(core.PlatformError, match="crm has no owner yet"):
         mallory.call("register_project", project={"name": "crm", "team": "Mallory"})
     assert mallory.call("list_project_members", project="crm")["members"] == []
+
+
+def test_catalog_text_is_saved_by_the_projects_members_and_certified_by_its_domains_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "olu@example.com"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    bo, eve, olu = (_as(platform, u) for u in ("bo@example.com", "eve@example.com", "olu@example.com"))
+    with pytest.raises(core.PlatformError, match="isn't in the platform's catalog yet"):
+        bo.call("save_enrichment", target="nowhere:gold.x", fields={"description": "mine"})
+    for fields in ({"description": "x"}, {"classification": "public"}, {"steward": "eve@example.com"}, {"tags": "a"}):
+        with pytest.raises(core.PlatformError, match="Only crm's members or a platform admin can change its catalog text"):
+            eve.call("save_enrichment", target="crm:gold.dim_customer#email", fields=fields)
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
+                                                                      "classification": "confidential"})
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain or a platform admin"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})
+    # The form sends every field: an unchanged certified passes.
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "", "description": "Customers"})
+    with pytest.raises(core.PlatformError, match="Only crm's members"):
+        olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "description": "Mine"})
+    audit = lambda: [a for a in platform.call("audit") if a["action"] == "enrich"]  # noqa: E731
+    seen = audit()
+    eve.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})  # unchanged: writes nothing
+    assert audit() == seen
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["updated_by"] == "bo@example.com"
+    olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})  # not a member: certifying only
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["certified"] == "yes"
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "tags": "gold"})
+    # Without a domain, only an admin certifies.
+    platform.call("register_project", project={"name": "hr"})
+    platform.call("set_project_member", project="hr", user="bo@example.com", role="owner")
+    with pytest.raises(core.PlatformError, match="isn't in a domain yet, so a platform admin decides"):
+        bo.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})
+    platform.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})
+
+
+def _sc(lh, name, target, ws="w1"):
+    return {"lakehouse_id": lh, "workspace_id": ws, "workspace_name": "Sales", "lakehouse_name": lh, "path": "Tables",
+            "name": name, "target": target}
+
+
+def test_only_a_lakehouses_project_members_or_an_admin_hide_a_shortcut_problem(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    lakehouses = [{"lakehouse_id": "lh1", "workspace_id": "w1"}, {"lakehouse_id": "lh2", "workspace_id": "w2"}]
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", a), _sc("lh1", "y", a), _sc("lh2", "z", a, "w2")])
+    sid = {s["name"]: s["id"] for s in platform.call("list_seen_shortcuts")}
+    platform.call("accept_shortcut_risk", shortcut_id=sid["x"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": sid["x"], "health": "broken", "detail": "404"}])
+    # Eve isn't a member of crm: her scan reports a repoint and a removal but changes neither.
+    out = eve.call("record_shortcuts", lakehouses=lakehouses, shortcuts=[_sc("lh1", "x", b), _sc("lh2", "z", a, "w2")])
+    assert sorted((s["change"], s["shortcut_id"]) for s in out["skipped"]) == [("removed", sid["y"]), ("repointed", sid["x"])]
+    [reported] = [c for c in out["changes"] if c["kind"] == "repointed"]
+    assert reported["by_user"] == "eve@example.com" and reported["note"].startswith("reported")
+    seen = {s["name"]: s for s in platform.call("list_seen_shortcuts")}
+    assert set(seen) == {"x", "y", "z"} and seen["x"]["health"] == "broken"
+    assert [r["shortcut_id"] for r in platform.call("list_shortcut_risks")] == [sid["x"]]
+    # Nor can she mark it healthy; anyone may report one broken.
+    got = eve.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"},
+                                                      {"id": sid["y"], "health": "broken", "detail": "gone"}])
+    assert [c["kind"] for c in got] == ["skipped", "broke"] and got[1]["by_user"] == "eve@example.com"
+    assert {s["name"]: s["health"] for s in platform.call("list_seen_shortcuts")} == {"x": "broken", "y": "broken", "z": "not_checked"}
+    # A lakehouse no project has a product in: an admin's only. In crm's, bo's scan and check apply.
+    eve.call("record_shortcuts", lakehouses=lakehouses[1:], shortcuts=[])
+    assert "z" in {s["name"] for s in platform.call("list_seen_shortcuts")}
+    out = bo.call("record_shortcuts", lakehouses=lakehouses[:1], shortcuts=[_sc("lh1", "x", b)])
+    assert not out["skipped"] and {c["kind"] for c in out["changes"]} == {"repointed", "removed"}
+    assert platform.call("list_shortcut_risks") == [], "an applied repoint ends the accepted risk"
+    assert [c["kind"] for c in bo.call("record_shortcut_health", results=[{"id": sid["x"], "health": "healthy"}])] == []
+    assert any(a["action"] == "shortcut scan" and a["by_user"] == "bo@example.com" for a in platform.call("audit"))
+
+
+def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
+    platform.call("register_project", project={"name": "crm"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    platform.call("register_product", product={"project": "crm", "name": "c360", "access": "public", "status": "published"},
+                  ports=[{"port": "customers", "entity": "gold.c", "lakehouse_id": "lh1", "workspace_id": "w1"}], env="prod")
+    bo, eve = _as(platform, "bo@example.com"), _as(platform, "eve@example.com")
+    a, b = {"type": "OneLake", "path": "Tables/a"}, {"type": "OneLake", "path": "Tables/b"}
+    eve.call("log_shortcut_change", kind="added", shortcut=_sc("lh1", "x", a), after={"target": a})  # anyone adds
+    [x] = platform.call("list_seen_shortcuts")
+    platform.call("accept_shortcut_risk", shortcut_id=x["id"], kind="cross_env", reason="on purpose")
+    platform.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "404"}])
+    with pytest.raises(core.PlatformError, match="only a platform admin, or a member of a project"):
+        eve.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", a), before={"target": a})
+    out = eve.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    assert out["note"].startswith("reported") and out["by_user"] == "eve@example.com"
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "broken" and x["target"]["path"] == "Tables/a" and len(platform.call("list_shortcut_risks")) == 1
+    # A non-member's same-health report doesn't freshen the check either; a broken one always lands.
+    when = x["checked_at"]
+    assert [c["kind"] for c in eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "healthy"}])] == ["skipped"]
+    eve.call("record_shortcut_health", results=[{"id": x["id"], "health": "broken", "detail": "still 404"}])
+    assert platform.call("list_seen_shortcuts")[0]["health_detail"] == "still 404"
+    bo.call("log_shortcut_change", kind="repointed", shortcut=_sc("lh1", "x", b), before={"target": a}, after={"target": b})
+    [x] = platform.call("list_seen_shortcuts")
+    assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
+    bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
+    assert platform.call("list_seen_shortcuts") == []

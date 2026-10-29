@@ -123,6 +123,33 @@ def test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails(svc):
     assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD
 
 
+
+def test_undo_leaves_a_shortcut_that_changed_again_since_alone(svc):
+    center_of(svc)
+    svc.delete_shortcut("ws-dev", "lh-1", "Files/raw", "events", "LH_Silver", "Sales Dev")
+    removed = svc.shortcut_changes()["changes"][0]
+    svc.api.items["lh-1"].append({"name": "events", "path": "Files/raw", "target": GOLD})  # made again in Fabric
+    with pytest.raises(RuntimeError, match="there's a shortcut at Files/raw/events again"):
+        svc.shortcut_undo(removed["id"])
+    assert [s["target"] for s in svc.api.items["lh-1"] if s["name"] == "events"] == [GOLD]
+    # Undoing an add removes only the shortcut it added, not one pointed elsewhere since.
+    svc.api.items["lh-1"] = [s for s in svc.api.items["lh-1"] if s["name"] != "events"]
+    svc.shortcut_undo(removed["id"])
+    added = svc.shortcut_changes()["changes"][0]
+    assert added["kind"] == "added"
+    next(s for s in svc.api.items["lh-1"] if s["name"] == "events")["target"] = GOLD_DEV
+    with pytest.raises(RuntimeError, match="points somewhere else now, so nothing was removed"):
+        svc.shortcut_undo(added["id"])
+    assert any(s["name"] == "events" for s in svc.api.items["lh-1"])
+    # A repoint is pointed back only while the shortcut still points where that repoint left it.
+    src = {"type": "oneLake", "workspace_id": "ws-dev2", "item_id": "lh-gold-dev", "path": "Tables/dbo/customer"}
+    svc.shortcut_repoint("ws-dev", "lh-1", "Tables/dbo", "customer", src, "LH_Silver", "Sales Dev", "Sales Dev 2")
+    repoint = svc.shortcut_changes()["changes"][0]
+    next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] = S3
+    with pytest.raises(RuntimeError, match="points somewhere else since that change"):
+        svc.shortcut_undo(repoint["id"])
+    assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == S3
+
 def test_rules_stop_dev_pointing_at_prod_and_flag_it(svc):
     src = {"type": "oneLake", "workspace_id": "ws-prod", "item_id": "lh-gold", "path": "Tables/dbo/product"}
     with pytest.raises(PermissionError, match="Dev at Prod"):
@@ -221,3 +248,27 @@ def test_deprecated_products_and_broken_shortcuts_in_use_are_needs():
 def test_describe_keeps_the_target_to_make_it_again():
     d = shortcuts.describe({"name": "x", "path": "Files/raw", "target": {"type": "AmazonS3", **S3}})
     assert d["rest_target"] == S3
+
+
+def test_undo_runs_only_for_a_change_its_author_could_make(svc):
+    center_of(svc)
+    LocalPlatform(svc._catalog().path, lambda: "chris@example.com").call("whoami")  # the first in is its admin
+    eve = LocalPlatform(svc._catalog().path, lambda: "eve@example.com")
+    assert not eve.call("whoami")["admin"]
+    customer = {"workspace_id": "ws-dev", "lakehouse_id": "lh-1", "workspace_name": "Sales Dev",
+                "lakehouse_name": "LH_Silver", "path": "Tables/dbo", "name": "customer"}
+    # A non-member's repoint is only reported, with what it pointed at taken from the inventory.
+    eve.call("log_shortcut_change", kind="repointed", shortcut=dict(customer, target=GOLD),
+             before=dict(customer, target=S3), after=dict(customer, target=GOLD))
+    reported = svc.shortcut_changes()["changes"][0]
+    assert reported["note"].startswith("reported") and reported["before"]["target"] == GOLD
+    assert not reported["undoable"]
+    with pytest.raises(RuntimeError, match="can be undone. Nothing was changed"):
+        svc.shortcut_undo(reported["id"])
+    # Anyone may log an add, but undoing one a non-member logged would remove a real shortcut.
+    eve.call("log_shortcut_change", kind="added", shortcut=dict(customer, target=GOLD), after=dict(customer, target=GOLD))
+    added = svc.shortcut_changes()["changes"][0]
+    assert added["kind"] == "added" and not added["undoable"]
+    with pytest.raises(RuntimeError, match="can be undone"):
+        svc.shortcut_undo(added["id"])
+    assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD

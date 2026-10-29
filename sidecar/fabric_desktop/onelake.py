@@ -14,6 +14,7 @@ from urllib.parse import unquote
 import requests
 
 from . import http_session
+from .paging import Pages
 from .retrying import send_with_retry
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
@@ -120,6 +121,14 @@ def item_path(path: str, empty_ok: bool = False) -> str:
     return clean
 
 
+
+class FileTooBig(ValueError):
+    """A download stopped at its size limit (FileStore.download's max_bytes)."""
+
+    def __init__(self, path: str, max_bytes: int):
+        super().__init__(f"{path} is over {max_bytes // (1024 * 1024)} MB, so it wasn't downloaded.")
+        self.path, self.max_bytes = path, max_bytes
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
@@ -149,6 +158,7 @@ class FileStore:
         if max_results:
             params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
+        pages = Pages(f"{directory or 'Files'} in OneLake")
         while True:
             resp = self._read(url, params=dict(params), timeout=60)
             resp.raise_for_status()
@@ -160,7 +170,7 @@ class FileStore:
             token = resp.headers.get("x-ms-continuation")
             if not token or max_results:
                 break
-            params["continuation"] = token
+            params["continuation"] = pages.follow(token)
         return sorted(entries, key=lambda e: (not e["is_dir"], e["name"].lower()))
 
     def probe(self, workspace_id: str, lakehouse_id: str, directory: str) -> tuple[int | None, str]:
@@ -183,14 +193,24 @@ class FileStore:
             message = resp.text[:300]
         return resp.status_code, message
 
-    def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path) -> Path:
+    def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path,
+                 max_bytes: int | None = None) -> Path:
+        """Download a file to ``dest``. With ``max_bytes``, a file bigger than that stops downloading
+        there and raises FileTooBig, and the part written is removed."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         with self._read(url, stream=True, timeout=300) as resp:
             resp.raise_for_status()
             dest.parent.mkdir(parents=True, exist_ok=True)
+            written = 0
             with dest.open("wb") as f:
                 for chunk in resp.iter_content(1 << 20):
+                    written += len(chunk)
+                    if max_bytes is not None and written > max_bytes:
+                        break
                     f.write(chunk)
+            if max_bytes is not None and written > max_bytes:
+                dest.unlink(missing_ok=True)
+                raise FileTooBig(path, max_bytes)
         return dest
 
     def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str, length: int | None = None) -> bytes | None:

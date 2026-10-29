@@ -1113,7 +1113,6 @@ class Kernel:
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
         code compiled here (not %run notebooks), so its line numbers are the cell's own."""
-        from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
             return self._run_sql(cell.body, run, namespace)
@@ -1543,7 +1542,6 @@ class Kernel:
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
-        from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
         depth = getattr(self._local, "depth", 0)

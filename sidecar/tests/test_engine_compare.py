@@ -184,3 +184,41 @@ def test_sqlite_checks_the_byte_cap_while_reading(lite, monkeypatch):
     res = lite.execute(sql(code, rows=25_000))
     assert res.status == "error" and "larger than" in res.outputs[-1]["evalue"]
     assert seen == [10_000]   # stopped at the first batch, never read all 25,000 rows into one table
+
+
+class _CountingCursor:
+    def __init__(self, cur, calls):
+        self._cur, self._calls = cur, calls
+        self.description = cur.description
+
+    def fetchmany(self, n):
+        self._calls.append(n)
+        return self._cur.fetchmany(n)
+
+
+class _CountingConnection:
+    def __init__(self, con, calls):
+        self._con, self._calls = con, calls
+
+    def execute(self, sql_text):
+        return _CountingCursor(self._con.execute(sql_text), self._calls)
+
+    def __getattr__(self, name):
+        return getattr(self._con, name)
+
+
+def test_sqlite_stops_reading_at_the_first_batch_past_the_rows_asked_for(lite):
+    calls = []
+    lite._con = _CountingConnection(lite._con, calls)
+    code = "WITH RECURSIVE r(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM r WHERE i < 49999) SELECT i FROM r"
+    res = lite.execute(sql(code, rows=5))
+    assert res.status == "error" and "more than the 5 rows" in res.outputs[-1]["evalue"]
+    assert calls == [10_000]   # one batch read, not all 50,000 rows counted first
+
+
+def test_sqlite_keeps_a_column_that_is_null_in_one_batch(lite):
+    code = ("WITH RECURSIVE r(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM r WHERE i < 10999) "
+            "SELECT i, CASE WHEN i >= 10000 THEN i END AS late FROM r")
+    res = lite.execute(sql(code, rows=11_000))
+    assert res.status == "ok" and res.table.num_rows == 11_000
+    assert res.table.column("late").null_count == 10_000

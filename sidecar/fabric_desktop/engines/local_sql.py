@@ -434,8 +434,8 @@ class SQLiteSession(_SqlSession):
             return None, 0
         names = [d[0] for d in cur.description]
         keep = max(request.preview_rows, request.result_rows)
-        kept: list[Any] = []
-        total = size = 0
+        parts: list[pa.Table] = []   # Arrow per batch, as DuckDB's _drain keeps, never a list of Python rows
+        have = total = size = 0
         while True:   # in batches, so a whole result is checked against RESULT_BYTES as it is read
             batch = cur.fetchmany(10_000)
             if not batch:
@@ -443,14 +443,15 @@ class SQLiteSession(_SqlSession):
             total += len(batch)
             if request.result_rows > 0 and total > request.result_rows:
                 raise _too_many(request.result_rows)
-            if len(kept) < keep:
-                part = batch[:keep - len(kept)]
-                kept.extend(part)
-                if request.result_rows > 0:
-                    size += _sqlite_table(names, part).nbytes
-                    if size > RESULT_BYTES:
-                        raise _too_big()
-        table = _sqlite_table(names, kept)
+            if have < keep:
+                part = _sqlite_table(names, batch[:keep - have])
+                parts.append(part)
+                have += part.num_rows
+                size += part.nbytes
+                if request.result_rows > 0 and size > RESULT_BYTES:
+                    raise _too_big()
+        # A column that is all NULL in one batch takes its type from the others.
+        table = pa.concat_tables(parts, promote_options="permissive") if parts else _sqlite_table(names, [])
         return self._keep(table, total, request)
 
     def _interrupt(self) -> None:

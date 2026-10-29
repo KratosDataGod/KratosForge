@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import fnmatch
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,9 +21,14 @@ from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
 from ..errors import NotSetUp
-from ..leases import check_held
+from ..leases import LeaseLost, check_held
 from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
+from ..redact import describe
+
+_log = logging.getLogger(__name__)
+_LEASE_LOST = {"removed": 0, "note": "the run no longer holds the table's lease, so the files this write left are "
+                                     "left for VACUUM"}
 
 META_LAKEHOUSE = "LH_Meta"
 # The organization's one landing zone: raw files from every source, in the platform's workspace.
@@ -274,18 +280,81 @@ class Store:
         if read_version is not None:
             target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
             extra = {"mode": "overwrite", "predicate": "true"}
+        self.last_cleanup = None
+        before: set[str] | None = None
+        if self.removes_unwritten:
+            try:
+                before = self._data_files(lakehouse, schema, table)
+            except Exception as exc:  # noqa: BLE001 - the write goes ahead; only its cleanup is lost
+                _log.warning("Couldn't list %s.%s before writing it: %s", schema, table, describe(exc))
         try:
             check_held()
             write_deltalake(target, rows, **extra, storage_options=self.options(),
                             schema_mode="overwrite" if read_version is not None else None,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
+            if not self.removes_unwritten:
+                self.last_cleanup = {"removed": 0, "note": "the files this write left are left for VACUUM: in OneLake "
+                                                           "another writer's files that aren't committed yet can't be "
+                                                           "told apart from them"}
+            elif isinstance(exc, LeaseLost):
+                self.last_cleanup = dict(_LEASE_LOST)
+            elif before is None:
+                self.last_cleanup = {"removed": 0, "note": "couldn't list the table's files before the write, so any "
+                                                           "it left are left for VACUUM"}
+            else:
+                self.last_cleanup = self._remove_unwritten(lakehouse, schema, table, before, read_version)
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.note_after_write(dt_)
         return dt_.version()
+
+    # ---- files a write that didn't commit left behind (PB-067)
+
+    # What the last write_stream that failed did about its files: {"removed": n, "note": text}, or None.
+    last_cleanup: dict[str, Any] | None = None
+    # Only on this PC: the run's lease covers every writer of a local table. In OneLake a Fabric job can
+    # be writing the same table, and its uncommitted files look just like this write's, so they're
+    # all left for VACUUM there.
+    removes_unwritten = False
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        """The table folder's files outside _delta_log, as paths relative to the folder."""
+        raise NotImplementedError
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        raise NotImplementedError
+
+    def _remove_unwritten(self, lakehouse: str, schema: str, table: str, before: set[str],
+                          read_version: int | None) -> dict[str, Any]:
+        """After a stream that didn't commit: remove the data files it wrote. Those are the files that
+        weren't in the folder when it started and that no version of the table's log names. Only
+        while the log is still at ``read_version``: a commit by another writer meanwhile means
+        another writer was at work, and its files can't be told from these, so they are all left
+        for VACUUM. The run holds the table's lease (leases.py), so no other run of this app writes it;
+        a run that no longer holds it (expired, taken over) removes nothing, since the new holder's
+        files can't be told from these either."""
+        try:
+            check_held()
+        except LeaseLost:
+            return dict(_LEASE_LOST)
+        try:
+            current = open_table(self.uri(lakehouse, schema, table), self.options())
+            if (current.version() if current is not None else None) != read_version:
+                return {"removed": 0, "note": "another writer committed to the table meanwhile, so the files this "
+                                              "write left are left for VACUUM"}
+            # With no commit since the write started, no version of the log can name a file that wasn't
+            # there then; the latest version's files are left out anyway, to be sure.
+            named = set(pa.table(current.get_add_actions()).column("path").to_pylist()) if current is not None else set()
+            new = sorted(p for p in self._data_files(lakehouse, schema, table) - before if p not in named)
+            self._delete_data_files(lakehouse, schema, table, new)
+            return {"removed": len(new), "note": f"removed {len(new)} data file{'' if len(new) == 1 else 's'} this write left"}
+        except Exception as exc:  # noqa: BLE001 - the write's own error is what the run reports
+            _log.warning("Couldn't remove the files a failed write left in %s.%s: %s", schema, table, describe(exc))
+            return {"removed": 0, "note": f"couldn't remove the files this write left ({describe(exc)}); VACUUM "
+                                          "removes them later"}
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a
@@ -497,6 +566,9 @@ class LocalStore(Store):
     def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
         return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
 
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        return local_retry(lambda: super(LocalStore, self).scan(lakehouse, schema, table, version))
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
 
@@ -519,6 +591,20 @@ class LocalStore(Store):
 
     def landing_lakehouse(self, zone: dict[str, Any]) -> str:
         return LANDING_LAKEHOUSE  # on this PC every zone is the one local landing folder
+
+    removes_unwritten = True
+
+    def _data_files(self, lakehouse: str, schema: str, table: str) -> set[str]:
+        root = Path(self.uri(lakehouse, schema, table))
+        if not root.is_dir():
+            return set()
+        return {p.relative_to(root).as_posix() for p in root.rglob("*")
+                if p.is_file() and p.relative_to(root).parts[0] != "_delta_log"}
+
+    def _delete_data_files(self, lakehouse: str, schema: str, table: str, paths: list[str]) -> None:
+        root = Path(self.uri(lakehouse, schema, table))
+        for rel in paths:
+            (root / rel).unlink(missing_ok=True)
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:

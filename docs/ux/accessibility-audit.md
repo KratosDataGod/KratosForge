@@ -15,20 +15,20 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | Create | dark | 4 | 0 (0) | none | 0 | 0 | 0 |
 | Workspaces | light | 17 | 0 (0) | color-contrast (2) | 15 | 0 | 0 |
 | Workspaces | dark | 17 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| OneLake | light | 15 | 0 (0) | none | 8 | 0 | 0 |
-| OneLake | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
-| Data mesh | light | 12 | 0 (0) | none | 9 | 0 | 0 |
-| Data mesh | dark | 12 | 0 (0) | none | 0 | 0 | 0 |
-| Platform | light | 12 | 0 (0) | none | 8 | 0 | 0 |
-| Platform | dark | 12 | 0 (0) | none | 0 | 0 | 0 |
+| OneLake | light | 17 | 0 (0) | none | 8 | 0 | 0 |
+| OneLake | dark | 17 | 0 (0) | none | 0 | 0 | 0 |
+| Data mesh | light | 14 | 0 (0) | none | 9 | 0 | 0 |
+| Data mesh | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
+| Platform | light | 14 | 0 (0) | none | 8 | 0 | 0 |
+| Platform | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
 | Optimize | light | 14 | 0 (0) | none | 5 | 0 | 0 |
 | Optimize | dark | 14 | 0 (0) | none | 0 | 0 | 0 |
-| Monitor | light | 16 | 0 (0) | aria-prohibited-attr (1) | 16 | 0 | 0 |
-| Monitor | dark | 16 | 0 (0) | aria-prohibited-attr (1) | 0 | 0 | 0 |
+| Monitor | light | 18 | 0 (0) | none | 16 | 0 | 0 |
+| Monitor | dark | 18 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | light | 5 | 0 (0) | none | 0 | 0 | 0 |
 | Source control | dark | 5 | 0 (0) | none | 0 | 0 | 0 |
-| Settings | light | 19 | 0 (0) | none | 32 | 0 | 0 |
-| Settings | dark | 19 | 0 (0) | none | 0 | 0 | 0 |
+| Settings | light | 21 | 0 (0) | none | 32 | 0 | 0 |
+| Settings | dark | 21 | 0 (0) | none | 0 | 0 | 0 |
 | Notebook | light | 17 | 1 (1) | color-contrast (5) | 32 | 1 | 0 |
 | Notebook | dark | 17 | 1 (1) | color-contrast (5) | 0 | 0 | 0 |
 | SQL query | light | 22 | 1 (1) | color-contrast (2) | 21 | 0 | 1 |
@@ -61,7 +61,6 @@ Checks axe couldn't decide by itself (for example text over a gradient or an ima
 
 - **Home**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.foldable.card.pad:nth-child(4) > .fold-head > .fold-toggle[title="Hide"] > .chev`, `.foldable.card.pad:nth-child(10) > .fold-head > .fold-toggle[title="Hide"] > .chev`
 - **Workspaces**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.click:nth-child(1) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`, `.click:nth-child(2) > td:nth-child(3) > .star[title="Add to favorites"][aria-label="Add to favorites"]`
-- **Monitor**: aria-prohibited-attr: Elements must only use permitted ARIA attributes. At `.subtabs`
 - **Notebook**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.markdown > .gutter > .cell-grip[draggable="true"][title="Drag to move this cell"]`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="2"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(2)`, `div[data-cell="3"] > .cell-box > .editor > .cm-editor.ͼ1.ͼ2 > .cm-scroller > .cm-gutters.cm-gutters-before[aria-hidden="true"] > .cm-lineNumbers.cm-gutter > .cm-gutterElement:nth-child(3)`
 - **SQL query**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.cm-lineNumbers > .cm-activeLineGutter.cm-gutterElement`, `.cm-gutterElement:nth-child(3)`
 - **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow:nth-child(2)`, `.arrow:nth-child(4)`, `.arrow:nth-child(6)`, `.arrow:nth-child(8)`, `#entity-toml`

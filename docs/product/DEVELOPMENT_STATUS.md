@@ -3,46 +3,53 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-28 11:42 UTC, main cdbb967.** Covers the PRs merged from #135 to #838.
+**Product check of 2026-10-28 23:42 UTC, main b19b7456.** Covers the PRs merged from #135 to #972.
 
 ## Summary
 
-- 10 PRs merged since the evening check (#827, #829 and #831 to #838). Platform, Optimize and Monitor
-  share Data mesh's layout (#827, #831); side by side can hold the PC's run to Fabric's cores (#829);
-  projects have owners and members, and joining a domain is a request (#834); a consumer's widened
-  accepts range now reaches the catalog (#836, PB-082 finding 2); the warehouse explorer is a keyboard
-  tree (#835, PB-025) and the 2026-10-27 warehouse tenant run is written up (#833); and policy
-  exceptions warn 14 days before they end and can be ended early (#838, PB-059).
-- The nine implementation reviews in docs/product/reviews (#815) still wait on the product owner, so
-  their states are unchanged. Fixes since then cover PB-025 findings 1 and 2, PB-059 findings 2 and 3,
-  and PB-082 finding 2.
-- Inventory: 142 features. 119 are Implemented, 12 Partially Implemented, 4 Implemented but Not Exposed, 3 Missing and 4 Planned.
+- 38 PRs merged since the morning check (#828 to #972). Fabric runs cancel from Monitor > Runs and the
+  tray (#875, #972); schedules edit in place with every Windows time zone (#881); the agent checks
+  shortcuts on a schedule (#902); Check works offline from a hash-checked policy package (#882);
+  compares above 5,000,000 rows stream a checksum (#897); Preview waits for the dependency audit (#867)
+  and Stable carries its SBOMs (#911); every page has an automated accessibility audit (#907); and
+  data product groups (#828) and the policy link listener fix (#843) are in.
+- 14 items moved to In review on that work (PB-010, PB-042, PB-043, PB-048, PB-051, PB-053, PB-057,
+  PB-069, PB-070, PB-074, PB-077, PB-078, PB-087 and PB-094). PB-042 was already built (#508, #707).
+  PB-068 (#913) and PB-019 (#914) merged while this check waited on #997, so they are In review too.
+- Two acceptance criteria were changed and need the product owner: PB-049 checks the pipeline run a
+  request names, since OneLake reports every writer as $superuser, and PB-072 limits quick calls only,
+  since runs can take hours and Stop ends them.
+- Backlog items now link their story issues, and the three new stories have ids: PB-116 Fabric Spark
+  sessions, PB-117 Snowflake research and PB-118 the Databricks loss report.
+- Inventory: 142 features. 119 are Implemented, 13 Partially Implemented, 4 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 128 Partially Verified and 11 Unverified. None has been verified on a Fabric tenant end to end.
-- Backlog: 101 items (5 P0, 31 P1, 52 P2, 13 P3). 46 are Proposed, 11 In progress, 39 In review and 5 Accepted.
+- Backlog: 106 items (5 P0, 31 P1, 54 P2, 16 P3). 19 are Proposed, 27 In progress, 20 In review and 40 Accepted.
 
 ## Workstreams
 
 | Workstream | Owner thread | Backlog | State |
 | --- | --- | --- | --- |
-| Local execution and compute | Local data engine and OneLake publishing | PB-099 | Cores on this PC merged (#829) |
-| SQL and warehouse | Build full warehouse development experience | PB-106, PB-024, PB-025 | Tenant run written up; WH-16 #755 draft |
+| Local execution and compute | Local data engine and OneLake publishing | PB-094, PB-068, PB-015 | Kernel measured (#895); key lookups merged (#913); #933 open |
+| Fabric, SQL and warehouse | Build full warehouse development experience | PB-002, PB-043, PB-106 | Cancel merged (#875); smoke test #884 waits on a yes |
 | Data Factory and pipelines | Data Factory; Local Fabric pipeline execution | PB-107, PB-037 | #799 draft; DF-8 and P5 need a go |
 | Semantic models | Best Practice Analyzer; TMDL and OSI conversion | PB-110, PB-112 | BPA live run next |
-| Governance and mesh | Enterprise governance foundation; data mesh | PB-059, PB-082, PB-111 | Reviews wait on the product owner; #828 draft |
-| Developer experience | UX oversight; action-first; VS Code | PB-102, PB-113, PB-109 | Shared page layout merged (#827) |
-| Testing and security | Codebase audit; engineering quality | PB-101, PB-103 | Working |
+| Governance and mesh | Enterprise governance foundation; data mesh | PB-057, PB-053, PB-083 | Offline policy check (#882) and product groups (#828) merged; GOV-003 #924 draft |
+| Developer experience | UX oversight; action-first; VS Code | PB-078, PB-077, PB-070, PB-063 | Preview tags, docs and command bar tests merged; accessibility audit part 1 (#907) |
+| Testing and security | Codebase audit; engineering quality | PB-074, PB-072, PB-051, PB-101 | Audit gate (#867), 401 refresh (#923) and SBOMs (#911) merged; #898 open |
+| Databricks and Snowflake | Fabric and Databricks unified development | PB-116, PB-117, PB-118 | Livy draft #891; Snowflake engine and SQL merged as Preview (#993, #995) |
 | Release | Release management | | Working |
 
 ## Open pull requests
 
-At 11:45 UTC there were 7 open PRs: drafts #828 (product groups), #799 (Dataflow staging cleanup),
-#755 (WH-16) and #744 (HD-030 policy), and the fork PRs #288, #289 and #290, reviewed FAIL and
-recommended to close.
+At 23:50 UTC there were 56 open PRs, 31 of them drafts. They include the stories in the work queues
+(#884 PB-002, #891 PB-116, #898 PB-072, #913 PB-068, #924 GOV-003, #931 PB-049 and others), two
+Snowflake drafts (#993, #995), this check and #997, and the fork PRs #288, #289 and #290, reviewed
+FAIL and recommended to close.
 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: the decision on nine implementation reviews (#815), a tenant run of
+two release gates. Also waiting: acceptance of the 20 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

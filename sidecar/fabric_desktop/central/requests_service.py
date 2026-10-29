@@ -25,6 +25,7 @@ import logging
 from typing import Any
 
 from .. import access as access_mod
+from ..errors import NotSetUp
 from ..redact import describe
 from . import core
 
@@ -45,6 +46,8 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     missing = f"The platform can't {what} yet: UDF_Platform is older than this app. {REPAIR}"
     try:
         return catalog.call(op, **kwargs)
+    except NotSetUp:
+        raise  # its own words say what to do; Finish or repair wouldn't help
     except LookupError as exc:
         _log.info("%s: %s", op, describe(exc))
         raise LookupError(missing) from exc

@@ -7,7 +7,9 @@ SQLite file and records the tables and columns it made. Consecutive identical sh
     python sidecar/tests/fixtures/central_shapes.py      (in a full clone, on the branch, committed)
 
 A PR that changes the platform's tables commits its change, then runs this and commits the fixture, so
-the fixture's newest shape is the one the PR makes (test_the_fixture_s_newest_shape_is_today_s).
+the fixture's newest shape is the one the PR makes (test_the_fixture_s_newest_shape_is_today_s). Run on
+a branch, the fixture also holds the branch's own earlier commits under their pre-squash ids; run again
+on main after the merge, it may differ in those. Either way the newest shape is HEAD's.
 """
 
 import json
@@ -47,21 +49,32 @@ def _shape(path):
         conn.close()
 
 
+def _built(commit):
+    """The shape that commit's own ensure_schema makes on an empty file."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "old"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        for f in FILES:
+            if f.split("/")[-1] in _git("ls-tree", "--name-only", commit, "sidecar/fabric_desktop/central/"):
+                (pkg / Path(f).name).write_text(_git("show", f"{commit}:{f}"))
+        subprocess.run([sys.executable, "-I", "-c", BUILD, tmp, str(Path(tmp) / "db.sqlite")], check=True)
+        return _shape(Path(tmp) / "db.sqlite")
+
+
 def main():
     shapes = []
-    for line in _git("log", "--reverse", "--abbrev=8", "--format=%h %ad", "--date=short", "HEAD", "--", *FILES).splitlines():
+    log = _git("log", "--topo-order", "--reverse", "--abbrev=8", "--format=%h %ad", "--date=short", "HEAD", "--", *FILES)
+    for line in log.splitlines():
         commit, date = line.split()
-        with tempfile.TemporaryDirectory() as tmp:
-            pkg = Path(tmp) / "old"
-            pkg.mkdir()
-            (pkg / "__init__.py").write_text("")
-            for f in FILES:
-                if f.split("/")[-1] in _git("ls-tree", "--name-only", commit, "sidecar/fabric_desktop/central/"):
-                    (pkg / Path(f).name).write_text(_git("show", f"{commit}:{f}"))
-            subprocess.run([sys.executable, "-I", "-c", BUILD, tmp, str(Path(tmp) / "db.sqlite")], check=True)
-            shape = _shape(Path(tmp) / "db.sqlite")
+        shape = _built(commit)
         if not shapes or shapes[-1][2] != shape:
             shapes.append((commit, date, shape))
+    # HEAD's own shape is always the newest, whatever order the history above came in.
+    head, date = _git("log", "-1", "--abbrev=8", "--format=%h %ad", "--date=short", "HEAD").split()
+    shape = _built(head)
+    if shapes[-1][2] != shape:
+        shapes.append((head, date, shape))
     tables, out = [], []
     for commit, date, shape in shapes:
         ids = []

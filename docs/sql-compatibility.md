@@ -132,9 +132,35 @@ Rule set **2026.10.3**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | LOC-008 | DuckDB SQL runs only on this PC | information | DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-009 | *name* reads files on this PC | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 
+## Where else will it run? (engine only, no screen yet)
+
+The check above asks "will this run on the engine I picked?". The portability report
+(`sidecar/fabric_desktop/sql_portability.py`) asks the other question: SQL written for one platform,
+graded for each of the others (DuckDB on this PC, Spark SQL in a Fabric lakehouse, Fabric Warehouse,
+Databricks SQL, Snowflake SQL and PostgreSQL), statement by statement:
+
+| Grade | Means |
+| --- | --- |
+| Compatible | It reads the same there as written, and no known problem applies. |
+| Translated | It runs there once rewritten. The report shows the rewrite; your SQL isn't changed. |
+| Unverified | Part of it can't be checked statically (a function sqlglot doesn't know, or a statement it can only keep as text). Test it there. |
+| Partial | It runs there, but a known difference or risk applies. The reasons say which. |
+| Unsupported | It uses something that platform doesn't have. |
+
+A platform's grade is its worst statement's. sqlglot writes the SQL for each platform and refuses what
+it can't express, instead of passing it through. The three Fabric targets then get this page's rules,
+applied to the rewritten SQL, and Snowflake SQL on DuckDB gets the Snowflake labels from
+[Engines](engines.md). Databricks, Snowflake and PostgreSQL have no rules of their own here yet, so for
+them only the rewrite is checked, and the report says so. Anything only Snowflake has (streams, tasks,
+stages, time travel and the rest) is unsupported everywhere else.
+
+Like the check above, it never runs the SQL or connects anywhere, and "compatible" is not proof that
+two platforms give the same answer. Comparing answers needs both runs.
+
 ## How it's built and tested
 
 - `sidecar/fabric_desktop/sqlcompat/`: `profiles.py` describes each engine (statement categories, unsupported types and their alternatives, identifiers, transactions, DDL and DML, semantic differences, confidence and sources); `rules.py` holds the rules, each naming its engines, severity, confidence and source; `analyzer.py` splits the SQL into statements (at `;` and T-SQL's `GO`), reads each with sqlglot and the engine's tokenizer, applies the rules and builds the report. Rules work on tokens first, so they still find problems, at exact positions, in statements sqlglot can't read.
 - The engine methods are `sql_analyze`, `sql_compat_profiles` and `sql_compat_export`.
 - `sidecar/tests/fixtures/sql_compat_v1.jsonl` holds 197 cases: the SQL, the engine, the expected outcome, the exact set of rules expected and where the first finding is. 36 of them are false-positive guards, SQL that must not be flagged (Spark array indexes, `ISNULL(a, b)` in T-SQL, `UPDATE ... SET x = NULL`, keywords inside strings and comments, triggers in a SQL database). `sidecar/tests/test_sql_compat.py` runs them.
 - Changing a rule means moving `RULE_VERSION` on, reviewing the fixtures and updating this page.
+- The portability report is `sql_portability.py`, tested by `sidecar/tests/test_sql_portability.py`, which also grades every Snowflake probe statement.

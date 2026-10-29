@@ -46,7 +46,7 @@ without a schema.
 ## Each rule explained
 
 Each finding in the panel links to its rule here with **About SQ0nn**: why the rule exists, an
-example, and when the finding is safe to leave.
+example and, where it applies, when the finding is safe to leave.
 
 ### SQ001
 
@@ -126,9 +126,9 @@ Why: every row is matched with every row of the other table. Two tables of 10,00
 
 ```sql
 -- Before
-SELECT * FROM dbo.orders o JOIN dbo.customer c
+SELECT o.order_id, c.name FROM dbo.orders o JOIN dbo.customer c
 -- After
-SELECT * FROM dbo.orders o JOIN dbo.customer c ON c.customer_id = o.customer_id
+SELECT o.order_id, c.name FROM dbo.orders o JOIN dbo.customer c ON c.customer_id = o.customer_id
 ```
 
 When it's fine: a deliberate product with a small table, such as a date spine or a list of scenarios.

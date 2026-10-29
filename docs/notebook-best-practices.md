@@ -43,7 +43,7 @@ error. Scala, R and other `%%` cells are skipped, except `%%sql`.
 ## Each rule explained
 
 Each finding in the panel links to its rule here with **About NB0nn**: why the rule exists, an
-example, and when the finding is safe to leave.
+example and, where it applies, when the finding is safe to leave.
 
 ### NB001
 

@@ -385,7 +385,7 @@ def test_examples_in_the_repository_are_the_generated_notebooks(tmp_path):
     repo = Path(__file__).resolve().parents[2] / "examples" / "benchmark"
     for path in benchmark.write(tmp_path):
         assert (repo / path.name).read_text(encoding="utf-8") == path.read_text(encoding="utf-8"), \
-            f"Run: python -m fabric_desktop.benchmark examples/benchmark (from sidecar/, path ../examples/benchmark)"
+            "Run: python -m fabric_desktop.benchmark examples/benchmark (from sidecar/, path ../examples/benchmark)"
 
 
 def test_benchmark_notebooks_are_added_and_kept(svc):

@@ -348,7 +348,7 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
          "process on a workstation." if n else ""),
         (f"Proved {m} notebook{'s' if m != 1 else ''} gave the same results on a workstation and in Microsoft Fabric."
          if m else "")) if x)
-    lines = [f"# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
+    lines = ["# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
           "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
           "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
     if entered:

@@ -16,9 +16,12 @@ import time
 import uuid
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import polars as pl
+
+if TYPE_CHECKING:
+    import pyarrow as pa  # annotations only; loads import it where they need it
 
 from . import batches as batches_mod
 from . import drift as drift_mod

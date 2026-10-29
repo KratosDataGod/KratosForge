@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1025 830b155e | CI changes job lists paths with -z (quotepath, now its own PR) | PASS 9.3 carried | Same change as 08399b8f. The changes job itself is now on main, so the delta is just the -z line and its comment (4+/2-). The merge of main resolved the ci.yml files= conflict to keep -z (checked with remerge-diff). Merges clean, and the YAML parses. |
+
 | 2026-10-29 | #1024 978f1beb | Copy-jobs browser test waits for the pin's re-read | PASS 9.3 | Test-only, 1 file. The old wait matched any workloads_list call, and earlier tests had already made one, so the assertion could run before the refresh:true re-read. The only refresh:true caller is Pin and read again (df-dataflows.js:109), after set_workspace_mark, so the pinned assertion holds once the wait returns. No earlier test in the file triggers it. Merges clean. Ran df-copy-jobs browser file 3x with Chromium: 8/8 each. |
 
 | 2026-10-29 | #1011 3883c026, #939 22ad2a8d | RM conflict-resolution carries | PASS 9.2, PASS 9.2 | #1011: delta identical to fa49dc90 (test_meta.py imports, unused Project dropped), clean merge, ruff all passed. #939 (second reviewer's PR, carried on RM ask): delta identical to 5aba3232 / 8b699a22 minus #937 lines now on main; troubleshooting.md keeps main's Endorsed row plus the 403 InsufficientPrivileges row; clean merge; fabric_api + platform + silent_except 116 passed. |

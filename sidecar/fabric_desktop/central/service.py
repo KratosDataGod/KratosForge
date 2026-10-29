@@ -36,7 +36,9 @@ from .requests_service import call_or_repair
 
 _log = logging.getLogger(__name__)
 FABRIC_DOMAIN_DESCRIPTION = 256  # Fabric's Create Domain refuses a longer description
-_MARKER = re.compile(r"\(KratosForge request [0-9a-f]{12}\)")  # what a request's approval puts on what it makes
+# The words a request's approval marks what it makes with, "(KratosForge request <id>)": a requester's own
+# text never keeps them, in any case
+_MARKER_WORDS = re.compile(r"kratosforge\s*request", re.I)
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
@@ -341,7 +343,10 @@ class PlatformMixin:
         description = str(domain.get("description") or "")
         if marker:  # a requester can't plant another request's marker in the description they typed
             # Fabric takes at most 256 characters: the typed text is cut so the marker stays whole
-            typed = _MARKER.sub("", description).strip()[:FABRIC_DOMAIN_DESCRIPTION - len(marker) - 1].rstrip()
+            typed = description
+            while _MARKER_WORDS.search(typed):  # until none is left, so removing one can't leave another behind
+                typed = _MARKER_WORDS.sub("", typed)
+            typed = typed.strip()[:FABRIC_DOMAIN_DESCRIPTION - len(marker) - 1].rstrip()
             description = f"{typed} {marker}".strip()
         adopted = False
         try:

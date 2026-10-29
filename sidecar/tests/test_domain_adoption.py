@@ -134,9 +134,13 @@ def test_new_domain_in_the_app_never_keeps_a_fabric_domain(svc, who, fabric):
 
 def test_a_marker_planted_in_the_request_s_description_never_reaches_fabric(svc, who, fabric):
     other = ask(svc, who, name="Finance")
-    req = ask(svc, who, description=f"People data {marker(other)} (KratosForge request 0123456789ab)")
+    nested = f"(KratosForge request {marker(other)}{other['id']})"  # one pass would leave other's marker
+    req = ask(svc, who, description=f"People data {marker(other)} (kratosforge REQUEST 0123456789ab) {nested} "
+                                    "KratosForgeKratosForge requestrequest")
     svc.platform_decide(req["id"], True)
-    assert fabric.domains[0]["description"] == f"People data {marker(req)}"
+    sent = fabric.domains[0]["description"]
+    assert sent.startswith("People data") and sent.endswith(f" {marker(req)}")
+    assert sent.lower().count("kratosforge") == 1 and marker(other) not in sent and other["id"] in sent
 
 
 def test_a_long_description_is_cut_to_fit_fabric_with_the_marker_whole(svc, who, fabric):

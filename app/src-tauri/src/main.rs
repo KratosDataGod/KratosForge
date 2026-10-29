@@ -1146,7 +1146,13 @@ fn update_engine_code(root: &std::path::Path, nocache: u64, say: &dyn Fn(&str)) 
         return Ok(None);
     }
     check_engine_build(&commit)?;
-    let Some(source) = engine_patch::find_runtime(root, &runtime) else { return Ok(None) };
+    let Some(source) = engine_patch::find_runtime(root, &runtime) else {
+        if engine_python().is_some() {
+            // Say why the big download, so it doesn't look like the small update stopped working.
+            say("This build updates Python's packages, so the whole engine is downloaded this once.");
+        }
+        return Ok(None);
+    };
     let state = update_state();
     let seen = update_guard::check_manifest(&release, update_guard::load_seen(&state, tag_used).as_ref(), unix_now())?;
 

@@ -6,6 +6,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1083 ec4bbf6a | LX-03 retargeted to main after #1076 | PASS 9.2 (carry) | `git diff origin/main...ec4bbf6a` is identical to 28c5a57f..619cc25d (11 files, +831/−11); main has since gained #1093, which the PR doesn't touch. Merges clean with current main; on the merge result ui.test.cjs 307/307 and learn_content + learn_labs + silent_except 46 passed. |
+
 | 2026-10-29 | #1054 4807ed51 | Retarget to main after #1028 | PASS 9.2 (carry) | `git diff origin/main 4807ed51` is byte-identical to d41c0929..1b263d11 (4 files). Merges clean; spark_local + spark_merge + silent_except 79 passed; ruff E9,F clean. |
 | 2026-10-29 | #1058 6eae302d | Databricks live test (merges #1056 head) | PASS 9.2 (carry) | Merge of 83892c55 into c89bd696 with an empty resolution diff. Merges clean with main; on the merge result conformance + runtimes + dbconnect + fabric_spark + dbx_livetest + silent_except 151 passed; mypy ratchet 901/903; ruff clean. |
 | 2026-10-29 | #1056 83892c55 | Shared runtime hardening, now on main + fabric-spark conformance harness | PASS 9.2 (carry) | Against main(41920975)+a9026ae8 the only changes are the runtime_worker.py conflict resolution (keeps main's stdin redirect and installed-distribution version through `_version`) and a fabric-spark Harness in test_engine_conformance.py (closes the #1078 merge-order note). Merges clean; on the merge result conformance + runtimes + dbconnect + fabric_spark + silent_except 140 passed; mypy ratchet 901/903; ruff clean. |

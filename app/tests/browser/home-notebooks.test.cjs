@@ -91,7 +91,7 @@ test("Run all from the confirm starts the Fabric one after acknowledging its war
 test("pinning a notebook puts it in Pinned at the top of Home", { skip }, async () => {
   const p = await home();
   assert.strictEqual(await p.locator(".home-pins").count(), 0);
-  await p.click('button[aria-label="Pin TPC-H data to Home"]');
+  await p.locator(".home-notebooks tr", { hasText: "TPC-H data" }).getByRole("button", { name: "Pin to Home", exact: true }).click();
   assert.ok(app.calls.some((c) => c.method === "set_item_pin" && c.params.kind === "notebook" && c.params.id === "TPC-H data" && c.params.on === true));
   await p.click('button:text-is("Refresh")');
   await p.waitForSelector(".home-pins");

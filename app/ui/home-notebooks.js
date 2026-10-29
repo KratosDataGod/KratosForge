@@ -43,8 +43,10 @@ async function toggleItemPin(pin) {
 // The pin button for an item row: filled when pinned. pin: {kind, id, name, workspace_id, workspace_name}.
 function itemPinButton(pin, after) {
   const on = itemPinned(pin.kind, pin.id);
-  const label = on ? `Unpin ${pin.name} from Home` : `Pin ${pin.name} to Home`;
-  return h("button", { class: `star pin${on ? " on" : ""}`, title: label, "aria-label": label,
+  // Named like the workspace pin ("Pin to the top"): the row says which item, and a name in the label
+  // would make the pin answer to the item's own name too.
+  const label = on ? "Unpin from Home" : "Pin to Home";
+  return h("button", { class: `star pin${on ? " on" : ""}`, title: `${label}: ${pin.name}`, "aria-label": label,
     onclick: async (e) => { e.stopPropagation(); if (await toggleItemPin(pin)) after?.(); } }, icon(on ? "pinFilled" : "pin", 16));
 }
 

@@ -15,7 +15,8 @@ The calls Fabric notebooks use most work the same here:
   whose workspace the attached lakehouse is in (Dev's when it is in none); any other library is
   read from the attached lakehouse's workspace with its active value set.
 
-What only Fabric has (mounting other storage, session settings) raises an error that says so.
+What only Fabric has (mounting other storage, session settings, ``warehouse`` items and
+``connections``) raises an error that says so and what to do on this PC instead.
 """
 
 from __future__ import annotations
@@ -904,6 +905,17 @@ def _make_variable_library(host: Host) -> types.SimpleNamespace:
     return types.SimpleNamespace(getLibrary=getLibrary, get=get)
 
 
+# Areas of Fabric's notebookutils that only a Fabric session has, and what to do on this PC instead.
+FABRIC_ONLY = {
+    "warehouse": "notebookutils.warehouse creates, changes and lists warehouse items in Fabric, so it runs in Fabric "
+                 "only. On this PC, open the warehouse from Workspaces to query it on the Warehouse page, and create "
+                 "or change warehouses in Fabric.",
+    "connections": "notebookutils.connections reads the credentials of Fabric connections, which only a Fabric session "
+                   "can use. On this PC, read secrets with notebookutils.credentials.getSecret from Azure Key Vault, "
+                   "or run the notebook in Fabric.",
+}
+
+
 def build(host: Host) -> types.ModuleType:
     mod = types.ModuleType("notebookutils", __doc__)
     mod.fs = _make_fs()
@@ -924,6 +936,8 @@ def build(host: Host) -> types.ModuleType:
             if not folder:
                 raise AttributeError("nbResPath is the notebook's resources folder; it is set while a saved notebook runs.")
             return folder
+        if name in FABRIC_ONLY:
+            raise AttributeError(FABRIC_ONLY[name])
         raise AttributeError(f"notebookutils on this PC has no {name}")
     mod.__getattr__ = attribute  # type: ignore[method-assign]
     return mod

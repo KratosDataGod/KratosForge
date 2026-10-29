@@ -225,7 +225,7 @@ class WorkerSession:
         deadline = None if seconds is None else time.monotonic() + seconds
         while True:
             left = None if deadline is None else max(0.0, deadline - time.monotonic())
-            if left == 0.0:
+            if seconds is not None and left == 0.0:
                 return {"op": "error", "evalue": f"no answer within {seconds / 60:.0f} minutes"}
             try:
                 msg = self._lines.get(timeout=left)

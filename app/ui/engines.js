@@ -281,7 +281,7 @@ async function runEngineCell(cell, nb) {
   cell.seconds = out.seconds || 0;
   cell.ranOn = st.label;
   cell.rows = out.rows ?? null;
-  cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.finishedAt = timeText(new Date());
   nb.engineRunning = false;
   setKernel("idle", nb);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);

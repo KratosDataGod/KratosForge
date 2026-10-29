@@ -45,8 +45,9 @@ def test_sql_line_magic_returns_a_dataframe_inside_python():
 
 def test_sql_line_magic_refuses_in_place_changes_and_needs_a_query():
     k = Kernel()
-    out = k.run("x = %sql MERGE INTO a USING b ON a.id = b.id WHEN MATCHED THEN DELETE")
-    assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
+    for change in ("UPDATE a SET v = 1 WHERE id = 2", "MERGE INTO LH_Keys.keys.a USING b ON a.id = b.id WHEN MATCHED THEN DELETE"):
+        out = k.run(f"x = %sql {change}")
+        assert out["status"] == "error" and "Fabric" in out["outputs"][-1]["evalue"]
     out = k.run("x = %sql")
     assert out["status"] == "error" and "needs a query" in out["outputs"][-1]["evalue"]
 
@@ -195,7 +196,6 @@ def test_python_notebook_publish_turns_databricks_sql_into_lakehouse_sql():
 
 import os
 import sys
-import threading
 import time
 
 import pytest
@@ -254,7 +254,9 @@ def test_cancel_ends_a_running_command():
         assert time.monotonic() < deadline
     started = time.monotonic()
     k.interrupt()
-    snap = k.poll(-1, wait=5)
+    # poll(-1) answers at once, so poll until the cancel lands: on a busy runner that takes a moment.
+    while (snap := k.poll(-1))["status"] == "running" and time.monotonic() - started < 6:
+        time.sleep(0.05)
     assert snap["status"] == "cancelled" and time.monotonic() - started < 6
 
 
@@ -370,7 +372,9 @@ def test_writefile_writes_appends_and_can_be_imported(tmp_path, monkeypatch):
     assert "needs a file name" in k.run("%%writefile\nx")["outputs"][0]["evalue"]
 
 
-def test_small_ipython_magics():
+def test_small_ipython_magics(monkeypatch):
+    for name in ("KF_TEST_VALUE", "KF_TEST_TOKEN"):  # %env sets them in this process; put them back after
+        monkeypatch.setenv(name, "")
     k = Kernel()
     assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
     assert k.run("%matplotlib inline")["status"] == "ok"

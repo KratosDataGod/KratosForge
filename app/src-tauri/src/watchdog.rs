@@ -18,9 +18,9 @@ pub const QUICK: &[&str] = &[
     "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete",
     "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
-    "notebook_environment", "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
+    "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
-    "receipt_get", "receipts_list", "side_by_side_list",
+    "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn only_quick_calls_have_a_limit() {
         assert_eq!(limit("poll_cell"), Some(Duration::from_secs(QUICK_SECONDS)));
-        for slow in ["start_cell", "run_cell", "meta_run", "publish_notebook", "prove_start", "sign_in"] {
+        for slow in ["start_cell", "meta_run", "publish_notebook", "prove_start", "sign_in"] {
             assert_eq!(limit(slow), None, "{slow}");
         }
     }

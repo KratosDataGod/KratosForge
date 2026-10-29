@@ -17,7 +17,7 @@ Open it from **Source control** at the bottom of the left rail, or from the bran
 | Choose | What it does |
 | --- | --- |
 | **Clone a repository** | Paste the address from GitHub or Azure DevOps (`https://…` or `git@…`). The copy goes to a new folder under `source\repos` in your user folder, or a folder you pick. Cloning runs in the background with progress and **Cancel**; a cancelled or failed clone removes only the folder it made. |
-| **Open a folder** | A folder that is already a Git repository. |
+| **Open a folder** | A folder that is already a Git repository. Paste its path, or pick it with **Browse…**. |
 | **Version my notebooks** | Starts a repository in the folder the app keeps your notebooks in. |
 | **New repository** | Makes a new repository for one kind of definition (below), in an empty folder, with that kind's starting files. It refuses a folder that is already inside another repository. |
 | **Make a folder a repository** | From the command bar: turns a folder that isn't a repository yet into one, without adding files. |

@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-28",
+  "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
+  "rules": {
+    "ready_minimum": 2,
+    "active_maximum": 1,
+    "story_labels": [
+      "story",
+      "P0..P4",
+      "ws:<key>",
+      "pillar:<fabric|databricks|snowflake|shared>",
+      "status:<active|ready|blocked|review>"
+    ],
+    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers."
+  },
+  "workstreams": [
+    {
+      "key": "local-exec",
+      "pillar": "shared",
+      "name": "Local Execution",
+      "scope": "DuckDB, Polars, Python, Spark API, Delta Lake, execution engines, hardware use, local processing and performance.",
+      "lead": "Local data engine and OneLake publishing",
+      "members": [
+        "Local TPC-H run slowdown"
+      ],
+      "active": {
+        "story": "PB-015",
+        "issue": 848,
+        "note": "MERGE is PR #933 (needs Chris's go: it runs MERGE on this PC). UPDATE and DELETE come in a second PR."
+      },
+      "ready": [
+        {
+          "issue": 953,
+          "title": "Notebook table writes give plain messages and Fabric-safe types for float16, time, uint64 and all-NULL columns"
+        },
+        {
+          "issue": 954,
+          "title": "Metadata loads give plain messages for TIME, INTERVAL and float16 columns"
+        }
+      ],
+      "backlog": [
+        "PB-073",
+        "PB-085"
+      ],
+      "dependencies": [
+        "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
+      ],
+      "blockers": [
+        "#933 MERGE on this PC waits on Chris's go"
+      ],
+      "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
+      "next_action": "UPDATE and DELETE on this PC (PB-015 second PR) once #933 settles; #953 and #954 are built locally."
+    },
+    {
+      "key": "fabric",
+      "pillar": "fabric",
+      "name": "Microsoft Fabric",
+      "scope": "Notebooks, pipelines, lakehouses, warehouses, semantic models, Direct Lake, OneLake, deployment and Fabric optimization.",
+      "lead": "Build full warehouse development experience",
+      "members": [
+        "Build full Data Factory experience",
+        "Local Fabric pipeline execution",
+        "Git-native development program",
+        "Best Practice Analyzer for semantic models",
+        "TMDL and OSI semantic model conversion",
+        "Clean up leftover dataflow staging lakehouses",
+        "Sync pinned workspaces with Fabric"
+      ],
+      "active": {
+        "issue": 947,
+        "title": "Hardening: a warehouse deploy change runs only if its object is still as the preview saw it"
+      },
+      "ready": [
+        {
+          "story": "PB-043",
+          "issue": 850
+        },
+        {
+          "story": "PB-049",
+          "issue": 920
+        }
+      ],
+      "backlog": [
+        "PB-040",
+        "PB-041",
+        "PB-048"
+      ],
+      "dependencies": [],
+      "blockers": [
+        "PB-002, PB-003, PB-052 and PB-049 live runs wait on Chris's yes for Trial capacity in kf_tenant_test; harnesses are built against fakes (#884, #919, #931)",
+        "#755 WH-16 draft waits on Chris",
+        "#799 staging cleaner held"
+      ],
+      "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
+      "next_action": "Work review findings first (eleven drafts at review), then #947; no further stacked drafts until the base PRs merge."
+    },
+    {
+      "key": "dbx-snow",
+      "pillar": "databricks",
+      "name": "Databricks and Snowflake",
+      "scope": "Platform adapters, notebook compatibility, SQL, Snowpark, Spark, deployment and platform-specific execution.",
+      "lead": "Fabric and Databricks unified development",
+      "members": [
+        "Snowflake local-first development (to be opened)"
+      ],
+      "active": {
+        "story": "PB-118",
+        "issue": 854
+      },
+      "ready": [
+        {
+          "issue": 893,
+          "title": "Shared runtime hardening for separate-process engines (engines/runtimes.py) (KF-RT-00)"
+        },
+        {
+          "issue": 894,
+          "title": "Databricks live verification harness, SQL warehouse and Databricks Connect, against fakes (KF-DBX-LIVE)"
+        }
+      ],
+      "backlog": [],
+      "dependencies": [
+        "Snowflake code waits on its ADRs and Chris's go",
+        "Engine picker UI waits on Chris's mockup review"
+      ],
+      "blockers": [
+        "Databricks live runs need a workspace and Chris's yes"
+      ],
+      "last_completed": "#891 Fabric Spark (Livy) Preview engine at review; Snowflake research findings delivered",
+      "next_action": "Databricks conversion loss report (#854), then runtime hardening (#893)."
+    },
+    {
+      "key": "enterprise",
+      "pillar": "fabric",
+      "name": "Enterprise Services",
+      "scope": "Metadata, governance, business keys, shared data assets, data quality, lineage and centralized optimization.",
+      "lead": "Enterprise governance foundation",
+      "members": [
+        "Metadata-driven data mesh",
+        "Workload management workspace"
+      ],
+      "active": {
+        "story": "PB-031",
+        "issue": 904,
+        "note": "Built locally. Widening still rewrites (delta-rs can't write type widening). Behaviour change: narrowing now fails unless overwrite_schema = true; Chris decides."
+      },
+      "ready": [
+        {
+          "issue": 935,
+          "title": "Platform client: a non-JSON or 5xx answer from UDF_Platform gives a clear, typed error"
+        },
+        {
+          "issue": 936,
+          "title": "Test: every UDF_Platform function takes the same parameters as the platform operation it calls"
+        }
+      ],
+      "backlog": [
+        "PB-052",
+        "PB-060",
+        "PB-092"
+      ],
+      "dependencies": [
+        "PB-057 builds on PB-056 (policy registry, In review)"
+      ],
+      "blockers": [
+        "PB-052 tenant verification needs Chris's yes",
+        "Workload pipelines mockup waits on Chris"
+      ],
+      "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
+      "next_action": "Open #904 when CI clears, with the behaviour change at the top of the PR."
+    },
+    {
+      "key": "devex",
+      "pillar": "shared",
+      "name": "Developer Experience",
+      "scope": "UI and UX, debugging, testing, documentation, project management, performance diagnostics and developer productivity.",
+      "lead": "UX and simplicity oversight",
+      "members": [
+        "Bring VS Code developers to KratosForge",
+        "Make every screen action-first",
+        "Run continuous product management"
+      ],
+      "active": {
+        "issue": 955,
+        "title": "KratosForge stays usable in Windows High Contrast"
+      },
+      "ready": [
+        {
+          "issue": 948,
+          "title": "AI integration architecture page matches what shipped"
+        }
+      ],
+      "backlog": [
+        "PB-087",
+        "PB-062",
+        "PB-034",
+        "PB-027"
+      ],
+      "dependencies": [],
+      "blockers": [],
+      "last_completed": "#876 PB-077 docs match the code (merged); #879 PB-070, #885, #901, #917 PB-010 PASS",
+      "next_action": "#955 locally; #948 is built and opens when CI clears."
+    },
+    {
+      "key": "platform",
+      "pillar": "shared",
+      "name": "Platform Engineering",
+      "scope": "Architecture, security, automated tests, CI/CD, dependency management, code review, integration and releases.",
+      "lead": "Codebase audit and hardening",
+      "members": [
+        "Release management",
+        "Engineering quality review",
+        "Run bug fix and security quality control",
+        "Enterprise readiness program"
+      ],
+      "active": {
+        "story": "PB-061",
+        "issue": 960,
+        "note": "Docs and a guard test built locally. allowed_hosts and a three-way allowed_compute were never built: Chris decides drop or build."
+      },
+      "ready": [
+        {
+          "issue": 959,
+          "title": "Test: the network host list stays in step with the code (PB-010 follow-up, after #917)"
+        }
+      ],
+      "backlog": [
+        "PB-062"
+      ],
+      "dependencies": [],
+      "blockers": [
+        "PB-001 code signing waits on Microsoft identity validation",
+        "#744 HD-030 waits on Chris's fail-closed decision",
+        "Rest of PB-072 needs a Stop design mockup"
+      ],
+      "last_completed": "#867 PB-074, #911 HD-023, #898 PB-072, #930 HD-050 slice 2, #938 conftest leak fix (PASS); #923 PB-051 at review",
+      "next_action": "Hosts-table guard test (#959, #917 has merged); then the next ready story."
+    }
+  ],
+  "new_stories": {}
+}

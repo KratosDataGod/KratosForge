@@ -1,0 +1,659 @@
+{
+ "fabric_desktop/access_cache.py": {
+  "dict-item": 24
+ },
+ "fabric_desktop/advisor.py": {
+  "assignment": 2
+ },
+ "fabric_desktop/agent.py": {
+  "attr-defined": 1,
+  "operator": 1
+ },
+ "fabric_desktop/agent_config.py": {
+  "type-var": 1
+ },
+ "fabric_desktop/app_settings.py": {
+  "assignment": 6,
+  "attr-defined": 3
+ },
+ "fabric_desktop/audit_chain.py": {
+  "attr-defined": 4
+ },
+ "fabric_desktop/best_practice_checkers.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/calibration.py": {
+  "arg-type": 2,
+  "return-value": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/capacity_history.py": {
+  "dict-item": 3
+ },
+ "fabric_desktop/capacity_history_service.py": {
+  "list-item": 1
+ },
+ "fabric_desktop/central/checks_service.py": {
+  "arg-type": 2,
+  "assignment": 1,
+  "index": 1,
+  "misc": 3,
+  "union-attr": 2
+ },
+ "fabric_desktop/central/client.py": {
+  "operator": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/central/core.py": {
+  "arg-type": 5,
+  "index": 2,
+  "no-redef": 1,
+  "union-attr": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/central/entra.py": {
+  "arg-type": 2
+ },
+ "fabric_desktop/central/entra_service.py": {
+  "operator": 3
+ },
+ "fabric_desktop/central/home.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/central/landing_copy_service.py": {
+  "return-value": 2
+ },
+ "fabric_desktop/central/migrate.py": {
+  "call-overload": 1
+ },
+ "fabric_desktop/central/policy.py": {
+  "arg-type": 2,
+  "dict-item": 1,
+  "var-annotated": 2
+ },
+ "fabric_desktop/central/service.py": {
+  "assignment": 1,
+  "index": 3,
+  "var-annotated": 5
+ },
+ "fabric_desktop/chart_output.py": {
+  "attr-defined": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/cleanup.py": {
+  "attr-defined": 1,
+  "misc": 1
+ },
+ "fabric_desktop/cli.py": {
+  "arg-type": 1,
+  "assignment": 1
+ },
+ "fabric_desktop/cloud_service.py": {
+  "arg-type": 3,
+  "assignment": 2,
+  "call-overload": 2
+ },
+ "fabric_desktop/comments_service.py": {
+  "union-attr": 1
+ },
+ "fabric_desktop/connprofiles.py": {
+  "arg-type": 1,
+  "assignment": 1
+ },
+ "fabric_desktop/costs.py": {
+  "arg-type": 2,
+  "no-redef": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/cpu_cap.py": {
+  "syntax": 1
+ },
+ "fabric_desktop/dataops_service.py": {
+  "arg-type": 4,
+  "assignment": 1
+ },
+ "fabric_desktop/dbutils_local.py": {
+  "misc": 1,
+  "operator": 1,
+  "valid-type": 3
+ },
+ "fabric_desktop/delta_dml.py": {
+  "arg-type": 3
+ },
+ "fabric_desktop/depgraph.py": {
+  "arg-type": 2,
+  "assignment": 3,
+  "var-annotated": 1
+ },
+ "fabric_desktop/dpapi.py": {
+  "attr-defined": 3
+ },
+ "fabric_desktop/editor_pairing.py": {
+  "attr-defined": 4,
+  "operator": 1,
+  "valid-type": 1
+ },
+ "fabric_desktop/editor_service.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/engines/databricks_sql.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/engines/dbconnect.py": {
+  "operator": 1
+ },
+ "fabric_desktop/engines/dbconnect_worker.py": {
+  "attr-defined": 1
+ },
+ "fabric_desktop/engines/local_python.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/engines/local_sql.py": {
+  "arg-type": 1,
+  "misc": 1
+ },
+ "fabric_desktop/environments.py": {
+  "valid-type": 2,
+  "var-annotated": 1
+ },
+ "fabric_desktop/envprofile.py": {
+  "attr-defined": 1,
+  "union-attr": 2,
+  "var-annotated": 2
+ },
+ "fabric_desktop/estate_service.py": {
+  "assignment": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/fabric_api.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/fabric_compute.py": {
+  "arg-type": 2,
+  "assignment": 1
+ },
+ "fabric_desktop/fabric_environment.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/fabric_pipeline_runs_service.py": {
+  "union-attr": 3
+ },
+ "fabric_desktop/fabric_run.py": {
+  "assignment": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/frames.py": {
+  "arg-type": 2,
+  "assignment": 1,
+  "index": 2,
+  "misc": 1
+ },
+ "fabric_desktop/git/capacity_files.py": {
+  "index": 1
+ },
+ "fabric_desktop/git/ops.py": {
+  "assignment": 2,
+  "index": 1,
+  "valid-type": 2
+ },
+ "fabric_desktop/git/platform_files.py": {
+  "arg-type": 1,
+  "assignment": 2
+ },
+ "fabric_desktop/git/repo.py": {
+  "assignment": 3,
+  "var-annotated": 1
+ },
+ "fabric_desktop/git_service.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/governance_notices.py": {
+  "arg-type": 2
+ },
+ "fabric_desktop/history.py": {
+  "assignment": 2
+ },
+ "fabric_desktop/http_session.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/incident_desk.py": {
+  "dict-item": 2
+ },
+ "fabric_desktop/incident_service.py": {
+  "attr-defined": 4,
+  "dict-item": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/integrations/app_service.py": {
+  "assignment": 1,
+  "has-type": 1
+ },
+ "fabric_desktop/integrations/executions.py": {
+  "valid-type": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/integrations/http_server.py": {
+  "attr-defined": 3
+ },
+ "fabric_desktop/integrations/peer.py": {
+  "attr-defined": 8
+ },
+ "fabric_desktop/intellisense.py": {
+  "assignment": 1,
+  "operator": 1
+ },
+ "fabric_desktop/ipython_display.py": {
+  "attr-defined": 10,
+  "call-overload": 1
+ },
+ "fabric_desktop/jobqueue.py": {
+  "assignment": 2,
+  "valid-type": 1
+ },
+ "fabric_desktop/jobs.py": {
+  "arg-type": 1,
+  "operator": 1
+ },
+ "fabric_desktop/kernel_host.py": {
+  "attr-defined": 1
+ },
+ "fabric_desktop/kernel_proc.py": {
+  "attr-defined": 1,
+  "union-attr": 2
+ },
+ "fabric_desktop/lakehouse.py": {
+  "call-overload": 1,
+  "index": 1,
+  "return-value": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/leases.py": {
+  "attr-defined": 4
+ },
+ "fabric_desktop/livetest.py": {
+  "arg-type": 1,
+  "misc": 1
+ },
+ "fabric_desktop/localdata/delta.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/localdata/discovery.py": {
+  "arg-type": 1,
+  "assignment": 2
+ },
+ "fabric_desktop/localdata/engine.py": {
+  "arg-type": 8,
+  "assignment": 1,
+  "call-overload": 1,
+  "index": 2,
+  "misc": 1,
+  "union-attr": 5
+ },
+ "fabric_desktop/localdata/transform.py": {
+  "assignment": 1,
+  "attr-defined": 1
+ },
+ "fabric_desktop/localdata/tsql.py": {
+  "arg-type": 1,
+  "assignment": 3,
+  "return-value": 1
+ },
+ "fabric_desktop/maintenance.py": {
+  "var-annotated": 3
+ },
+ "fabric_desktop/meta/compare.py": {
+  "index": 1,
+  "operator": 2
+ },
+ "fabric_desktop/meta/diff.py": {
+  "dict-item": 2
+ },
+ "fabric_desktop/meta/drift.py": {
+  "arg-type": 1,
+  "call-overload": 1,
+  "index": 4,
+  "union-attr": 1
+ },
+ "fabric_desktop/meta/engine.py": {
+  "arg-type": 18,
+  "assignment": 3,
+  "attr-defined": 2,
+  "call-arg": 1,
+  "dict-item": 12,
+  "index": 3,
+  "misc": 4,
+  "return-value": 1,
+  "union-attr": 7
+ },
+ "fabric_desktop/meta/freshness.py": {
+  "operator": 2,
+  "union-attr": 5
+ },
+ "fabric_desktop/meta/keys.py": {
+  "arg-type": 2,
+  "attr-defined": 3,
+  "dict-item": 4,
+  "misc": 1
+ },
+ "fabric_desktop/meta/lineage.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/meta/mesh.py": {
+  "assignment": 1,
+  "attr-defined": 8,
+  "union-attr": 1
+ },
+ "fabric_desktop/meta/objectives.py": {
+  "operator": 1,
+  "union-attr": 4
+ },
+ "fabric_desktop/meta/project.py": {
+  "operator": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/meta/promote.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/meta/release.py": {
+  "arg-type": 1,
+  "assignment": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/meta/restore.py": {
+  "arg-type": 1,
+  "operator": 4,
+  "union-attr": 1
+ },
+ "fabric_desktop/meta/store.py": {
+  "dict-item": 76,
+  "return-value": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/meta/varlib.py": {
+  "operator": 1
+ },
+ "fabric_desktop/meta_service.py": {
+  "arg-type": 2
+ },
+ "fabric_desktop/model_directlake_service.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/model_ossie_service.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/notebook.py": {
+  "arg-type": 5,
+  "assignment": 2,
+  "attr-defined": 4,
+  "index": 1,
+  "return-value": 1,
+  "union-attr": 9,
+  "valid-type": 2
+ },
+ "fabric_desktop/notebook_files.py": {
+  "union-attr": 2
+ },
+ "fabric_desktop/notebook_formats.py": {
+  "arg-type": 1,
+  "return-value": 1
+ },
+ "fabric_desktop/notebook_inputs.py": {
+  "index": 1
+ },
+ "fabric_desktop/notebook_practices.py": {
+  "arg-type": 2
+ },
+ "fabric_desktop/notebook_resources.py": {
+  "attr-defined": 1
+ },
+ "fabric_desktop/notebookutils_local.py": {
+  "arg-type": 1,
+  "attr-defined": 9,
+  "call-arg": 1,
+  "syntax": 1,
+  "valid-type": 3
+ },
+ "fabric_desktop/optimize/local_runs.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/optimize/registry.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/optimize/schema.py": {
+  "dict-item": 134
+ },
+ "fabric_desktop/optimize/setup.py": {
+  "misc": 3
+ },
+ "fabric_desktop/optimize_service.py": {
+  "index": 1
+ },
+ "fabric_desktop/orchestration/adapters.py": {
+  "arg-type": 4,
+  "index": 1,
+  "return-value": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/orchestration/copyjob_build.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/orchestration/definition.py": {
+  "arg-type": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/orchestration/mashup.py": {
+  "union-attr": 1
+ },
+ "fabric_desktop/orchestration/runner.py": {
+  "union-attr": 5
+ },
+ "fabric_desktop/pipeline_data.py": {
+  "arg-type": 2,
+  "dict-item": 1,
+  "operator": 1,
+  "return-value": 1,
+  "union-attr": 6
+ },
+ "fabric_desktop/pipeline_script.py": {
+  "dict-item": 1
+ },
+ "fabric_desktop/pipeline_service.py": {
+  "attr-defined": 4
+ },
+ "fabric_desktop/platformtest.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/profiling.py": {
+  "arg-type": 3
+ },
+ "fabric_desktop/proof.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/prove_service.py": {
+  "assignment": 1,
+  "type-var": 1
+ },
+ "fabric_desktop/publish.py": {
+  "call-overload": 1
+ },
+ "fabric_desktop/receipts.py": {
+  "arg-type": 1,
+  "return-value": 1
+ },
+ "fabric_desktop/replay.py": {
+  "assignment": 2,
+  "call-overload": 1
+ },
+ "fabric_desktop/risk_service.py": {
+  "index": 2
+ },
+ "fabric_desktop/schedule_service.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/scorecard.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/semantic.py": {
+  "arg-type": 4,
+  "assignment": 1
+ },
+ "fabric_desktop/server.py": {
+  "union-attr": 1
+ },
+ "fabric_desktop/service.py": {
+  "arg-type": 2,
+  "misc": 1
+ },
+ "fabric_desktop/shell.py": {
+  "assignment": 1,
+  "attr-defined": 1,
+  "misc": 1
+ },
+ "fabric_desktop/shortcut_service.py": {
+  "arg-type": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/side_by_side.py": {
+  "misc": 2
+ },
+ "fabric_desktop/smoketest.py": {
+  "assignment": 1,
+  "misc": 2
+ },
+ "fabric_desktop/snowflake_sql.py": {
+  "assignment": 2,
+  "return-value": 1
+ },
+ "fabric_desktop/spark_api.py": {
+  "arg-type": 3,
+  "attr-defined": 1,
+  "index": 2
+ },
+ "fabric_desktop/spark_compat.py": {
+  "arg-type": 3,
+  "assignment": 2,
+  "index": 2,
+  "misc": 1
+ },
+ "fabric_desktop/spark_local.py": {
+  "arg-type": 17,
+  "assignment": 4,
+  "attr-defined": 1,
+  "misc": 1,
+  "override": 2
+ },
+ "fabric_desktop/spark_stream.py": {
+  "assignment": 1,
+  "method-assign": 1,
+  "union-attr": 1
+ },
+ "fabric_desktop/sql.py": {
+  "arg-type": 4,
+  "assignment": 7,
+  "attr-defined": 1,
+  "return-value": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/sql_format.py": {
+  "misc": 2,
+  "valid-type": 2,
+  "var-annotated": 1
+ },
+ "fabric_desktop/sql_worker.py": {
+  "assignment": 1,
+  "misc": 1
+ },
+ "fabric_desktop/sqlcompat/analyzer.py": {
+  "assignment": 1,
+  "var-annotated": 1
+ },
+ "fabric_desktop/sqlcompat/rules.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/tenant_history.py": {
+  "dict-item": 3
+ },
+ "fabric_desktop/tenant_history_service.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/time_zones.py": {
+  "attr-defined": 9
+ },
+ "fabric_desktop/usage/__init__.py": {
+  "assignment": 1,
+  "attr-defined": 1,
+  "type-var": 2
+ },
+ "fabric_desktop/usage/metrics_app.py": {
+  "assignment": 1
+ },
+ "fabric_desktop/usage/reconcile.py": {
+  "arg-type": 3,
+  "assignment": 1,
+  "attr-defined": 4,
+  "index": 1,
+  "misc": 2,
+  "type-var": 2,
+  "union-attr": 1
+ },
+ "fabric_desktop/validate_service.py": {
+  "index": 1
+ },
+ "fabric_desktop/verify.py": {
+  "arg-type": 3
+ },
+ "fabric_desktop/warehouse.py": {
+  "arg-type": 3
+ },
+ "fabric_desktop/warehouse_compare.py": {
+  "arg-type": 1,
+  "index": 2,
+  "var-annotated": 1
+ },
+ "fabric_desktop/warehouse_project_service.py": {
+  "arg-type": 1,
+  "assignment": 2
+ },
+ "fabric_desktop/widgets.py": {
+  "assignment": 2,
+  "exit-return": 1,
+  "has-type": 1,
+  "misc": 2
+ },
+ "fabric_desktop/workload_service.py": {
+  "operator": 2
+ },
+ "fabric_desktop/workloads/evaluate.py": {
+  "union-attr": 1
+ },
+ "fabric_desktop/workloads/incident_history.py": {
+  "dict-item": 28
+ },
+ "fabric_desktop/workloads/incidents.py": {
+  "arg-type": 1,
+  "attr-defined": 1,
+  "valid-type": 4,
+  "var-annotated": 1
+ },
+ "fabric_desktop/workloads/platform_notify.py": {
+  "index": 1
+ },
+ "fabric_desktop/workloads/queue.py": {
+  "var-annotated": 1
+ },
+ "fabric_desktop/workloads/run_as.py": {
+  "union-attr": 2
+ },
+ "fabric_desktop/workloads/store.py": {
+  "arg-type": 1
+ },
+ "fabric_desktop/wrangler.py": {
+  "assignment": 2
+ },
+ "fabric_desktop/write_queue.py": {
+  "misc": 1
+ },
+ "fabric_desktop/xray.py": {
+  "assignment": 2
+ }
+}

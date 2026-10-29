@@ -1,7 +1,6 @@
 """Centralized surrogate keys: one key table per business key in LH_Keys, MERGEd first on every run."""
 
 import json
-import textwrap
 
 import polars as pl
 import pytest
@@ -185,7 +184,7 @@ WINDOWS_RACE = OSError(
     "\\00000000000000000006.json#1: Access is denied. (os error 5)")
 
 
-@pytest.mark.parametrize("step", ["read_at", "merge_insert", "read"])
+@pytest.mark.parametrize("step", ["read_where", "merge_insert", "column_max"])
 def test_the_windows_delta_log_race_is_retried(tmp_path, monkeypatch, step):
     """Runs at once on Windows: a writer is briefly refused the log file another is renaming."""
     from fabric_desktop import retrying
@@ -231,16 +230,16 @@ def test_a_key_computed_from_an_old_version_is_never_committed(tmp_path, monkeyp
     store = LocalStore(tmp_path, "dev")
     kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
     K.merge_keys(store, kt, pl.Series(["A"]))
-    real, calls = store.read_at, []
+    real, calls = store.read_where, []
 
-    def read_then_someone_else_commits(*a):
-        out = real(*a)
+    def read_then_someone_else_commits(*a, **kw):
+        out = real(*a, **kw)
         calls.append(1)
         if len(calls) == 2:  # the first read is the key table check; the second is the one keys come from
             K.merge_keys(store, kt, pl.Series(["B"]))  # takes key 2 after we read
         return out
 
-    monkeypatch.setattr(store, "read_at", read_then_someone_else_commits)
+    monkeypatch.setattr(store, "read_where", read_then_someone_else_commits)
     out = K.merge_keys(store, kt, pl.Series(["C"]))
     assert out["attempts"] == 2
     keys = dict(K.read_keys(store, kt).select("customer_bk", "customer_sk").iter_rows())
@@ -448,3 +447,77 @@ def test_composite_business_keys_with_the_separator_in_a_part_never_collide():
     assert _both_engines(plain) == (["a\\||b", "west||10", "A\\B||C", "US||7"],) * 2
     single = pl.DataFrame({"a": ["A||B"]}).select(K.business_key(["a"]))["a"].to_list()
     assert single == ["A||B"]  # a single-column key is never escaped
+
+
+def _files_scanned(plan: str) -> int:
+    """Data files a Polars plan scans: "SCAN [first, ... 2 other sources]" lists one and counts the rest."""
+    import re
+    scan = next(line for line in plan.splitlines() if "SCAN [" in line)
+    more = re.search(r"\.\.\. (\d+) other sources?\]", scan)
+    return 1 + int(more.group(1)) if more else scan.count(".parquet")
+
+
+def _big_key_table(store, kt, n, files):
+    K.ensure_key_table(store, kt)
+    for f in range(files):  # appended in order, as merge_keys does: each file holds one range of keys
+        sks = pl.int_range(f * n // files + 1, (f + 1) * n // files + 1, dtype=pl.Int32, eager=True)
+        part = pl.DataFrame({"customer_sk": sks, "customer_bk": sks.cast(pl.String).str.zfill(7),
+                             "create_date": None}, schema=kt.schema())
+        store.write(K.KEYS_LAKEHOUSE, K.KEY_SCHEMA, kt.table, part, mode="append")
+
+
+def test_a_batch_reads_only_its_own_rows_of_a_large_key_table(tmp_path, monkeypatch):
+    """PB-068: keys for a batch come from the files that can hold its business keys, never the whole table."""
+    from fabric_desktop.meta.store import Store
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    n, files = 200_000, 20
+    _big_key_table(store, kt, n, files)
+
+    def whole_table(self, *a, **kw):
+        raise AssertionError("read the whole key table")
+    monkeypatch.setattr(Store, "read", whole_table)
+    monkeypatch.setattr(Store, "read_at", whole_table)
+    real, scanned = pl.LazyFrame.collect, []
+
+    def counted(self, *a, **kw):
+        plan = self.explain()
+        if "SCAN [" in plan:
+            scanned.append(_files_scanned(plan))
+        return real(self, *a, **kw)
+    monkeypatch.setattr(pl.LazyFrame, "collect", counted)
+
+    batch = pl.Series(["0000007", "0150000", "0200000", "NEW-1", "NEW-2", None])
+    stats = K.merge_keys(store, kt, batch)
+    assert stats == {"inserted": 2, "existing": 3, "first": n + 1, "last": n + 2, "attempts": 1}
+    # The table has 22 files now (the Unknown member's, 20 ranges, the new keys'); a lookup opens the
+    # few whose business key or key range can hold a match.
+    assert scanned and max(scanned) <= 4, scanned
+    hit = K.lookup(store, kt, "0150000")
+    assert hit["sk"] == 150_000 and K.lookup(store, kt, "nope") is None
+    assert K.key_stats(store, kt) == {"created": True, "keys": n + 2, "next": n + 3}
+    assert max(scanned) <= 4, scanned
+
+
+def test_a_batch_bigger_than_the_lookup_limit_reads_the_table_once(tmp_path, monkeypatch):
+    """Over KEY_LOOKUP_LIMIT keys a filter by value costs more than reading the table, so it is read once."""
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    _big_key_table(store, kt, 1_000, 4)
+    monkeypatch.setattr(K, "KEY_LOOKUP_LIMIT", 100)
+    batch = pl.Series([str(i).zfill(7) for i in range(500, 800)] + [f"NEW-{i}" for i in range(200)])
+    stats, found = K._merge(store, kt, batch)
+    assert stats["inserted"] == 200 and stats["existing"] == 300 and (stats["first"], stats["last"]) == (1001, 1200)
+    assert found.height == 500 and set(found["customer_bk"]) == set(batch)
+    assert dict(found.select("customer_bk", "customer_sk").iter_rows())["0000600"] == 600
+    dup = pl.DataFrame({"customer_sk": [600], "customer_bk": ["Z"], "create_date": [None]}, schema=kt.schema())
+    store.write(K.KEYS_LAKEHOUSE, K.KEY_SCHEMA, kt.table, dup, mode="append")
+    with pytest.raises(RuntimeError, match="twice"):  # the whole table is checked on this path
+        K.merge_keys(store, kt, batch)
+
+
+def test_business_keys_that_arent_text_are_looked_up_as_text(tmp_path):
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    K.merge_keys(store, kt, pl.Series(["7"]))
+    assert K._keys_for(store, kt, [7])[0]["customer_sk"].to_list() == [1]

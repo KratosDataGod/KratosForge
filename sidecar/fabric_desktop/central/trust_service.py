@@ -18,7 +18,6 @@ here writes to Fabric.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from ..auth import POWERBI_TENANT_READ_SCOPES
@@ -92,7 +91,7 @@ class TrustMixin:
         try:
             scanned = self._scanner().admin_scan_workspaces(workspaces)
         except FabricError as exc:
-            if getattr(exc, "status", None) in (401, 403) or re.search(r"failed with 40[13]\b", str(exc)):
+            if getattr(exc, "status", None) in (401, 403):
                 _log.info("Tenant scan refused: %s", describe(exc))
                 raise PermissionError(NOT_ADMIN) from exc
             raise

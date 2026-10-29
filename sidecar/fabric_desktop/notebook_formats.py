@@ -10,6 +10,10 @@ percent-format scripts (``# %%``, as VS Code and Jupytext write); and Databricks
 read in memory (``parse_dbc``) with limits on entries and sizes. Nothing here touches the disk:
 notebook_formats_service writes the files.
 
+Databricks imports and exports also say what didn't carry over (``databricks_export_notes``,
+and the ``notes`` of each imported notebook): one entry per dropped or changed construct, with its
+cell, so nothing is lost without the person being told.
+
 Cells are the notebook screen's: ``{"type": "code"|"markdown", "source", "meta"}``. A cell in
 another language starts with its Fabric cell magic (``%%sql``, ``%%spark`` for Scala, ``%%sparkr``),
 which is how the notebook screen shows the cell's language.
@@ -120,9 +124,87 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
             head = f"%{_TO_DATABRICKS[magic]}" if magic in _TO_DATABRICKS else first
             body = [head] + (_lines(rest) if rest else [])
             parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in body))
+        elif source.lstrip().startswith("%"):
+            # A line magic cell (%run, %fs, %pip): Databricks keeps it as # MAGIC lines, never bare,
+            # since a bare %line isn't Python.
+            parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in _lines(source)))
         else:
             parts.append(source)
     return f"# {DATABRICKS_HEADER}\n" + f"\n\n# {DATABRICKS_COMMAND}\n\n".join(parts) + "\n"
+
+
+# ---------- what a Databricks conversion doesn't carry over ----------
+#
+# A note is {"cell": 1-based cell number or None for the whole notebook, "kind", "what"}:
+#   dropped  not in the converted notebook at all
+#   changed  carried over in another form
+#   check    carried over as written, but won't work the same where it now runs
+
+def _note(cell: int | None, kind: str, what: str) -> dict[str, Any]:
+    return {"cell": cell, "kind": kind, "what": what}
+
+
+# Cell magics Databricks has (or that export maps to one), and IPython's that only wrap Python.
+_DATABRICKS_KNOWN = set(_TO_DATABRICKS) | {"python"}
+_FABRIC_UTILS = re.compile(r"\b(?:notebookutils|mssparkutils)\.")
+
+
+def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """What exporting ``cells`` as Databricks source (``to_databricks_py``) leaves out or changes."""
+    notes: list[dict[str, Any]] = []
+    if lakehouse and lakehouse.get("lakehouse_id"):
+        notes.append(_note(None, "dropped", "The attached lakehouse: Databricks source has no default lakehouse. "
+                                            "Read tables by their full name, or attach storage in Databricks."))
+    if any(c.get("type") == "code" and c.get("outputs") for c in cells):
+        notes.append(_note(None, "dropped", "Outputs: Databricks source holds code only. Run the notebook there to get them."))
+    for n, c in enumerate(cells, 1):
+        meta = c.get("meta") or {}
+        if _is_params(c):
+            notes.append(_note(n, "dropped", "The parameter cell setting: Databricks uses widgets instead, such as "
+                                             "dbutils.widgets.text(\"run_date\", \"\") and dbutils.widgets.get(\"run_date\")."))
+        hidden = [label for key, label in (("source_hidden", "hidden code"), ("outputs_hidden", "hidden output"),
+                                           ("frozen", "frozen")) if meta.get(key)]
+        if hidden:
+            notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
+        if c.get("type") != "code":
+            continue
+        source = c.get("source", "")
+        magic = _magic(source)
+        if magic and magic not in _DATABRICKS_KNOWN:
+            notes.append(_note(n, "check", f"%%{magic} has no Databricks equivalent. The cell is kept as written, "
+                                           "so it won't run there until it's rewritten."))
+        elif magic in _TO_DATABRICKS and magic not in ("md", "pyspark"):
+            notes.append(_note(n, "changed", f"%%{magic} became %{_TO_DATABRICKS[magic]}, Databricks' way to mark the language."))
+        rest = [ln for ln in _lines(source.lstrip())[1:] if ln.strip() and not ln.lstrip().startswith("%")]
+        if not magic and source.lstrip().startswith("%") and rest:
+            first = source.lstrip().split(None, 1)[0]
+            notes.append(_note(n, "check", f"In Databricks a cell that starts with {first} is all magic, so the Python "
+                                           "after it won't run there. Move that code into a cell of its own."))
+        if _FABRIC_UTILS.search(source):
+            notes.append(_note(n, "check", "notebookutils (mssparkutils) is Fabric's. Databricks has dbutils, with "
+                                           "different names for some calls (dbutils.fs, dbutils.notebook, dbutils.widgets)."))
+    return notes
+
+
+# Calls and paths in an imported Databricks cell that reach what only a Databricks workspace has.
+_HERE_CHECKS = (
+    (re.compile(r"\bdbutils\.fs\.(?:mount|unmount|mounts|refreshMounts|updateMount)\b"),
+     "dbutils.fs mounts are Databricks storage; there are no mounts on this PC."),
+    (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
+    (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
+    (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
+     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which this PC can't reach. "
+     "Point it at a lakehouse or a folder on this PC to run it here."),
+    (re.compile(r"(?m)^\s*%run\s+(?:\.{1,2}/|/)"),
+     "%run with a workspace path: on this PC it runs the notebook of that name from the notebooks folder, so import it too."),
+)
+
+
+def _here_notes(cells: list[dict[str, Any]], notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for n, c in enumerate(cells, 1):
+        if c.get("type") == "code":
+            notes += [_note(n, "check", what) for pattern, what in _HERE_CHECKS if pattern.search(c.get("source", ""))]
+    return sorted(notes, key=lambda x: (x["cell"] or 0))
 
 
 def _text_lines(text: str) -> list[str]:
@@ -145,7 +227,7 @@ def _table_html(o: dict[str, Any]) -> str:
 def _nb_output(o: dict[str, Any]) -> dict[str, Any] | None:
     """A notebook-screen output as Jupyter stores it (nbformat 4)."""
     kind = o.get("type")
-    if kind in ("stream", "text"):
+    if kind in ("stream", "text", "translation"):  # translation: the Snowflake SQL report, as text
         return {"output_type": "stream", "name": "stdout", "text": _text_lines(str(o.get("text", "")))}
     if kind == "error":
         tb = str(o.get("traceback") or "")
@@ -209,7 +291,7 @@ th{background:#fafafa}img{max-width:100%;margin:10px}
 
 def _html_output(o: dict[str, Any]) -> str:
     kind = o.get("type")
-    if kind in ("stream", "text"):
+    if kind in ("stream", "text", "translation"):
         return f'<pre class="out">{html.escape(str(o.get("text", "")))}</pre>'
     if kind == "error":
         text = f"{o.get('ename', '')}: {o.get('evalue', '')}"
@@ -320,19 +402,23 @@ def _fabric_meta(body: list[str]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _databricks_cell(text: str, comment: str, default: str | None) -> dict[str, Any] | None:
-    lines = [ln for ln in _lines(text) if not ln.startswith(f"{comment} DBTITLE")]
-    text = _trim(lines)
+def _databricks_cell(text: str, comment: str, default: str | None,
+                     notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any] | None:
+    titles = [ln for ln in _lines(text) if ln.startswith(f"{comment} DBTITLE")]
+    text = _trim([ln for ln in _lines(text) if not ln.startswith(f"{comment} DBTITLE")])
     if not text:
         return None
+    if notes is not None and titles:
+        title = titles[0].split(",", 1)[1].strip() if "," in titles[0] else ""
+        notes.append(_note(n, "dropped", f"The cell title{f' {title!r}' if title else ''}: KratosForge cells have no titles."))
     magic_prefix = f"{comment} MAGIC"
     if all(ln.startswith(magic_prefix) for ln in _lines(text) if ln.strip()):
         body = _unprefix(_lines(text), f"{magic_prefix} ")
-        return _databricks_magic(body)
+        return _databricks_magic(body, notes, n)
     return _code(f"{default}\n{text}" if default else text)
 
 
-def _databricks_magic(body: list[str]) -> dict[str, Any]:
+def _databricks_magic(body: list[str], notes: list[dict[str, Any]] | None = None, n: int = 0) -> dict[str, Any]:
     """A Databricks cell whose first line is a magic: %md, %sql, %scala, %r, %python, %run, %pip..."""
     first = body[0].strip() if body else ""
     m = re.match(r"^%([A-Za-z_-]+)\s*(.*)$", first)
@@ -341,15 +427,20 @@ def _databricks_magic(body: list[str]) -> dict[str, Any]:
     name, rest = m.group(1).lower(), m.group(2)
     tail = ([rest] if rest else []) + body[1:]
     if name in ("md", "md-sandbox"):
+        if notes is not None and name == "md-sandbox":
+            notes.append(_note(n, "changed", "%md-sandbox became a markdown cell; its HTML and styles may show differently."))
         return _markdown(_trim(tail))
     if name == "python":
         return _code(_trim(tail))
     if name in _FROM_DATABRICKS:
+        if notes is not None:
+            notes.append(_note(n, "changed", f"%{name} became {_FROM_DATABRICKS[name]}, KratosForge's way to mark the language."))
         return _code(_FROM_DATABRICKS[name] + "\n" + _trim(tail))
     return _code("\n".join(body))  # %run, %pip, %fs...: line magics, kept as they are
 
 
-def _parse_databricks(lines: list[str], comment: str, default: str | None) -> list[dict[str, Any]]:
+def _parse_databricks(lines: list[str], comment: str, default: str | None,
+                      notes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     sep = f"{comment} {DATABRICKS_COMMAND}"
     chunks: list[list[str]] = [[]]
     for ln in lines[1:]:
@@ -357,7 +448,12 @@ def _parse_databricks(lines: list[str], comment: str, default: str | None) -> li
             chunks.append([])
         else:
             chunks[-1].append(ln)
-    return [c for c in (_databricks_cell("\n".join(ch), comment, default) for ch in chunks) if c]
+    cells: list[dict[str, Any]] = []
+    for ch in chunks:
+        cell = _databricks_cell("\n".join(ch), comment, default, notes, len(cells) + 1)
+        if cell:
+            cells.append(cell)
+    return cells
 
 
 _PERCENT = re.compile(r"^# %%(?!%)(.*)$")
@@ -409,7 +505,9 @@ def parse_source(text: str, file_name: str = "") -> dict[str, Any]:
     for comment, default, label in (("#", None, "Databricks notebook source"), ("--", "%%sql", "Databricks SQL notebook source"),
                                     ("//", "%%spark", "Databricks Scala notebook source")):
         if first == f"{comment} {DATABRICKS_HEADER}":
-            return {"format": label, "cells": _parse_databricks(lines, comment, default)}
+            notes: list[dict[str, Any]] = []
+            cells = _parse_databricks(lines, comment, default, notes)
+            return {"format": label, "cells": cells, "notes": _here_notes(cells, notes)}
     if any(_PERCENT.match(ln.rstrip()) for ln in lines):
         return {"format": "Percent-format script (# %%)", "cells": _parse_percent(lines)}
     source = _trim(lines)
@@ -446,14 +544,29 @@ def _dbc_notebook(doc: dict[str, Any], entry: str) -> dict[str, Any] | None:
     default = _DBC_LANGUAGE.get(str(doc.get("language", "python")).lower())
     ordered = sorted((c for c in commands if isinstance(c, dict) and isinstance(c.get("command"), str)),
                      key=lambda c: c.get("position") if isinstance(c.get("position"), (int, float)) else 0)
-    cells = []
+    cells: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
     for c in ordered:
         text = _trim(_lines(c["command"]))
         if not text:
             continue
-        cells.append(_databricks_magic(_lines(text)) if text.startswith("%") else _code(f"{default}\n{text}" if default else text))
+        n = len(cells) + 1
+        cells.append(_databricks_magic(_lines(text), notes, n) if text.startswith("%")
+                     else _code(f"{default}\n{text}" if default else text))
+        title = c.get("commandTitle")
+        if isinstance(title, str) and title.strip():
+            notes.append(_note(n, "dropped", f"The cell title {title.strip()!r}: KratosForge cells have no titles."))
+        if c.get("results"):
+            notes.append(_note(n, "dropped", "The cell's saved results: imported notebooks start without outputs. Run the cell to get them."))
+        hidden = [label for key, label in (("hideCommandCode", "hidden code"), ("hideCommandResult", "hidden result"))
+                  if c.get(key) is True]
+        if hidden:
+            notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting."))
+    if doc.get("dashboards"):
+        notes.append(_note(None, "dropped", "The notebook's dashboards: KratosForge has no notebook dashboards."))
     name = doc.get("name") if isinstance(doc.get("name"), str) and doc["name"].strip() else PurePosixPath(entry).stem
-    return {"name": str(name), "folder": str(PurePosixPath(entry).parent).strip("."), "cells": cells}
+    return {"name": str(name), "folder": str(PurePosixPath(entry).parent).strip("."), "cells": cells,
+            "notes": _here_notes(cells, notes)}
 
 
 def parse_dbc(data: bytes) -> list[dict[str, Any]]:

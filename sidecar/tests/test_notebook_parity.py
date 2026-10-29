@@ -72,7 +72,8 @@ def test_spark_reads_and_writes_lakehouse_tables(tmp_path, monkeypatch):
     out = service.run_cell("%%sql\nINSERT INTO dbo.us_sales SELECT * FROM sales WHERE Country = 'UK'", LH)
     assert out["status"] == "ok", out
     assert written["dbo.us_sales"] == (1, "append")
-    out = service.run_cell("%%sql\nMERGE INTO dbo.x AS t USING dbo.y AS s ON t.id = s.id WHEN MATCHED THEN DELETE", LH)
+    # A MERGE into another lakehouse (a Data mesh template's keys MERGE) still runs in Fabric only.
+    out = service.run_cell("%%sql\nMERGE INTO LH_Keys.keys.x AS t USING dbo.y AS s ON t.id = s.id WHEN MATCHED THEN DELETE", LH)
     assert "runs in Fabric" in out["outputs"][0]["text"]
     assert "dbo.sales" in opened
 

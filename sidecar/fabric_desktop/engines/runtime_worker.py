@@ -139,7 +139,9 @@ class Worker:
         status = "ok"
         try:
             tree = ast.parse(code, "<cell>", "exec")
-            last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+            last: ast.Expr | None = None
+            if tree.body and isinstance(tree.body[-1], ast.Expr):
+                last = tree.body.pop()  # type: ignore[assignment]  # checked just above
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 exec(compile(tree, "<cell>", "exec"), self.namespace)  # noqa: S102 - the person's own cell
                 value = eval(compile(ast.Expression(last.value), "<cell>", "eval"), self.namespace) if last else None

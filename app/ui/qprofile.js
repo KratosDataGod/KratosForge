@@ -5,14 +5,6 @@
 
 const QPROFILE_NOTE = "Runs the query again on this PC to time each step. It only reads, but a lakehouse table is read from OneLake again, which uses capacity.";
 
-// Bytes as the mockup shows them: 212 MB, 1.1 GB.
-function qprofileBytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${+(n / 1024 ** i).toFixed(i < 3 ? 0 : 1)} ${units[i]}`;
-}
-
 function qprofileSeconds(s) {
   return s >= 10 ? `${s.toFixed(1)} s` : s >= 0.01 ? `${+s.toFixed(2)} s` : `${+s.toFixed(4)} s`;
 }
@@ -37,7 +29,7 @@ function qprofileDetail(step) {
 
 // The profile as plain text for a ticket or a chat: one indented line per step.
 function qprofileText(p) {
-  return [`Query profile: ${qprofileSeconds(p.seconds)}, ${p.rows_scanned.toLocaleString()} rows read, ${p.rows.toLocaleString()} rows returned, peak memory ${qprofileBytes(p.peak_memory)}`,
+  return [`Query profile: ${qprofileSeconds(p.seconds)}, ${p.rows_scanned.toLocaleString()} rows read, ${p.rows.toLocaleString()} rows returned, peak memory ${sizeText(p.peak_memory)}`,
     ...p.steps.map((s) => `${"  ".repeat(s.depth)}${qprofileName(s.name)}${qprofileDetail(s) ? ` (${qprofileDetail(s)})` : ""}: ${s.rows.toLocaleString()} rows, ${qprofileSeconds(s.seconds)}, ${Math.round(s.share * 100)}%`),
     ...(p.more_steps ? [`${p.more_steps} more steps not listed`] : [])].join("\n");
 }
@@ -81,7 +73,7 @@ function renderQueryProfile(o) {
     return [head,
       q.error ? h("div", { class: "more", role: "alert" }, q.error) : null,
       h("div", { class: "qprofile-stats" }, stat("Time", qprofileSeconds(p.seconds)), stat("Rows read", p.rows_scanned.toLocaleString()),
-        stat("Rows returned", p.rows.toLocaleString()), stat("Peak memory", qprofileBytes(p.peak_memory))),
+        stat("Rows returned", p.rows.toLocaleString()), stat("Peak memory", sizeText(p.peak_memory))),
       h("div", { class: "out-table-scroll" }, h("table", {},
         h("thead", {}, h("tr", {}, h("th", {}, "Step"), h("th", { class: "n" }, "Rows"), h("th", { class: "n" }, "Time"), h("th", {}, "Share of time"))),
         h("tbody", {}, rows))),

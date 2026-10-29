@@ -71,7 +71,7 @@ It was Platform > Requests, and older links open it here. Approve does what was 
 | **Link** | A project's reference to another team's product port, read where it lives with no copy | `metadata/links/<alias>.toml` |
 | **Catalog text** | Descriptions, tags, classification, glossary terms and steward of tables and columns | The platform's catalog (starter text can live in the entity file) |
 
-Logic lives in Git and goes through review and promote. Catalog text lives in the platform, so anyone can describe a table without a pull request.
+Logic lives in Git and goes through review and promote. Catalog text lives in the platform, so a project's members describe its tables without a pull request.
 
 ## Join the mesh
 
@@ -260,7 +260,7 @@ When a table behind a product has an incident, the incident page lists the produ
 
 ## Catalog text (About)
 
-Every entity page has an **About** card: description, tags, classification (Public, Internal, Confidential, Restricted), glossary terms, steward, and a description and classification per column. **Save** writes them to the catalog; no Git change is needed.
+Every entity page has an **About** card: description, tags, classification (Public, Internal, Confidential, Restricted), glossary terms, steward, and a description and classification per column. **Save** writes them to the catalog; no Git change is needed. The project's members (and platform admins) change its catalog text, once the project is in the catalog ([Join the mesh](#join-the-mesh)). **Certified** is changed only by the owners of the project's domain or a platform admin; they don't need to be members to certify.
 
 A team can keep starter text with the code, and it shows until someone writes their own:
 

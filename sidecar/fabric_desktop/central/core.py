@@ -1184,11 +1184,22 @@ SCHEMA_HOOKS.append(ensure_contracts)
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:
     """Description, tags, classification, glossary terms, steward or certification of a table or
     column. ``target`` is "<project>:<entity>" or "<project>:<entity>#<column>". Only the fields
-    given change."""
+    given change, for a project the catalog has. Only the project's members (or a platform admin)
+    change the text; ``certified`` is changed only by the owners of the project's domain or an admin,
+    who need not be members to certify."""
     target = str(target or "").strip()
     if ":" not in target:
         raise PlatformError("target is <project>:<entity> or <project>:<entity>#<column>")
+    project = target.split(":", 1)[0].strip()
+    admin = is_admin(db, by)
+    if not project or (not admin and not _in_catalog(db, project)):
+        raise PlatformError(f"{project or 'That project'} isn't in the platform's catalog yet. Join the mesh first "
+                            "(Data mesh > Domains > This project), then its catalog text can be saved")
     current = _row(db, "enrichment", "target", target) or {"target": target}
+    if not admin and (not fields or any(f != "certified" for f in fields)):
+        require_member(db, project, by, "change its catalog text")
+    if "certified" in fields and str(fields["certified"] or "") != str(current.get("certified") or ""):
+        _require_certifier(db, project, by)
     if "classification" in fields and fields["classification"] not in ("", None, *CLASSIFICATIONS):
         raise PlatformError(f"classification must be one of {', '.join(CLASSIFICATIONS)}")
     row = dict(current)
@@ -1204,6 +1215,19 @@ def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -
     _audit(db, by, "enrich", target, {k: fields[k] for k in fields})
     db.commit()
     return _enrichment_out(row)
+
+
+def _require_certifier(db: Db, project: str, by: str) -> None:
+    """Certifying a table or column (or taking it back) is for the owners of the project's domain, or a
+    platform admin: a project's own members can't vouch for their own data."""
+    if is_admin(db, by):
+        return
+    row = _row(db, "project", "name", project) or {}
+    dom = row.get("domain_id") or ""
+    if dom and _who(by) in _domain_deciders(db, dom, row.get("subdomain_id") or ""):
+        return
+    raise PlatformError(f"Only the owners of {project}'s domain or a platform admin can change what's certified"
+                        + ("" if dom else f": {project} isn't in a domain yet, so a platform admin decides"))
 
 
 def _enrichment_out(row: dict[str, Any]) -> dict[str, Any]:

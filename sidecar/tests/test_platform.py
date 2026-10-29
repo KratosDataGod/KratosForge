@@ -163,6 +163,7 @@ def test_links_respect_product_access(platform):
 
 
 def test_enrichment_changes_only_the_fields_given(platform):
+    platform.call("register_project", project={"name": "crm"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
                                                                             "tags": "pii, gold, pii"})
     platform.call("save_enrichment", target="crm:gold.dim_customer", fields={"classification": "confidential"})
@@ -1337,3 +1338,34 @@ def test_a_project_recorded_by_an_object_id_with_a_team_as_owner_isnt_claimed(pl
     with pytest.raises(core.PlatformError, match="crm has no owner yet"):
         mallory.call("register_project", project={"name": "crm", "team": "Mallory"})
     assert mallory.call("list_project_members", project="crm")["members"] == []
+
+
+def test_catalog_text_is_saved_by_the_projects_members_and_certified_by_its_domains_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "olu@example.com"})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("set_project_member", project="crm", user="bo@example.com", role="owner")
+    bo, eve, olu = (_as(platform, u) for u in ("bo@example.com", "eve@example.com", "olu@example.com"))
+    with pytest.raises(core.PlatformError, match="isn't in the platform's catalog yet"):
+        bo.call("save_enrichment", target="nowhere:gold.x", fields={"description": "mine"})
+    for fields in ({"description": "x"}, {"classification": "public"}, {"steward": "eve@example.com"}, {"tags": "a"}):
+        with pytest.raises(core.PlatformError, match="Only crm's members or a platform admin can change its catalog text"):
+            eve.call("save_enrichment", target="crm:gold.dim_customer#email", fields=fields)
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"description": "One row per customer",
+                                                                      "classification": "confidential"})
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain or a platform admin"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})
+    # The form sends every field: an unchanged certified passes.
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "", "description": "Customers"})
+    with pytest.raises(core.PlatformError, match="Only crm's members"):
+        olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "description": "Mine"})
+    olu.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes"})  # not a member: certifying only
+    assert platform.call("enrichment", project="crm")["crm:gold.dim_customer"]["certified"] == "yes"
+    with pytest.raises(core.PlatformError, match="Only the owners of crm's domain"):
+        bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": ""})
+    bo.call("save_enrichment", target="crm:gold.dim_customer", fields={"certified": "yes", "tags": "gold"})
+    # Without a domain, only an admin certifies.
+    platform.call("register_project", project={"name": "hr"})
+    platform.call("set_project_member", project="hr", user="bo@example.com", role="owner")
+    with pytest.raises(core.PlatformError, match="isn't in a domain yet, so a platform admin decides"):
+        bo.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})
+    platform.call("save_enrichment", target="hr:gold.staff", fields={"certified": "yes"})

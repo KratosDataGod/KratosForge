@@ -8,7 +8,7 @@ Thanks for helping. There are several ways in, and most don't need code.
 | Report a bug | **Report a problem** in the app, then paste it into a [bug report](https://github.com/KratosDataGod/KratosForge/issues/new/choose). Check [troubleshooting](docs/troubleshooting.md) first. |
 | Ask a question | [Q&A](https://github.com/KratosDataGod/KratosForge/discussions/categories/q-a) |
 | Try new builds | Switch to the **Preview** channel in **Settings > Updates**, and tick "Would you try an early version?" on ideas you care about. |
-| Fix the docs | Edit the file under `docs/` and open a pull request. Small fixes are always welcome. To preview the site, `pip install zensical` then `zensical serve` in the repository root and open http://localhost:8000. Links are checked on every pull request. |
+| Fix the docs | Edit the file under `docs/` and open a pull request. Small fixes are always welcome. To preview the site, `pip install zensical` then `zensical serve` in the repository root and open http://localhost:8000. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`). Links are checked on every pull request. |
 | Change the code | Read on. For anything bigger than a small fix, start from an idea or issue so the approach is agreed first. |
 
 ## Set up
@@ -17,17 +17,21 @@ You need Windows for the desktop app. The Python engine and its tests also run o
 
 ```powershell
 git clone https://github.com/KratosDataGod/KratosForge
-cd fabric-desktop\sidecar
+cd KratosForge\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
 python -m pytest -q                   # every test runs without Fabric or the internet
 python -m pytest -q -n auto --dist loadfile   # the same, one worker per core, as CI runs it
 python -m ruff check .               # the lint CI runs: unused or undefined names, syntax errors
+python ../.github/scripts/mypy_ratchet.py   # type check: fails on new errors (pip install mypy -c ci-constraints.txt); --update after renaming a file or moving a pin
+fabric-desktop preview ..\examples\sales_by_region.toml
+fabric-desktop sign-in
+fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the job first
 ```
 
 To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:
 
 ```powershell
-$env:FABRIC_DESKTOP_PYTHON = (Get-Command python).Source
+$env:FABRIC_DESKTOP_PYTHON = (Get-Command python).Source   # the Python that has the sidecar installed
 cd app\src-tauri
 cargo run
 ```
@@ -35,6 +39,16 @@ cargo run
 `FABRIC_DESKTOP_PYTHON` must be the full path to `python.exe`. A debug build (`cargo run`) without it falls back to `python` on `PATH`; a release build (`cargo build --release`, `cargo tauri build` or CI) never does, and refuses a bare name such as `python`, so set the full path to test one with your own Python. The browser tests read `FABRIC_DESKTOP_PYTHON` themselves to start the sidecar and don't go through the shell.
 
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
+
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `sidecar/` | Python package `fabric_desktop`: auth, Fabric REST client, OneLake I/O, notebook kernel, SQL engine, metadata framework, job runner and the JSON-lines server |
+| `app/` | Tauri 2 shell (`src-tauri/`) and the Fabric-style UI (`ui/`, plain HTML and JavaScript). The shell starts the sidecar and forwards UI actions to it |
+| `docs/` | The [documentation](docs/README.md): install, Azure setup, user guide, notebooks, metadata, teams, troubleshooting and ideas guides, plus architecture, agent, roadmap and the KratosBI logo and Wolf Forge emblem files (`docs/brand/`) |
+| `deploy/` | Headless agent packaging: example `agent.toml`, systemd unit and Dockerfile (`linux/`), and the Windows install script (`windows/`) |
+| `examples/` | Sample jobs (`sales_by_region.toml` for DuckDB, `top_products.toml` for Polars), sample data, and the TPC-H benchmark notebooks (`benchmark/`) |
 
 ## Rules for changes
 
@@ -49,6 +63,21 @@ The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the 
 - **Plain words.** Errors and labels say what happened and what to do, in words people use. Errors go through `friendlyError` in `activity.js`.
 - **No silent failures.** In `sidecar/fabric_desktop`, a broad handler (`except:`, `except Exception` or `except BaseException`) that only passes, continues or returns a constant fails `tests/test_silent_except.py`. Log it (`_log = logging.getLogger(__name__)`, with the exception passed through `redact.describe` so no token reaches the log), catch a narrower exception, or re-raise. Where silence really is right, such as best-effort cleanup, end the `except` line with `# silent-ok: <reason>`; the reason is required and reviewed.
 - **No secrets.** Never commit tokens, client secrets, tenant data or real connection strings, including in tests and screenshots.
+
+## Code signing
+
+Smart App Control (and most App Control policies) only lets signed code load, and the Python packages the engine uses (pyarrow, Polars, DuckDB and others) are not signed by their makers. CI signs them, and the exe, with [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) when the repository has these settings (**Settings > Secrets and variables > Actions**):
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `AZURE_TENANT_ID` | Tenant of the app registration below |
+| Secret | `AZURE_CLIENT_ID` | An app registration with the **Trusted Signing Certificate Profile Signer** role on the signing account |
+| Secret | `AZURE_CLIENT_SECRET` | A client secret of that app registration |
+| Variable | `TRUSTED_SIGNING_ENDPOINT` | The account's region endpoint, such as `https://eus.codesigning.azure.net/` |
+| Variable | `TRUSTED_SIGNING_ACCOUNT` | The Trusted Signing account name |
+| Variable | `TRUSTED_SIGNING_PROFILE` | The certificate profile name |
+
+Without them, builds are unsigned and the signing steps are skipped.
 
 ## Pull requests
 

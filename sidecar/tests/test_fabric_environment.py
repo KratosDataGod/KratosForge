@@ -140,7 +140,8 @@ def test_the_cli_exits_by_outcome(tmp_path, monkeypatch, capsys):
 
 def test_the_check_is_read_only_and_listed():
     from fabric_desktop import audit, server
-    assert "environment_fabric_drift" in server.METHODS and "environment_fabric_drift" in audit.READ_ONLY
+    # The CLI calls it in-process; no screen does, so the RPC doesn't take it (HD-050 slice 4).
+    assert "environment_fabric_drift" not in server.METHODS and "environment_fabric_drift" not in audit.READ_ONLY
     json.dumps(fabric_environment.drift(fabric_environment.read(Fabric(), WS, ENV), fabric_environment.on_this_pc()))
 
 

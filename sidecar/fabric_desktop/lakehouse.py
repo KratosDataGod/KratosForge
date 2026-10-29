@@ -191,6 +191,10 @@ def table_ref(table: str) -> TableRef:
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
+    # A name is one folder under Tables/: a part that is empty or holds a path separator would
+    # point somewhere else (Tables/a/../b), so it's refused for every read and write.
+    if not all(parts) or any(c in p for p in parts for c in "/\\"):
+        raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
         raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
@@ -388,6 +392,13 @@ def _delta_safe(schema: pa.Schema, table: str, mode: str) -> pa.Schema:
             return {f.name.lower(): f.type for f in pa.schema(open_table(table).schema().to_arrow())}
         except TableNotFoundError:
             return {}
+    if naive := local_delta.naive_timestamps(schema):
+        listed = ", ".join(naive)
+        raise ValueError(f"Column{'s' if len(naive) > 1 else ''} {listed} hold{'' if len(naive) > 1 else 's'} timestamps "
+                         "without a time zone, which Delta stores in a form Fabric can't read (timestampNtz). Nothing was "
+                         "written. Give them a time zone first: in Polars .dt.replace_time_zone(\"UTC\"), in pandas "
+                         ".dt.tz_localize(\"UTC\"), in Spark SQL CAST(x AS TIMESTAMP), or with "
+                         "to_utc_timestamp(x, 'your zone').")
     return local_delta.delta_safe(schema, existing if mode == "append" else None)
 
 

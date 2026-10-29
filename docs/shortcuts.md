@@ -127,9 +127,11 @@ New shortcut and Repoint check the rules as you fill in the dialog. When a rule 
 
 A change made in KratosForge says who made it, and why when it came from a request. Fabric doesn't record who changes a shortcut, so KratosForge compares what it sees with what it saw last time each time it reads the shortcuts. Changes made in Fabric, or by other tools, show as **Seen at scan**. The first time a lakehouse is read sets the starting point, so shortcuts already there aren't listed as added.
 
+Anyone's scan adds new shortcuts, and anyone's health check can mark one broken. A change that could hide a problem (a shortcut removed or repointed, or one no longer broken) changes the inventory only when a platform admin or a member of a project with a data product in that lakehouse sees it. From anyone else, a repoint (seen at scan or made in KratosForge) is listed as *reported* and the shortcut, its health and its accepted risks stay as they were, a removal waits, a health check records only a break, and the page says what wasn't recorded. A lakehouse no project has a product in is a platform admin's to update. Each scan and check is recorded with who made it on **Platform > Govern > Audit**.
+
 Every change keeps the shortcut's full definition:
 
-- **Undo** on a repointed shortcut points it back; on an added one, removes it.
+- **Undo** on a repointed shortcut points it back; on an added one, removes it. It first checks the shortcut in Fabric is still as that change left it (pointing at the same target, or for a removed one, nothing in its place). If it has changed again since, Undo says so and changes nothing. Undo and Recreate show only on a change that was applied and made by a platform admin or a member of a project with a product in that lakehouse; a reported change, or one logged by someone else, has neither.
 - **Recreate** on a removed shortcut makes it again, with the same name, place and target.
 
 Both ask first, follow the shortcut rules, and never touch the data the shortcut points at. The history is kept by the platform, so the whole team shares one history.

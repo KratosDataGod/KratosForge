@@ -19,7 +19,7 @@ import pyarrow.csv as pa_csv
 from .audit import AuditLog
 from .redact import describe
 from .telemetry import Telemetry
-from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
+from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
@@ -85,6 +85,7 @@ from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
 from .comments_service import CommentsMixin
+from .engines_service import EnginesMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
@@ -110,7 +111,15 @@ def _lakehouse_key(ref: Any) -> Any:
         return ref.get("lakehouse_id") or ref.get("name") or None
     return ref or None
 
-class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, PowerBiEmbedMixin):
+
+# Why OneLake > Catalog's Endorsed items filter is off (docs/troubleshooting.md says the same).
+ENDORSED_FILTER_REASON = (
+    "Not available here: KratosForge reads endorsement only through Fabric's admin tenant scan, and it "
+    "runs that scan only for data products. See it on a product's page (Data mesh > Products; a platform "
+    "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
+
+
+class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -164,12 +173,17 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
 
     @property
     def fabric(self) -> FabricClient:
-        return FabricClient(self.auth.fabric_token)
+        return FabricClient(self.auth.fabric_token, refresh=self._refreshed(FABRIC_SCOPES))
 
     @property
     def fabric_jobs(self) -> FabricClient:
         """For starting and scheduling jobs, which Fabric allows only with Item.Execute.All."""
-        return FabricClient(lambda: self.auth._token(EXECUTE_SCOPES))
+        return FabricClient(lambda: self.auth._token(EXECUTE_SCOPES), refresh=self._refreshed(EXECUTE_SCOPES))
+
+    def _refreshed(self, scopes: list[str]) -> Any:
+        """How to get a new token after a 401, when the signed-in identity can; None to ask again."""
+        refreshed = getattr(self.auth, "refreshed_token", None)
+        return (lambda: refreshed(scopes)) if callable(refreshed) else None
 
     @property
     def history_file(self) -> Path:
@@ -434,10 +448,11 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         return {"pending": True, "items": {}}
 
     def endorsements(self, workspace_ids: list[str]) -> dict[str, Any]:  # noqa: ARG002
-        """Endorsement needs Fabric's admin scan and an admin-only permission, which Fabric Desktop
-        doesn't ask for; Fabric's own catalog, embedded on the same page, shows it."""
-        return {"pending": False, "available": False, "items": {},
-                "reason": "Endorsement shows in Fabric's catalog below. KratosForge doesn't ask for admin permissions."}
+        """KratosForge reads endorsement only through Power BI's admin tenant scan, and that scan (Scan now on a
+        data product's page, a Fabric administrator only) reads just the platform's product items into
+        catalog.endorsement, keyed by item id. Nothing reads it for every item listed here, so the filter
+        stays off and says where endorsement does show."""
+        return {"pending": False, "available": False, "items": {}, "reason": ENDORSED_FILTER_REASON}
 
     @property
     def favorites_file(self) -> Path:
@@ -828,7 +843,7 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
                   allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
                   confirm: bool = False, dry_run: bool = False,
                   warehouse_ref: dict[str, Any] | None = None, confirm_name: str = "",
-                  estimated_plan: bool = False) -> dict[str, Any]:
+                  estimated_plan: bool = False, precondition: dict[str, Any] | None = None) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
         lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
 
@@ -837,13 +852,14 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
         ``target="warehouse"`` (Preview) runs one T-SQL query that only reads on ``warehouse_ref``
         (``workspace_id``, ``item_id``, ``kind`` "warehouse" or "endpoint"), in Fabric: it uses capacity.
         With ``allow=["warehouse_write"]``, ``confirm`` and ``confirm_name`` (the warehouse's name, as
-        the person confirmed it) it may change the warehouse (WH-10, sql_exec.py).
+        the person confirmed it) it may change the warehouse (WH-10, sql_exec.py); with ``precondition``
+        (a deploy change's, from wh_project_deploy_plan) only if that object is still as the preview saw it.
 
         ``dry_run`` only says what each statement would do; nothing runs. ``estimated_plan`` (warehouse,
         a query that reads) returns Fabric's estimated plan as showplan XML instead of running it."""
         return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
                                    confirm=confirm, dry_run=dry_run, warehouse_ref=warehouse_ref,
-                                   confirm_name=confirm_name, estimated_plan=estimated_plan)
+                                   confirm_name=confirm_name, estimated_plan=estimated_plan, precondition=precondition)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

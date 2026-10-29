@@ -31,7 +31,7 @@ from typing import Any, Callable, Protocol
 from .definition import Activity, ImportedPipeline
 from .validate import Diagnostic, summary, validate
 
-REGISTRY_VERSION = "7"
+REGISTRY_VERSION = "8"
 
 CLASSIFICATIONS = {
     "local": "Runs on this PC with a tested adapter.",
@@ -176,25 +176,30 @@ class ActivityRegistry:
         return list(self._entries)
 
     def describe(self) -> dict[str, Any]:
+        from .gotchas import GOTCHAS   # gotchas uses adapters, which use this module
         return {"registry_version": self.version, "classifications": CLASSIFICATIONS,
                 "evidence": {"none": "Nothing backs it yet.",
                              "unit_tests": "Automated tests in this repository, with no Fabric.",
                              "fabric_tested": "Compared against the same activity run in Fabric."},
-                "activities": [e.to_json() for e in self._entries], "unknown": UNKNOWN.to_json()}
+                "activities": [e.to_json() for e in self._entries], "unknown": UNKNOWN.to_json(),
+                "fabric_differences": [g.to_json() for g in GOTCHAS]}
 
     # ---- pipeline reports
 
     def compatibility(self, imp: ImportedPipeline) -> dict[str, Any]:
         """Every activity in the pipeline (nested ones included) with its classification, the
         properties this version can't use, what it needs and changes, and a pipeline summary.
-        Reads the definition only: no Fabric call, nothing runs."""
+        Reads the definition only: no Fabric call, nothing runs. Known differences from Fabric
+        (gotchas.py) are warnings: they never stop a local run."""
+        from . import gotchas
         p = imp.pipeline
         ctx = CheckContext(p.parameters, p.variables)
         rows: list[dict[str, Any]] = []
-        diags: list[Diagnostic] = list(validate(imp))
+        diags: list[Diagnostic] = list(validate(imp)) + gotchas.for_item(imp)
         for a in p.all_activities():
             entry = self.get(a.type)
             found = entry.adapter.validate(a, ctx) if entry.adapter is not None else []
+            found += gotchas.for_activity(a, imp)
             if entry is UNKNOWN:
                 found.append(Diagnostic("unknown_activity_type", "warning",
                                         f"{a.name}: this version doesn't know the activity type {a.type!r}, so it is "
@@ -230,7 +235,9 @@ class ActivityRegistry:
                       "Nothing here was run, and no Fabric call was made to produce this report.",
                       "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
                       "activities this version can't run on this PC, so running the pipeline today uses capacity "
-                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric."],
+                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric.",
+                      "Some warnings are known places where a pipeline that runs here fails in Fabric "
+                      "(fabric_differences in the registry). They never stop a local run."],
         }
 
 

@@ -146,3 +146,19 @@ def test_an_error_never_carries_the_token():
 class _Service:
     def pbi_embed_content(self, **_):
         raise RuntimeError(f"failed with Authorization: Bearer {jwt({'exp': 1})}")
+
+
+def test_the_token_asks_for_ten_minutes_left_with_the_embed_scopes():
+    from fabric_desktop.auth import POWERBI_EMBED_SCOPES
+    from fabric_desktop.powerbi_embed_service import PowerBiEmbedMixin
+    asked = []
+
+    class Auth:
+        def _token(self, scopes, min_seconds=0):
+            asked.append((scopes, min_seconds))
+            return jwt({"exp": 9_999_999_999})
+
+    svc = PowerBiEmbedMixin()
+    svc.auth = Auth()
+    assert svc.pbi_embed_token()["token_type"] == "Aad"
+    assert asked == [(POWERBI_EMBED_SCOPES, 600)]

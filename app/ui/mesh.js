@@ -79,6 +79,15 @@ async function renderMeshDomainsTab(body) {
   const description = h("input", { value: me.description || "", placeholder: "What this project is for" });
   const fabricHint = h("div", { class: "fabric-domain-hint" });
   loadWorkspaceDomains(o, fabricHint, domain, subdomain, fillSubs);
+  // The catalog moved the project (a domain owner approved its ask): project.toml catches up on Use it.
+  const recorded = (o.projects || []).find((p) => p.name === me.name);
+  const moved = me.upgraded && recorded && (recorded.domain_id || "") !== (me.domain || "")
+    && (recorded.domain_id || recorded.subdomain_id) ? h("div", { class: "card pad notice mesh-moved" }, h("div", { class: "row" },
+      h("span", { class: "grow" }, `The catalog has ${me.name} in ${o.domains.find((d) => d.id === recorded.domain_id)?.name || recorded.domain_id} (a domain owner approved it, or someone changed it elsewhere). project.toml says ${me.domain || "no domain"}.`),
+      btn("Use it", null, async () => {
+        const res = await metaCall("mesh_set_project", { fields: { domain: recorded.domain_id, subdomain: recorded.subdomain_id || "" } }, "Not saved");
+        if (res) { toast("Saved to project.toml"); rerender(); }
+      }, "tool primary small"))) : null;
   const projectCard = h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, `Project ${me.name}`),
       me.upgraded ? null : h("span", { class: "pill-s neu" }, "Not in the mesh yet")),
@@ -92,7 +101,9 @@ async function renderMeshDomainsTab(body) {
     h("div", { class: "row end" }, btn(me.upgraded ? "Save" : "Join the mesh", "save", async () => {
       const res = await metaCall("mesh_set_project", { fields: { domain: domain.value, subdomain: subdomain.value,
         team: team.value.trim(), description: description.value.trim() } }, "Not saved");
-      if (res) { toast("Saved to project.toml"); rerender(); }
+      if (res?.domain_request) toast(`Saved. Joining ${res.domain_request.detail?.domain_name || domain.value} waits for its owners`);
+      else if (res) toast("Saved to project.toml");
+      if (res) rerender();
     }, "tool primary")));
 
   // Workspaces by designation: one row per designation, one column per environment.
@@ -118,7 +129,88 @@ async function renderMeshDomainsTab(body) {
         ...MESH_ENVS.map((env) => cell(env, d)))))));
 
   // The organization's domains are listed, and edited by platform admins, on Domains > Domains.
-  body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, h("div", { class: "card pad" }, platformNote(o))].filter(Boolean));
+  body.replaceChildren(withHowItWorks(h("div", {},
+    ...[meshProblems(o), moved, projectCard, membersCard(o, rerender), workspacesCard, h("div", { class: "card pad" }, platformNote(o))].filter(Boolean)),
+  howItWorks("mesh.project", PROJECT_HOW)));
+}
+
+// What Domains > This project reads and writes.
+const PROJECT_HOW = {
+  reads: "project.toml, the project's layers and environments, and from the platform's catalog the domains, this project's members and its waiting ask to join a domain.",
+  changes: "Save writes project.toml and records the project in catalog.project. Picking a domain you don't own adds a request to catalog.request for that domain's owners; project.toml keeps the current domain until they approve, then the catalog has the new one and Use it writes it to project.toml. Add member, Make owner and Remove write catalog.project_member. Withdraw marks your ask withdrawn. Pick and the dismiss button on a designation write the environment's settings in the project.",
+  results: "Only the project's members and platform admins can publish its products, make its links or change its domain. Every change is on Platform > Govern > Audit.",
+  anchor: "data-mesh",
+};
+
+// Members (Preview): who may publish this project's products, make its links and change its domain.
+// Read on its own, so a platform that can't keep members yet still shows the rest of the tab.
+function membersCard(o, rerender) {
+  const head = (m) => h("div", { class: "row" }, h("b", { class: "grow" }, "Members"), previewTag(),
+    m?.can_change ? btn("Add member", "add", () => addMemberDialog(rerender), "tool outline small") : null);
+  const card = h("div", { class: "card pad mesh-members" }, head(null), h("p", { class: "muted-text small" }, "Reading members..."));
+  if (!o.project.upgraded) {
+    card.replaceChildren(head(null), h("p", { class: "muted-text small" }, "Join the mesh first: then whoever saves it is the project's first owner."));
+    return card;
+  }
+  rpc("mesh_members", {}).then((m) => {
+    if (!card.isConnected) return;
+    const set = async (user, role, what) => {
+      if (await metaCall("mesh_set_member", { user, role }, what)) rerender();
+    };
+    const me = String(state.user || "").toLowerCase();
+    const owners = m.members.filter((x) => x.role === "owner").length;
+    const rows = m.members.map((x) => h("tr", {},
+      h("td", {}, x.user), h("td", {}, x.role === "owner" ? "Owner" : "Member"),
+      h("td", {}, x.user === me ? h("span", { class: "muted-text" }, "You") : m.can_change ? h("span", { class: "row tight" },
+        x.role === "member" ? btn("Make owner", null, () => set(x.user, "owner", "Not changed"), "tool link small") : null,
+        x.role === "owner" && owners > 1 ? btn("Make member", null, () => set(x.user, "member", "Not changed"), "tool link small") : null,
+        x.role === "owner" && owners <= 1 ? null : btn("Remove", null, async () => {
+          if (await confirmDialog(`Remove ${x.user}?`, `${x.user} can no longer publish ${m.project}'s products, make its links or change its domain.`, "Remove", { danger: true })) {
+            set(x.user, "", "Not removed");
+          }
+        }, "tool link small")) : null)));
+    card.replaceChildren(head(m),
+      h("p", { class: "muted-text small" }, `Members publish ${m.project}'s products, make its links and change its domain. Owners also add and remove members.`),
+      m.earlier ? h("p", { class: "muted-text small" }, "From before members: the people who registered or published this project start as its owners the next time one of them changes it.") : null,
+      m.members.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Person", "Role", ""].map((c) => h("th", {}, c)))), h("tbody", {}, rows))
+        : h("p", { class: "muted-text" }, "No members yet: whoever saves the project next is its first owner."),
+      h("p", { class: "muted-text small" }, "A project keeps at least one owner. Platform admins can change any project's members."));
+    const ask = joinNotice(o, m.domain_request, rerender);
+    if (ask) card.before(ask);
+  }).catch((err) => {
+    card.replaceChildren(head(null), h("p", { class: "muted-text small" }, `This project's members couldn't be read: ${err?.message || err}`));
+  });
+  return card;
+}
+
+// A waiting ask to join a domain: who decides it, and Withdraw for the person who asked.
+function joinNotice(o, r, rerender) {
+  if (!r) return null;
+  const d = r.detail || {};
+  const name = d.domain_name || o.domains.find((x) => x.id === d.domain)?.name || d.domain;
+  return h("div", { class: "card pad notice mesh-join" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, `Waiting on ${name}'s owners`),
+      r.mine ? btn("Withdraw", null, async () => {
+        if (await metaCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
+      }, "tool outline small") : null),
+    h("p", { class: "small" }, `${r.mine ? "You" : r.requested_by} asked ${relTime(r.requested_at)} for ${o.project.name} to join ${name}. `,
+      d.owners ? `${name}'s owners (${d.owners}) decide it on ` : "It has no owners, so a platform admin decides it on ",
+      h("a", { href: "#", onclick: (e) => { e.preventDefault(); goMeta("requests"); } }, "Data mesh > Requests"),
+      `. Until then the project stays in its current domain.`));
+}
+
+function addMemberDialog(rerender) {
+  const user = h("input", { type: "email", placeholder: "name@contoso.com", "aria-label": "Their sign-in" });
+  const role = h("select", { "aria-label": "Role" }, h("option", { value: "member" }, "Member"), h("option", { value: "owner" }, "Owner"));
+  showDialog("Add member", h("div", {},
+    h("p", { class: "muted-text small" }, "Members publish the project's products, make its links and change its domain. Owners also add and remove members."),
+    h("div", { class: "form-grid" }, h("label", { class: "field" }, "Sign-in (email)", user), h("label", { class: "field" }, "Role", role)),
+    howItWorks("mesh.add-member", { changes: "Adds the person to catalog.project_member, or changes their role if they're already a member.", results: "Recorded on Platform > Govern > Audit." })), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Add", "add", async () => {
+      if (await metaCall("mesh_set_member", { user: user.value.trim(), role: role.value }, "Not added")) { closeDialog(); toast(`Added ${user.value.trim()}`); rerender(); }
+    }, "tool primary")]);
+  user.focus();
 }
 
 // A domain's Fabric domain admins, read during Import from Fabric: names only, never used to grant anything.

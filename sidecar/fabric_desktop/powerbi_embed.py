@@ -30,7 +30,7 @@ KINDS = {"Report": "report", "PaginatedReport": "paginated", "Dashboard": "dashb
 CAPABILITIES: dict[str, dict[str, Any]] = {
     "report": {"embed_type": "report", "pages": True, "filters": True, "bookmarks": True, "slicers": True,
                "visuals": True, "events": ["loaded", "rendered", "error", "pageChanged", "dataSelected",
-                                           "buttonClicked", "visualRendered", "saved"],
+                                           "buttonClicked", "saved"],
                "limits": ["Export data follows the tenant setting and your permission."]},
     "paginated": {"embed_type": "report", "pages": False, "filters": False, "bookmarks": False, "slicers": False,
                   "visuals": False, "parameters": True, "events": ["loaded", "error"],

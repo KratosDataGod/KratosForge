@@ -301,7 +301,7 @@ function proveCheck(nb) {
       const [cls, label] = proveVerdict(r);
       return h("div", { class: "prove-row" },
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); showEarlierProof(nb, r.id); } },
-          r.started_at ? new Date(r.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : r.id),
+          dateTimeText(r.started_at, { empty: r.id })),
         h("span", { class: `pill-s ${cls}` }, label));
     })));
   }
@@ -392,7 +392,7 @@ function proveProgress(nb, r) {
 
 function proveResult(nb, r) {
   const [cls, label] = proveVerdict(r);
-  const at = r.started_at ? new Date(r.started_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+  const at = dateTimeText(r.started_at);
   const tables = r.tables || [];
   const resultPill = (t) => {
     const map = { match: ["pass", "Same"], differs: ["fail", "Differs"], only_pc: ["wrn", "This PC only"], only_fabric: ["wrn", "Fabric only"], error: ["fail", "Couldn't verify"] };

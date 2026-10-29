@@ -1,0 +1,9 @@
+[
+  {"id": "data-fundamentals", "title": "Data Fundamentals", "modules": ["LM-01"]},
+  {"id": "sql-development", "title": "SQL Development", "modules": ["LAB-02"]},
+  {"id": "python-data-engineering", "title": "Python & Data Engineering", "modules": []},
+  {"id": "microsoft-fabric", "title": "Microsoft Fabric", "modules": []},
+  {"id": "databricks", "title": "Databricks", "modules": []},
+  {"id": "snowflake", "title": "Snowflake", "modules": []},
+  {"id": "enterprise-architecture", "title": "Enterprise Architecture", "modules": []}
+]

@@ -29,9 +29,9 @@ from typing import Any
 LEVELS = ("native", "partial", "simulated", "translated", "unsupported")
 EVIDENCE = ("none", "unit_tests", "live_verified")
 LOCATIONS = ("local", "remote")
-PLATFORMS = ("local", "fabric", "databricks")
+PLATFORMS = ("local", "fabric", "databricks", "snowflake")
 # How running on the engine is paid for. Never converted into each other (ADR-006).
-BILLING = ("none", "fabric_capacity", "databricks_dbu")
+BILLING = ("none", "fabric_capacity", "databricks_dbu", "snowflake_credits")
 CAPABILITIES = {
     "session": "Start and dispose a session",
     "execute": "Run a cell",
@@ -44,6 +44,8 @@ CAPABILITIES = {
     "catalog": "List the catalogs, schemas and tables the session can read",
     "cost": "Report usage the platform bills",
     "compat": "Check a cell before running it",
+    # A remote engine's rows come onto this PC, so a caller asks for them only after its own confirm.
+    "result": "Return the whole result as a table, to compare engines",
 }
 LANGUAGES = ("python", "pyspark", "sql", "scala", "r", "markdown")
 

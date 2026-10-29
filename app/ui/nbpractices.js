@@ -1,4 +1,4 @@
-// The notebook's Best practices panel (Preview): the notebook rules NB001 to NB012
+// The notebook's Best practices panel (Preview): the notebook rules (NB001 to NB012, NB018 to NB020)
 // (notebook_practices.py) on this notebook's code cells, read on this PC as you type. Nothing runs
 // and no capacity is used. The policies in force for the open project tune the rules
 // (governance_practice_settings): one a policy turns off isn't shown, and a policy can change a
@@ -143,7 +143,8 @@ function practicesContent(nb) {
       h("div", { class: "row" }, h("span", { class: `pill-s ${PRACTICE_PILL[f.severity]}` }, f.severity), h("b", {}, f.rule)),
       h("p", { class: "comment-text" }, f.description),
       h("div", { class: "row" }, h("button", { class: "link-btn", onclick: () => practiceGo(nb, f) }, `Go to cell ${f.n}, line ${f.line}`),
-        h("span", { class: "muted-text" }, `${f.rule_id} · ${f.category}`)))));
+        h("span", { class: "muted-text" }, `${f.rule_id} · ${f.category}`),
+        f.url ? docLink(f.url, `About ${f.rule_id}`) : null))));
   }
   body.append(h("p", { class: "muted-text" }, p.policies.length
     ? `Tuned by ${p.policies.join(", ")}: a rule a policy turns off isn't shown.`

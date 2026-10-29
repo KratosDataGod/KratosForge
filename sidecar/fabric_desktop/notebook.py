@@ -66,6 +66,11 @@ _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
+
+
+def _change_runs_here(query: str) -> bool:
+    from . import spark_local
+    return spark_local.change_runs_here(query)
 # The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
 # them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
 SPILL_CHARS = 100_000_000
@@ -1108,7 +1113,6 @@ class Kernel:
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
         code compiled here (not %run notebooks), so its line numbers are the cell's own."""
-        from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
             return self._run_sql(cell.body, run, namespace)
@@ -1351,9 +1355,10 @@ class Kernel:
         """A %%sql cell: Spark SQL on this PC, through the notebook's spark session.
 
         It reads lakehouse tables and the session's temp views; CREATE TABLE AS and INSERT INTO
-        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric. A query's result stays in
+        write lakehouse tables, and MERGE INTO, UPDATE and DELETE change one (Preview). A change to
+        another lakehouse, or with Preview features off, runs in Fabric. A query's result stays in
         ``_sqldf`` as a spark DataFrame, as in Databricks, so the next Python cell can use it."""
-        if _SQL_IN_PLACE.search(query):
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
                     "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
@@ -1488,8 +1493,9 @@ class Kernel:
         """``%sql SELECT ...`` inside Python: the query's result as a spark DataFrame."""
         if not query.strip():
             raise ValueError("%sql needs a query after it, like: df = %sql SELECT * FROM sales")
-        if _SQL_IN_PLACE.search(query):
-            raise ValueError("MERGE, UPDATE and DELETE change rows in place, which runs in Fabric only. "
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
+            raise ValueError("This MERGE, UPDATE or DELETE runs in Fabric only: on this PC they change tables of the "
+                             "attached lakehouse, with Preview features on. "
                              "Put the statement in a %%sql cell; it runs once the notebook is published.")
         from . import spark_local
         return spark_local.session().sql(query)
@@ -1536,7 +1542,6 @@ class Kernel:
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
-        from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
         depth = getattr(self._local, "depth", 0)

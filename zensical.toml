@@ -8,7 +8,7 @@ site_name = "KratosForge"
 site_url = "https://kratosdatagod.github.io/kratosforge/"
 site_description = "Do your Microsoft Fabric data engineering on your own PC and write the results straight into OneLake."
 site_author = "KratosBI"
-copyright = "Copyright &copy; KratosBI"
+copyright = "Copyright &copy; 2026 KratosBI LLC. Source code under the <a href=\"https://github.com/KratosDataGod/KratosForge/blob/main/LICENSE\">Apache License 2.0</a>."
 
 repo_url = "https://github.com/KratosDataGod/KratosForge"
 repo_name = "KratosDataGod/KratosForge"
@@ -58,6 +58,7 @@ nav = [
     { "Profile" = "profile.md" },
     { "Select cells and run part of a notebook" = "notebook-editor/select-and-run-parts.md" },
     { "Engines and connection profiles" = "engines.md" },
+    { "Platform support levels" = "platforms.md" },
     { "Notebook comments" = "notebook-comments.md" },
     { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },
     { "Drag tables and files into a notebook" = "notebook-editor/load-data-items.md" },
@@ -87,11 +88,13 @@ nav = [
     { "Running pipelines on your PC" = "orchestration/local-runs.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
+    { "Tenant smoke test" = "product/smoke-test/README.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
     { "Your AI tool" = [
       { "Connect your AI tool" = "ai/README.md" },
       { "Workflows" = "ai/workflows.md" },
       { "Instructions for your AI tool" = "ai/agent-instructions.md" },
+      { "Use with Microsoft's Fabric skills" = "ai/microsoft-fabric-skills.md" },
     ] },
   ] },
   { "Servers" = [
@@ -116,6 +119,7 @@ nav = [
     { "Multiple workers design" = "workloads/multi-worker.md" },
     { "FinOps program plan" = "finops/plan.md" },
     { "Optimize program plan" = "optimize/plan.md" },
+    { "Writing a Learn lesson" = "learn/writing-lessons.md" },
     { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
     { "Enterprise backlog" = "product/enterprise-backlog.md" },
     { "Enterprise decisions" = "product/implementation-decisions.md" },
@@ -125,6 +129,7 @@ nav = [
       { "Findings register" = "hardening/findings.md" },
       { "Hardening backlog" = "hardening/backlog.md" },
       { "Readiness checklist" = "hardening/readiness-checklist.md" },
+      { "Engine call limits" = "hardening/engine-call-limits.md" },
     ] },
     { "Release management" = [
       { "Process" = "release-management/README.md" },
@@ -141,6 +146,8 @@ nav = [
       { "Review template" = "product/reviews/TEMPLATE.md" },
       { "Competitive capability matrix" = "product/COMPETITIVE_CAPABILITY_MATRIX.md" },
       { "Development status" = "product/DEVELOPMENT_STATUS.md" },
+      { "Development operations" = "product/operations/README.md" },
+      { "12-week roadmap" = "product/operations/roadmap.md" },
     ] },
   ] },
   { "Contributing" = [
@@ -160,6 +167,7 @@ nav = [
       { "Compatibility" = "product/ai-integration-compatibility.md" },
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
+    { "Power BI embedding (proposed)" = "architecture/power-bi-embedding.md" },
     { "UI guidelines" = "ui-guidelines.md" },
     { "Visual identity" = [
       { "Visual style guide" = "design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md" },
@@ -179,6 +187,7 @@ nav = [
       { "Backlog" = "ux/backlog.md" },
       { "Release gates and reviews" = "ux/release-review.md" },
       { "Action-first experience" = "ux/action-first.md" },
+      { "Accessibility audit" = "ux/accessibility-audit.md" },
     ] },
   ] },
 ]

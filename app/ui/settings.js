@@ -115,7 +115,8 @@ function redactReport(text, level = "support") {
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
-    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+    .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
+    .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
@@ -363,7 +364,7 @@ function showWhatsNew(asked = false) {
   const repo = "https://github.com/KratosDataGod/KratosForge";
   const day = (d) => {
     const [y, m, dd] = String(d || "").split("-").map(Number);
-    return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    return y ? dateText(new Date(y, m - 1, dd)) : "";
   };
   const item = (i) => h("li", {}, h("span", {}, i.title),
     h("span", { class: "muted-text small" }, day(i.date),
@@ -704,7 +705,7 @@ async function renderSettings() {
         } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
     preview("updateBanner", settingRow("Tell me when a new build is out",
       "While KratosForge is open, checks your channel's version file every 4 hours, the same check as at startup; nothing else is sent. "
-        + (updateWatch.checkedAt ? `Last checked ${updateWatch.checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet since this start."),
+        + (updateWatch.checkedAt ? `Last checked ${timeText(updateWatch.checkedAt)}.` : "Not checked yet since this start."),
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateWatchOn() ? true : null,
         onchange: (e) => {
           try { localStorage.setItem(UPDATE_WATCH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
@@ -772,9 +773,9 @@ async function renderSettings() {
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
   const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
-  const tabs = previewShown() ? h("div", { class: "subtabs" },
+  const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
     [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
-      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+      h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
@@ -879,7 +880,7 @@ function localWritesRow() {
     status.textContent = localWritesText(w);
     clear.disabled = !w.files && !w.tpch.length;
     extra.replaceChildren(...w.tpch.map((t) => h("div", { class: "row wrap" },
-      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${formatBytes(t.bytes)}, ${t.folder}`),
+      h("span", { class: "muted-text small grow" }, `TPC-H data left in the temp folder: ${sizeText(t.bytes)}, ${t.folder}`),
       btn("Open", "folderOpen", () => openLocalWrites(t.folder), "tool small"))));
   }).catch(() => { status.textContent = "Couldn't read the folder."; });
   return settingRow("Files on this PC",
@@ -893,19 +894,19 @@ async function clearLocalWrites() {
   const total = w.bytes + w.tpch.reduce((n, t) => n + t.bytes, 0);
   const what = [w.files ? `${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"} in ${w.folder}` : "",
     ...w.tpch.map((t) => `TPC-H data in ${t.folder}`)].filter(Boolean);
-  if (!(await confirmDialog("Delete left-overs?", `This deletes ${formatBytes(total)} from this PC: ${what.join("; ")}. ` +
+  if (!(await confirmDialog("Delete left-overs?", `This deletes ${sizeText(total)} from this PC: ${what.join("; ")}. ` +
     "Your tables in OneLake aren't touched. A write that hasn't finished uploading is lost, so it's refused while a notebook is running.",
   "Delete", { danger: true }))) return;
   const res = await attempt(() => rpc("local_writes_clear"), "Not deleted");
   if (!res) return;
-  toast(`Deleted ${formatBytes(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
+  toast(`Deleted ${sizeText(res.bytes)}.${res.in_use.length ? ` ${res.in_use.length} still in use, left: try again when it has finished.` : ""}`);
   render();
 }
 
 function localWritesText(w) {
   if (!w.files) return `Empty · ${w.folder}`;
-  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${formatBytes(w.uploading.bytes)})` : "";
-  return `${formatBytes(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
+  const up = w.uploading.files ? `, ${w.uploading.files} waiting to upload or left over (${sizeText(w.uploading.bytes)})` : "";
+  return `${sizeText(w.bytes)} in ${w.files.toLocaleString()} file${w.files === 1 ? "" : "s"}${up} · ${w.folder}`;
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -929,13 +930,24 @@ function sqlSettingsSection(s, locked) {
   const temp = h("input", { value: s.sql_temp_dir.value || "", spellcheck: "false", "aria-label": "Temp folder",
     placeholder: "Empty: the app's data folder", readonly: locked("sql_temp_dir") ? true : null, "aria-readonly": locked("sql_temp_dir") ? "true" : null });
   rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
-    temp, fixedBy(s, "sql_temp_dir")));
+    folderField(temp, "the temp folder"), fixedBy(s, "sql_temp_dir")));
   // WH-10: off, the Warehouse page only reads; on, each change still asks first (sql_exec.py).
   rows.push(settingRow("Warehouse changes", "Lets the Warehouse page change a warehouse (create, alter, insert, update, delete, run procedures) after you see what it changes and confirm. Off, every warehouse only reads.",
     h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.sql_warehouse_writes.value ? true : null, disabled: locked("sql_warehouse_writes") ? true : null,
       "aria-label": "Warehouse changes", onchange: async (e) => { await saveSettings({ sql_warehouse_writes: e.target.checked }); render(); } }),
     h("span", {}, s.sql_warehouse_writes.value ? "On" : "Off")),
     fixedBy(s, "sql_warehouse_writes")));
+  // Clicking a warehouse's or SQL analytics endpoint's name: the Warehouse page or Fabric's own editor.
+  const openIn = s.wh_open_in?.value || "kratosforge";
+  const openChoice = (value, title, help) => h("label", { class: "choice" },
+    h("input", { type: "radio", name: "wh-open-in", value, checked: openIn === value ? true : null, disabled: locked("wh_open_in") ? true : null,
+      onchange: async () => { await saveSettings({ wh_open_in: value }); render(); } }),
+    h("span", { class: "main" }, h("span", { class: "n" }, title), h("span", { class: "w" }, help)));
+  rows.push(settingRow("Open warehouses in", "What clicking a warehouse's or SQL analytics endpoint's name does in Workspaces and the OneLake catalog. Open in Fabric stays on every row.",
+    h("div", { class: "choices", role: "radiogroup", "aria-label": "Open warehouses in" },
+      openChoice("kratosforge", "KratosForge", "The Warehouse page: explorer, T-SQL editor, templates, project files, deploy and monitoring. Queries still run in Fabric and use capacity."),
+      openChoice("fabric", "Fabric portal", "Fabric's own warehouse editor, in the Fabric portal tab.")),
+    fixedBy(s, "wh_open_in")));
   // WH-19: workspaces whose new warehouses get monitoring views without asking (whmonitor.js).
   const auto = s.wh_monitoring_auto?.value || [];
   rows.push(settingRow("Monitoring views without asking", "Workspaces where you said yes, on a build confirm, to monitoring views for new warehouses. The app builds a warehouse's KQL queryset when it opens one there. Remove a workspace and it asks again.",
@@ -1089,7 +1101,7 @@ function savedWriteRow(saved, user, tenant, now = Date.now()) {
   const at = Date.parse(saved.at);
   if (Number.isNaN(at) || now - at > WRITE_PASS_DAYS * 86400000 || at > now) return null;
   return { key: "write", title: "Writing to OneLake", status: "ok",
-    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${new Date(at).toLocaleDateString()}. Checked again after ${WRITE_PASS_DAYS} days.` };
+    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${dateText(at)}. Checked again after ${WRITE_PASS_DAYS} days.` };
 }
 
 function rememberWrite(row, target) {
@@ -1145,7 +1157,7 @@ function readinessCard() {
   async function run() {
     box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));
     const rows = await attempt(() => rpc("readiness_check"), "Ready to work");
-    if (rows) draw(rows, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    if (rows) draw(rows, timeText(new Date()));
   }
   run();
   return box;

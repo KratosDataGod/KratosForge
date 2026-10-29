@@ -33,6 +33,10 @@ AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
 MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
+# How long a browser sign-in may stay open before the call gives up (the person can sign in again).
+# Windows sign-in (WAM) takes no limit; it returns when its window is closed.
+SIGN_IN_SECONDS = 600
+
 FABRIC_SCOPES = [
     "https://api.fabric.microsoft.com/Workspace.ReadWrite.All",
     "https://api.fabric.microsoft.com/Item.ReadWrite.All",
@@ -255,15 +259,33 @@ class Authenticator:
             raise RuntimeError("Your Fabric sign-in has expired. Open KratosForge and sign in, "
                                "and scheduled runs will work again.")
         if not result:
-            if self.broker:
+            if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle())
             else:
-                result = self.app.acquire_token_interactive(scopes)
+                # A browser sign-in whose tab was closed would otherwise wait forever, holding every
+                # engine call behind it.
+                try:
+                    result = self.app.acquire_token_interactive(scopes, timeout=SIGN_IN_SECONDS)
+                except msal.BrowserInteractionTimeoutError:
+                    raise SignInError("timeout", f"The sign-in in your browser wasn't finished within "
+                                      f"{SIGN_IN_SECONDS // 60} minutes. Sign in again.") from None
         self._save()
         if "access_token" not in result:
             raise sign_in_error(result)
         self._check_tenant(result)
         return result["access_token"]
+
+    def refreshed_token(self, scopes: list[str]) -> str:
+        """A new token, not MSAL's cached one: for a call Fabric refused with 401 although the cached
+        token hadn't expired (revoked, or the tenant ended the session). Signs in again only the way
+        ``_token`` would."""
+        accounts = self.app.get_accounts()
+        fresh = self.app.acquire_token_silent(self.scopes_for(scopes), account=accounts[0], force_refresh=True) if accounts else None
+        if fresh and "access_token" in fresh:
+            self._save()
+            self._check_tenant(fresh)
+            return fresh["access_token"]
+        return self._token(scopes)
 
     def _check_tenant(self, result: dict) -> None:
         """An organization can limit sign-in to its own tenants (policy ``allowed_tenants``). Another

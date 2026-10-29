@@ -49,6 +49,23 @@ The [example report](examples/orders-daily-compatibility.json) is for the `order
 | Planned to run on this PC | 6 more, in a later, unscheduled stage |
 | Properties it can't use | `enableStaging` on the Copy activity, `sessionTag` on the Notebook, two unknown properties on the unknown activity |
 
+## Where Fabric differs
+
+Some pipelines pass every check here and still fail in Fabric. The report warns about the cases below, which follow Microsoft's pipeline migration gotchas PG1 to PG10 ([skills-for-fabric](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/pipeline-migration/resources/pipeline-gotchas.md), MIT licensed). They are warnings only: none of them stops a local run. `fabric-desktop pipeline activities` lists them under `fabric_differences`, and a run check returns the ones a pipeline has as `fabric_differences`.
+
+| Gotcha | Warning | What differs |
+| --- | --- | --- |
+| PG1 | `notebook_not_an_item_id` | A local run finds a notebook by the name you give it. Fabric looks it up by item id, so the notebook must be in the workspace first. |
+| PG2 | `notebook_timeout_over_12_hours` | Fabric stops a Notebook activity after 12 hours at most. A local run uses a longer timeout as written. |
+| PG3 | `global_parameters` | Fabric has no `pipeline().globalParameters`; use a variable library (`pipeline().libraryVariables`). A local run can't read them either. |
+| PG4 | `dataset_reference` | Fabric has no dataset items. Their settings go in the activity. |
+| PG5 | `integration_runtime` | Fabric has no integration runtimes. Data on your own network goes through an on-premises data gateway connection. |
+| PG6 | `no_fabric_equivalent` | Validation, SSIS, Azure Batch (`Custom`) and HDInsight Hive, Pig and MapReduce activities can't run in Fabric. The hint says what to use instead. |
+| PG7 | `child_pipeline_by_name`, `child_pipeline_no_workspace` | A local run finds a child pipeline by name. Fabric needs its item id and `workspaceId`, even in the same workspace. |
+| PG8 | `key_vault_linked_service`, `secret_in_run_history` | Fabric has no Key Vault linked service. A Web activity that reads Key Vault without `secureOutput` shows the secret in run history, in Fabric and in a local run. |
+| PG9 | `global_parameter_array_or_object` | A variable library holds only text, numbers and true or false, so an array or object is kept as JSON text and read with `json(...)`. |
+| PG10 | `item_type_not_data_pipeline` | Fabric only accepts a pipeline as a `DataPipeline` item (the `.platform` part's type). |
+
 ## Using it
 
 ```powershell
@@ -77,3 +94,4 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | 5 | Execute and Invoke pipeline with `waitOnCompletion: false` succeed once the child starts and no longer wait for it; the local run still waits for the child before it ends, so the child's result is in the record. |
 | 6 | Pipelines plan P1: Lookup and Get Metadata are `local`. They read the lakehouse their dataset names, at the run's pinned table versions, when the run is started with lakehouse reads on. Their `datasetSettings` (and Lookup's `firstRowOnly`) are checked. |
 | 7 | Pipelines plan P2: Script is `local`. Each script runs through the SQL page's runner and policy: read-only T-SQL on a lakehouse (with lakehouse reads on), or in a local data project named for it. Warehouse and other connections, and script parameters, need a mock. `scripts` and `scriptBlockExecutionTimeout` are checked; `logSettings` isn't used here. |
+| 8 | FS-04: the report warns where a pipeline that passes here fails in Fabric, following Microsoft's pipeline gotchas PG1 to PG10 (see [Where Fabric differs](#where-fabric-differs)). Warnings only; no entry or classification changed. |

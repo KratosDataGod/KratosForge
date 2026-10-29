@@ -14,6 +14,7 @@ resolve to the DuckDB versions, unless real PySpark is installed.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -31,8 +32,8 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
+from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 
-_UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
@@ -251,6 +252,74 @@ def _check_types(data: pa.Table, table: str, how: str) -> None:
                          f"written. To write it, {fix}.")
 
 
+_MERGE_SOURCES = itertools.count(1)
+_AUTO_MERGE = "spark.databricks.delta.schema.autoMerge.enabled"
+_SCHEMA_EVOLUTION = re.compile(r"\s*MERGE\s+WITH\s+SCHEMA\s+EVOLUTION\b", re.I)
+
+
+def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
+    """Whether ``query`` is a change this PC runs (PB-015): one MERGE INTO, UPDATE or DELETE of a
+    table of the attached lakehouse, named table or schema.table (or with the attached lakehouse's
+    name in front), with Preview features on. A change to another lakehouse (a Data mesh template's
+    keys MERGE, LH_Keys.keys.customer) still runs in Fabric only. ``lakehouse_name``: the notebook's
+    own lakehouse, for a check made with none attached (fabric_run.compute_check)."""
+    import sqlglot
+    from sqlglot import exp
+
+    from . import delta_dml
+    if not lakehouse._setting("show_preview", True) or not delta_dml.looks_like(query):
+        return False
+    try:
+        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+        if len(trees) != 1 or not isinstance(trees[0], (exp.Merge, exp.Update, exp.Delete)):
+            return False
+        _in_attached(trees[0], lakehouse_name)
+        change = delta_dml.parse_tree(trees[0])
+    except (ValueError, sqlglot.errors.SqlglotError):
+        return False
+    return change is not None
+
+
+def _in_attached(tree: Any, name: str | None = None) -> None:
+    """Drop the attached lakehouse's own name from a MERGE's, UPDATE's or DELETE's target (Sales.dbo.sales, or Sales.sales
+    in a lakehouse without schemas), as table_ref does for reads and writes. ``name``, with nothing
+    attached: the lakehouse to take as attached, whose schema setting isn't known, so only its
+    three-part form (name.schema.table) is recognised."""
+    from sqlglot import exp
+    current, target = lakehouse._attached, tree.this
+    if current is not None:
+        name = current.name
+    if not name or not isinstance(target, exp.Table):
+        return
+    if target.catalog and target.catalog.lower() == name.lower():
+        target.set("catalog", None)
+    elif current is not None and not target.catalog and target.db and target.db.lower() == name.lower() \
+            and not current.schemas_enabled():
+        target.set("db", None)
+
+
+def _refuse_auto_merge(session: Any) -> None:
+    """With autoMerge on, Fabric's MERGE adds a source's new columns to the table. This PC's MERGE
+    keeps the table's schema, so it would drop them without saying so: refuse it, as
+    withSchemaEvolution is refused."""
+    try:
+        value = session.conf.get(_AUTO_MERGE, "false")
+    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
+        return
+    if str(value).strip().lower() == "true":
+        raise NotImplementedError(f"{_AUTO_MERGE} is on, so in Fabric this MERGE would add the source's new columns "
+                                  "to the table. Schema evolution in MERGE runs in Fabric. Run the cell in Fabric, or "
+                                  f"turn it off first: spark.conf.unset({_AUTO_MERGE!r}).")
+
+
+def _preview_on(what: str) -> None:
+    """Changing a table in place on this PC is in Preview (PB-015): with Preview features off
+    (Settings, or the organization's policy) it runs in Fabric only, as before."""
+    if not lakehouse._setting("show_preview", True):
+        raise NotImplementedError(f"{what} on this PC is a Preview feature, and Preview features are off in Settings "
+                                  "or by your organization's policy. Run the cell in Fabric.")
+
+
 def _columns(table: str) -> list[str] | None:
     """The table's column names, or None when it doesn't exist."""
     from deltalake.exceptions import TableNotFoundError
@@ -458,13 +527,19 @@ class LocalSparkSession(SparkSession):
     def sql(self, sqlQuery: str, **kwargs: Any) -> DataFrame:  # noqa: N803
         if kwargs:
             sqlQuery = sqlQuery.format(**kwargs)
-        if _RESTORE.match(sqlQuery):
+        head = delta_dml_comments.sub("", sqlQuery)  # a leading comment doesn't hide RESTORE or SCHEMA EVOLUTION
+        if _RESTORE.match(head):
             raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
                              "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
-        if _UNSUPPORTED_SQL.match(sqlQuery):
-            raise ValueError("MERGE, UPDATE and DELETE change tables in place, which runs in Fabric. "
-                             "On this PC, read with spark.sql and write with df.write.saveAsTable.")
+        if _SCHEMA_EVOLUTION.match(head):
+            raise NotImplementedError("MERGE WITH SCHEMA EVOLUTION adds the source's new columns to the table, which "
+                                      "runs in Fabric. Run the cell in Fabric, or leave out WITH SCHEMA EVOLUTION.")
         statements = _sql.parse(sqlQuery)
+        from sqlglot import exp
+        if len(statements) > 1 and any(isinstance(s, (exp.Merge, exp.Update, exp.Delete)) for s in statements):
+            # The change would commit before a later statement could fail; Spark runs one statement per call.
+            raise ValueError("spark.sql runs MERGE INTO, UPDATE and DELETE only as the only statement in the call. "
+                             "Nothing ran. Call spark.sql once for each statement.")
         result: DataFrame | None = None
         for statement in statements:
             result = self._statement(statement)
@@ -473,6 +548,10 @@ class LocalSparkSession(SparkSession):
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
         statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
+        if isinstance(statement, exp.Merge):
+            return self._merge(statement)
+        if isinstance(statement, (exp.Update, exp.Delete)):
+            return self._update_or_delete(statement)
         # DROP TABLE and TRUNCATE TABLE on a lakehouse table; a temp view is DuckDB's to drop.
         if isinstance(statement, exp.TruncateTable) or (
                 isinstance(statement, exp.Drop) and str(statement.args.get("kind", "")).upper() == "TABLE"):
@@ -538,6 +617,92 @@ class LocalSparkSession(SparkSession):
             return DataFrame(self.conn.sql(text), self)
         self.conn.execute(text)
         return None
+
+    def _merge(self, tree: Any) -> DataFrame:
+        """MERGE INTO a lakehouse table (PB-015, Preview): DuckDB reads the source, delta-rs makes the
+        change in one commit (lakehouse.change_table). Returns Spark's counts as a one-row DataFrame."""
+        from sqlglot import exp
+
+        from . import delta_dml
+        from .localdata import delta as local_delta
+        _in_attached(tree)
+        change = delta_dml.parse_tree(tree)
+        if change is None or change.source is None:  # parse_tree refuses a MERGE without USING itself
+            raise ValueError("MERGE INTO needs USING (the rows to merge).")
+        _preview_on("MERGE INTO")
+        _refuse_auto_merge(self)
+        if not change.schema and self._is_local(change.table):
+            raise ValueError(f"MERGE INTO {change.table}: {change.table} is a temp view on this PC. MERGE changes a "
+                             "Delta table of the attached lakehouse.")
+        query = change.source.copy() if not isinstance(change.source, exp.Table) else \
+            exp.select("*").from_(change.source.copy())
+        self._bind(query)
+        source = _arrow(DataFrame(self.conn.sql(query.sql("duckdb")), self))
+        target = _columns(change.name)
+        if target is None:
+            raise ValueError(f"Table {change.name} doesn't exist, so MERGE has nothing to change. Create it first "
+                             "(df.write.saveAsTable or CREATE TABLE ... AS SELECT).")
+        # Fabric-safe types, and the table's spelling of each column name (Spark matches them without case).
+        cased = {n.lower(): n for n in target}
+        safe = local_delta.fabric_schema(source.schema, names=False)
+        names = [cased.get(f.name.lower(), f.name) for f in safe]
+        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)]))
+        self._one_match_each(change, source)
+        result = lakehouse.change_table(change, source)
+        affected = result.rows_inserted + result.rows_updated + result.rows_deleted
+        return self._from_arrow_dataset(pa.table({
+            "num_affected_rows": [affected], "num_updated_rows": [result.rows_updated],
+            "num_deleted_rows": [result.rows_deleted], "num_inserted_rows": [result.rows_inserted]}))
+
+    def _update_or_delete(self, tree: Any) -> DataFrame:
+        """UPDATE or DELETE FROM a lakehouse table (PB-015, Preview): delta-rs makes the change in one
+        commit (lakehouse.change_table). Returns Spark's count as a one-row DataFrame."""
+        from . import delta_dml
+        _in_attached(tree)
+        change = delta_dml.parse_tree(tree)
+        if change is None:  # an Update or Delete tree always parses to a change
+            raise ValueError("Only UPDATE and DELETE are changed here.")
+        what = change.kind.upper()
+        _preview_on(what)
+        if not change.schema and self._is_local(change.table):
+            raise ValueError(f"{what} {change.table}: {change.table} is a temp view on this PC. {what} changes a "
+                             "Delta table of the attached lakehouse.")
+        if _columns(change.name) is None:
+            raise ValueError(f"Table {change.name} doesn't exist, so {what} has nothing to change.")
+        result = lakehouse.change_table(change)
+        return self._from_arrow_dataset(pa.table({
+            "num_affected_rows": [result.rows_updated if change.kind == "update" else result.rows_deleted]}))
+
+    def _one_match_each(self, change: Any, source: pa.Table) -> None:
+        """Spark refuses a MERGE in which one row of the table matches two source rows (which one
+        would change it is undefined); delta-rs doesn't, so it is checked here for ON t.a = s.a [AND ...]."""
+        import sqlglot
+
+        from . import delta_dml
+        keys = delta_dml.equi_keys(change)
+        matched = [w for w in change.whens if w.match == "matched"]
+        if not keys or not matched or not source.num_rows:
+            return
+        if len(matched) == 1 and matched[0].action == "delete" and matched[0].condition is None:
+            return  # Spark allows it: every source row deletes the same table row, so the result is defined
+        view = f"__merge_source_{next(_MERGE_SOURCES)}"
+        self.conn.register(view, source)
+        try:
+            sa, ta = change.source_alias or "s", change.alias or change.table
+            group = ", ".join(f"`{sa}`.`{s_col}`" for _t, s_col in keys)
+            target = f"`{change.schema}`.`{change.table}`" if change.schema else f"`{change.table}`"
+            check = sqlglot.parse_one(
+                f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
+                f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
+            self._bind(check)
+            duplicate = self.conn.execute(check.sql("duckdb")).fetchone()
+        finally:
+            self.conn.unregister(view)
+        if duplicate is not None:
+            raise ValueError(f"More than one source row matches the same row of {change.name} (source key "
+                             f"{', '.join(str(v) for v in duplicate)}), so which one changes it is undefined, and "
+                             "Spark refuses it too. Keep one source row per key, for example with QUALIFY "
+                             "row_number() OVER (PARTITION BY key ORDER BY ...) = 1.")
 
     def createDataFrame(self, data: Any, schema: Any = None, samplingRatio: Any = None,  # noqa: N802, N803
                         verifySchema: bool = True) -> DataFrame:  # noqa: N803
@@ -700,11 +865,16 @@ _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # typ
 
 
 class LocalDeltaTable:
-    """``from delta.tables import DeltaTable`` on this PC: reading a table's history and details.
-    Changes made through it (merge, update, delete, restore, vacuum, optimize) run in Fabric."""
+    """``from delta.tables import DeltaTable`` on this PC: reading a table's history and details, and
+    ``merge``, ``update`` and ``delete`` (Preview, PB-015), which run as MERGE INTO, UPDATE and
+    DELETE through spark.sql. Other changes made through it (restore, vacuum, optimize) run in Fabric."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, alias: str = ""):
         self._name = name
+        self._alias = alias
+
+    def alias(self, aliasName: str) -> LocalDeltaTable:  # noqa: N803
+        return LocalDeltaTable(self._name, aliasName)
 
     @classmethod
     def forName(cls, sparkSession: Any, tableOrViewName: str) -> LocalDeltaTable:  # noqa: N802, N803, ARG003
@@ -749,20 +919,113 @@ class LocalDeltaTable:
     def restoreToTimestamp(self, timestamp: str) -> Any:  # noqa: N802, ARG002
         return self._in_fabric("restoreToTimestamp")
 
-    def merge(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("merge")
+    def merge(self, source: Any, condition: Any) -> LocalMergeBuilder:
+        _preview_on("DeltaTable.merge")
+        return LocalMergeBuilder(self, source, condition)
 
-    def update(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("update")
+    def update(self, condition: Any = None, set: dict[str, Any] | None = None) -> None:  # noqa: A002
+        _preview_on("DeltaTable.update")
+        if not set:
+            raise ValueError("update needs the columns to set, as a dict of column name to SQL text or Column.")
+        sets = ", ".join(f"{k} = {_sql_text(v)}" for k, v in set.items())
+        where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
+        session().sql(f"UPDATE {self._name}{f' AS {self._alias}' if self._alias else ''} SET {sets}{where}")
 
-    def delete(self, *_a: Any, **_kw: Any) -> Any:
-        return self._in_fabric("delete")
+    def updateExpr(self, condition: Any = None, set: dict[str, str] | None = None) -> None:  # noqa: N802, A002
+        self.update(condition, set)
+
+    def delete(self, condition: Any = None) -> None:
+        _preview_on("DeltaTable.delete")
+        where = f" WHERE {_sql_text(condition)}" if condition is not None else ""
+        session().sql(f"DELETE FROM {self._name}{f' AS {self._alias}' if self._alias else ''}{where}")
 
     def vacuum(self, *_a: Any, **_kw: Any) -> Any:
         return self._in_fabric("vacuum")
 
     def optimize(self, *_a: Any, **_kw: Any) -> Any:
         return self._in_fabric("optimize")
+
+
+def _sql_text(value: Any) -> str:
+    """A condition or value given to the merge builder: SQL text, or a Column (its expression)."""
+    if isinstance(value, str):
+        return value
+    expr = getattr(value, "expr", None)
+    if expr is None:
+        raise TypeError(f"Expected SQL text or a Column, got {type(value).__name__}.")
+    return str(expr)
+
+
+class LocalMergeBuilder:
+    """``DeltaTable.merge(source, condition).whenMatched...().execute()`` as delta-spark has it. The
+    clauses are written out as one MERGE INTO and run by spark.sql, so they behave as SQL MERGE does
+    on this PC: the same checks, the same single commit."""
+
+    _MERGE_VIEWS = itertools.count(1)
+
+    def __init__(self, table: LocalDeltaTable, source: Any, condition: Any):
+        self._table, self._source, self._on = table, source, _sql_text(condition)
+        self._clauses: list[str] = []
+
+    def _add(self, when: str, condition: Any, action: str) -> LocalMergeBuilder:
+        cond = f" AND ({_sql_text(condition)})" if condition is not None else ""
+        self._clauses.append(f"WHEN {when}{cond} THEN {action}")
+        return self
+
+    @staticmethod
+    def _sets(values: dict[str, Any] | None, what: str) -> dict[str, str]:
+        if not values:
+            raise ValueError(f"{what} needs the columns to set, as a dict of column name to SQL text or Column.")
+        return {str(k): _sql_text(v) for k, v in values.items()}
+
+    def whenMatchedUpdate(self, condition: Any = None, set: dict[str, Any] | None = None) -> LocalMergeBuilder:  # noqa: N802, A002
+        sets = self._sets(set, "whenMatchedUpdate")
+        return self._add("MATCHED", condition, "UPDATE SET " + ", ".join(f"{k} = {v}" for k, v in sets.items()))
+
+    def whenMatchedUpdateAll(self, condition: Any = None) -> LocalMergeBuilder:  # noqa: N802
+        return self._add("MATCHED", condition, "UPDATE SET *")
+
+    def whenMatchedDelete(self, condition: Any = None) -> LocalMergeBuilder:  # noqa: N802
+        return self._add("MATCHED", condition, "DELETE")
+
+    def whenNotMatchedInsert(self, condition: Any = None, values: dict[str, Any] | None = None) -> LocalMergeBuilder:  # noqa: N802
+        sets = self._sets(values, "whenNotMatchedInsert")
+        return self._add("NOT MATCHED", condition,
+                         f"INSERT ({', '.join(sets)}) VALUES ({', '.join(sets.values())})")
+
+    def whenNotMatchedInsertAll(self, condition: Any = None) -> LocalMergeBuilder:  # noqa: N802
+        return self._add("NOT MATCHED", condition, "INSERT *")
+
+    def whenNotMatchedBySourceUpdate(self, condition: Any = None, set: dict[str, Any] | None = None) -> LocalMergeBuilder:  # noqa: N802, A002
+        sets = self._sets(set, "whenNotMatchedBySourceUpdate")
+        return self._add("NOT MATCHED BY SOURCE", condition,
+                         "UPDATE SET " + ", ".join(f"{k} = {v}" for k, v in sets.items()))
+
+    def whenNotMatchedBySourceDelete(self, condition: Any = None) -> LocalMergeBuilder:  # noqa: N802
+        return self._add("NOT MATCHED BY SOURCE", condition, "DELETE")
+
+    def withSchemaEvolution(self) -> LocalMergeBuilder:  # noqa: N802
+        raise NotImplementedError("MERGE with schema evolution runs in Fabric. On this PC, add the new columns "
+                                  "first (write with mergeSchema), then merge.")
+
+    def execute(self) -> DataFrame:
+        if not self._clauses:
+            raise ValueError("The merge has no whenMatched or whenNotMatched clause, so there is nothing to do.")
+        relation = getattr(self._source, "relation", None)
+        if relation is None:
+            raise TypeError("DeltaTable.merge needs a spark DataFrame as its source.")
+        spark = session()
+        view = f"__merge_builder_{next(self._MERGE_VIEWS)}"
+        source_alias = getattr(relation, "alias", "") or ""
+        if not source_alias or source_alias.startswith("unnamed_relation"):  # no df.alias(...)
+            source_alias = "source"
+        relation.create_view(view, replace=True)
+        try:
+            target = self._table._name + (f" AS `{self._table._alias}`" if self._table._alias else "")
+            return spark.sql(f"MERGE INTO {target} USING {view} AS `{source_alias}` ON {self._on} "
+                             + " ".join(self._clauses))
+        finally:
+            spark.conn.execute(f"DROP VIEW IF EXISTS {view}")
 
 
 def _alias_delta() -> None:

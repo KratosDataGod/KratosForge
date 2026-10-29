@@ -12,7 +12,7 @@ import datetime as dt
 import logging
 from typing import Any
 
-from . import __version__, app_settings
+from . import __version__, app_settings, sealed_settings
 from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
@@ -103,7 +103,7 @@ class IncidentMixin:
     def queue_list(self, hours: float = 24) -> dict[str, Any]:
         """Running, queued and next work across this PC, each agent and Fabric (workloads/queue.py),
         from what the app already holds: agent status records, this PC's schedules, the Fabric jobs
-        this app started as last checked, and the Fabric schedules Monitor > Schedules last read. It
+        this app started as last checked, and the Fabric schedules Monitor > Fabric > Schedules last read. It
         makes no Fabric call of its own, so it never polls a tenant. Each source says how it stands."""
         now = dt.datetime.now(dt.timezone.utc)
         envs, by_env = self._agent_records()
@@ -237,7 +237,9 @@ class IncidentMixin:
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])
             envs.append(row)
-        return {"envs": envs, "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+        settings = self._settings()  # type: ignore[attr-defined]
+        return {"envs": envs, "alerts": bool(settings.get("teams_webhook")),
+                "alerts_unreadable": sealed_settings.unreadable(settings, "teams_webhook")}
 
     def incident_acknowledge(self, env: str, id: str, note: str = "") -> dict[str, Any]:
         return self._incident_log(env).acknowledge(id, self._incident_user(), note)

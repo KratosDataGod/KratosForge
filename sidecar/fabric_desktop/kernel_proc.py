@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from . import lakehouse, notebook
+from . import cpu_cap, lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -159,6 +159,7 @@ class ProcessKernel:
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
         self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
+        self.cores: int | None = None  # side by side's core cap for the next process (cpu_cap.py); None for every core
         # A shared session (kernel_sessions.share): requests made under as_guest carry the guest
         # notebook's name, and the child answers with that notebook's variables and cells.
         self._guest = threading.local()
@@ -176,6 +177,13 @@ class ProcessKernel:
 
     def _guest_name(self) -> str | None:
         return getattr(self._guest, "name", None)
+
+    @property
+    def live_pid(self) -> int | None:
+        """The process's id while it is running; None before it starts and once it has ended, so a
+        stopped or restarted kernel (or another process given its id later) is never measured as it."""
+        proc = self._proc
+        return self.pid if proc is not None and proc.poll() is None else None
 
     def forget_guest(self, notebook: str) -> dict[str, Any]:
         """A guest left or restarted: its variables go; the process and the other notebooks' stay."""
@@ -196,6 +204,7 @@ class ProcessKernel:
                 with contextlib.suppress(OSError):
                     self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
             extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
+            extra.update(cpu_cap.env(self.cores))
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
@@ -208,6 +217,7 @@ class ProcessKernel:
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
             threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
+            self.pid = None  # until this process reports its own (the watcher reads proc.pid meanwhile)
             self._proc = proc
             self._attached = object()
             if not ready.wait(60):
@@ -239,16 +249,29 @@ class ProcessKernel:
             slot.setdefault("error", {"type": "KernelGone", "message": "The notebook's Python process stopped."})
             slot["done"].set()
 
+    def _memory(self, proc: subprocess.Popen[str], pid: int) -> int:
+        """Bytes the kernel uses with every process below it, so a cell can't get past the limit by
+        doing its work in a subprocess or a multiprocessing pool."""
+        pids = {pid}
+        tree = self._tree
+        if tree is not None and tree.proc is proc:
+            pids.update(tree.pids())
+        return sum(memory_used(p) or 0 for p in pids)
+
     def _watch(self, proc: subprocess.Popen[str]) -> None:
         """Enforce the limits on ``proc`` for as long as it lives."""
         while proc.poll() is None:
             time.sleep(WATCH_SECONDS)
             if proc is not self._proc:
                 return
-            if self.memory_limit and (memory_used(proc.pid) or 0) > self.memory_limit:
+            # The interpreter's own pid, as it reported it: from a Windows venv, proc is the venv's
+            # python.exe launcher, a few MB, and the real interpreter is its child (#896).
+            pid = self.pid if proc is self._proc and self.pid else proc.pid
+            if self.memory_limit and self._memory(proc, pid) > self.memory_limit:
                 self.limit_hit = "memory"
                 self._end(proc, f"Stopped: the notebook used more than {_size(self.memory_limit)}, the memory limit "
-                                "set in Settings. Its process was ended, so variables were cleared.")
+                                "set in Settings, counting the processes its cells started. Its process was ended, "
+                                "so variables were cleared.")
                 return
             started, now = self._started_at, time.monotonic()
             if not (self._running and started is not None and self.time_limit):
@@ -605,6 +628,15 @@ class _Tree:
         self.proc = proc
         self.job = _job_for(proc) if sys.platform == "win32" else None
 
+    def pids(self) -> list[int]:
+        """The kernel process and the live processes below it: the Job Object's list on Windows, parent
+        links on Linux. Elsewhere, or when the list can't be read, just the kernel process."""
+        if sys.platform == "win32":
+            return (_job_pids(self.job) if self.job else None) or [self.proc.pid]
+        if sys.platform.startswith("linux"):
+            return [self.proc.pid, *_descendants(self.proc.pid)]
+        return [self.proc.pid]
+
     def release(self) -> None:
         """On Windows, close the job, which ends anything still in it."""
         if self.job:
@@ -694,6 +726,9 @@ def _kernel32() -> Any:
     kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
     kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    kernel32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                   ctypes.POINTER(wintypes.DWORD)]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     return kernel32
 
@@ -728,6 +763,49 @@ def _job_for(proc: subprocess.Popen[str]) -> int | None:
     return None
 
 
+def _job_pids(job: int) -> list[int] | None:
+    """The processes in the Job Object, or None if the list can't be read. A list too small for them
+    all fails with ERROR_MORE_DATA but still says how many there are, so it is read again that big."""
+    import ctypes
+    from ctypes import wintypes
+
+    size = JOB_PIDS
+    for _ in range(3):
+        class Listed(ctypes.Structure):  # JOBOBJECT_BASIC_PROCESS_ID_LIST
+            _fields_ = [("NumberOfAssignedProcesses", wintypes.DWORD), ("NumberOfProcessIdsInList", wintypes.DWORD),
+                        ("ProcessIdList", ctypes.c_size_t * size)]
+
+        listed = Listed()
+        if _kernel32().QueryInformationJobObject(job, 3, ctypes.byref(listed), ctypes.sizeof(listed), None):
+            return [int(listed.ProcessIdList[i]) for i in range(min(listed.NumberOfProcessIdsInList, size))]
+        if listed.NumberOfAssignedProcesses <= size:
+            return None  # failed for another reason
+        size = listed.NumberOfAssignedProcesses + JOB_PIDS  # room for the ones started meanwhile
+    return None
+
+
+JOB_PIDS = 1024
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+@functools.cache
+def win_kernel32() -> Any:
+    """kernel32 with the types of the process calls the limits and the run meter make, made once.
+    Without them a HANDLE would be cut to a 32-bit int on 64-bit Windows."""
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k.GetProcessTimes.restype = wintypes.BOOL
+    k.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+    k.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    k.CloseHandle.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    return k
+
+
 def memory_used(pid: int) -> int | None:
     """Bytes the process is using: private bytes on Windows, resident memory on Linux; None if unknown."""
     if sys.platform == "win32":
@@ -739,8 +817,8 @@ def memory_used(pid: int) -> int | None:
                 (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
                                                "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
                                                "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
             return None
         try:

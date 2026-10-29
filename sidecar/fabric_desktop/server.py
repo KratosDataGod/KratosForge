@@ -24,9 +24,9 @@ from .service import Service
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
-           "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
-           "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "delete_notebook", "publish_notebook",
+           "list_tables", "list_files", "history",
+           "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_format", "notebook_practices", "notebook_practice_rules", "notebook_plotly_js", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_query_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_ipywidget_event", "notebook_frame_download", "restart_kernel", "save_sql", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_practices", "sql_practice_rules", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
@@ -35,20 +35,21 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_owner_coverage", "platform_note_seen", "platform_access_reviews", "platform_confirm_access", "platform_overview", "platform_products",
            "platform_product_trust", "platform_scan_endorsement", "platform_add_product_term", "platform_remove_product_term", "platform_follow",
+           "platform_product_items", "platform_add_product_item", "platform_remove_product_item",
            "platform_entra_groups", "platform_entra_script", "platform_entra_save", "platform_entra_link", "platform_entra_unlink",
            "platform_entra_naming_save", "platform_entra_find", "platform_entra_check",
-           "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
+           "governance_overview", "governance_policy", "governance_create", "governance_save_draft",
            "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
            "governance_unassign", "governance_applicability", "governance_resolve",
            "governance_templates", "governance_template_save", "governance_template_delete", "governance_template_use",
            "governance_template_from_policy", "governance_template_authors", "governance_check_now", "governance_last_check", "governance_practice_settings",
            "governance_product_checklist",
-           "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
+           "mesh_overview", "mesh_members", "mesh_set_member", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
+           "meta_promote_check", "meta_promote", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "notebook_fabric_step_check", "notebook_vorder_cell", "run_notebook_fabric_step", "notebook_fabric_step_result", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -59,51 +60,51 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
-           "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "meta_risk_gate", "placement_advice", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "usage_preview", "usage_import", "usage_imports", "usage_import_delete",
+           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "model_bpa_status", "model_bpa_risk", "model_bpa_check",
-           "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
+           "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
            "shortcut_request", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
-           "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
-           "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
+           "set_pc_schedule_enabled", "update_pc_schedule", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
+           "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
            "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
-           "workload_preflight", "workload_act", "workload_actions", "workload_capacity_use",
+           "workload_preflight", "workload_act", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
            "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
            "incident_impact", "incident_tell_impacted",
-           "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
+           "receipt_get", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "notebook_debug_get", "notebook_debug_set", "replay_bundle_preview", "replay_bundle_save",
            "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
            "replay_delete_outputs",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
-           "notebook_dependencies", "side_by_side_writes",
-           "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
-           "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
-           "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
+           "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
+           "git_info", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
+           "git_push", "git_op_status", "git_op_cancel", "git_status", "git_diff", "git_stage",
+           "git_stage_all", "git_unstage", "git_discard", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
+           "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
            "git_platform_diff", "git_platform_export", "git_platform_deploy", "git_capacity_diff", "git_capacity_write", "git_apply_hunk", "git_vscode_plan", "git_vscode_apply",
-           "notebook_places", "move_notebook", "audit_log",
-           "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
-           "pipeline_compatibility", "pipeline_activity_registry",
+           "notebook_places", "move_notebook",
+           "pipeline_import", "pipeline_export",
+           "pipeline_compatibility",
            "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
            "pipeline_list", "fabric_pipeline_runs", "fabric_pipeline_activity_runs",
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
+           "git_notebook_info", "telemetry_status", "telemetry_new_install_id"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -131,6 +132,11 @@ METHODS |= CAPACITY_HISTORY_METHODS
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402
 
 METHODS |= PLATFORM_NOTIFY_METHODS
+
+# The notebook's Engine picker (engines_service.py, Preview).
+from .engines_service import METHODS as ENGINE_METHODS  # noqa: E402
+
+METHODS |= ENGINE_METHODS
 
 # OneLake > Access across every workspace: the access cache (access_cache_service.py).
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
@@ -216,8 +222,12 @@ from .editor_service import METHODS as EDITOR_METHODS  # noqa: E402
 
 METHODS |= EDITOR_METHODS
 
+# Policy exceptions (central/governance_service.py): ending one early (the platform checks for a platform
+# admin), and the ones about to end, for the bell, the Data mesh banner and a Teams notice.
+METHODS |= {"governance_end_exception", "governance_exceptions_ending"}
+
 # Embed Studio (powerbi_embed_service.py, Preview): a Power BI token for the embed frame, and a report's
-# or dashboard's embed URL, pages and tiles. Both read only.
+# or dashboard's embed URL, pages and tiles. Both read only; the token can write (see the module).
 from .powerbi_embed_service import METHODS as POWERBI_EMBED_METHODS  # noqa: E402
 
 METHODS |= POWERBI_EMBED_METHODS
@@ -232,13 +242,14 @@ METHODS |= POWERBI_EMBED_METHODS
 QUICK = frozenset({
     "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
-    "notebook_environment", "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
+    "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
-    "receipt_get", "receipts_list", "side_by_side_list",
+    "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
+    "engine_state", "engine_poll_cell", "engine_cancel",
 })
 
 
@@ -405,6 +416,9 @@ def main() -> None:
         runs = getattr(service, "_sql_runs", None)
         if runs is not None:
             runs.shutdown()  # end the SQL page's query processes with the engine
+        engines = getattr(service, "_engines", None)
+        if engines is not None:
+            engines.close_all()  # end engine sessions (and remote sessions in Fabric) with the app
 
 
 def _start_integration_http(service: Service) -> None:

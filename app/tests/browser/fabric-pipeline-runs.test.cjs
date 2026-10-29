@@ -57,7 +57,7 @@ before(async () => {
 after(async () => { if (app) await app.close(); });
 
 test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip }, async () => {
-  await page().locator(".monitor-filters", { hasText: "Reading pipeline, copy job and dataflow runs in Fabric" }).waitFor();
+  await page().locator(".monitor-note", { hasText: "Reading pipeline, copy job and dataflow runs in Fabric" }).waitFor();
   // While the scan runs, only the scan is asked again: the other sources wait for the redraw.
   const count = (m) => app.calls.filter((c) => c.method === m).length;
   const others = count("meta_runs_all");
@@ -74,7 +74,7 @@ test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip
   // Problems first: the real failure, then the run whose status is too old to trust, then the rest.
   assert.match(texts[1], /^Stale.*pl_long.*—/);
   assert.match(texts[0], /Copy customers failed/);
-  assert.match(await page().locator(".monitor-filters").textContent(), /Runs of 1 item in Fabric couldn't be read/);
+  assert.match(await page().locator(".monitor-note").textContent(), /Runs of 1 item in Fabric couldn't be read/);
   assert.strictEqual(await page().locator("tr", { hasText: "pl_ours" }).count(), 1);
   // Copy job and dataflow runs are listed too, by their kind; only pipeline runs open to activities.
   assert.match(await page().locator("tr", { hasText: "cj_erp_customers" }).textContent(), /Copy job run in Fabric · scheduled/);
@@ -126,7 +126,7 @@ test("Open in Fabric goes to the pipeline, and Refresh asks for a new scan", { s
   await page().locator("tr.pl-run", { hasText: "pl_customer_load" }).locator("button", { hasText: "Open in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/pipelines/item-j-1`));
   assert.strictEqual(await page().locator("tr.pl-child").count(), 0, "the button doesn't also open the activities");
-  await page().locator(".monitor-local button", { hasText: "Refresh" }).click();
+  await page().locator(".monitor-view-row button", { hasText: "Refresh" }).click();
   for (let i = 0; i < 100 && !app.calls.some((c) => c.method === "fabric_pipeline_runs" && c.params?.refresh === true); i++) {
     await page().waitForTimeout(50);
   }

@@ -16,12 +16,15 @@ from .auth import POWERBI_EMBED_SCOPES
 from .fabric_api import FabricClient
 from .powerbi_embed import EmbedClient, token_reply
 
+EMBED_TOKEN_MIN_SECONDS = 600
+
 METHODS = {"pbi_embed_token", "pbi_embed_content"}
 
 
 class PowerBiEmbedMixin:
     def _embed_token(self) -> str:
-        return self.auth._token(POWERBI_EMBED_SCOPES)  # type: ignore[attr-defined]
+        # At least 10 minutes left, so the frame doesn't get a token MSAL is about to replace.
+        return self.auth._token(POWERBI_EMBED_SCOPES, min_seconds=EMBED_TOKEN_MIN_SECONDS)  # type: ignore[attr-defined]
 
     def pbi_embed_token(self) -> dict[str, Any]:
         """A Power BI token for the embed frame, with when it expires. The call only reads; the token can write."""

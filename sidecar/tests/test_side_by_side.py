@@ -249,6 +249,7 @@ class SbsService(Service):
 @pytest.fixture
 def svc(tmp_path, tables, monkeypatch):
     monkeypatch.setattr(side_by_side_service, "POLL_SECONDS", 0)
+    monkeypatch.setattr(sbs, "DEFAULT_CORES", "all")  # in the engine, as the fakes need; test_side_by_side_cores.py caps
     monkeypatch.setattr(side_by_side_service, "FileStore", FakeFiles)
     monkeypatch.setattr(lakehouse, "write_table", tables.write)
     monkeypatch.setattr(lakehouse, "open_table", lambda t: DeltaTable(str(tables.path(t))))
@@ -384,7 +385,7 @@ def test_examples_in_the_repository_are_the_generated_notebooks(tmp_path):
     repo = Path(__file__).resolve().parents[2] / "examples" / "benchmark"
     for path in benchmark.write(tmp_path):
         assert (repo / path.name).read_text(encoding="utf-8") == path.read_text(encoding="utf-8"), \
-            f"Run: python -m fabric_desktop.benchmark examples/benchmark (from sidecar/, path ../examples/benchmark)"
+            "Run: python -m fabric_desktop.benchmark examples/benchmark (from sidecar/, path ../examples/benchmark)"
 
 
 def test_benchmark_notebooks_are_added_and_kept(svc):

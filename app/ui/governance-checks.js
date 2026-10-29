@@ -25,7 +25,7 @@ function govBestPracticeHow() {
   return howItWorks("platform.best-practices", {
     reads: "Templates: the built-in ones in the app, and your organization's from the platform's catalog. Check now: the open project's files on this PC (entities, products, governance.toml); when a policy names their rules, this PC's notebooks, its schedules (to know which notebooks run on one) and its SQL scripts (saved queries and the .sql files of warehouse projects in the repositories opened in Source control), only read; the platform's catalog (policies, assignments, exceptions, catalog text, product terms and endorsement) and the run logs Monitor already reads. When the platform can't be reached, the policies come from the latest policy package on this PC instead, and the catalog and run logs aren't read.",
     changes: "Template create, edit and delete write catalog.policy_template in the platform's catalog, and Save as template does too. Use writes a policy draft (catalog.policy and catalog.policy_version). Who can add templates is a platform setting (config.setting). Check now writes its last result, to governance_checks.json on this PC, and, when the platform answers, the project's policy package, to governance_packages/<project>.json on this PC. Label it writes the column's classification to catalog.enrichment, after you confirm. Nothing changes in Fabric.",
-    results: "Template changes are in Platform > Govern > Audit. Check now is warn only: nothing is blocked, and Block policies aren't enforced yet. Checkers that run in Fabric are never started here: their last stored findings show, or not run.",
+    results: "Template changes are in Platform > Govern > Audit. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers, and lists it with the promote gate's other reasons; Warn and Advisory policies never stop it. Checkers that run in Fabric are never started here: their last stored findings show, or not run.",
     anchor: "best-practices-checks-and-templates-preview",
   });
 }
@@ -121,7 +121,7 @@ async function governanceCheckTab(body, fresh = null) {
   const head = h("div", { class: "card pad bp-check-head" },
     h("div", { class: "row" }, h("h2", { class: "grow bp-summary" }, r ? `${last.project}: ${n ? `${n} to look at` : "nothing to look at"}` : `${last.project}: not checked yet`), run),
     r ? h("p", { class: "muted-text small bp-when" }, `Checked on this PC ${relTime(r.checked_at)}. ${r.enforcement}`, r.package_note ? h("span", { class: "bp-package" }, ` ${r.package_note}`) : null)
-      : h("p", { class: "muted-text small" }, "Check now runs the policies in force for this project on this PC. Warn only: nothing is blocked."),
+      : h("p", { class: "muted-text small" }, "Check now runs the policies in force for this project on this PC. Check now stops nothing. A promote stops on a finding of a Block policy that no exception covers."),
     r?.counts?.unknown ? h("p", { class: "wrn-text small" }, `${r.counts.unknown} couldn't be checked: what they need isn't recorded. Each says why.`) : null,
     ...(r?.problems || []).map((x) => h("p", { class: "wrn-text small" }, x)));
   const list = r ? r.policies.map((p) => bpPolicyCard(p, last.project, () => run.click())) : [];

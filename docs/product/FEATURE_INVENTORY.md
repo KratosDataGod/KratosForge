@@ -200,13 +200,13 @@ on quality.
 | [FEAT-ONE-04](#feat-one-04) | OneLake access review and data access roles | Implemented | Partially Verified | OneLake > Access (Preview) | Include in the tenant smoke test. |
 | [FEAT-PRV-02](#feat-prv-02) | Output verification rules | Implemented | Partially Verified | Prove panel (Preview) | Reuse for SQL and metadata compare (one comparison engine). |
 | [FEAT-META-03](#feat-meta-03) | Checks, quarantine and replay | Implemented | Partially Verified | Entity page > Quarantine | QA-002: replay open and compute change now check the save first (#661). |
-| [FEAT-META-07](#feat-meta-07) | Schema drift review | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read). |
+| [FEAT-META-07](#feat-meta-07) | Schema drift review and schema evolution | Implemented | Partially Verified | Entity page > Drift | Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table. |
 | [FEAT-META-16](#feat-meta-16) | Profiling and rule suggestions | Implemented | Partially Verified | Entity > Profile | Keep. |
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented | Partially Verified | Entity page > Lineage > Columns (Preview) | Implementation review of PR #124. |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
 | [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Implemented | Partially Verified | Data mesh > Quality > Exceptions, Data mesh > Requests, Platform > Govern > Governance (Preview) | Product owner decides whether exceptions.toml joins the request flow or FD-129 is narrowed to policy exceptions (PB-059 review finding 1). |
-| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-003 enforcement: block promote and deploy on a Block policy |
+| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Versioned contracts (#701): accepted versions and deprecation dates block only readers that need it. |
@@ -270,7 +270,7 @@ on quality.
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-SHL-02](#feat-shl-02) | RPC method allowlist and error redaction | Implemented | Verified | Engine boundary (no UI) | Keep; generate METHODS from the capability registry once PR-AI-003 merges so the two lists can't drift. |
-| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up). |
+| [FEAT-SHL-07](#feat-shl-07) | Accessibility basics | Implemented | Partially Verified | Whole app | Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2). |
 | [FEAT-SHL-09](#feat-shl-09) | Self-update, channels and engine install | Implemented | Partially Verified | Startup check, Settings > Updates | Code signing (PB-001); Rust tests in CI (PB-071). |
 | [FEAT-AUTH-01](#feat-auth-01) | Sign-in with no app registration | Implemented | Partially Verified | Sign-in callout, account menu | Include in the tenant smoke test (PB-002). |
 | [FEAT-AUTH-02](#feat-auth-02) | Own app registration and tenant allow-list | Implemented | Partially Verified | Settings > Account | Keep. |
@@ -408,11 +408,12 @@ on quality.
 - **Where people reach it:** Whole app. Accessibility: Static checks only; no screen-reader or contrast audit recorded
 - **Evidence:** test: app/tests/ui.test.cjs every icon-only button has a name (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: app/tests/ui.test.cjs the page has a skip link and labelled controls; test: app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows
 - **Source:** `app/ui/index.html`, `app/ui/app.js`, `app/ui/styles.css`
-- **Tests:** `app/tests/ui.test.cjs`
+- **Tests:** `app/tests/ui.test.cjs`, `app/tests/browser/a11y-audit.test.cjs`
+- **Docs:** [docs/ux/accessibility-audit.md](../ux/accessibility-audit.md)
 - **Pull requests and issues:** [#92](https://github.com/KratosDataGod/KratosForge/pull/92)
 - **Owning workstream:** Enterprise readiness (FD-139)
 - **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063)
-- **Recommended next action:** Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).
+- **Recommended next action:** Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).
 
 ### FEAT-SHL-08
 
@@ -1208,18 +1209,18 @@ on quality.
 
 ### FEAT-META-07
 
-**Schema drift review.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate.
+**Schema drift review and schema evolution.** Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate. Runs add new columns in place, rewrite the table to widen a type, refuse a narrowing or a change of kind unless [contract] overwrite_schema = true (Preview), and record each schema change in meta.schema_history with its Delta version and schema version (Preview).
 
 - **Pillar and category:** Local development; Data Governance and Quality
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Entity page > Drift
-- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped))
-- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
-- **Tests:** `sidecar/tests/test_dataops.py`
+- **Evidence:** test: sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_schema_evolution.py (PB-031: added columns in place, widening rewrite inside the Fabric-safe profile, narrowing refused without overwrite_schema, versioned schema history; on this PC only)
+- **Source:** `sidecar/fabric_desktop/meta/drift.py`, `sidecar/fabric_desktop/meta/engine.py`, `sidecar/fabric_desktop/dataops_service.py`, `app/ui/dataops.js`
+- **Tests:** `sidecar/tests/test_dataops.py`, `sidecar/tests/test_schema_evolution.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
-- **Known limitations:** landing and link sources not checked (inference).
+- **Known limitations:** landing and link sources not checked (inference). widening a type still rewrites the table: the installed delta-rs (1.6.6) can't write Delta type widening, and Fabric reader support for it is unproven. not run against OneLake or read by Fabric's SQL analytics endpoint, Direct Lake or Spark.
 - **Backlog:** [PB-031](PRODUCT_BACKLOG.md#pb-031)
-- **Recommended next action:** Cover landing and link sources (inference: not read).
+- **Recommended next action:** Cover landing and link sources (inference: not read); widen in place once delta-rs writes typeWidening and Fabric readers are proven on such a table.
 
 ### FEAT-META-08
 
@@ -1461,15 +1462,15 @@ on quality.
 - **Pillar and category:** Enterprise services; Data Governance and Quality
 - **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py; test: sidecar/tests/test_policy_package.py (GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)); code: sidecar/fabric_desktop/central/policy_package.py
-- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`, `sidecar/fabric_desktop/central/policy_package.py`, `sidecar/fabric_desktop/central/checks_service.py`, `sidecar/fabric_desktop/cli.py`
-- **Tests:** `sidecar/tests/test_governance.py`, `sidecar/tests/test_policy_package.py`
+- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py; test: sidecar/tests/test_policy_package.py (GOV-002: policy package, tamper check, offline Check now, CLI exit codes and no platform, Fabric or OneLake call (PB-057)); code: sidecar/fabric_desktop/central/policy_package.py; test: sidecar/tests/test_policy_promote_gate.py (GOV-003: a Block finding no exception covers stops promote and names the policy and finding; Warn and Advisory never do; an exception lets it through and is named; Prod fails closed when the policies can't be read, Test warns)
+- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`, `sidecar/fabric_desktop/central/policy_package.py`, `sidecar/fabric_desktop/central/checks_service.py`, `sidecar/fabric_desktop/cli.py`, `sidecar/fabric_desktop/meta_service.py`
+- **Tests:** `sidecar/tests/test_governance.py`, `sidecar/tests/test_policy_package.py`, `sidecar/tests/test_policy_promote_gate.py`
 - **Docs:** [docs/governance.md](../governance.md), [docs/governance-guide.md](../governance-guide.md)
-- **Known limitations:** GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced. Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken. An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it).
+- **Known limitations:** GOV-001 registry, GOV-002 offline validation and GOV-003 Block at promote are built: a Block finding no exception covers stops promote, and HD-031's "not enforced yet" label is removed. Deploy isn't gated by policies. Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken. An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it). A Prod promote stops whenever the policies can't be read (no platform and no valid package, or a platform error), since it can't tell which are assigned; Test and Dev only warn. A rule that says unknown, and a checker that runs in Fabric, don't stop a promote. It holds for promotes through KratosForge, not for writes in the Fabric portal.
 - **Pull requests and issues:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
-- **Recommended next action:** GOV-003 enforcement: block promote and deploy on a Block policy
+- **Recommended next action:** Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it
 
 ### FEAT-GOV-06
 

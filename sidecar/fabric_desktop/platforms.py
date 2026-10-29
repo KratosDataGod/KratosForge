@@ -52,7 +52,7 @@ AREAS = {
     "optimize": "Measure usage and cost",
     "enterprise": "Checked for an enterprise rollout",
 }
-LEVELS = (
+LEVELS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (0, "Discovered", ()),
     (1, "Connected", ("connect", "catalog")),
     (2, "Development", ("connect", "catalog", "execute")),

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any

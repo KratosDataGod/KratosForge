@@ -80,7 +80,7 @@ def test_rename_keeps_the_session_and_delete_ends_it(svc):
     call(svc, "start_cell", code="kept", notebook="Renamed")
     assert out(finish(svc, "Renamed")) == "7"
     kernel = svc.sessions.kernel("Renamed")
-    call(svc, "delete_notebook", name="Renamed")
+    svc.delete_notebook("Renamed")
     assert not kernel.alive()
     assert all(r["notebook"] != "Renamed" for r in call(svc, "kernel_sessions")["sessions"])
 

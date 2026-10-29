@@ -3,7 +3,6 @@
 import ast
 import base64
 import io
-import json
 import sys
 import types
 from pathlib import Path
@@ -428,3 +427,105 @@ def test_semantic_model_update_stops_when_its_definition_cant_be_read(svc, monke
     monkeypatch.setattr(svc.fake, "get_item_definition", lambda *a, **k: (_ for _ in ()).throw(OSError("throttled")))
     with pytest.raises(RuntimeError, match="table names aren't known"):  # guessing would rename tables reports use
         svc._kept_table_names(svc._project(), "gold", "ws", {"id": "m1", "displayName": "SM_Gold"})
+
+
+def _open_runs(tmp_path, *names):
+    s = Service(root=tmp_path)
+    for name in names:  # oldest first, as they were started
+        s._log_fabric_run({"kind": "Notebook run", "name": name, "workspace_id": "w", "item_id": "i", "job_id": name})
+    return s
+
+
+def test_monitors_refresh_stops_asking_fabric_when_it_is_unreachable_or_slow(tmp_path, monkeypatch):
+    from fabric_desktop import cloud_service
+    s = _open_runs(tmp_path, *(f"j{i}" for i in range(5)))
+    asked = []
+
+    class Down:
+        def job_instance(self, ws, item, job):
+            asked.append(job)
+            raise ConnectionError("offline")
+    monkeypatch.setattr(s, "_quiet_fabric", lambda: Down())
+    runs = s.fabric_runs()
+    assert asked == ["j4", "j3"]  # newest first; two unreachable in a row and the rest aren't asked
+    assert [r["job_id"] for r in runs if r.get("stale")] == ["j2", "j1", "j0"]
+    assert "last known status" in runs[-1]["message"] and all(r["status"] == "NotStarted" for r in runs)
+    assert not any(r.get("stale") for r in s.fabric_runs(refresh=False))  # the note isn't saved
+
+    class Slow:
+        def job_instance(self, ws, item, job):
+            asked.append(job)
+            return {"status": "Completed"}
+    asked.clear()
+    clock = iter(range(0, 1000, 20))
+    monkeypatch.setattr(cloud_service.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(s, "_quiet_fabric", lambda: Slow())
+    runs = s.fabric_runs()
+    # 20 s in, one asked; 40 s in, past the 30 s budget: no new request starts.
+    assert asked == ["j4"] and [r["status"] for r in runs].count("Completed") == 1
+    assert sum(1 for r in runs if r.get("stale")) == 4
+
+
+def test_runs_fabric_no_longer_knows_dont_stop_the_others_being_checked(tmp_path, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    s = _open_runs(tmp_path, "live1", "gone1", "gone2", "live2")
+    asked = []
+
+    class Fabric:
+        def job_instance(self, ws, item, job):
+            asked.append(job)
+            if job.startswith("gone"):
+                raise FabricError("not found", code="EntityNotFound", status=404)
+            return {"status": "Completed"}
+    monkeypatch.setattr(s, "_quiet_fabric", lambda: Fabric())
+    runs = {r["job_id"]: r for r in s.fabric_runs()}
+    assert asked == ["live2", "gone2", "gone1", "live1"]
+    assert runs["live1"]["status"] == runs["live2"]["status"] == "Completed"
+    assert not any(r.get("stale") for r in runs.values())
+
+
+class CancelFabric:
+    def __init__(self):
+        self.cancelled = []
+
+    def cancel_job(self, ws, item, job):
+        self.cancelled.append((ws, item, job))
+
+    def job_instance(self, ws, item, job):
+        return {"status": "InProgress"}
+
+
+def test_cancel_fabric_run_asks_fabric_and_marks_the_run_until_it_ends(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    assert s.cancel_fabric_run("ws", "nb", "j1") == {"cancelled": "j1"}
+    assert s.fake.cancelled == [("ws", "nb", "j1")]
+    run = s.fabric_runs()[0]
+    assert run["status"] == "InProgress" and run["cancel_requested"]  # Fabric hasn't stopped it yet: Cancelling
+
+
+def test_cancel_fabric_run_refuses_a_run_that_already_ended(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "Completed"})
+    with pytest.raises(ValueError, match="already ended in Fabric"):
+        s.cancel_fabric_run("ws", "nb", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]
+
+
+def test_cancel_fabric_run_still_cancels_a_job_the_log_doesnt_have(tmp_path):
+    # Notebook Fabric steps cancel jobs they follow themselves (fabricstep.js).
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s.cancel_fabric_run("ws", "nb", "j9")
+    assert s.fake.cancelled == [("ws", "nb", "j9")] and s.fabric_runs() == []
+
+
+def test_cancel_fabric_run_refuses_ids_that_dont_match_the_logged_run(tmp_path):
+    s = CloudService(root=tmp_path / "app")
+    s.fake = CancelFabric()
+    s._log_fabric_run({"job_id": "j1", "workspace_id": "ws", "item_id": "nb", "name": "Sales_Load", "status": "InProgress"})
+    with pytest.raises(ValueError, match="another item"):
+        s.cancel_fabric_run("ws", "other-item", "j1")
+    assert s.fake.cancelled == [] and "cancel_requested" not in s.fabric_runs()[0]

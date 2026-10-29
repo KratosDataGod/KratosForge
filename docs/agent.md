@@ -23,6 +23,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. The desktop app takes the same lease when you run a metadata entity on this PC or replay quarantined rows. Every OneLake table write, from those runs, the agent, a notebook's `write_table` or a job's publish, also holds a second lease in the table's own lakehouse (`Files/_fabric_desktop/leases/<schema>.<table>.json`), so a notebook and a metadata run writing the same table wait for each other; a notebook or job waits up to 90 seconds (a metadata run `table_lease_seconds`), then stops with "<table> is being written by <holder> on <machine>". A notebook killed mid-write leaves its lease for at most a minute, so the next write waits it out and goes ahead. Whether OneLake honours these conditional requests between two machines is not yet verified on a live tenant. For a local environment the lease files are in its `.local` folder, and taking one over is a single step across every process on the PC, so two writers never both win an expired lease. A worker that can't renew its lease for a whole `table_lease_seconds` (OneLake unreachable, say) treats it as lost and reports the run that way. Before each write starts, the writer also checks its leases: if one was taken over, or hasn't been renewed for two thirds of its length, it stops with nothing written ("Nothing was written; run it again"). A Delta write or MERGE uploads its files first and commits at the end, so a lease lost during the upload is still reported afterwards, as before. The check covers every table write made while the lease is held, so quarantine and business-key writes made during an entity's run also stop if that entity's lease lapses. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
 - **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes (counted from local midnight, so `every_minutes = 60` runs on the hour and a restart doesn't move it), daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
+- **Shortcut health on a schedule (Preview).** With `[shortcut_health]` turned on, the agent checks the environments' shortcuts and posts each new break to Teams once. It only reads. See [Shortcut health](#shortcut-health).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
 - **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
 
@@ -92,6 +93,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `pipeline.retention_days` | 14 | When finished requests are removed |
 | `pipeline.claim` | `"always"` | `"when_free"` (Preview): take a new request only while a worker is free, so a busy agent leaves it for one that isn't. See [Shared schedules](#shared-schedules-preview) |
 | `pipeline.take_over` | false | (Preview) Take over requests held by an agent that stopped reporting. See [Taking over from a lost agent](#taking-over-from-a-lost-agent-preview) |
+| `pipeline.require_run` | false | (Preview) Only take requests whose `pipeline_run` checks out in Fabric. See [Which pipeline asked](#which-pipeline-asked-preview). Can't be used with shared schedules |
 | `schedule.shared` | false | (Preview) Share this schedule with other agents through the mailbox, so each due time runs once. See [Shared schedules](#shared-schedules-preview) |
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
@@ -101,6 +103,10 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `incidents.escalate_after_minutes` | 0 (never) | Post incidents still open and unacknowledged after this long to `escalate_to` |
 | `incidents.escalate_to` | none | The name of the route escalations go to; required with `escalate_after_minutes` |
 | `[[incidents.route]]` | none | A Teams channel for some incidents: `name`, `webhook_env`, and filters (see below) |
+| `shortcut_health.enabled` | false | (Preview) Check the environments' [shortcuts](#shortcut-health) on a schedule and post each break to Teams once |
+| `shortcut_health.minutes` | 60 | (Preview) How often to check (at least 15) |
+| `shortcut_health.environments` | `agent.environments` | (Preview) Whose workspaces' shortcuts to check |
+| `shortcut_health.webhook_env` | `alerts.teams_webhook_env` | (Preview) Variable holding the Teams webhook breaks go to; one of the two is required when it's on |
 
 Then check it. This validates the file and the project and gets a token for Fabric and for OneLake:
 
@@ -156,6 +162,7 @@ Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ## Operate
 
 ```bash
+fabric-desktop agent run                             # the service: schedules, queue, retries
 fabric-desktop agent status                          # queue counts, next schedule times, the last 20 jobs
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
@@ -195,6 +202,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `status_seconds`, `concurrency` | Its settings |
 | `pipeline` | Whether it takes pipeline requests here, its entity allowlist, and whether it allows backfills |
 | `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
+| `shortcut_health` | `enabled` (whether it checks this environment's [shortcuts](#shortcut-health)) and `minutes`. Other agents read it so that one of them posts each break. No webhook |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
 | `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
@@ -245,6 +253,32 @@ During quiet hours, messages for incidents whose criticality isn't in `quiet_exc
 
 The file keeps every open incident and the last 200 resolved ones. Each has `id`, `key` (kind, workload, environment), `kind`, `workload`, `name`, `env`, `title`, `text`, `evidence` (run id and start time, or the freshness or objective numbers), `state` (`open`, `acknowledged` or `resolved`), `opened_at`, `last_seen_at`, `occurrences`, `opened_by`, `owner` (the entity's declared owner), `team`, `criticality`, `classification` (failed runs), `escalated_at` and `escalated_to`, who acknowledged and resolved it and when, `resolution` (`recovered`, `cleared` or `resolved` by hand) and `notes`. Contract 1; fields may be added.
 
+### Shortcut health
+
+> **Preview.** Built and tested against a mocked Fabric and OneLake. It has not yet run on a live tenant; see step 10 of [Verify on your tenant](#verify-on-your-tenant).
+
+Broken [shortcuts](shortcuts.md) otherwise show only when someone opens **Shortcuts > Health**. With `[shortcut_health] enabled = true`, the agent checks them itself, at start and then every `shortcut_health.minutes`:
+
+```toml
+[shortcut_health]
+enabled = true
+minutes = 60
+environments = ["prod"]
+webhook_env = "SHORTCUTS_TEAMS_WEBHOOK"   # the variable holding the webhook, never the address
+```
+
+**What it reads.** For each environment, the lakehouses in its workspaces (the environment's `workspace_id` and each designation's workspace) and their shortcuts, through the Fabric REST API; then, for each shortcut, one entry of the folder it sits in and one entry of the shortcut itself, through OneLake, as **Check now** does in the app. Only reads, with the agent's identity: no job runs, so the check uses no capacity, and no table data is read. A shortcut is broken, healthy, unreachable or not checked exactly as on [Health](shortcuts.md#health); the agent's identity needs read access to the lakehouses (and, for a OneLake shortcut, to its target) to tell.
+
+**How it runs.** On its own thread beside the agent's loop, so a long scan doesn't hold up schedules, the pipeline mailbox or jobs. A check that is still running when the next one is due isn't doubled: that one is skipped. Each request takes a current token, so a long scan doesn't fail on one that expired.
+
+**What it writes.** Nothing in Fabric, OneLake or the platform. On the agent's machine, `shortcut_alerts.sqlite3` in its home keeps which breaks were posted, and the messages Teams didn't take yet. Its status record gains the `shortcut_health` field.
+
+**What it posts.** A `shortcut.broken` message ("Shortcut broken: orders in LH_Gold", the environment, what's wrong and where to open it in the app) the first time a check finds a shortcut broken, and a `shortcut.fixed` message when a later check finds it working again. A shortcut that stays broken isn't posted again, across checks and restarts. Once it's fixed, a new break is posted again. A shortcut that is unreachable or not checked posts nothing. A message Teams doesn't take waits in the outbox and goes with the next check, marked **Delayed**; after three days it is dropped.
+
+**Several agents.** When more than one agent checks the same environment, only one posts: the agent whose name sorts first among the live agents whose status records say they check it. The others skip the check. If that agent stops reporting, the next one takes over and posts the breaks still open once more, since its own record of what was posted starts empty. An agent that can't read the status records checks and posts anyway: a second message is better than none.
+
+The desktop app still posts the breaks its own checks find to the platform's Teams routes (**Settings > Notifications**, see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)). To get each break once, send the agent's messages to a different channel, or leave `shortcut.broken` and `shortcut.fixed` off the app's routes.
+
 ## Run from a Fabric pipeline
 
 > **Preview.** Built and tested against local folders and a mocked OneLake. It has not yet run on a live tenant; see step 6 of [Verify on your tenant](#verify-on-your-tenant).
@@ -273,6 +307,8 @@ entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
 | `entities` | `silver.orders,gold.fact_sales` | Comma-separated; empty runs every entity |
 | `request_id` | `@pipeline().RunId` | Makes a retried activity wait for the same run instead of asking twice |
 | `submitted_by` | `@concat(pipeline().Pipeline, ' ', pipeline().RunId)` | Recorded in the status, as given |
+| `pipeline_id` | `@pipeline().Pipeline` | With `pipeline_run_id`: lets the agent check this run in Fabric. Needed when the agent sets `require_run` |
+| `pipeline_run_id` | `@pipeline().RunId` | The run to check |
 | `start_within_minutes` | `60` | The request expires if no agent has started it by then |
 | `timeout_minutes` | `240` | Stop waiting, cancel the request if it hasn't started, and fail |
 
@@ -290,7 +326,8 @@ A **request** is a JSON object in `requests/<id>.json`. The id is 1 to 64 letter
 | `backfill` | no | `""` or `"full"`. Needs `pipeline.allow_backfill` |
 | `cascade` | no | `true` rebuilds one entity and everything downstream of it. Needs `pipeline.allow_backfill` |
 | `deadline` | no | ISO 8601 time with a zone (`2026-10-17T03:00:00Z`): the latest time the run may start |
-| `submitted_by` | no | Free text up to 200 characters, recorded in the status |
+| `submitted_by` | no | Free text up to 200 characters, recorded in the status. Nothing checks it |
+| `pipeline_run` | no (yes with `require_run`) | `{"item_id": <pipeline item id>, "run_id": <run id>}`, both GUIDs: the run that wrote the request, for the agent to check |
 
 The agent answers in **`status/<id>.json`**:
 
@@ -304,9 +341,20 @@ The agent answers in **`status/<id>.json`**:
 | `received_at`, `started_at`, `finished_at`, `updated_at` | UTC times |
 | `result` | `tables`, `ok`, `failed`, `rows_written` and `run_ids` |
 | `cancel` | Set when a cancel arrived while the run was going |
+| `pipeline_run` | The run the request named, with `verified`, `status`, `started_at` and `detail` (what Fabric said, or why it couldn't be checked) |
 | `contract`, `request_id`, `env`, `entities`, `backfill`, `cascade`, `deadline`, `submitted_by` | As requested |
 
 A final status never changes again. Fields may be added within version 1; readers should ignore fields they don't know.
+
+### Which pipeline asked (Preview)
+
+Anyone who can write the environment's `LH_Meta` can write a request, and OneLake doesn't say who wrote a file: its owner is always `$superuser` ([OneLake API parity](https://learn.microsoft.com/fabric/onelake/onelake-api-parity)). So `submitted_by` is only what the pipeline says.
+
+What the agent can check is the run. When a request names `pipeline_run`, the agent looks that job up in the environment's workspace with the Fabric API, as its own identity. It records the answer in the status's `pipeline_run`. `verified` is true only when Fabric has a **Pipeline** job with that id, for that pipeline item, that started within the last 24 hours and not in the future. A local environment has no workspace to look in, so its runs are never verified.
+
+By default an unverified run is recorded and the request still runs. With `[pipeline] require_run = true`, a request without `pipeline_run`, or whose run doesn't check out, is rejected with the reason. So is one whose run has already finished: the notebook that writes a request waits for its answer, so its run is still in progress. When Fabric can't answer the lookup just then (it's busy, or the connection drops), the agent asks again on its next polls, for up to 15 minutes, before it rejects the request. Shared schedules write requests that name no run, so they can't be combined with `require_run`.
+
+This proves that a real pipeline run in the workspace is behind the request id. Each run vouches for one request only: the agent keeps the runs it accepted for a day (in `pipeline-runs.json` in its home folder, so a restart keeps them), and rejects a second request naming the same run with "pipeline run <id> already asked for request <other id>". The same request asked again is still one request. Each agent keeps its own list, so with several agents taking requests for one environment, keep write access to `LH_Meta` as narrow as the agents' own.
 
 **How it stays safe:**
 
@@ -318,7 +366,7 @@ A final status never changes again. Fields may be added within version 1; reader
 
 ### Shared schedules (Preview)
 
-Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md).
+Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md). Sharing is a setting in the agents' schedules, not a screen, so **Settings > Preview features** doesn't turn it off.
 
 ```toml
 [pipeline]
@@ -359,15 +407,35 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 3. A lease file appears in `LH_Meta/Files/_fabric_desktop/leases/` while a table runs and is gone after. OneLake's support for `If-None-Match` and `If-Match` on these requests is the key thing to confirm.
 4. Two agents, or the agent and the app, running the same table at once: one waits for the other and no rows are lost.
 5. Status records: `LH_Meta/Files/_fabric_desktop/agents/<name>.json` appears within `status_seconds` of starting the agent, its `heartbeat_at` moves on, and `state` is `stopped` after `systemctl stop` (or stopping the Windows service).
-6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
+6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`. Then pass `pipeline_id` and `pipeline_run_id` to the notebook and check the status's `pipeline_run` says `verified: true`. The live test's `pipeline.mailbox` check covers the OneLake part of this without a pipeline (see [Live testing](live-testing.md)).
 
 7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
 8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
 9. Takeover (Preview): with `take_over = true` on two agents, end one agent's process with Task Manager or `kill -9` while it runs a pipeline request. After its `stale_after` and one poll, the other agent's name is in `status/<id>.json`, `agents` lists both, and the run ends `succeeded`. Start the first agent again and check its log says the request was taken over and it writes nothing for it. This is the first time `If-Match` replace on OneLake is used for takeover.
+10. Shortcut health: with `[shortcut_health] enabled = true` and `minutes = 15` on a Test agent, make a shortcut in a Test lakehouse and remove its target. Within 15 minutes Teams gets one **Shortcut broken** message, and no second one 15 minutes later or after restarting the agent. Put the target back: one **Shortcut fixed**. Remove it again: one new **Shortcut broken**. With a second agent checking Test, still one message per break. Check the Fabric capacity metrics show no job from the agent.
+
+## Job files
+
+A job file runs DuckDB SQL or a Polars script and publishes the result, with `fabric-desktop preview job.toml` and `fabric-desktop run job.toml`. The agent doesn't run job files yet; see [Limits in this version](#limits-in-this-version).
+
+```toml
+name = "sales_by_region"
+engine = "duckdb"            # or "polars" with script = "file.py" defining transform()
+sql = "select region, sum(amount) as total from read_csv_auto('data/sales.csv') group by region"
+
+[target]
+workspace_id = "<workspace guid>"
+lakehouse = "Sales"          # created as a schema-enabled lakehouse if missing
+schema = "dbo"
+table = "sales_by_region"
+mode = "overwrite"           # or "append"
+```
+
+Relative paths in a job resolve from the job file's folder.
 
 ## Limits in this version
 
-- Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
+- OneLake doesn't report who wrote a request file, so the agent can't record the writer. It can check the pipeline run a request names ([Which pipeline asked](#which-pipeline-asked-preview)). That `@pipeline().Pipeline` and `@pipeline().RunId` are the item id and job instance id the Fabric API takes is still to confirm on a tenant.
 - One agent per queue. Two agents on different machines each keep their own queue. Table leases still stop them writing the same table at once, but nothing stops both from running the same schedule, unless it is a [shared schedule](#shared-schedules-preview) (Preview, untested on a tenant). Otherwise, give each environment's schedules to one agent.
 - Runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn. The desktop app's metadata runs, notebook writes and job publishes do take them (see Safe concurrent writes).
 - An agent older than the desktop app's table leases takes only its `LH_Meta` lease, so it doesn't wait for a notebook writing the same table. Update agents with the app.

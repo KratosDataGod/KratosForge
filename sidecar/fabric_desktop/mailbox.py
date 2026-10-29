@@ -17,7 +17,18 @@ Request, contract 1::
 
 ``env`` is required. ``entities`` empty means every entity (refused when the agent has an entity
 allowlist). ``deadline`` is the latest time the run may start; past it the request expires.
-``submitted_by`` is free text the pipeline sets, recorded as given.
+``submitted_by`` is free text the pipeline sets, recorded as given: nothing checks it, and OneLake
+doesn't say who wrote a file (its owner is always ``$superuser``). What can be checked is the run:
+
+    "pipeline_run": {"item_id": "<@pipeline().Pipeline>", "run_id": "<@pipeline().RunId>"}
+
+The agent looks that job up in the environment's workspace with the Fabric API and records the
+answer as the status's ``pipeline_run``: ``verified`` is true only for a Pipeline job of that item,
+started within ``RUN_MAX_AGE`` and not in the future. With ``[pipeline] require_run = true`` a request
+that doesn't name a run, or whose run doesn't check out or has already finished (the notebook that
+writes a request waits for its answer, so its run is still going), is rejected. A lookup Fabric
+couldn't answer just then (429, 5xx, no connection) is tried again on the next poll for up to
+``RUN_LOOKUP_GRACE`` before it counts. Untested on a Fabric tenant (PB-049).
 
 Each request is claimed by creating its status file with ``If-None-Match: *``, so one agent takes
 it however many poll the mailbox (with ``[pipeline] claim = "when_free"``, only while it has a worker
@@ -60,9 +71,12 @@ from typing import Any, Callable
 
 import requests
 
+from . import jsonfile
+from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST
+from .paging import Pages
 from .redact import describe
 from .retrying import send_with_retry
 
@@ -71,9 +85,15 @@ CONTROL_DIR = "Files/_fabric_desktop"
 FINAL = ("succeeded", "failed", "cancelled", "expired", "rejected")
 MAX_REQUEST_BYTES = 64 * 1024
 WRITING_GRACE = 60  # seconds an unreadable request gets before it is rejected
+RUN_MAX_AGE = 24 * 3600  # seconds: an older pipeline run can't vouch for a new request
+RUN_CLOCK_SKEW = 300  # seconds a run's start time may be ahead of this PC's clock
+RUN_LOOKUP_GRACE = 15 * 60  # seconds a request waits for a run lookup Fabric couldn't answer
+RUN_GOING = ("InProgress", "NotStarted")  # a run that wrote a request and waits for its answer
+_TRANSIENT = (408, 429, 500, 502, 503, 504)
 TAKEOVER_GRACE = 60  # seconds past an agent's stale_after before its requests are taken over (clock differences)
 _RUN_FIELDS = ("job_id", "attempts", "started_at", "finished_at", "result", "error", "last_error", "cancel")
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+_GUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 _JOB_STATE = {"queued": "accepted", "running": "running", "succeeded": "succeeded", "failed": "failed",
               "dead": "failed", "cancelled": "cancelled"}
 
@@ -102,6 +122,7 @@ class OneLakeControl(OneLakeBackend):
         params = {"resource": "filesystem", "recursive": "false",
                   "directory": f"{self.lakehouse_id}/{CONTROL_DIR}/{folder}"}
         names: list[str] = []
+        pages = Pages(f"the {folder} mailbox folder")
         while True:
             resp = send_with_retry(lambda: self._http.get(url, params=dict(params), headers=self._headers(),
                                                           timeout=60), "GET", sleep=self._sleep)
@@ -113,7 +134,7 @@ class OneLakeControl(OneLakeBackend):
             token = resp.headers.get("x-ms-continuation")
             if not token:
                 return sorted(n for n in names if n.endswith(".json"))
-            params["continuation"] = token
+            params["continuation"] = pages.follow(token)
 
 
 def _iso(t: float) -> str:
@@ -127,6 +148,16 @@ def _epoch(text: str) -> float:
     return when.timestamp()
 
 
+def _fabric_utc(text: Any) -> float:
+    """A Fabric time such as ``2026-10-28T06:35:00.7812154`` (UTC, up to seven decimals, often no zone)."""
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?", str(text or ""))
+    if not m:
+        raise ValueError(f"not a time: {text!r}")
+    when = dt.datetime.fromisoformat(m.group(1) + (f".{m.group(2)[:6]}" if m.group(2) else "")
+                                     + (m.group(3) or "Z").replace("Z", "+00:00"))
+    return when.timestamp()
+
+
 class Mailbox:
     """The agent's side of the contract, for every environment it takes pipeline requests for.
 
@@ -137,10 +168,24 @@ class Mailbox:
     def __init__(self, agent: Any, control: Callable[[str], Any], environments: list[str],
                  entities: list[str] | None = None, allow_backfill: bool = False, retention_days: float = 14,
                  known_entities: Callable[[], set[str]] | None = None, log: logging.Logger | None = None,
-                 claim: str = "always", take_over: bool = False, max_attempts: int = 3):
+                 claim: str = "always", take_over: bool = False, max_attempts: int = 3,
+                 verify_run: Callable[[str, str, str], dict[str, Any]] | None = None, require_run: bool = False,
+                 runs_file: Path | None = None):
         self.agent, self.environments = agent, list(environments)
         self.claim = claim  # "when_free": leave new requests for an agent with a worker free
         self.take_over, self.max_attempts = take_over, max(1, int(max_attempts))
+        # verify_run(env, item_id, run_id) returns Fabric's job instance (Runtime.verify_pipeline_run)
+        self.verify_run, self.require_run = verify_run, require_run
+        # With require_run, the pipeline runs already accepted, {env: {run_id: {"request_id", "at"}}}, kept
+        # on this PC for RUN_MAX_AGE so one run vouches for one request only (#969)
+        self._runs_file = runs_file
+        self._runs: dict[str, dict[str, dict[str, Any]]] = {}
+        self._runs_lock = threading.Lock()  # _claim runs under self._lock already
+        if runs_file is not None:
+            loaded = jsonfile.read_json(runs_file, {})
+            self._runs = {env: {run: dict(e) for run, e in runs.items()  # a hand-edited entry without a time is dropped
+                                if isinstance(e, dict) and isinstance(e.get("at"), (int, float)) and not isinstance(e["at"], bool)}
+                          for env, runs in loaded.items() if isinstance(runs, dict)} if isinstance(loaded, dict) else {}
         self._lost_seen: dict[tuple[str, str], bool] = {}  # per poll: each owner's record is read once
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
         self.retention = retention_days * 86400
@@ -270,6 +315,16 @@ class Mailbox:
                 "env": env, "received_at": _iso(now), "updated_at": _iso(now), "agents": [self.agent.config.name]}
         if request:
             base |= {k: request[k] for k in ("entities", "backfill", "cascade", "deadline", "submitted_by") if k in request}
+        if request.get("pipeline_run") and not reason:
+            base["pipeline_run"] = self._check_run(env, request["pipeline_run"], now)
+            if self.require_run and not base["pipeline_run"]["verified"]:
+                if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
+                    return  # Fabric couldn't answer just then; ask again next poll
+                reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
+            elif self.require_run:
+                other = self._run_used(env, request["pipeline_run"]["run_id"], rid, now)
+                if other:
+                    reason = f"pipeline run {request['pipeline_run']['run_id']} already asked for request {other}"
         if reason:
             status = base | {"state": "rejected", "reason": reason}
         elif self.control(env).read(f"cancel/{rid}.json") is not None:
@@ -280,9 +335,29 @@ class Mailbox:
             status = base | {"state": "accepted"}
         if not self._write_status(env, rid, status, None):
             return  # another agent claimed it first
+        if self.require_run and status["state"] == "accepted" and request.get("pipeline_run"):
+            self._run_taken(env, request["pipeline_run"]["run_id"], rid, now)
         self.log.info(f"pipeline request {status['state']}", extra=fields(env=env, request_id=rid, reason=status.get("reason")))
         if status["state"] == "accepted":
             self._sync(env, rid, *self._read(env, f"status/{rid}.json"))  # type: ignore[arg-type]
+
+    def _run_used(self, env: str, run_id: str, rid: str, now: float) -> str | None:
+        """The other request ``run_id`` already vouched for within RUN_MAX_AGE, or None. The same
+        request id asking again is the same request."""
+        with self._runs_lock:
+            entry = self._runs.get(env, {}).get(run_id)
+        if entry and now - float(entry.get("at") or 0) <= RUN_MAX_AGE and entry.get("request_id") != rid:
+            return str(entry.get("request_id"))
+        return None
+
+    def _run_taken(self, env: str, run_id: str, rid: str, now: float) -> None:
+        with self._runs_lock:
+            for runs in self._runs.values():  # drop what's past RUN_MAX_AGE as we go
+                for old in [r for r, e in runs.items() if now - float(e.get("at") or 0) > RUN_MAX_AGE]:
+                    del runs[old]
+            self._runs.setdefault(env, {})[run_id] = {"request_id": rid, "at": now}
+            if self._runs_file is not None:
+                jsonfile.write_json(self._runs_file, self._runs)
 
     def _parse(self, env: str, rid: str, data: bytes) -> tuple[dict[str, Any], str]:
         if len(data) > MAX_REQUEST_BYTES:
@@ -325,6 +400,14 @@ class Mailbox:
         submitted_by = raw.get("submitted_by", "")
         if not isinstance(submitted_by, str) or len(submitted_by) > 200:
             problems.append("submitted_by is text of at most 200 characters")
+        run = raw.get("pipeline_run")
+        if run is not None and not (isinstance(run, dict) and all(isinstance(run.get(k), str) and _GUID.fullmatch(run[k])
+                                                                  for k in ("item_id", "run_id"))):
+            problems.append("pipeline_run is {\"item_id\": <pipeline id>, \"run_id\": <run id>}, both GUIDs")
+            run = None
+        if run is None and self.require_run:
+            problems.append("this agent only takes requests that name the pipeline run that wrote them "
+                            "(pipeline_run; pipeline.require_run in agent.toml)")
         if env not in self.environments:
             problems.append(f"this agent doesn't take pipeline requests for {env}")
         known = self._known() if self._known else None
@@ -342,7 +425,42 @@ class Mailbox:
                    "submitted_by": submitted_by if isinstance(submitted_by, str) else ""}
         if deadline is not None:
             request["deadline"] = str(deadline)
+        if run is not None:
+            request["pipeline_run"] = {"item_id": run["item_id"].lower(), "run_id": run["run_id"].lower()}
         return request, "; ".join(problems)
+
+    def _check_run(self, env: str, run: dict[str, str], now: float) -> dict[str, Any]:
+        """What Fabric says about the pipeline run a request names. Never raises: a run that can't be
+        found or read is recorded as not verified, with why."""
+        out: dict[str, Any] = dict(run, verified=False)
+        if self.verify_run is None:
+            return out | {"detail": "this agent doesn't check pipeline runs"}
+        try:
+            job = self.verify_run(env, run["item_id"], run["run_id"])
+        except Exception as exc:  # recorded on the status; require_run decides whether it matters
+            if getattr(exc, "status", None) in _TRANSIENT or isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+                return out | {"detail": f"couldn't look it up in the {env} workspace just now: {describe(exc)}",
+                              "transient": True}
+            return out | {"detail": f"couldn't find it in the {env} workspace: {describe(exc)}"}
+        problems = []
+        if str(job.get("jobType") or "") != "Pipeline":
+            problems.append(f"it is a {job.get('jobType') or 'job of unknown type'}, not a pipeline run")
+        if str(job.get("itemId") or "").lower() != run["item_id"]:
+            problems.append("Fabric names a different item for it")
+        try:
+            age = now - _fabric_utc(job.get("startTimeUtc"))
+            if age > RUN_MAX_AGE:
+                problems.append(f"it started {age / 3600:.0f} hours ago; the most is {RUN_MAX_AGE // 3600}")
+            elif age < -RUN_CLOCK_SKEW:
+                problems.append("Fabric gives it a start time in the future")
+        except ValueError:
+            problems.append("Fabric gave no start time for it")
+        out |= {"status": str(job.get("status") or ""), "started_at": str(job.get("startTimeUtc") or "")}
+        if self.require_run and out["status"] not in RUN_GOING:
+            problems.append(f"it has already finished ({out['status'] or 'no status'}); the run that asks is still going")
+        if problems:
+            return out | {"detail": "; ".join(problems)}
+        return out | {"verified": True, "detail": f"pipeline run {run['run_id']} of item {run['item_id']}, {out['status']}"}
 
     def _sync(self, env: str, rid: str, status: dict[str, Any], stored: Stored) -> None:
         """Make the status say what the agent's queue says, queueing the job if a crash left it unqueued."""
@@ -470,7 +588,7 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     from .meta import LocalStore, OneLakeStore
     if isinstance(store, OneLakeStore):
         if not meta_lakehouse_id:
-            raise LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
+            raise NotSetUp("LH_Meta doesn't exist in this environment's workspace yet; promote to it first")
         return OneLakeControl(store.workspace_id, meta_lakehouse_id, token, session)
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")

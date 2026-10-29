@@ -31,6 +31,7 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from .. import redact
+from ..paging import Pages, PagingError
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -178,6 +179,14 @@ class Client:
         """A cluster's spark_version and state (Clusters API). Reading never starts it."""
         return self._call("GET", "/api/2.1/clusters/get", params={"cluster_id": _checked_id(cluster_id, "cluster")})
 
+    def stop_warehouse(self, warehouse_id: str) -> None:
+        """Ask the warehouse to stop (SQL Warehouses API). Only the live test calls it."""
+        self._call("POST", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}/stop")
+
+    def terminate_cluster(self, cluster_id: str) -> None:
+        """Terminate the cluster, keeping its definition (Clusters API ``delete``). Only the live test calls it."""
+        self._call("POST", "/api/2.1/clusters/delete", json={"cluster_id": _checked_id(cluster_id, "cluster")})
+
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
 
@@ -190,12 +199,17 @@ class Client:
     def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         token = ""
+        pages = Pages(f"{self.host}{path}")  # empty pages with a next token would otherwise never reach the limit
         while len(items) < CATALOG_LIMIT:
             page = self._call("GET", path, params=params | ({"page_token": token} if token else {}))
             items += page.get(key) or []
             token = page.get("next_page_token") or ""
             if not token:
                 break
+            try:
+                pages.follow(token)
+            except PagingError as exc:
+                raise DatabricksError(str(exc)) from None
         return items[:CATALOG_LIMIT]
 
 

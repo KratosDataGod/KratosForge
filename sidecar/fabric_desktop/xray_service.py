@@ -355,7 +355,7 @@ class XRayMixin:
             try:
                 uri, dt_ = self._source_table(workspace_id, lakehouse_id, t["schema"], t["table"])
                 cols = list(_table_schema(dt_))
-            except Exception as exc:
+            except Exception:
                 out.append({"schema": t["schema"], "table": t["table"], "ok": False, "why": "Not a Delta table"})
                 continue
             name = f"{layer}.{_entity_name(t['table'])}"

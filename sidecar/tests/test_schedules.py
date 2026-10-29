@@ -126,6 +126,42 @@ def test_scheduled_metadata_run_on_this_pc(svc, tmp_path):
     assert len(svc.meta_runs("dev")) == 6
 
 
+def test_editing_a_schedule_on_this_pc_keeps_its_id_its_runs_and_paused(svc):
+    """PB-048: new times in place. The Windows task is replaced under the same id."""
+    svc.notebooks.save("Daily load", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Daily load"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    svc.pc_schedules.log_run({"schedule_id": sid, "status": "ok", "started": "2026-10-28T06:00:00"})
+    svc.set_pc_schedule_enabled(sid, False)
+    out = svc.update_pc_schedule(sid, {"kind": "weekly", "times": ["06:00", "13:00"], "weekdays": ["Monday", "Friday"]})
+    assert out["id"] == sid and out["enabled"] is False and svc.fake_scheduler.tasks[sid][0] is False
+    [row] = svc.pc_schedules_for("notebook", "Daily load")
+    assert row["text"] == "Mon, Fri at 06:00, 13:00" and row["last"]["status"] == "ok"
+    before = dict(row["config"])
+    with pytest.raises(ValueError, match="HH:MM"):
+        svc.update_pc_schedule(sid, {"kind": "daily", "times": ["25:00"]})
+    assert svc.pc_schedules_for("notebook", "Daily load")[0]["config"] == before  # a bad time changes nothing
+    with pytest.raises(LookupError):
+        svc.update_pc_schedule("nope", {"kind": "daily", "times": ["06:00"]})
+
+
+def test_editing_a_fabric_schedule_updates_it_in_place(svc, monkeypatch):
+    sent = []
+
+    class Jobs:
+        def update_schedule(self, ws, item, job, sid, enabled, config):
+            sent.append((ws, item, job, sid, enabled, config))
+            return {"id": sid, "enabled": enabled, "configuration": config}
+
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: Jobs()))
+    svc._fabric_schedules = {"pending": False, "items": [{"id": "s1", "text": "Daily at 02:00 UTC", "configuration": {}}]}
+    svc.update_fabric_schedule("ws1", "nb1", "RunNotebook", "s1",
+                               {"kind": "daily", "times": ["02:00"], "time_zone": "W. Australia Standard Time"}, enabled=False)
+    [(ws, item, job, sid, enabled, config)] = sent
+    assert (ws, item, job, sid, enabled) == ("ws1", "nb1", "RunNotebook", "s1", False)
+    assert config["type"] == "Daily" and config["times"] == ["02:00"] and config["localTimeZoneId"] == "W. Australia Standard Time"
+    assert svc._fabric_schedules["items"][0]["text"] == "Daily at 02:00 W. Australia Standard Time"
+
+
 class FakeFabric:
     def __init__(self, token):
         pass
@@ -317,3 +353,26 @@ def test_a_run_with_nothing_waiting_makes_no_alert_file(svc, monkeypatch):
     monkeypatch.setattr(dataops_service, "post_teams", lambda *a: (_ for _ in ()).throw(AssertionError("nothing to post")))
     assert svc.run_schedule(sid)["status"] == "ok"
     assert not (svc.root / SCHEDULE_ALERTS).exists()
+
+
+def test_a_task_scheduler_that_doesnt_answer_is_given_up_on(monkeypatch):
+    import subprocess
+
+    from fabric_desktop import local_schedules
+    seen = {}
+
+    def hung(cmd, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+    monkeypatch.setattr(local_schedules.subprocess, "run", hung)
+    with pytest.raises(RuntimeError, match="Task Scheduler didn't answer in 60 seconds"):
+        local_schedules.TaskScheduler()._run("/Query")
+    assert seen["timeout"] == local_schedules.SCHTASKS_SECONDS
+
+
+def test_a_task_left_behind_by_a_timed_out_create_runs_nothing(svc):
+    # A /Create that timed out may still have registered its task, while the schedule was never saved.
+    # When that task fires, run-schedule finds no such schedule and runs nothing.
+    with pytest.raises(LookupError, match="There is no schedule gone123 on this PC"):
+        svc.run_schedule("gone123")
+    assert svc.pc_schedules.runs() == []

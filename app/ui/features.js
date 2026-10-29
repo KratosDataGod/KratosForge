@@ -99,6 +99,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
+  cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
@@ -106,6 +107,7 @@ const PREVIEW_FEATURES = {
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
+  vscode: "VS Code pairing",
 };
 
 function previewShown() {
@@ -126,7 +128,7 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk", "vscode"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
@@ -139,6 +141,15 @@ function learnMore(anchor, label = "Learn more") {
   return h("a", { href: "#", class: "learn-more", onclick: (e) => {
     e.preventDefault();
     attempt(() => invoke("open_doc", { page: `user-guide.md${anchor ? `#${anchor}` : ""}` }), "Could not open the guide");
+  } }, label);
+}
+
+// A link to a docs page section the engine names, like a best-practice finding's url
+// ("sql-best-practices.md#sq002"). open_doc refuses anything that isn't a docs page.
+function docLink(page, label) {
+  return h("a", { href: "#", class: "learn-more", onclick: (e) => {
+    e.preventDefault();
+    attempt(() => invoke("open_doc", { page }), "Could not open the guide");
   } }, label);
 }
 
@@ -400,7 +411,7 @@ function openPalette(initial = "") {
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
     "aria-label": "Command bar" });
-  const list = h("div", { class: "palette-list", role: "listbox" });
+  const list = h("div", { class: "palette-list", role: "listbox", "aria-label": "Results" });
   const close = () => {
     const open = document.getElementById("palette");
     if (!open) return;

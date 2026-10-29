@@ -4,13 +4,13 @@ Local stores are real (a metadata project, notebooks, schedules, the management 
 Fabric is a fake. Nothing here talks to a tenant."""
 
 import datetime as dt
-import json
 import time
 import types
 
 import pytest
 
 from fabric_desktop import schedule_service, workload_service
+from fabric_desktop.errors import NotSetUp
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.local_schedules import LocalSchedules
 from fabric_desktop.service import Service
@@ -516,9 +516,9 @@ def test_an_ended_action_never_changes(tmp_path):
     (PermissionError("nope"), "unauthorized"),
     (FabricError("GET /x failed with 429: Too Many Requests"), "throttled"),
     (ConnectionError("Failed to establish a new connection"), "offline"),
-    (LookupError("Assign a workspace to Test first"), "not_set_up"),
-    (LookupError("LH_Meta doesn't exist in this environment's workspace yet; promote to it first"), "not_set_up"),
-    (LookupError("LH_Meta doesn't exist in the test workspace yet; promote to test first"), "not_set_up"),
+    (NotSetUp("Assign a workspace to Test first"), "not_set_up"),
+    (NotSetUp("LH_Meta doesn't exist in this environment's workspace yet; promote to it first"), "not_set_up"),
+    (NotSetUp("LH_Meta doesn't exist in the test workspace yet; promote to test first"), "not_set_up"),
     (RuntimeError("weird"), "error"),
 ])
 def test_read_failures_are_classified(exc, state):

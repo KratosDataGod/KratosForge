@@ -18,7 +18,7 @@ const PBI_OPENED_KEY = "fd.pbi.opened";  // item id -> when it was last opened i
 const PBI_READERS = 4;  // workspaces read at once
 const PBI_EVENTS_KEPT = 500;
 
-const pbiPage = { filter: "all", favoritesOnly: false, find: "", workspace: "", reading: 0, failed: new Set() };
+const pbiPage = { filter: "all", favoritesOnly: false, find: "", workspace: "", reading: 0, failed: new Set(), load: 0 };
 // The item open in Embed Studio ({workspace_id, workspace_name, item_id, type, name}); Back and Forward keep it.
 const pbiStudio = { item: null, side: "details", session: null };
 
@@ -58,17 +58,16 @@ function pbiOpenedLabel(at, now = Date.now()) {
 async function pbiLoadItems(workspaces, redraw) {
   const wp = workspacesPage;
   const todo = workspaces.filter((w) => !wp.items[w.id]);
+  const load = ++pbiPage.load;  // a later load (Refresh) retires this one's readers
   pbiPage.reading = todo.length;
   let next = 0;
   const reader = async () => {
-    while (next < todo.length) {
+    while (next < todo.length && load === pbiPage.load) {
       const w = todo[next++];
-      try {
-        wp.items[w.id] = (await rpc("list_items", { workspace_id: w.id })) || [];
-        pbiPage.failed.delete(w.id);
-      } catch {
-        pbiPage.failed.add(w.id);
-      }
+      let items = null;
+      try { items = (await rpc("list_items", { workspace_id: w.id })) || []; } catch { /* counted below */ }
+      if (load !== pbiPage.load) return;
+      if (items) { wp.items[w.id] = items; pbiPage.failed.delete(w.id); } else pbiPage.failed.add(w.id);
       pbiPage.reading--;
       redraw();
     }

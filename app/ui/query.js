@@ -841,7 +841,8 @@ function renderQuery() {
         if (text !== tab.compatText) { toast("The SQL changed since this check. The findings update in a moment."); return; }
         const at = sqlPracticeOffset(text, f.line, f.col);
         editor.reveal(sqlUtf16Offset(text, at), sqlUtf16Offset(text, at + 1));
-      } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}`))));
+      } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}${f.url ? " · " : ""}`),
+      f.url ? docLink(f.url, `About ${f.rule_id}`) : null)));
     compatBody.replaceChildren(...[head, intro,
       h("div", { class: "sql-chips" }, chip(r.counts.Error, "error", "error"), chip(r.counts.Warning, "warning", "warning"), chip(r.counts.Info, "info", "information")),
       r.note ? h("p", { class: "muted-text" }, r.note) : null,

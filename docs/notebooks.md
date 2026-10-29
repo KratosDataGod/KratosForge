@@ -5,7 +5,7 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 ## Your first notebook
 
 1. **Create > Notebook** (or **New notebook** on Home, or Ctrl+K "New notebook"). The notebook opens with one empty code cell.
-2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it. A running cell keeps the lakehouse it started with: starting a cell from another notebook, or an external tool's run against another lakehouse, waits or is refused until it finishes.
+2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it. The left side filters by Favorites, Endorsed or one workspace, as on the [OneLake catalog](user-guide.md#catalog): Favorites are the stars you click in the list, saved on this PC, and Endorsed is greyed out. A running cell keeps the lakehouse it started with: starting a cell from another notebook, or an external tool's run against another lakehouse, waits or is refused until it finishes.
 3. In the Explorer, click a table to insert code that loads it, or a file to insert code that reads it.
 4. Run the cell with **Shift+Enter**. Output shows below it.
 5. Write a result back:
@@ -297,6 +297,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark, SQL or pandas. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
+- Hide a cell's code or output from its toolbar or the **View** tab.
 - **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, **Tab** moves on to the next cell (a cell's buttons come just before its editor in Tab order, so Tab from the cell above reaches them), and **Enter** goes back to editing.
 
 The ribbon has four tabs:
@@ -324,14 +325,14 @@ A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run`
 
 1. The first time, it asks which workspace (starting from the attached lakehouse's). The choice is saved in the notebook, so later publishes go straight there.
 2. The arrow next to **Publish** shows where it goes and has **Change workspace...**.
-3. The attached lakehouse stays the notebook's default lakehouse in Fabric, even when it lives in another workspace.
+3. The attached lakehouse stays the notebook's default lakehouse in Fabric, even when it lives in another workspace. **Run in Fabric** and **Schedule** use the same workspace.
 4. Later publishes update the same Fabric notebook, found by its item id, so renaming it here or in Fabric doesn't make a second one. A rename here renames the Fabric notebook too; a rename in Fabric is kept. If that notebook was deleted in Fabric, publish updates one with the notebook's name in that workspace, or makes a new one, and says so.
 
 How it is published:
 
 - A notebook that uses `spark` or `%%sql` is published as a **Spark notebook**, where `spark` and `%%sql` are Fabric's own.
 - A notebook that uses `fabric_desktop.lakehouse` is published as a **Fabric Python notebook** with a setup cell first. That cell defines the same `lakehouse` module from libraries Fabric's Python notebooks already have (Polars, deltalake, DuckDB), so the notebook runs there unchanged. Its `%%sql` cells become `lakehouse.sql(...)`. The setup cell is only in the published copy, not in your notebook.
-- Other notebooks are published as they are.
+- Other notebooks, such as the surrogate key templates, are published as they are, for Spark.
 
 ## Where a notebook runs
 
@@ -438,4 +439,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files](agent.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses. Monitor > Runs lists each run as a **Job run**, named after the job.

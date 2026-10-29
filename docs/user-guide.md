@@ -500,13 +500,15 @@ Each window has **Keep on top** and **Dock back**. Closing the window docks the 
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). KratosForge never reads your whole tenant.
 
+**Local pipelines** (Preview) are their own group: each pipeline in the repositories this PC opened, and each pipeline a schedule on this PC runs. Its runs are the ones started from the Pipelines page or by its schedules here. A run that mocked any activity shows **Needs attention** with "with mocks", because it doesn't show the whole pipeline works. Runs are kept by pipeline name, so when two pipelines share a name, only the runs their own schedules started count for each. **Run the schedule now** uses the schedule's saved parameters, mocks and notebooks, and asks first with the risk check, as for notebooks; a pipeline without a schedule here runs from its **Open pipeline** page. Local pipeline runs start no Fabric job, but steps that read or write a lakehouse use OneLake, and OneLake reads and writes use capacity. They open no incidents: incidents are kept per environment for metadata entities.
+
 **How this works**, from the title bar's info button, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
 
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by**, a dropdown on the same row, picks Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
 | Column | What it means |
 | --- | --- |
-| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (KratosForge couldn't read it), **Healthy**, or **No recorded runs**. |
+| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, a run was cancelled, or a pipeline's last run used mocks), **Not observed** (KratosForge couldn't read it), **Healthy**, or **No recorded runs**. |
 | **Owner** | The team or technical owner, and whether it was declared in the project's files or assigned on this PC. **No owner** when nobody is set, or when a template placeholder such as "me" is all there is. |
 | **Deployed to** | Each environment and where it runs: This PC, an agent, or Fabric and its workspace. |
 | **Last run** | How the newest recorded run ended. |

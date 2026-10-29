@@ -28,7 +28,6 @@ import json
 import re
 import uuid
 from typing import Any, Callable
-from urllib.parse import urlsplit
 
 TABLE = "WarehouseExecutions"
 HOST_SUFFIX = ".kusto.fabric.microsoft.com"

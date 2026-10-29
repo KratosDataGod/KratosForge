@@ -12,6 +12,7 @@ import requests
 from urllib3.util import parse_url
 
 from . import http_session
+from .paging import Pages, PagingError
 from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -69,7 +70,8 @@ def _error_body(resp: requests.Response) -> dict[str, Any]:
         return {}
     if not isinstance(body, dict):
         return {}
-    inner = body.get("error") if isinstance(body.get("error"), dict) else {}
+    raw = body.get("error")
+    inner: dict[str, Any] = raw if isinstance(raw, dict) else {}
     return {"code": body.get("errorCode") or inner.get("code") or inner.get("errorCode"),
             "message": body.get("message") or inner.get("message"),
             "details": body.get("moreDetails") or inner.get("details") or [],
@@ -101,10 +103,12 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
 
 def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
     """A failed long-running operation, in Fabric's words: its error code and message, never the raw body."""
-    error = state.get("error") if isinstance(state.get("error"), dict) else {}
+    raw = state.get("error")
+    error: dict[str, Any] = raw if isinstance(raw, dict) else {}
     code = str(error.get("errorCode") or "") or None
     message = str(error.get("message") or "").strip().rstrip(".")
-    more = error.get("moreDetails") if isinstance(error.get("moreDetails"), list) else []
+    raw_more = error.get("moreDetails")
+    more: list[Any] = raw_more if isinstance(raw_more, list) else []
     details = [str(d.get("message")).strip().rstrip(".") for d in more if isinstance(d, dict) and d.get("message")]
     if code == "CapacityNotActive":
         message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
@@ -205,11 +209,15 @@ class FabricClient:
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         url = url if url.startswith("http") else f"{API}{url}"
+        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric")
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+            try:
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+            except PagingError as exc:  # a FabricError, so callers that report Fabric errors report this one
+                raise FabricError(str(exc), "PagingStopped") from None
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:

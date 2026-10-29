@@ -22,6 +22,7 @@ python -m pip install -e ".[dev]"     # Python 3.11 or later
 python -m pytest -q                   # every test runs without Fabric or the internet
 python -m pytest -q -n auto --dist loadfile   # the same, one worker per core, as CI runs it
 python -m ruff check .               # the lint CI runs: unused or undefined names, syntax errors
+python ../.github/scripts/mypy_ratchet.py   # type check: fails on new errors (pip install mypy); --update after renaming a file or moving a pin
 fabric-desktop preview ..\examples\sales_by_region.toml
 fabric-desktop sign-in
 fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the job first

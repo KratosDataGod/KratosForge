@@ -130,7 +130,8 @@ async function governancePolicy(body, id) {
       btn("Edit (new draft)", null, () => policyDialog(o.options, p, rerender), "tool outline small")) : null,
     previewShown() && (can.admin || can.domains.length) ? h("div", { class: "row" }, h("span", { class: "grow" }),
       btn("Save as template", null, () => saveAsTemplateDialog(p), "tool outline small")) : null,
-    h("div", { class: "subtabs" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`, onclick: () => { govPage.sub = t; rerender(); } }, label))),
+    h("div", { class: "subtabs", role: "tablist", "aria-label": "Policy" }, tabs.map(([t, label]) => h("button", { class: `tab${govPage.sub === t ? " active" : ""}`,
+      role: "tab", "aria-selected": String(govPage.sub === t), onclick: () => { govPage.sub = t; rerender(); } }, label))),
     sub].filter(Boolean));
   if (govPage.sub === "applies") return governanceApplies(sub, p, o, can, rerender);
   if (govPage.sub === "history") {

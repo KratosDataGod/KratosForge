@@ -413,3 +413,115 @@ def test_local_control_files_keep_their_folders(tmp_path):
     c = LocalControl(tmp_path)
     assert c.create("status/a.json", b"{}") and (tmp_path / "status" / "a.json").exists()
     assert c.list("status") == ["a.json"] and c.list("nothing") == []
+
+
+# ---- which pipeline run asked (PB-049): OneLake can't say who wrote a file, so the run is checked
+
+ITEM, RUN = "0a1b2c3d-0000-4000-8000-000000000001", "0a1b2c3d-0000-4000-8000-0000000000aa"
+
+
+def fabric_time(seconds_ago: float) -> str:
+    """How Fabric writes a job's start: UTC, seven decimals, no zone."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - seconds_ago)) + ".7812154"
+
+
+one_pass = run  # the helper above; the tests below have a parameter called run
+
+
+def checked(setup, job=None, error=None, require=False, run=True):
+    agent = Agent(setup)
+    asked = []
+
+    def verify(env, item_id, run_id):
+        asked.append((env, item_id, run_id))
+        if error:
+            raise error
+        return job
+    agent.mailbox.verify_run, agent.mailbox.require_run = verify, require
+    body = {"env": "dev", "entities": ["bronze.orders"], "submitted_by": "pl_nightly"}
+    if run:
+        body["pipeline_run"] = {"item_id": ITEM.upper(), "run_id": RUN}
+    write_request(setup, "r1", body)
+    one_pass(agent)
+    return status(setup, "r1"), asked
+
+
+def test_a_pipeline_run_that_checks_out_is_recorded_as_verified(setup):
+    done, asked = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "InProgress",
+                                  "startTimeUtc": fabric_time(120)})
+    assert asked == [("dev", ITEM, RUN)], "ids are compared and sent in lower case"
+    assert done["state"] == "succeeded" and done["submitted_by"] == "pl_nightly"
+    assert done["pipeline_run"]["verified"] is True and done["pipeline_run"]["status"] == "InProgress"
+
+
+@pytest.mark.parametrize("job, says", [
+    ({"jobType": "RunNotebook", "itemId": ITEM, "startTimeUtc": fabric_time(60)}, "not a pipeline run"),
+    ({"jobType": "Pipeline", "itemId": "0a1b2c3d-0000-4000-8000-0000000000ff", "startTimeUtc": fabric_time(60)},
+     "different item"),
+    ({"jobType": "Pipeline", "itemId": ITEM, "startTimeUtc": fabric_time(3 * 86400)}, "started 72 hours ago"),
+    ({"jobType": "Pipeline", "itemId": ITEM}, "no start time"),
+])
+def test_a_run_that_doesnt_check_out_is_recorded_and_still_runs_unless_required(setup, job, says):
+    done, _ = checked(setup, job)
+    assert done["state"] == "succeeded" and done["pipeline_run"]["verified"] is False
+    assert says in done["pipeline_run"]["detail"]
+
+
+def test_with_require_run_an_unverified_run_is_rejected_and_nothing_is_queued(setup):
+    from fabric_desktop.fabric_api import FabricError
+    done, _ = checked(setup, error=FabricError("GET failed with 404: ItemNotFound", "ItemNotFound", 404), require=True)
+    assert done["state"] == "rejected" and "didn't check out" in done["reason"] and "require_run" in done["reason"]
+    assert done["pipeline_run"]["verified"] is False and "couldn't find it in the dev workspace" in done["pipeline_run"]["detail"]
+    assert "job_id" not in done
+
+
+def test_with_require_run_a_request_naming_no_run_is_rejected_without_asking_fabric(setup):
+    done, asked = checked(setup, run=False, require=True)
+    assert done["state"] == "rejected" and "only takes requests that name the pipeline run" in done["reason"]
+    assert asked == []
+
+
+@pytest.mark.parametrize("run", [{"item_id": ITEM}, {"item_id": "pl_nightly", "run_id": RUN}, "8c1f"])
+def test_a_malformed_pipeline_run_is_rejected(setup, run):
+    write_request(setup, "r1", {"env": "dev", "pipeline_run": run})
+    one_pass(Agent(setup))
+    assert status(setup, "r1")["state"] == "rejected" and "both GUIDs" in status(setup, "r1")["reason"]
+
+
+def test_a_local_environment_records_that_the_run_couldnt_be_looked_up(setup):
+    write_request(setup, "r1", {"env": "dev", "entities": ["bronze.orders"], "pipeline_run": {"item_id": ITEM, "run_id": RUN}})
+    run(Agent(setup))
+    done = status(setup, "r1")
+    assert done["state"] == "succeeded" and done["pipeline_run"]["verified"] is False
+    assert "runs on this machine" in done["pipeline_run"]["detail"]
+
+
+def test_the_notebook_names_its_pipeline_run_when_given_one(nb):
+    assert "pipeline_run" not in nb["make_request"]("dev", "", 60, "x")
+    assert nb["make_request"]("dev", "", 60, "x", ITEM, RUN)["pipeline_run"] == {"item_id": ITEM, "run_id": RUN}
+
+
+def test_fabric_times_with_seven_decimals_and_no_zone_are_utc():
+    from fabric_desktop.mailbox import _fabric_utc
+    assert _fabric_utc("2026-10-28T06:35:00.7812154") == pytest.approx(_fabric_utc("2026-10-28T06:35:00.781215Z"))
+    assert _fabric_utc("2026-10-28T08:35:00+02:00") == _fabric_utc("2026-10-28T06:35:00Z")
+    with pytest.raises(ValueError):
+        _fabric_utc("yesterday")
+
+
+def test_with_require_run_a_lookup_fabric_couldnt_answer_waits_for_the_next_poll(setup):
+    from fabric_desktop.fabric_api import FabricError
+    done, asked = checked(setup, error=FabricError("GET failed with 503", None, 503), require=True)
+    assert done is None and len(asked) == 1, "no status yet: the request is looked at again next poll"
+
+
+def test_with_require_run_a_finished_run_is_rejected(setup):
+    done, _ = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "Completed",
+                              "startTimeUtc": fabric_time(120)}, require=True)
+    assert done["state"] == "rejected" and "already finished (Completed)" in done["reason"]
+
+
+def test_a_run_that_starts_in_the_future_doesnt_check_out(setup):
+    done, _ = checked(setup, {"jobType": "Pipeline", "itemId": ITEM, "status": "InProgress",
+                              "startTimeUtc": fabric_time(-3600)})
+    assert done["pipeline_run"]["verified"] is False and "in the future" in done["pipeline_run"]["detail"]

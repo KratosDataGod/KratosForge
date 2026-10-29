@@ -30,7 +30,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
    | Python | Comes with the engine. Nothing to install. |
    | Local engine | Downloads `fabric-desktop-engine.zip` (Python plus every package) and unpacks it into `%LOCALAPPDATA%\FabricDesktop\engine`. |
 
-   This takes a minute or two the first time. Later starts go straight to Home unless something is updating. Most updates change only the engine's own code, so they download a few MB (`fabric-desktop-engine-update.zip`) rather than the whole engine; the whole engine is downloaded again only when Python or a package changes.
+   This takes a minute or two the first time. Later starts go straight to Home unless something is updating. Most updates change only the engine's own code, so they download a few MB (`fabric-desktop-engine-update.zip`) rather than the whole engine; the whole engine is downloaded again only when Python or a package changes. The engine is always the one built from the same commit as the exe, so the two match; an engine-only update is swapped into a copy of the installed engine (hard links, so no extra space).
 6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; KratosForge signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
 
 That's it. Home shows a **Get started** list until you set up a metadata project. Go on to the [user guide](user-guide.md).
@@ -46,11 +46,11 @@ This isn't a broken install, so reinstalling won't help. The engine's Python pac
 | **Smart App Control** (Windows 11 on a home or personal PC) | It can't allow just one app. Either use a PC without it, or turn it off in **Windows Security > App & browser control > Smart App Control settings** and click **Retry**. Some Windows versions can't turn it back on without a reset, so decide that first. |
 | **An App Control policy** (set by your organization) | Ask IT to allow the Python packages in the folder the window names. They see each block in **Event Viewer > Microsoft > Windows > CodeIntegrity > Operational**. Then click **Retry**. |
 
-The lasting fix is code signing: CI signs every file when the repository has an Azure Trusted Signing account set up ([README: Code signing](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#code-signing)). That isn't in place yet.
+The lasting fix is code signing: CI signs every file when the repository has an Azure Trusted Signing account set up ([Code signing](https://github.com/KratosDataGod/KratosForge/blob/main/CONTRIBUTING.md#code-signing)). That isn't in place yet.
 
 ## Updates
 
-KratosForge updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. Then a full-window splash shows what changed (you can turn it off in Settings > Updates). You never run an old build by accident.
+KratosForge updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. The account menu shows which build is running. Then a full-window splash shows what changed (you can turn it off in Settings > Updates). You never run an old build by accident.
 
 | Channel | Who it's for | What you get |
 | --- | --- | --- |
@@ -126,4 +126,6 @@ cd ..\app\src-tauri
 cargo run                                                    # needs Rust and the Tauri prerequisites
 ```
 
-Builds you make yourself skip the update check.
+Builds you make yourself skip the update check and leave the sidecar as you installed it.
+
+To run the sidecar with a Python of your own instead of the app's engine, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there. With it set, the startup check pip-installs the sidecar into that Python instead (it must be 3.11 or later), and leaves an editable (`pip install -e`) install alone.

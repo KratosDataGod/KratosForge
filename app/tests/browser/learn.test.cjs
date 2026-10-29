@@ -123,6 +123,7 @@ test("Reset lab asks first, and Leave goes back to Learn", { skip }, async () =>
   assert.ok(engineCalls().includes("learn_lab_reset"));
   await page().locator("textarea.learn-editor").waitFor();
   assert.strictEqual(await page().locator(".learn-result table").count(), 0, "the old result is gone");
+  await page().evaluate(() => { learnPage.tab = "home"; });  // not left to the axe tests, which skip without axe-core
   await page().locator(".head-actions button", { hasText: "Leave" }).click();
   await page().locator(".learn-continue").waitFor();
   await page().locator(".subtabs [role=tab]", { hasText: "Labs" }).click();

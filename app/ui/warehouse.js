@@ -273,7 +273,7 @@ function whExplorer(ref, actions) {
     const cur = items.find((x) => x.dataset.tid === sqlPage.whFocus) || items[0];
     if (cur) cur.tabIndex = 0;
     box.replaceChildren(...(empty ? [empty] : [tree]),
-      h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${cat.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. `,
+      h("div", { class: "muted-text wh-note" }, `Listed from the warehouse catalog at ${timeText(cat.at)}. `,
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); actions.load(); } }, "Refresh")));
     if (cur && hadFocus) cur.focus();  // after the tree is back in the page, or the focus is lost
   }

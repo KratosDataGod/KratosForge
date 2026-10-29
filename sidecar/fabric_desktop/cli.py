@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | smoke-test ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -77,6 +77,12 @@ def main(argv: list[str] | None = None) -> None:
     smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
     smoke.add_argument("--run-in-fabric", action="store_true",
                        help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
+    drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
+                                            "with this PC's packages (read only)")
+    drift.add_argument("--workspace", required=True, help="the workspace id")
+    drift.add_argument("--environment", required=True, help="the Environment item's id")
+    drift.add_argument("--notebook", help="also count this notebook's environment on this PC")
+    drift.add_argument("--json", action="store_true", help="print the result as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -148,6 +154,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--workspace", metavar="ID", help="the pipeline's own workspace, for datasets that leave it out")
     p.add_argument("--sql-project", action="append", default=[], metavar="KEY=PROJECT",
                    help="run a Script activity (by activity or connection name) in a local data project")
+    gov = sub.add_parser("governance", help="governance policies: check a project offline, or take its policy package")
+    gov_sub = gov.add_subparsers(dest="governance_command", required=True)
+    p = gov_sub.add_parser("check", help="check the project against its policies from a policy package, with no platform, "
+                                         "Fabric or OneLake call; exit 1 if an Error finding isn't excepted")
+    p.add_argument("--package", help="a policy package file (default: the latest one on this PC for the project)")
+    p.add_argument("--expect-sha256", metavar="HASH",
+                   help="refuse the package unless its SHA-256 is this (default: KRATOSFORGE_POLICY_PACKAGE_SHA256); "
+                        "keep it where a pull request can't change it, such as a protected CI variable")
+    p.add_argument("--require-pin", action="store_true",
+                   help="exit 2 when no SHA-256 is given, so a missing CI variable can't run the check unpinned")
+    p.add_argument("--max-age", type=float, metavar="DAYS", help="refuse a package taken more than this many days ago")
+    p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
+    p.add_argument("--json", action="store_true", help="print the whole result as JSON")
+    p = gov_sub.add_parser("package", help="take the project's policy package from the platform (it reads the platform) "
+                                           "and keep it on this PC; --out also writes it there")
+    p.add_argument("--out", help="also write the package to this file, such as one a CI job reads with --package")
+    p.add_argument("--project", help="the metadata project's folder (default: the project open in the app)")
     nb = sub.add_parser("nb", help="notebooks: check an .ipynb file on this PC (nothing runs)")
     nb_sub = nb.add_subparsers(dest="nb_command", required=True)
     p = nb_sub.add_parser("validate", help="list what Validate finds, one line per finding as file:line:column: "
@@ -177,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(serve_http(args.port, args.parent_pid))
     if args.command == "pipeline":
         raise SystemExit(_pipeline(args))
+    if args.command == "governance":
+        raise SystemExit(_governance(args))
     if args.command == "nb":
         raise SystemExit(_nb_open(args) if args.nb_command == "open" else _nb_validate(args))
     if args.command == "serve":
@@ -194,6 +219,8 @@ def main(argv: list[str] | None = None) -> None:
         for path in result["removed"]:
             print(f"  {path}")
         return
+    if args.command == "env-drift":
+        raise SystemExit(_env_drift(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "smoke-test":
@@ -335,6 +362,14 @@ def _smoke_test(args: argparse.Namespace) -> int:
     return 1 if result["outcome"] == "failed" else 0
 
 
+def _env_drift(args: argparse.Namespace) -> int:
+    """0 no drift, 1 drift, 2 the item couldn't be read."""
+    from . import fabric_environment
+    result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
+    print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
+    return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
+
+
 def _live_test(args: argparse.Namespace) -> int:
     """0 every check passed, 1 a check failed, 2 refused or not started."""
     from pathlib import Path
@@ -454,6 +489,76 @@ def _nb_validate(args: argparse.Namespace) -> int:
         print(f"{c.get('error', 0)} errors, {c.get('warning', 0)} warnings, {c.get('info', 0)} notes"
               + ("" if runs_on else " (Runs on isn't set, so what stops either place is a warning)"))
     return 1 if result["counts"].get("error") else 0
+
+
+def unexcepted_errors(result: dict) -> list[dict]:
+    """The Error-severity findings no active exception covers: what fails a CI job."""
+    return [f for p in result["policies"] if p["status"] != "excepted" for f in p["findings"]
+            if f.get("severity") == "Error" and not f.get("excepted")]
+
+
+def _governance(args: argparse.Namespace) -> int:
+    """governance check: 0 nothing fails, 1 an Error finding isn't excepted, 2 refused (no project, or no usable
+    package). It reads only the package and the project's files; it calls no platform, Fabric or OneLake.
+    governance package: takes the package from the platform (the one subcommand here that reads it)."""
+    from pathlib import Path
+
+    from .central.policy_package import PackageError
+    from .meta import Project
+
+    service = Service(headless=True)
+    if args.project:
+        folder = Path(args.project).resolve()
+        if not (folder / "layers.toml").exists():
+            print(f"{folder} isn't a metadata project folder (it has no layers.toml).")
+            return 2
+        project = Project(str(folder))
+        service._project = lambda: project  # type: ignore[method-assign]  # this command's project, not the app's
+    try:
+        if args.governance_command == "package":
+            out = service.governance_package_export(out=args.out or "")
+            print(f"Took the policy package for {out['policies']} policies from {out['platform']}."
+                  f"\nKept on this PC: {out['kept']}" + (f"\nWritten to: {out['file']}" if args.out else "")
+                  + "\nPin it in CI with --expect-sha256 or KRATOSFORGE_POLICY_PACKAGE_SHA256:"
+                  f"\nSHA-256: {out['sha256']}")
+            return 0
+        if args.max_age is not None and not 0 <= args.max_age < float("inf"):  # refuses nan and inf too
+            print("--max-age: a number of days, at least 0")
+            return 2
+        expect = args.expect_sha256 or os.environ.get("KRATOSFORGE_POLICY_PACKAGE_SHA256", "")
+        if args.require_pin and not expect.strip():
+            print("--require-pin: no SHA-256 to check the package against. Set --expect-sha256 or "
+                  "KRATOSFORGE_POLICY_PACKAGE_SHA256.")
+            return 2
+        result = service.governance_check_from_package(package=args.package or "", expect_sha256=expect,
+                                                       max_age_days=args.max_age)
+        result["pinned"] = bool(expect.strip())
+    except (PackageError, LookupError) as exc:
+        print(exc)
+        return 2
+    errors = unexcepted_errors(result)
+    if args.json:
+        print(json.dumps(result | {"unexcepted_errors": len(errors)}, indent=2, default=str))
+        return 1 if errors else 0
+    print(result["package_note"])
+    if not result["pinned"]:
+        print("Not pinned: the package's SHA-256 wasn't checked against an expected one, so an edited package "
+              "would be used. Pin it in CI with --expect-sha256 and --require-pin.")
+    for p in result["policies"]:
+        print(f"{p['status'].replace('_', ' ')}: {p['name']} ({p['id']} v{p['version']}, {p['enforcement']})"
+              + (f" {p['passed']} of {p['checked']} pass" if p["status"] == "pass" else ""))
+        for f in p["findings"] + p["unknown"]:
+            kind = "unknown" if f.get("outcome") == "unknown" else f.get("severity", "")
+            print(f"  {kind}: {f.get('object')}: {f.get('description')} ({f.get('rule_id')})"
+                  + (f" [{f['excepted']}]" if f.get("excepted") else ""))
+        if p.get("note"):
+            print(f"  {p['note']}")
+    for x in result["problems"]:
+        print(f"note: {x}")
+    c = result["counts"]
+    print(f"{result['project']}: {c['to_look_at']} to look at, {c['unknown']} unknown, {c['excepted']} excepted; "
+          f"{c['passing']} of {c['policies']} policies pass. {len(errors)} Error findings aren't excepted.")
+    return 1 if errors else 0
 
 
 def _pipeline(args: argparse.Namespace) -> int:

@@ -2707,7 +2707,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
         "Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant"

@@ -19,7 +19,8 @@ You need Windows for the desktop app. The Python engine and its tests also run o
 git clone https://github.com/KratosDataGod/KratosForge
 cd fabric-desktop\sidecar
 python -m pip install -e ".[dev]"     # Python 3.11 or later
-python -m pytest -q                   # every test runs without Fabric
+python -m pytest -q                   # every test runs without Fabric or the internet
+python -m pytest -q -n auto --dist loadfile   # the same, one worker per core, as CI runs it
 ```
 
 To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:
@@ -54,5 +55,6 @@ The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the 
 2. Keep the change focused; one feature or fix per pull request.
 3. Describe what a user sees before and after, and how you tested it, using the sections of the pull request template. Screenshots help for UI changes.
 4. Link the idea or issue it comes from.
+5. Your contribution is licensed under the [Apache License 2.0](LICENSE), as the rest of the code is (section 5 of the license). You keep the copyright in what you wrote.
 
 Merges to `main` go to the **Preview** channel straight away. A maintainer moves a build to **Stable** with the **Promote to stable** workflow once it has been tried on Preview. The whole path, including how parallel pull requests are integrated, is in [docs/release-management/README.md](docs/release-management/README.md).

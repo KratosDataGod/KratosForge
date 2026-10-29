@@ -23,7 +23,7 @@ from .registry import PERMISSIONS, default_registry
 from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
-           "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
+           "integrations_revoke_client", "integrations_decide", "integrations_new_token",
            "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_audit_check", "integrations_test",
            "integrations_set_extension"}
 
@@ -42,6 +42,19 @@ def _check_permissions(values: list[str], field: str) -> list[str]:
     if blocked:
         raise PermissionError(f"Your organization doesn't allow external tools {', '.join(blocked)}.")
     return values
+
+
+def _last_line(log: Any) -> str:
+    """The local API's own reason it stopped: the last line it wrote to its log (a port in use,
+    another account's program on the port, a policy). A generic hint when there's none."""
+    try:
+        with open(log, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 4096))
+            lines = [line.strip() for line in f.read().decode("utf-8", "replace").splitlines() if line.strip()]
+    except OSError:
+        lines = []
+    return lines[-1][:500] if lines else "the port may be in use by another program."
 
 
 class IntegrationsMixin:
@@ -97,8 +110,8 @@ class IntegrationsMixin:
         deadline = time.monotonic() + HTTP_START_SECONDS
         while time.monotonic() < deadline:  # wait until it is listening, or has failed
             if self._http_proc.poll() is not None:
-                raise RuntimeError(f"The local API didn't start (see {folder / 'http.log'}). "
-                                   f"Port {port} may be in use by another program.")
+                raise RuntimeError(f"The local API didn't start: {_last_line(folder / 'http.log')} "
+                                   f"(see {folder / 'http.log'})")
             if (folder / "http.json").exists():
                 return
             time.sleep(0.1)

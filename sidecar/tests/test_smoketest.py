@@ -147,6 +147,11 @@ def test_an_own_app_registration_fails_the_sign_in_flow(tmp_path):
     assert result["outcome"] == "failed"
 
 
+def test_microsofts_own_client_id_passes_the_sign_in_flow(tmp_path):
+    from fabric_desktop.auth import MICROSOFT_CLIENT_ID
+    assert flows(smoke(tmp_path, client_id=MICROSOFT_CLIENT_ID).run())[2] == "passed"
+
+
 def test_a_missing_test_workspace_fails_the_catalog_flow(tmp_path):
     result = smoke(tmp_path, fabric=Fabric(workspaces=[{"id": "other"}])).run()
     assert flows(result)[3] == "failed"

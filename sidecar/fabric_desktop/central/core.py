@@ -43,6 +43,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
                          Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.product_item a data product's semantic models and reports: the Fabric item's id, type, workspace id
                          and display name, picked by the product's owner; nothing in Fabric changes (Preview)
+    catalog.call         each change the app sent with a call id (call_once) and its answer, kept 7 days, so a
+                         change retried after a timeout is made once
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
@@ -61,6 +63,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import time
 import uuid
 from typing import Any
 from urllib.parse import urlsplit
@@ -231,6 +234,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "product_item": [("id", "key"), ("product_id", "text"), ("item_id", "text"), ("item_type", "text"),
                      ("workspace_id", "text"), ("workspace_name", "text"), ("item_name", "text"),
                      ("added_by", "text"), ("added_at", "text")],
+    # A change the app sent with a call id, and its answer as JSON (call_once).
+    "call": [("id", "key"), ("op", "text"), ("by_user", "text"), ("at", "text"), ("result", "long")],
 }
 
 
@@ -2939,6 +2944,85 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
     return list_product_items(db, product["id"])
 
 
+# --------------------------------------------------------------------------- calls made once
+
+# Operations that only read. The app sends them again after a timeout, a dropped connection or a busy
+# platform as they are (tests/test_central_roles.py checks each one changes nothing).
+READ_OPERATIONS = frozenset({
+    "access_reviews", "audit", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
+    "keys_state", "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_follows",
+    "list_glossary", "list_grants", "list_key_tables", "list_landing_zones", "list_policies",
+    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_products",
+    "list_project_members", "list_projects", "list_requests", "list_seen_shortcuts", "list_shortcut_risks",
+    "list_sources", "lookup_key", "owner_coverage", "policies_ready", "policy_applicability", "policy_history",
+    "policy_options", "policy_snapshot", "policy_version", "product_followers", "product_history",
+    "product_trust", "resolve_policies", "resolve_port", "shortcut_changes", "shortcut_rules", "whoami",
+})
+# Writes whose second run changes nothing the first didn't: Finish or repair, and issuing keys (a
+# business key keeps the key it was given). Sent again as they are, like reads.
+REPEATABLE_OPERATIONS = frozenset({"ensure_schema", "ensure_policy_schema", "ensure_template_schema", "issue_keys"})
+CALL_DAYS = 7
+MAX_CALL_RESULT = 1_000_000
+CALL_WAITS = 10  # half seconds a second call waits for the first one's answer
+_NOT_KEPT = "-"  # the answer of a call made, too big to keep (not JSON, so never an answer)
+_CALL_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def call_once(db: Db, call_id: str, operation: str, args: dict[str, Any] | None = None,
+              by: str = "") -> dict[str, Any]:
+    """Run the change ``operation`` once for ``call_id``, which the app makes once per change and keeps
+    when it sends the change again after a timeout or a dropped connection: the platform may have made
+    it already. A call id seen before gets its first answer back and changes nothing. The operation
+    checks who may make the change as it always does. Answers: {"result": ..., "replayed": bool}."""
+    op = str(operation or "")
+    cid = str(call_id or "").strip().lower()
+    if not _CALL_ID.fullmatch(cid):
+        raise PlatformError("A call id is 32 hexadecimal characters")
+    if op not in OPERATIONS or op == "call_once" or op in READ_OPERATIONS or op in REPEATABLE_OPERATIONS:
+        raise PlatformError(f"{op!r} isn't a change made through call_once")
+    args = dict(args or {})
+    if "by" in args:
+        raise PlatformError("Who makes a change is the caller, never an argument")
+    fn = OPERATIONS[op]
+    takes_by = "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]
+    who = _who(by)
+    calls = db.t("catalog", "call")
+    cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=CALL_DAYS)).isoformat(timespec="seconds")
+    db.run(f"DELETE FROM {calls} WHERE at < ?", (cutoff,))
+    try:
+        # Kept uncommitted until the change commits, so the two go in together; a second call with the
+        # same id waits for this one, then finds its row.
+        db.run(f"INSERT INTO {calls} (id, op, by_user, at, result) VALUES (?, ?, ?, ?, NULL)", (cid, op, who, _now()))
+    except Exception:  # the id is taken: read what the first call left
+        db.conn.rollback()
+        row = _row(db, "call", "id", cid)
+        for _ in range(CALL_WAITS):  # the first call made the change and is still writing its answer
+            if row is None or row.get("result") is not None:
+                break
+            time.sleep(0.5)
+            row = _row(db, "call", "id", cid)
+        if row is None:
+            raise
+        if row["op"] != op or (row.get("by_user") or "") != who:
+            raise PlatformError("That call id belongs to another change") from None
+        if row.get("result") in (None, _NOT_KEPT):
+            raise PlatformError(f"This {op.replace('_', ' ')} was made, but its answer wasn't kept. "
+                                "Refresh to see it.") from None
+        return {"result": json.loads(row["result"]), "replayed": True}
+    try:
+        out = fn(db, **args, **({"by": by} if takes_by else {}))
+    except Exception:
+        # Refused or failed: the id is freed, so the same change can be sent again.
+        db.conn.rollback()
+        db.run(f"DELETE FROM {calls} WHERE id = ?", (cid,))
+        db.commit()
+        raise
+    text = json.dumps(out, default=str)
+    db.run(f"UPDATE {calls} SET result = ? WHERE id = ?", (text if len(text) <= MAX_CALL_RESULT else _NOT_KEPT, cid))
+    db.commit()
+    return {"result": out, "replayed": False}
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -2974,4 +3058,5 @@ OPERATIONS = {
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
     "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
+    "call_once": call_once,
 }

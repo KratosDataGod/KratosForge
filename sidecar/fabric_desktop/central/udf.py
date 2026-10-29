@@ -845,6 +845,14 @@ def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
                         item_id: str) -> list:
     return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
 
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def call_once(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, call_id: str, operation: str,
+              args: dict = None) -> dict:
+    return _run(sqlDB, "call_once", ctx, call_id=call_id, operation=operation, args=args or {})
+
 '''
 
 

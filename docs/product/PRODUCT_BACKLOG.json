@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-28",
+  "updated": "2026-10-29",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -78,7 +78,8 @@
       "capability": "A scripted ten-flow smoke test on the maintainer's non-production workspace, plus one live-test harness run, with results recorded in the inventory.",
       "evidence": [
         "livetest.py never run",
-        "docs/README.md lists features tried on the maintainer's tenant"
+        "docs/README.md lists features tried on the maintainer's tenant",
+        "The ten-flow smoke-test harness merged (#884) on main at 188d5a93; the live run waits on Chris's yes"
       ],
       "features": [
         "FEAT-SHL-01",
@@ -146,7 +147,8 @@
       "capability": "The live test extended to leases, two writers and MERGE.",
       "evidence": [
         "leases.py",
-        "livetest.py lacks lease and MERGE checks"
+        "livetest.py lacks lease and MERGE checks",
+        "Live-test checks for a second writer refused by the lease and a Fabric-safe MERGE merged (#892) on main at 188d5a93; not run on a tenant"
       ],
       "features": [
         "FEAT-ORC-03",
@@ -449,7 +451,8 @@
         "docs/security.md:41",
         "ci.yml audit and SBOM jobs",
         "docs/enterprise-install.md hosts table",
-        "security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456"
+        "security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456",
+        "A test keeps the firewall host list in step with the code (#1047, issue #959) on main at 188d5a93"
       ],
       "features": [
         "FEAT-SEC-03",
@@ -488,7 +491,8 @@
         "priority": "P1"
       },
       "prs": [
-        917
+        917,
+        1047
       ],
       "issues": [
         886,
@@ -903,7 +907,8 @@
         "priority": "P2"
       },
       "prs": [
-        914
+        914,
+        1013
       ],
       "issues": [
         883
@@ -1397,7 +1402,8 @@
       "capability": "Additive and widening changes applied in place; versioned schema history tied to the breaking-change check.",
       "evidence": [
         "meta/drift.py",
-        "docs/scale-and-operations-plan.md FD-118"
+        "docs/scale-and-operations-plan.md FD-118",
+        "Each schema change is recorded in meta.schema_history with its version, and narrowing is refused unless overwrite_schema (#979) on main at 188d5a93. Widening still rewrites the table: delta-rs 1.6.6 can't write typeWidening, and it would leave the Fabric-safe profile. Criterion 1 can't be met as written; Chris decides at acceptance"
       ],
       "features": [
         "FEAT-META-07"
@@ -1422,7 +1428,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "computed": {
         "benefit": 3.4,
         "cost": 3.0,
@@ -2014,7 +2020,8 @@
       "evidence": [
         "mailbox.py tests use fakes",
         "docs/enterprise-roadmap.md still calls it unbuilt",
-        "Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change"
+        "Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change",
+        "Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes)"
       ],
       "features": [
         "FEAT-ORC-04"
@@ -2051,6 +2058,9 @@
       },
       "issues": [
         920
+      ],
+      "prs": [
+        931
       ]
     },
     {
@@ -2152,7 +2162,10 @@
         "priority": "P1"
       },
       "prs": [
-        923
+        923,
+        937,
+        939,
+        944
       ],
       "issues": [
         863
@@ -2166,7 +2179,8 @@
       "capability": "A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.",
       "evidence": [
         "docs/platform.md lists the unverified points",
-        "central/setup.py setup() and join() have no tests"
+        "central/setup.py setup() and join() have no tests",
+        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2206,7 +2220,11 @@
         "priority": "P1"
       },
       "prs": [
-        919
+        919,
+        1036,
+        1038,
+        1041,
+        1045
       ],
       "issues": [
         909
@@ -2586,7 +2604,8 @@
       "capability": "A Narrator and keyboard audit on Windows with fixes.",
       "evidence": [
         "app/tests/ui.test.cjs static checks",
-        "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456"
+        "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
+        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2625,7 +2644,9 @@
         "priority": "P1"
       },
       "prs": [
-        907
+        907,
+        926,
+        951
       ],
       "issues": [
         880,
@@ -2786,7 +2807,8 @@
       "evidence": [
         "meta_preflight has no caller in app/ui",
         "meta/batches.py",
-        "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open"
+        "Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open",
+        "A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93"
       ],
       "features": [
         "FEAT-META-06"
@@ -2811,7 +2833,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
         "Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
@@ -3036,7 +3058,8 @@
         "main.rs rpc mutex",
         "watchdog.rs QUICK list",
         "The engine runs quick calls in their own lane (server.py, test_server_lanes.py, #508), so a slow Fabric call doesn't block them on main at b19b7456; #898 bounds four more calls (open)",
-        "Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change"
+        "Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change",
+        "#898 bounds Monitor's status refresh (30 s), the drift card's read and the sign-in window (10 min) on main at 188d5a93. The changed acceptance (quick calls 60 s, long calls end with Stop) still needs Chris"
       ],
       "features": [
         "FEAT-SHL-01",
@@ -3062,7 +3085,7 @@
       "owner": "Master product (unassigned)",
       "effort": "L",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "mandatory_reason": "A frozen app with no way out is the most visible reliability failure.",
       "external_dependencies": [
         "Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102)",
@@ -3473,7 +3496,8 @@
       "evidence": [
         "service.py endorsements returns available:false",
         "docs/troubleshooting.md",
-        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing"
+        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing",
+        "The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93"
       ],
       "features": [
         "FEAT-ONE-02"
@@ -3494,7 +3518,7 @@
       "owner": "Master product (unassigned)",
       "effort": "S",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "computed": {
         "benefit": 1.9,
         "cost": 1.0,
@@ -4366,7 +4390,16 @@
         930,
         934,
         938,
-        952
+        952,
+        989,
+        992,
+        1003,
+        1011,
+        1026,
+        1030,
+        1032,
+        1048,
+        1050
       ],
       "issues": [
         910,
@@ -4376,7 +4409,8 @@
         936,
         963,
         964,
-        965
+        965,
+        1049
       ]
     },
     {
@@ -4450,7 +4484,14 @@
         842,
         843,
         865,
-        943
+        932,
+        943,
+        974,
+        987,
+        988,
+        990,
+        991,
+        998
       ],
       "issues": [
         928,
@@ -4521,7 +4562,15 @@
         775,
         778,
         781,
-        784
+        784,
+        975,
+        981,
+        1012,
+        1018,
+        1021,
+        1024,
+        1025,
+        1029
       ]
     },
     {
@@ -4685,7 +4734,8 @@
         809,
         823,
         912,
-        949
+        949,
+        985
       ],
       "mandatory": "none",
       "state": "In progress",

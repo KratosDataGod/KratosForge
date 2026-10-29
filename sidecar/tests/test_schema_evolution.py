@@ -9,6 +9,7 @@ is recorded in meta.schema_history with the Delta version that made it and a sch
 """
 
 import json
+from contextlib import contextmanager
 
 import polars as pl
 import pyarrow as pa
@@ -302,3 +303,53 @@ def test_a_full_load_with_no_rows_still_refuses_a_declared_narrowing(tmp_path):
     s.source(qty_rows([], DAY2), mode="overwrite")
     res = s.engine(DAY2).run("bronze.events")
     assert res.status == "failed" and "qty int64 to int32 would narrow" in res.message, res.message
+
+
+# --------------------------------------------------------------------------- schema versions (#1008)
+
+
+def test_a_run_that_takes_the_table_as_soon_as_another_lets_go_numbers_its_change_after_it(tmp_path):
+    """The schema version is fixed while the table is still locked: a run that starts the moment the
+    lock is let go reads it, so two quick changes never share a version."""
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+
+    @contextmanager
+    def then_another_run(e):
+        yield
+        s.source(rows([20], DAY3).with_columns(pl.lit("eu").alias("region"), pl.lit("web").alias("channel")))
+        s.run(day=DAY3)
+
+    s.source(rows([10], DAY2).with_columns(pl.lit("eu").alias("region")))
+    first = Engine(Project(s.root), s.store, DAY2, merge_writes=True, table_lock=then_another_run).run("bronze.events")
+    assert first.status == "ok", first.message
+    assert [(r["change"], r["columns"], r["schema_version"]) for r in history(s)][1:] == [
+        ("added", "region", 2), ("added", "channel", 3)]
+
+
+def test_history_rows_from_before_schema_versions_count_so_the_numbering_continues(tmp_path):
+    s = Setup(tmp_path, True)
+    s.store.meta_append("schema_history", [{"entity": "bronze.events", "run_id": run, "change": "added", "columns": c}
+                                           for run, c in (("old-1", "a"), ("old-1", "b"), ("old-2", "c"))])
+    s.source(rows(range(3), DAY1))
+    s.run()
+    s.source(rows([10], DAY2).with_columns(pl.lit("eu").alias("region")))
+    s.run(day=DAY2)
+    assert [r["schema_version"] for r in history(s)] == [None, None, None, 3, 4]
+
+
+def test_a_schema_history_that_cant_be_saved_leaves_the_run_ok_and_says_so(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    append = s.store.meta_append
+
+    def no_history(table, rows, metadata=None):
+        if table == "schema_history":
+            raise OSError("the meta lakehouse is read only")
+        append(table, rows, metadata=metadata)
+    monkeypatch.setattr(s.store, "meta_append", no_history)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda _: None, raising=False)
+    res = s.run()
+    assert "couldn't save the schema history (OSError: the meta lakehouse is read only)" in res.message
+    assert s.table().height == 3

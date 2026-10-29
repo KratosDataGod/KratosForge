@@ -355,14 +355,22 @@ class Engine:
         try:
             with self.table_lock(e):
                 self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
-                if backfill == "migrate":
-                    self._migrate(e, res)
-                if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
-                    df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
-                    df, _ = self._checks(e, df, res)
-                    self._write(e, df, res, backfill)
-                self._flush_quarantine(res)
-                self._record_files(e, res)
+                try:
+                    if backfill == "migrate":
+                        self._migrate(e, res)
+                    if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
+                        df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
+                        df, _ = self._checks(e, df, res)
+                        self._write(e, df, res, backfill)
+                    self._flush_quarantine(res)
+                    self._record_files(e, res)
+                finally:
+                    # Still under the lock, so the next run of this entity reads this run's schema version
+                    # and numbers its own after it. _after_commit never raises.
+                    if res.delta_version is not None:
+                        self._after_commit(res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
+                                           lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res),
+                                                                            metadata=m))
         except Abandoned:
             raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
@@ -391,9 +399,6 @@ class Engine:
             if rows:
                 self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
                                    lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
-        if res.delta_version is not None:
-            self._after_commit(res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
-                               lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res), metadata=m))
         return res
 
     def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
@@ -1095,9 +1100,14 @@ class Engine:
         if not changes:
             return []
         seen = self.store.meta("schema_history").filter(pl.col("entity") == e.name)
-        top = seen["schema_version"].max() if "schema_version" in seen.columns else None
+        if "schema_version" not in seen.columns:
+            seen = seen.with_columns(schema_version=pl.lit(None, pl.Int64))
+        # Rows from before schema versions were recorded have none: each of their runs counts as one, so
+        # the numbering continues after them (and stays above any version that started again at 1).
+        older = seen.filter(pl.col("schema_version").is_null())["run_id"].n_unique()
+        top = seen["schema_version"].max()
         return [{"entity": e.name, "run_id": self.run_id, "delta_version": res.delta_version,
-                 "schema_version": int(top or 0) + 1} | c for c in changes]
+                 "schema_version": max(older, int(top or 0)) + 1} | c for c in changes]
 
     def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
         """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or

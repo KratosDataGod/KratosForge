@@ -21,6 +21,7 @@ from typing import Any, Callable
 import polars as pl
 
 from . import batches as batches_mod
+from . import drift as drift_mod
 from . import keys as keys_mod
 from . import preflight
 from .project import (
@@ -352,12 +353,13 @@ class Engine:
         started = time.perf_counter()
         started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         self._dq: list[dict[str, Any]] = []
-        self._schema_changes: list[dict[str, Any]] = []
+        self._schema_from: pl.Schema | None = None  # the table's schema before this run's commit
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
         self._files_recovered: list[dict[str, Any]] = []
         self._pending_quarantine = []
         try:
             with self.table_lock(e):
+                self._schema_from = self._table_schema(e)  # what this run's commit changes goes in the schema history
                 if backfill == "migrate":
                     self._migrate(e, res)
                 if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
@@ -393,10 +395,13 @@ class Engine:
             "steps": json.dumps([s.__dict__ for s in res.steps])} | self.run_context]
         # The run's records, after its commit: if they can't be saved the run's result still stands
         # (raising here would lose it, and a caller retrying would write the table again).
-        for table, rows in (("run_log", log), ("dq_results", self._dq), ("schema_history", self._schema_changes)):
+        for table, rows in (("run_log", log), ("dq_results", self._dq)):
             if rows:
                 self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
                                    lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
+        if res.delta_version is not None:
+            self._after_commit(res, "the schema history", (META_LAKEHOUSE, "meta", "schema_history"),
+                               lambda m: self.store.meta_append("schema_history", self._schema_rows(e, res), metadata=m))
         return res
 
     def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
@@ -704,6 +709,9 @@ class Engine:
         try:
             first = take()
             schema = first.schema
+            before = None if read_version is None else \
+                self.store.scan(lh, e.schema, e.table, read_version).collect_schema()
+            self._refuse_type_changes(e, before, pl.from_arrow(schema.empty_table()).schema)
 
             def fit(t: pa.Table) -> pa.Table:  # every batch in the first one's columns and types
                 cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
@@ -746,14 +754,13 @@ class Engine:
         return True
 
     def _fold(self, res: RunResult, mark: int) -> None:
-        """A batched load's per-batch steps, quality results and schema changes, as one each."""
+        """A batched load's per-batch steps and quality results, as one each."""
         res.steps[mark:] = [Step(*s) for s in batches_mod.fold_steps(res.steps[mark:])]
         failed: dict[tuple[str, str], int] = {}
         for r in self._dq:
             failed[(r["check"], r["action"])] = failed.get((r["check"], r["action"]), 0) + r["failed"]
         self._dq = [{"run_id": self.run_id, "entity": res.entity, "check": c, "failed": n, "action": a}
                     for (c, a), n in failed.items()]
-        self._schema_changes = list({json.dumps(c, sort_keys=True): c for c in self._schema_changes}.values())
 
     def _tracks_files(self, e: Entity) -> bool:
         """Incremental and dimension loads from files read only files they haven't loaded (a full
@@ -855,9 +862,8 @@ class Engine:
             raise CheckStop(f"schema drift: new columns {', '.join(new)} (layer {e.layer} does not allow new columns)")
         if new and policy == "evolve":
             self._evolved = new
+            # The schema history records them once they are in the table, with the version that added them.
             detail = f"kept new columns {', '.join(new)}; add them to the contract to keep them for good"
-            self._schema_changes.append({"entity": e.name, "run_id": self.run_id, "change": "added",
-                                         "columns": ", ".join(new)})
         elif new:
             df = df.drop(new)
             detail = f"ignored new columns {', '.join(new)}"
@@ -1105,6 +1111,34 @@ class Engine:
         if committed:
             self._advance_watermark(e, df, backfill, res)
 
+    def _table_schema(self, e: Entity, version: int | None = None) -> pl.Schema | None:
+        lf = self.store.scan(self.lakehouse(e), e.schema, e.table, version)
+        return None if lf is None else lf.collect_schema()
+
+    def _refuse_type_changes(self, e: Entity, before: pl.Schema | None, after: pl.Schema) -> None:
+        """Delta's rule, as the notebook writer applies it: a rewrite may add columns and widen a
+        column's type, but narrowing it or changing it to another kind needs overwriteSchema, here
+        ``overwrite_schema = true`` under [contract]. Checked before anything is written."""
+        if before is None or e.spec.get("contract", {}).get("overwrite_schema") is True:
+            return
+        refused = [c["detail"] for c in drift_mod.schema_changes(before, after) if c["change"] in ("narrowed", "retyped")]
+        if refused:
+            raise CheckStop(f"schema change refused: {'; '.join(refused)} would narrow a column's type or change its "
+                            "kind, which breaks readers of the table. Nothing was written. Change the contract back, "
+                            f"or, to rewrite {e.name} with the new types, add this line under [contract] in its entity "
+                            "file: overwrite_schema = true (and take it out again after the run)")
+
+    def _schema_rows(self, e: Entity, res: RunResult) -> list[dict[str, Any]]:
+        """The schema history for this run's commit: each change it made to the table's schema, with
+        the Delta version that made it and the entity's next schema version (one per commit)."""
+        changes = drift_mod.schema_changes(self._schema_from, self._table_schema(e, res.delta_version))
+        if not changes:
+            return []
+        seen = self.store.meta("schema_history").filter(pl.col("entity") == e.name)
+        top = seen["schema_version"].max() if "schema_version" in seen.columns else None
+        return [{"entity": e.name, "run_id": self.run_id, "delta_version": res.delta_version,
+                 "schema_version": int(top or 0) + 1} | c for c in changes]
+
     def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
         """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or
         "" with the reason the table has to be read and rewritten instead."""
@@ -1225,6 +1259,10 @@ class Engine:
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
         metadata |= self._files_metadata(res)
+        # Before any merge: scd1_merge, scd2_merge and the relaxed concats below join the new rows to
+        # the table's, and would fail on a change of kind, or quietly keep the old type, first.
+        df = _fit_to_table(e, df, self._schema_from)
+        self._refuse_type_changes(e, self._schema_from, df.schema)
         how, why = self._merge_plan(e, df, backfill)
         if how:
             version, info = self._write_merged(e, df, how, backfill, metadata)
@@ -1267,6 +1305,7 @@ class Engine:
         out = with_unknown_date(out, e)
         if why:
             info = f"{info}; {why}"
+        self._refuse_type_changes(e, None if existing is None else existing.schema, out.schema)
         version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
                                    read_version=read_version)
         res.rows_written, res.delta_version = df.height, version
@@ -1399,6 +1438,24 @@ def with_unknown_date(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
 def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     sk = e.surrogate_key
     return df.select([sk] + [c for c in df.columns if c != sk])
+
+
+def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.DataFrame:
+    """The new rows in the table's types where nothing is lost: a column with no values in this
+    load (a file that left it empty reads as text), and a column the contract doesn't declare whose
+    type the table's widens (an int32 batch into an int64 column). A narrowing the contract asks
+    for, and any real change of kind, are left for _refuse_type_changes."""
+    if table is None or e.spec.get("contract", {}).get("overwrite_schema") is True:
+        return df  # overwrite_schema: the new rows' types are the ones asked for
+    declared = e.columns
+    casts = []
+    for name, dtype in df.schema.items():
+        old = table.get(name)
+        if old is None or old == dtype:
+            continue
+        if (df.height and df[name].null_count() == df.height) or (name not in declared and drift_mod.widens(dtype, old)):
+            casts.append(pl.col(name).cast(old))
+    return df.with_columns(casts) if casts else df
 
 
 def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,

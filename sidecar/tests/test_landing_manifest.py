@@ -184,3 +184,19 @@ def test_a_run_reading_too_many_files_lists_none_in_its_commit(repo, monkeypatch
     res = repo.engine(DAY2).run("bronze.orders")
     assert res.status == "ok" and any(s.detail.startswith("too many files to list") for s in res.steps)
     assert engine_mod.FILES_KEY not in repo.dev.history("LH_Bronze", "dbo", "orders", 1)[0]
+
+
+def test_a_refused_type_change_records_no_files_and_the_next_run_reads_them(repo):
+    # The type check (before the commit) and the file list (in the commit) together: a refused
+    # run commits nothing, so its files are neither saved nor found in the table's history.
+    landing(repo.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS}\n106,2,2026-10-02,30.00,,shipped,2026-10-02\n")
+    edit_entity(repo.root, "bronze.orders", 'amount = "float64"', 'amount = "string"')
+    repo.reload()
+    refused = repo.engine(DAY2).run("bronze.orders", backfill="none")
+    assert refused.status == "failed" and "schema change refused" in refused.message
+    assert repo.dev.meta("loaded_files").height == 1  # only the first run's file
+    edit_entity(repo.root, "bronze.orders", 'amount = "string"', 'amount = "float64"')
+    repo.reload()
+    res = repo.engine(DAY2).run("bronze.orders", backfill="none")
+    assert res.status == "ok" and read_step(res).startswith("1 new file of 2"), (res.message, read_step(res))
+    assert 106 in repo.table("bronze.orders")["order_id"].to_list()

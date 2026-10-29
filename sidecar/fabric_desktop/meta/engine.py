@@ -35,7 +35,7 @@ from .project import (
     run_order,
     validate,
 )
-from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, lazy, open_table, read_table_uri
+from .store import LANDING_LAKEHOUSE, META_LAKEHOUSE, META_SCHEMAS, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -1280,6 +1280,11 @@ class Engine:
             self._advance_watermark(e, df, backfill, res)
 
     def _table_schema(self, e: Entity, version: int | None = None) -> pl.Schema | None:
+        if version is not None:  # the version this run's write made: the store kept its schema
+            kept = getattr(self.store, "written_schema", lambda *a: None)
+            written = kept(self.lakehouse(e), e.schema, e.table, version)
+            if written is not None:
+                return written
         lf = self.store.scan(self.lakehouse(e), e.schema, e.table, version)
         return None if lf is None else lf.collect_schema()
 
@@ -1302,7 +1307,10 @@ class Engine:
         changes = drift_mod.schema_changes(self._schema_from, self._table_schema(e, res.delta_version))
         if not changes:
             return []
-        seen = self.store.meta("schema_history").filter(pl.col("entity") == e.name)
+        # This entity's rows only: files whose statistics rule the entity out aren't read.
+        seen, _ = self.store.read_where(META_LAKEHOUSE, "meta", "schema_history", pl.col("entity") == e.name)
+        if seen is None:
+            seen = pl.DataFrame(schema=META_SCHEMAS["schema_history"])
         if "schema_version" not in seen.columns:
             seen = seen.with_columns(schema_version=pl.lit(None, pl.Int64))
         # Rows from before schema versions were recorded have none: each of their runs counts as one, so

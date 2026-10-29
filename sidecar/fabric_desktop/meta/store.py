@@ -210,6 +210,24 @@ class Store:
     def exists(self, lakehouse: str, schema: str, table: str) -> bool:
         return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
 
+    def _committed(self, uri: str, table: DeltaTable) -> int:
+        """After a write's commit: the table's new version. Its schema is kept too, read from the log
+        this write already opened, so the run that wrote it needn't read the log again (written_schema)."""
+        delta_profile.note_after_write(table)
+        version = table.version()
+        try:
+            kept = (version, lazy(table, uri, self.options()).collect_schema())
+            self._written = {**getattr(self, "_written", {}), uri: kept}
+        except Exception as exc:  # noqa: BLE001  silent-ok: the commit stands; written_schema then reads the log
+            _log.debug("Couldn't keep the schema of %s after writing it: %s", uri, describe(exc))
+        return version
+
+    def written_schema(self, lakehouse: str, schema: str, table: str, version: int) -> pl.Schema | None:
+        """The table's schema at ``version`` when this store's last write to it made that version,
+        else None (read it from the log instead)."""
+        kept = getattr(self, "_written", {}).get(self.uri(lakehouse, schema, table))
+        return kept[1] if kept and kept[0] == version else None
+
     def version(self, lakehouse: str, schema: str, table: str) -> int | None:
         try:
             return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
@@ -261,9 +279,7 @@ class Store:
             if extra.get("mode") == "error" and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
                      metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
@@ -307,9 +323,7 @@ class Store:
             if read_version is None and "already exists" in str(exc):
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
     # ---- files a write that didn't commit left behind (PB-067)
 
@@ -438,9 +452,7 @@ class Store:
         check_held()
         target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version()
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
                metadata: dict[str, str] | None = None, prune: list[str] | None = None,
@@ -485,9 +497,7 @@ class Store:
         else:
             merger = merger.when_matched_update_all().when_not_matched_insert_all()
         metrics = merger.execute()
-        dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.note_after_write(dt_)
-        return dt_.version(), metrics
+        return self._committed(uri, DeltaTable(uri, storage_options=self.options())), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:

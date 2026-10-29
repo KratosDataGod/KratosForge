@@ -354,7 +354,7 @@ What the agent can check is the run. When a request names `pipeline_run`, the ag
 
 By default an unverified run is recorded and the request still runs. With `[pipeline] require_run = true`, a request without `pipeline_run`, or whose run doesn't check out, is rejected with the reason. So is one whose run has already finished: the notebook that writes a request waits for its answer, so its run is still in progress. When Fabric can't answer the lookup just then (it's busy, or the connection drops), the agent asks again on its next polls, for up to 15 minutes, before it rejects the request. Shared schedules write requests that name no run, so they can't be combined with `require_run`.
 
-This proves that a real pipeline run in the workspace is behind the request id. It doesn't stop someone who can write `LH_Meta` from copying a real run's ids into a request of their own within that day, so keep write access to `LH_Meta` as narrow as the agent's own.
+This proves that a real pipeline run in the workspace is behind the request id. Each run vouches for one request only: the agent keeps the runs it accepted for a day (in `pipeline-runs.json` in its home folder, so a restart keeps them), and rejects a second request naming the same run with "pipeline run <id> already asked for request <other id>". The same request asked again is still one request. Each agent keeps its own list, so with several agents taking requests for one environment, keep write access to `LH_Meta` as narrow as the agents' own.
 
 **How it stays safe:**
 

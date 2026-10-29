@@ -11,8 +11,8 @@ module.json::
 
     id, kind ("module" | "lab"), title, path (a path id), level, minutes, objectives [str],
     prerequisites [ids], platforms [str], engines [ENGINES], lesson ("lesson.md"),
-    datasets [dataset ids], exercises [{id, prompt, engine, setup?, starter?, solution, checks [{kind, ...}],
-    expected?}], rules [best-practice rule ids], docs [docs page or https link], version (int),
+    datasets [dataset ids], size? (datasets.SIZES), exercises [{id, prompt, engine, setup?, starter?, solution, hints? [str],
+    checks [{kind, ...}], expected?}], rules [best-practice rule ids], docs [docs page or https link], version (int),
     status ("draft" | "live" | "retired"), reviewed ("YYYY-MM-DD", required when live)
 """
 
@@ -23,6 +23,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .datasets import DATASETS as _DATASETS
+from .datasets import SIZES as _SIZES
+
 SCHEMA = "kratosforge/learn-module@1"
 ROOT = Path(__file__).resolve().parent / "content"
 
@@ -32,8 +35,8 @@ STATUSES = ("draft", "live", "retired")
 ENGINES = ("duckdb", "polars", "pandas", "delta", "kernel", "pipeline", "model")
 # What a check can ask for; the lab runner (LX-03) carries them out.
 CHECK_KINDS = ("result_matches", "table_shape", "integrity", "no_findings", "faster_than", "defects_found")
-# Datasets the lab runner generates (LX-03). Until it lands, modules carry their data in setup files.
-DATASETS: tuple[str, ...] = ()
+# Datasets the lab runner generates on this PC (datasets.py).
+DATASETS = tuple(_DATASETS)
 # Outside links a lesson may give: the platforms' own documentation.
 DOC_HOSTS = ("learn.microsoft.com", "docs.databricks.com", "docs.snowflake.com", "duckdb.org", "docs.pola.rs",
              "pandas.pydata.org", "delta.io", "spark.apache.org")
@@ -43,6 +46,9 @@ _FILE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
 _DOC_PAGE = re.compile(r"^[a-z0-9][a-z0-9/_-]*\.md(#[a-z0-9-]+)?$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HTML = re.compile(r"<[A-Za-z!/]")
+# What each check needs from the module (labs.py passes it on).
+_CHECK_NEEDS = {"no_findings": ("rules",), "faster_than": ("baseline",), "table_shape": ("table",),
+                "integrity": ("child", "column", "parent")}
 _REQUIRED = ("id", "kind", "title", "path", "level", "minutes", "objectives", "engines", "lesson", "exercises",
              "version", "status")
 
@@ -65,6 +71,17 @@ def modules(root: Path = ROOT, include_drafts: bool = True) -> list[dict[str, An
             continue
         out.append(m)
     return out
+
+
+def is_id(text: str) -> bool:
+    return bool(_ID.match(str(text)))
+
+
+def get(module_id: str, root: Path = ROOT) -> dict[str, Any]:
+    """One module or lab by id."""
+    if not is_id(module_id) or not (root / module_id / "module.json").is_file():
+        raise ValueError(f"Not a learning module: {module_id}")
+    return dict(_read_json(root / module_id / "module.json"))
 
 
 def file_text(module_id: str, name: str, root: Path = ROOT) -> str:
@@ -100,6 +117,8 @@ def _module_problems(folder: Path, m: dict[str, Any], rule_ids: set[str]) -> lis
             out.append(f"{mid}: {key} is one of {', '.join(allowed)}")
     if not isinstance(m["minutes"], int) or not 1 <= m["minutes"] <= 120:
         out.append(f"{mid}: minutes is a whole number from 1 to 120")
+    if "size" in m and m["size"] not in _SIZES:
+        out.append(f"{mid}: size is one of {', '.join(_SIZES)}")
     if not isinstance(m["version"], int) or m["version"] < 1:
         out.append(f"{mid}: version is a whole number from 1")
     if m["status"] == "live" and not _DATE.match(str(m.get("reviewed") or "")):
@@ -128,6 +147,14 @@ def _module_problems(folder: Path, m: dict[str, Any], rule_ids: set[str]) -> lis
         out += [f"{where}: unknown check {c.get('kind')}" for c in checks if c.get("kind") not in CHECK_KINDS]
         out += [f"{where}: no_findings names unknown rule {r}" for c in checks if c.get("kind") == "no_findings"
                 for r in c.get("rules") or [] if r not in rule_ids]
+        if not all(isinstance(x, str) and x for x in ex.get("hints") or []):
+            out.append(f"{where}: hints are a list of sentences")
+        for c in checks:
+            missing = [k for k in _CHECK_NEEDS.get(c.get("kind"), ()) if not c.get(k)]
+            if missing:
+                out.append(f"{where}: check {c.get('kind')} needs {', '.join(missing)}")
+            if c.get("kind") == "faster_than" and c.get("baseline"):
+                files.append(c["baseline"])
         files += [ex[k] for k in ("setup", "starter", "solution") if ex.get(k)]
     for name in files:
         if not isinstance(name, str) or not _FILE.match(name) or ".." in name:

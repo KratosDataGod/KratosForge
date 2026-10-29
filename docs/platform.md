@@ -230,7 +230,7 @@ Key tables are the platform's, not a project's. Only platform admins create one 
 
 ## Moving surrogate keys into the platform
 
-Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Data mesh > Design > Surrogate keys**, choose **Move keys** for Test or Prod. KratosForge:
+Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Data mesh > Design > Surrogate keys**, a platform admin chooses **Move keys** for Test or Prod (copying keys in with their numbers is for platform admins only). KratosForge:
 
 1. Copies every key into `SQL_Platform` with the **same number**. A business key that already has a different number in the platform stops the move; nothing is renumbered.
 2. Reads the copy back and compares it, row by row, with `LH_Keys`.

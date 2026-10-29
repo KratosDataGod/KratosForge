@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #998 7880a0a7 | README rewrite, main merge (License section) | PASS at 7880a0a7 (carried from 92ff1702) | 9.3 | Release management's README union keeps the PR's short guide and Build from source, plus main's License section at the end. The PR's own delta is identical to 92ff1702 (sorted +/- lines compared against the merge-base), and it merges main cleanly. |
+
+| #987 a8be34c6 | Main merge (styles.css union with #990) | PASS at a8be34c6 (carried from 166b09bd) | 9.2 | Second reviewer's PR, carried by me at Release management's ask. The styles.css union keeps the PR's .folder-field rules and main's forced-colors block. The PR's own delta is identical to 166b09bd, and it merges main cleanly. RM: ui.test 304/304. |
+
 | #1001 7ceabd9d | Evening product check, re-run on main after #997 | PASS | 9.2 | The owner took main's product JSON and re-ran the check rather than unioning. Counts recomputed here from the JSON: backlog 106 (Accepted 40, In progress 27, In review 20, Proposed 19); features 142 (Implemented 119, Partially Implemented 13, Planned 4, Implemented but Not Exposed 4, Missing 2). All 14 items named in the commit are In review, and PB-116/117/118 carry issues #852 to #854. product_data.py check and queues.py check are consistent; product_data.py all leaves no diff. 10 files against main, product docs only, plus the schema field and its render; no security detail added. Merges main cleanly. |
 
 | #891 6e42a2f7 | Fabric Spark (Livy) Preview engine, main merge after SF-00 | PASS at 6e42a2f7 (carried from 81208e74) | 9.1 | The registry.py resolution keeps SF-00's three Snowflake descriptors, uses the real FABRIC_SPARK from fabric_spark.py (main's planned stub is gone), registers FabricSparkAdapter, and sets REGISTRY_VERSION to 6 (main has 5). Against 81208e74 the PR's own delta differs only in that version line. Merges main cleanly. engines, fabric_spark, snowflake, connprofile tests + silent_except 237 passed. |

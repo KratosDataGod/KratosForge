@@ -44,6 +44,10 @@ WRITE_ATTEMPTS = 3
 AFTER_COMMIT_ATTEMPTS = 3
 # Commit metadata naming one after-commit append, so a retry can tell the append already committed.
 APPEND_KEY = "fabric_desktop_append"
+# Commit metadata listing the files a run read, so they count as loaded if its list wasn't saved.
+FILES_KEY = "fabric_desktop_files"
+# Most files listed there: above it the commit lists none (every history read parses the list).
+FILES_IN_COMMIT = 5000
 
 # Columns the quarantine adds to each held row: why, which run, when, and the row's own id.
 QUARANTINE_COLUMNS = ["_check", "_run_id", "_loaded_at", "_qid"]
@@ -396,6 +400,7 @@ class Engine:
         self._dq: list[dict[str, Any]] = []
         self._schema_from: pl.Schema | None = None  # the table's schema before this run's commit
         self._files_read: tuple[str, list[dict[str, Any]]] | None = None
+        self._files_recovered: list[dict[str, Any]] = []
         self._pending_quarantine = []
         try:
             with self.table_lock(e):
@@ -412,6 +417,9 @@ class Engine:
             raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
+            # Files found only in a commit's metadata are saved now. This is after the table lock, so two
+            # runs may both save them: harmless, as the list is read as a set.
+            self._record_files(e, res)
         except DecisionNeeded as ex:
             res.status, res.message, res.options = "needs_decision", str(ex), ex.options
             return res
@@ -524,7 +532,7 @@ class Engine:
             todo, detail = listed, f"{plural(len(listed), 'file')}"
             if self._tracks_files(e):
                 if not full:
-                    done = self._loaded_files(e, where)
+                    done = self._loaded_files(e, where, res)
                     todo = [f for f in listed if (f["path"], f["size"], f["modified"]) not in done]
                     detail = f"{plural(len(todo), 'new file')} of {len(listed)}"
                     if not todo:
@@ -910,23 +918,55 @@ class Engine:
         backfill reads them all). Full loads, and ``[source] new_files_only = false``, read them all."""
         return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
 
-    def _loaded_files(self, e: Entity, lakehouse: str) -> set[tuple[str, int, str]]:
+    def _loaded_files(self, e: Entity, lakehouse: str, res: RunResult) -> set[tuple[str, int, str]]:
         m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
-        return {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+        done = {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+        # Each write also carries the files it read in its Delta commit. If the run never saved its
+        # list (the save failed after the commit), those files are loaded all the same: going by the
+        # saved list would load them again, and a load without keys would add their rows twice. Only
+        # the last 20 commits are looked at, as for the watermark.
+        try:
+            history = self.store.history(self.lakehouse(e), e.schema, e.table, 20)
+        except Exception as exc:  # noqa: BLE001  no history to go by: the saved list is all there is
+            res.steps.append(Step("files", 0, 0.0, f"couldn't read the table's history ({type(exc).__name__}: {exc}), "
+                                                   "so only the saved list of loaded files is used"))
+            return done
+        saved = set(m["run_id"].to_list())
+        for commit in history:
+            run, files = commit.get("fabric_desktop_run_id"), _committed_files(commit, lakehouse)
+            if not run or run in saved or not files:
+                continue
+            new = [f for f in files if (f["path"], f["size"], f["modified"]) not in done]
+            done |= {(f["path"], f["size"], f["modified"]) for f in files}
+            self._files_recovered += [{"entity": e.name, "lakehouse": lakehouse, "run_id": run} | f for f in new]
+        return done
+
+    def _files_metadata(self, res: RunResult) -> dict[str, str]:
+        """The files this run read, for its table commit (see _loaded_files)."""
+        if not self._files_read:
+            return {}
+        where, files = self._files_read
+        if len(files) > FILES_IN_COMMIT:
+            res.steps.append(Step("files", len(files), 0.0, f"too many files to list in the Delta commit (over "
+                                                            f"{FILES_IN_COMMIT:,}): if the list of loaded files "
+                                                            "can't be saved, the next run reads them again"))
+            return {}
+        listed = [[f["path"], f["size"], f["modified"]] for f in files]
+        return {FILES_KEY: json.dumps({"lakehouse": where, "files": listed}, separators=(",", ":"))}
 
     def _record_files(self, e: Entity, res: RunResult) -> None:
-        """After the table commit: the files this run read are loaded. If this fails, the next run
-        reads them again, which a keyed load absorbs."""
-        if not self._files_read:
-            return
-        where, files = self._files_read
-        try:
-            self.store.meta_append("loaded_files", [{"entity": e.name, "lakehouse": where, "run_id": self.run_id,
-                                                     "path": f["path"], "size": f["size"], "modified": f["modified"]}
-                                                    for f in files])
-        except Exception as exc:  # the table is written; only the next run's file list is affected
-            res.steps.append(Step("files", len(files), 0.0, f"couldn't record the files read ({type(exc).__name__}: "
-                                                             f"{exc}); the next run reads them again"))
+        """After the table commit: the files this run read are loaded, and so are any a run committed
+        without saving its list (saved under that run). If this fails, the next run finds them in
+        the commit instead."""
+        rows = list(self._files_recovered)
+        if self._files_read:
+            where, files = self._files_read
+            rows += [{"entity": e.name, "lakehouse": where, "run_id": self.run_id, "path": f["path"],
+                      "size": f["size"], "modified": f["modified"]} for f in files]
+        if rows:
+            self._after_commit(res, f"the list of {plural(len(rows), 'file')} read",
+                               (META_LAKEHOUSE, "meta", "loaded_files"),
+                               lambda m: self.store.meta_append("loaded_files", rows, metadata=m))
 
     def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
         """The source columns the contract expects, and those this entity uses."""
@@ -1384,6 +1424,7 @@ class Engine:
         mark = self._new_watermark(e, df, backfill)
         if mark is not None:
             metadata["fabric_desktop_watermark"] = mark
+        metadata |= self._files_metadata(res)
         # Before any merge: scd1_merge, scd2_merge and the relaxed concats below join the new rows to
         # the table's, and would fail on a change of kind, or quietly keep the old type, first.
         df = _fit_to_table(e, df, self._schema_from)
@@ -1528,6 +1569,17 @@ def apply_clean(df: pl.DataFrame, rules: list[dict[str, Any]], keys: list[str]) 
         changed += int((~after[col].cast(pl.String).eq_missing(after["__new"].cast(pl.String))).sum())
         df = after.with_columns(pl.col("__new").alias(col)).drop("__new")
     return df, changed
+
+
+def _committed_files(commit: dict[str, Any], lakehouse: str) -> list[dict[str, Any]]:
+    """The files a table commit says its run read from ``lakehouse``, from _files_metadata."""
+    try:
+        listed = json.loads(commit.get(FILES_KEY) or "{}")
+        if listed.get("lakehouse") != lakehouse:
+            return []
+        return [{"path": str(p), "size": int(n), "modified": str(m)} for p, n, m in listed.get("files", [])]
+    except (TypeError, ValueError, AttributeError):  # not written by _files_metadata: nothing to go by
+        return []
 
 
 def _next_key(existing: pl.DataFrame | None, sk: str) -> int:

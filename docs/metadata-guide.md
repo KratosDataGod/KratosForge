@@ -217,7 +217,7 @@ An incremental or dimension load from files (`files` or `landing`) remembers eac
 - Full loads always read every file.
 - To read every file on each run anyway, set `new_files_only = false` under `[source]`. This isn't a logic change, so it doesn't ask whether to rebuild.
 
-The list is written after the table. A run that fails before its write reads the same files next time. If the table is written but the list can't be, the run says so and the next run reads those files again, which a load with keys absorbs.
+The list is written after the table. A run that fails before its write reads the same files next time. The table's Delta commit also lists the files the run read, so if the table is written but the list can't be saved, the run says so and the next run still skips those files (and saves them to the list), with or without keys. This looks back over the table's last 20 commits, and only at runs that read 5,000 files or fewer.
 
 **When a table's logic changes**, an incremental run stops and asks you to choose:
 

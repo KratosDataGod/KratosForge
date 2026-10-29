@@ -1,0 +1,44 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-04",
+  "kind": "module",
+  "title": "Grouping and aggregation",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 10,
+  "objectives": [
+    "Make one row per group with GROUP BY and aggregate functions",
+    "Filter groups with HAVING and rows with WHERE",
+    "Leave out DISTINCT when GROUP BY already makes rows unique"
+  ],
+  "prerequisites": ["LM-01"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "big-regions",
+      "prompt": "For each region, show the number of sales (sales) and their total (total). Keep only regions whose total is over 500, largest total first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter's DISTINCT does nothing GROUP BY doesn't already do.",
+        "A test on SUM(amount) can't go in WHERE, which runs before the groups exist. Which clause filters groups?",
+        "Add HAVING SUM(amount) > 500 and ORDER BY total DESC."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}, {"kind": "no_findings", "rules": ["SQ009"]}],
+      "expected": {
+        "columns": ["region", "sales", "total"],
+        "rows": [["East", 1, 700.0], ["North", 3, 620.0], ["West", 3, 520.0]]
+      }
+    }
+  ],
+  "rules": ["SQ009"],
+  "docs": ["sql-best-practices.md#sq009", "https://duckdb.org/docs/sql/query_syntax/groupby"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

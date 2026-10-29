@@ -142,18 +142,20 @@ test("Guidance is Focus by default: no Lesson link beside a finding, no suggesti
 test("Guided adds the lesson that covers a finding's rule, and it opens the lesson", { skip }, async () => {
   await page().locator(".learn-guidance select").selectOption("guided");
   await page().waitForFunction(() => state.settings.learn_mode?.value === "guided");
-  // Lessons ship as drafts until LX-08, and a finding links only live ones: the catalog here marks LM-01 live.
-  await page().evaluate(async () => {
-    const cat = await learnCatalogCached();
-    learnCatalogLoad = Promise.resolve({ ...cat, modules: cat.modules.map((m) => (m.id === "LM-01" ? { ...m, status: "live" } : m)) });
-    document.body.append(h("div", { id: "finding-test" }, learnFindingLink("SQ002")));  // outside #view, which the mode change renders again
-  });
+  await page().evaluate(() => document.body.append(h("div", { id: "finding-test" }, learnFindingLink("SQ002"))));  // outside #view, which the mode change renders again
   await page().locator("#finding-test a", { hasText: "Lesson: Your first query on this PC" }).click();
   await page().locator(".page-head h1", { hasText: "Your first query" }).waitFor();
   await page().evaluate(() => document.querySelector("#finding-test").remove());
   const none = await page().evaluate(async () => { const el = learnFindingLink("NB001"); await learnCatalogCached(); return el.textContent; });
   assert.strictEqual(none, "", "no lesson covers NB001 yet");
-  const draftOnly = await page().evaluate(async () => { learnCatalogLoad = null; const el = learnFindingLink("SQ002"); await learnCatalogCached(); return el.textContent; });
+  const draftOnly = await page().evaluate(async () => {
+    const cat = await learnCatalogCached();
+    learnCatalogLoad = Promise.resolve({ ...cat, modules: cat.modules.map((m) => ({ ...m, status: "draft" })) });
+    const el = learnFindingLink("SQ002");
+    await learnCatalogCached();
+    learnCatalogLoad = null;
+    return el.textContent;
+  });
   assert.strictEqual(draftOnly, "", "a draft lesson isn't linked beside a finding");
 });
 
@@ -161,7 +163,7 @@ test("Learning also suggests the next lesson on Home, and a policy-set mode can'
   await page().evaluate(() => { learnPage.open = null; go("learn"); });
   await page().locator(".learn-guidance select").selectOption("learning");
   await page().locator(".learn-suggest").waitFor();
-  assert.match(await page().locator(".learn-suggest").textContent(), /Suggested next[\s\S]*LAB-02 · Optimize a slow query/);
+  assert.match(await page().locator(".learn-suggest").textContent(), /Suggested next[\s\S]*LM-02 · Data types, and why decimals beat floats for money/);
   await page().evaluate(() => { state.settings.learn_mode = { value: "guided", source: "policy" }; render(); });
   await page().locator(".learn-guidance select").waitFor();
   assert.strictEqual(await page().locator(".learn-guidance select").isDisabled(), true);

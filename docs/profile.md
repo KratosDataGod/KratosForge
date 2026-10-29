@@ -54,8 +54,9 @@ report stay.
 | The Architect's Eye | A Learn exercise with a table shape or referential integrity check passes | 100 |
 | The Guardian | A Learn exercise that plants data quality problems passes: your query finds every one | 100 |
 
-The Learn achievements need a published lesson or lab of that kind; the first ones arrive with the
-first published lessons.
+Each Learn achievement needs a published lesson or lab with that kind of check. Today LAB-02 has a
+speed check, LM-02 and LM-05 have table shape and integrity checks, and LAB-01 plants data quality
+problems.
 
 When Validate, Prove or a Learn check earns you an achievement, a short message names it (turn that off with **Settings >
 Achievement notifications**). Each achievement is announced once, even if you open the same result

@@ -85,7 +85,7 @@ def test_save_check_hint_and_reset(svc):
     assert svc.learn_lab_check("LM-01", ex)["passed"] is False
     good = "SELECT order_id, customer, amount FROM orders WHERE region = 'North' AND amount > 100 ORDER BY amount DESC"
     assert svc.learn_lab_check("LM-01", ex, good)["passed"] is True
-    assert svc.learn_lab_hint("LM-01", ex, 1)["of"] == 0  # LM-01 has no hints
+    assert svc.learn_lab_hint("LM-01", ex, 1)["of"] == 3
     svc.learn_lab_reset("LM-01")
     assert svc.learn_module("LM-01")["lab"]["answers"][ex] != "SELECT 1 AS x"
 

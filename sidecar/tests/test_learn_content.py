@@ -113,16 +113,16 @@ def test_catches_raw_html_but_not_html_in_code(tree):
 
 
 def test_catches_prerequisite_problems(tree):
-    shutil.copytree(tree / "LM-01", tree / "LM-02")
-    _edit(tree, "LM-02", id="LM-02", prerequisites=["LM-01"])
-    _edit(tree, "LM-01", prerequisites=["LM-02"])
+    shutil.copytree(tree / "LM-01", tree / "LM-90")
+    _edit(tree, "LM-90", id="LM-90", prerequisites=["LM-01"])
+    _edit(tree, "LM-01", prerequisites=["LM-90"])
     _one(tree, "go round in a circle")
     _edit(tree, "LM-01", prerequisites=["LM-77"])
     _one(tree, "unknown prerequisite LM-77")
 
 
 def test_catches_identity_and_publishing_problems(tree):
-    _edit(tree, "LM-01", id="LM-02", status="live", docs=["https://example.com/x"], engines=["duckdb", "cobol"])
+    _edit(tree, "LM-01", id="LM-90", status="live", reviewed=None, docs=["https://example.com/x"], engines=["duckdb", "cobol"])
     _one(tree, "doesn't match its folder")
     _one(tree, "needs the date it was last reviewed")
     _one(tree, "neither a docs page nor a platform's documentation")

@@ -39,5 +39,6 @@
   "rules": ["SQ002"],
   "docs": ["sql-best-practices.md#sq002"],
   "version": 1,
-  "status": "draft"
+  "status": "live",
+  "reviewed": "2026-10-29"
 }

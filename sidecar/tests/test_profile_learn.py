@@ -146,10 +146,14 @@ def test_a_passed_exercise_records_first_spark_and_checking_again_adds_nothing(p
     assert any(a["id"] == "first-spark" for a in got["catalog"])
 
 
-def test_a_failed_check_or_a_draft_records_nothing(plain):  # noqa: F811
+def test_a_failed_check_or_a_draft_records_nothing(plain, monkeypatch):  # noqa: F811
     call(plain, "learn_lab_start", module_id="LM-01")
+    out = call(plain, "learn_lab_check", module_id="LM-01", exercise_id="north-big-orders", answer="SELECT 1 AS x")
+    assert not out["passed"] and out["earned"] == []
+    real = content.get
+    monkeypatch.setattr(content, "get", lambda mid: {**real(mid), "status": "draft"})
     out = call(plain, "learn_lab_check", module_id="LM-01", exercise_id="north-big-orders", answer=GOOD)
-    assert out["passed"] and out["earned"] == []   # LM-01 ships as a draft until LX-08
+    assert out["passed"] and out["earned"] == []
     assert call(plain, "profile_get")["evidence"] == []
 
 

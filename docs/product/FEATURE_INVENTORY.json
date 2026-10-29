@@ -3963,6 +3963,11 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/central/policy_package.py"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy_promote_gate.py",
+          "note": "GOV-003: a Block finding no exception covers stops promote and names the policy and finding; Warn and Advisory never do; an exception lets it through and is named; Prod fails closed when the policies can't be read, Test warns"
         }
       ],
       "source": [
@@ -3971,11 +3976,13 @@
         "app/ui/governance.js",
         "sidecar/fabric_desktop/central/policy_package.py",
         "sidecar/fabric_desktop/central/checks_service.py",
-        "sidecar/fabric_desktop/cli.py"
+        "sidecar/fabric_desktop/cli.py",
+        "sidecar/fabric_desktop/meta_service.py"
       ],
       "tests": [
         "sidecar/tests/test_governance.py",
-        "sidecar/tests/test_policy_package.py"
+        "sidecar/tests/test_policy_package.py",
+        "sidecar/tests/test_policy_promote_gate.py"
       ],
       "docs": [
         "docs/governance.md",
@@ -3986,15 +3993,16 @@
         "preview": false
       },
       "limitations": [
-        "GOV-001 registry and GOV-002 offline validation are built; enforcement (GOV-003) isn't, and HD-031 labels Block as not enforced",
+        "GOV-001 registry, GOV-002 offline validation and GOV-003 Block at promote are built: a Block finding no exception covers stops promote, and HD-031's \"not enforced yet\" label is removed. Deploy isn't gated by policies",
         "Policy packages are hash-checked, not signed: signing needs a key, and there are no app registrations; a CI gate pins the package SHA-256 (--expect-sha256) in a protected variable. An offline package keeps the assignments, exceptions and domain chain from when it was taken",
-        "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)"
+        "An offline check doesn't read catalog text, product terms, endorsement or run logs, so those rules say unknown; there is no screen to take or pick a package (Check now refreshes it, the CLI takes and uses it)",
+        "A Prod promote stops whenever the policies can't be read (no platform and no valid package, or a platform error), since it can't tell which are assigned; Test and Dev only warn. A rule that says unknown, and a checker that runs in Fabric, don't stop a promote. It holds for promotes through KratosForge, not for writes in the Fabric portal"
       ],
       "prs": [
         119
       ],
       "workstream": "Enterprise governance foundation",
-      "next_action": "GOV-003 enforcement: block promote and deploy on a Block policy",
+      "next_action": "Block deploy on a Block policy too (promote is gated by GOV-003), and the governance stories that follow it",
       "backlog": [
         "PB-056",
         "PB-057"

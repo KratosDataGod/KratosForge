@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-29 | #1122 b2db2b8e | mypy ratchet fails when mypy can't run | PASS 9.3 | Merge result: test_mypy_ratchet + silent_except 22 pass. Without mypy, system python3 now exits 1 with the install hint; the pinned venv still passes (exit 0). Exit 1 with counted errors and exit 0 behave as before. Install hint names constraints files that exist. |
+
 | 2026-10-29 | #1120 1f1ebab4 | FS-04 pipeline gotchas PG1-PG10 (warnings) | CONDITIONAL 8.8 | Merge result: 330 pipeline/registry/gotchas/silent_except tests pass, ruff clean, ui.test 307/0, no 50-char overlap with skills-for-fabric bc42aaf pipeline-gotchas.md, REGISTRY_VERSION 8 has no collision. mypy ratchet fails: 5 new errors in orchestration/gotchas.py (:94 :157 :185 union-attr, :97 :177 index) on Optional narrowing. |
 | 2026-10-29 | #1115 cadd45b0 | KUDP platform levels | PASS 9.2 | Delta is the LEVELS annotation only. Merge result: test_platforms + silent_except 31 pass, mypy ratchet passes. |
 | 2026-10-29 | #1118 0bfb1e62 | KUDP SQL portability | PASS 9.2 | Delta fixes both mypy errors (reasons: list[str], exp.Expr, which exists at the sqlglot 30.12 floor). Merge result: test_sql_portability + silent_except 63 pass, mypy ratchet passes. |

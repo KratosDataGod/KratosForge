@@ -59,7 +59,7 @@ platform_status platform_whoami poll_cell preview_file preview_notebook preview_
 prove_list prove_rules_get prove_status queue_list receipt_get receipt_redactions replay_bundle_preview replay_bundles_list replay_check run_as_list shortcut_access
 shortcut_center shortcut_changes shortcut_check shortcut_connections shortcut_find_moved shortcut_preflight shortcut_readers
 shortcut_rules side_by_side_list side_by_side_status table_columns wizard_preview wizard_templates
-workload_capacity_use workload_detail workload_preflight workloads_list workspace_marks xray xray_adopt_plan
+workload_capacity_use workload_detail workload_preflight workloads_list workspace_marks item_pins notebook_details notebook_batch xray xray_adopt_plan
 xray_optimize_check xray_vacuum_preview
 sql_analyze sql_practices sql_practice_rules sql_compat_profiles sql_dialects sql_executions sql_export_status sql_format sql_page sql_status
 sql_templates_list sql_queries_list wh_projects_list wh_project_files wh_project_read wh_project_compare wh_project_diff wh_project_deploy_plan wh_monitoring_status
@@ -86,6 +86,7 @@ profile_get profile_report
 notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint
+pbi_embed_token pbi_embed_content
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

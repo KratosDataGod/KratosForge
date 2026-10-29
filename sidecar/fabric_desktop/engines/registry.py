@@ -19,7 +19,7 @@ from .fabric_spark import FABRIC_SPARK, FabricSparkAdapter
 from .local_python import PYTHON, NotebookSessionsAdapter, PythonAdapter
 from .local_sql import DUCKDB, POLARS, SQLITE, DuckDBAdapter, PolarsAdapter, SQLiteAdapter
 
-REGISTRY_VERSION = "7"
+REGISTRY_VERSION = "8"
 
 LOCAL_SPARK = EngineDescriptor(
     id="local-spark", label="Apache Spark (this PC)", location="local", platform="local", billing="none",

@@ -109,6 +109,7 @@ const PREVIEW_FEATURES = {
   updateBanner: "New build banner",
   engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  embedStudio: "Embed Studio (Power BI)",
 };
 
 function previewShown() {

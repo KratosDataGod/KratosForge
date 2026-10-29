@@ -57,6 +57,7 @@ How KratosForge protects your sign-in, your data and your PC, what it trusts, an
 | Tests writing to production | The [live test](https://github.com/KratosDataGod/KratosForge/blob/main/docs/live-testing.md) refuses unmarked workspaces, production-looking names and Platform workspaces | In place from FD-101 |
 | Secrets in project or agent files | Config validators refuse secret-looking fields; secrets come from Key Vault or environment variables | In place |
 | A link or redirect takes the Fabric view, which holds your Fabric sign-in, to a page that isn't Microsoft's | The view opens pages and pop-ups only on `https` with no user name in the link and no port, on exactly these hosts: `app.fabric.microsoft.com` (the Fabric portal), `app.powerbi.com` (Fabric's former portal; older item links redirect through it), `login.microsoftonline.com` and `login.microsoft.com` (Entra ID sign-in and sign-out), `login.windows.net` (Entra ID's legacy sign-in host, still used by older links and some redirects), `device.login.microsoftonline.com` (the device step where Conditional Access checks the PC), `autologon.microsoftazuread-sso.com` (Seamless SSO on domain-joined PCs) and `login.live.com` (a guest signing in with a personal Microsoft account). Other web links open in the default browser; plain `http` to those hosts and other schemes are refused. An allowed pop-up (a sign-in window) opens in a window the app builds with the same filter, so it can't leave those hosts either, and it keeps `window.opener` so sign-in can report back to the page that opened it. If that window can't be built, the pop-up is refused: it never gets WebView2's own window, which has no filter. The Monitoring hub's pop-out window (Preview) has a Fabric view of its own on the same profile, built with the same filter and pop-up rule; the app's own page in a pop-out window opens only the app's pages, with web links going to the default browser. Microsoft Defender SmartScreen stays on in the view (SH-12, HD-027) | In place. A tenant whose sign-in hands off to its own identity provider (AD FS, Okta, Ping and similar): IT adds that provider's host with `fabric_view_sign_in_hosts` in the policy file ([the key](azure-setup.md#4-push-settings-to-everyone)), and those hosts follow the same rule. Only the policy file can add hosts. Pages that aren't part of signing in, such as registering for MFA ("More information required") or managing a personal Microsoft account, are expected to open in the default browser; sign in in the view again afterwards |
+| The Power BI token Embed Studio hands its embed frame (Preview) is used for something else | `pbi_embed_token` only reads, but the token is your Power BI access token: it can do anything you can do in Power BI with KratosForge's Power BI permissions, write permissions included, so it is the first token that can write to reach the app's own page. The app keeps it in memory only (never local or session storage, snapshots, error reports or logs), hands it only to the embed host, which frames `app.powerbi.com` and nothing else, and asks the engine for a fresh one before it expires (about an hour) instead of keeping one. External AI tools can't ask for it ([Power BI embedding](architecture/power-bi-embedding.md)) | In place (PBE-04, PBE-06) |
 | Command injection through schedules | Task Scheduler is called with argument lists, never a shell; XML values are escaped | In place |
 
 ## Content Security Policy
@@ -65,7 +66,8 @@ The main window's policy is set in `app/src-tauri/tauri.conf.json` (`app.securit
 
 ```
 default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
-connect-src ipc: http://ipc.localhost; frame-src nbout: http://nbout.localhost https://nbout.localhost;
+connect-src ipc: http://ipc.localhost; frame-src nbout: http://nbout.localhost https://nbout.localhost
+  pbiembed: http://pbiembed.localhost https://pbiembed.localhost;
 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
@@ -73,9 +75,27 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 - **Styles:** `styles.css`, plus the code editor's `<style>` element, which carries the nonce Tauri adds to `style-src` on each load. Inline style attributes aren't allowed; the UI sets styles through the DOM (`element.style`), which the policy doesn't restrict. No `'unsafe-inline'`.
 - **Images:** the app's own files and `data:` (notebook charts). Nothing is loaded from the internet.
 - **Connections:** only the shell (Tauri's IPC). The UI never calls the engine's local HTTP API or any web address; the engine makes every network call.
-- **Frames:** only notebook HTML output. The Fabric view (Monitoring hub, OneLake catalog, Fabric's sign-in) is a separate webview, not a frame, so this policy doesn't apply to it; app sign-in runs in the engine, through Windows sign-in or the system browser.
+- **Frames:** only notebook HTML output and the Power BI embed host (below), both served by the shell. No remote site. The Fabric view (Monitoring hub, OneLake catalog, Fabric's sign-in) is a separate webview, not a frame, so this policy doesn't apply to it; app sign-in runs in the engine, through Windows sign-in or the system browser.
 
 Notebook HTML output comes from whoever wrote the notebook, so it never runs in the app's origin. The shell serves a small frame page from its `nbout:` scheme (`http://nbout.localhost` on Windows), for the main window only. The page loads it in an `<iframe sandbox="allow-scripts">` without `allow-same-origin`, posts it the HTML, and the frame writes the HTML into itself. The frame keeps its own policy: inline scripts and styles (and `eval`, which some charting libraries use) are allowed, because the output needs them and can reach nothing; images and media only as `data:` or `blob:`, fonts only as `data:`; `default-src 'none'`, so no fetches, beacons or remote resources. A content security policy doesn't cover WebRTC, so script in a notebook written to leak data could still send it out through a WebRTC connection; treat a notebook from someone you don't trust like a script you were sent. Its origin is opaque and it never receives the shell's invoke key, so it can't call the Tauri API, and the main window's `frame-src` stops it from navigating itself to another site. HTML output that loads its scripts from the internet (Plotly with `include_plotlyjs="cdn"`, for example) shows nothing; the engine's own Plotly output inlines plotly.js. Altair charts reach the frame as their Vega-Lite spec, written into the frame's script with every `<` escaped, together with the Vega libraries the app ships (`app/ui/vendor/vega`), so they draw there and never run in the app's page.
+
+The Power BI embed host (Embed Studio, Preview: PBE-03 in [Power BI embedding](architecture/power-bi-embedding.md)) is a second frame page the shell serves, from its `pbiembed:` scheme (`http://pbiembed.localhost` on Windows), for the main window only. It holds Microsoft's `powerbi-client` SDK (vendored in `app/src-tauri/embed-host/vendor`, checked against the npm tarball's hash by a test) and has its own policy:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+frame-src https://app.powerbi.com; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none';
+frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost
+```
+
+- It frames `https://app.powerbi.com` and nothing else, and fetches nothing. The SDK posts the person's token to its frame with target origin `*`, so `frame-src` is what keeps that frame, and the token, on Power BI. The host also refuses an embed address on any other host before the SDK sees it.
+- Only the app's own window can frame it (`frame-ancestors`), and the shell serves its files to no other webview.
+- It acts only on a fixed list of commands (embed, new token, pages, change page, reload, full screen, reset), only from its parent window on one of the app's origins, and answers only that origin. Messages from Power BI's frame, or anything else, are ignored.
+- Events go back to the app with every key that looks like a token or secret removed. Text inside other values (an error's message, say) is passed as Power BI wrote it.
+- The token comes from the engine (`pbi_embed_token`, PBE-04) and lives only in memory: the app's window, the host frame and Power BI's frame. It is never written to disk or a log.
+- Its origin isn't the app's, so the Tauri API refuses it like any remote page.
+- Only the commercial cloud's `app.powerbi.com` is allowed. Power BI in government and sovereign clouds (such as `app.powerbigov.us` or `app.powerbi.cn`) won't open in the host.
+- Pop-ups from the frame open nothing (checked in WebView2 156, PBE-01). The app frames the host sandboxed without `allow-popups` or `allow-top-navigation`; the host asks Power BI to raise a click on a table or matrix link as an event (`dataHyperlinkClicked`), and the app opens only an `https` link, in the default browser. Other links in a report open nothing.
+- The app's page takes a message only from its own host frame (`event.source` is that frame) on the host's origin, and sends commands only to that origin ([Embed Studio](embed-studio.md)).
 
 ## Data copied to this PC
 

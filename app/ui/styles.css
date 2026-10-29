@@ -2562,3 +2562,38 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
   :focus-visible, .search:focus-within, .palette-input:focus-within { outline: 2px solid Highlight; }
   .avatar { border: 1px solid CanvasText; }
 }
+
+/* Embed Studio (powerbi.js, Preview): Workspaces > Power BI and the studio around the embed host frame. */
+.pbi-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pbi-find { width: 300px; max-width: 100%; }
+.pbi-list .pbi-star-col { width: 32px; }
+.pbi-list .actions { display: flex; gap: 8px; justify-content: flex-end; }
+.embed-studio .crumb { background: none; border: 0; padding: 0; cursor: pointer; }
+.pbi-studio { display: flex; gap: 12px; min-height: 520px; }
+.pbi-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-stage-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border-soft); }
+.pbi-pages { display: flex; gap: 4px; overflow-x: auto; }
+.pbi-frame-wrap { position: relative; flex: 1; min-height: 480px; }
+.pbi-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--surface); }
+.pbi-frame.pbi-hidden { visibility: hidden; }
+.pbi-problem-slot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none; }
+.pbi-problem-slot:empty { display: none; }
+.pbi-problem { max-width: 520px; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; }
+.pbi-problem h2 { margin: 0; font-size: 16px; }
+.pbi-problem .pill { align-self: flex-start; }
+.pbi-problem p { margin: 0; }
+.pbi-problem.stop .pill { background: var(--danger-soft); color: var(--danger); }
+.pbi-problem.warn .pill { background: #fff4e5; color: #8a4500; }
+.pbi-side { width: 320px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-side .subtabs { padding: 0 14px; margin-bottom: 0; }
+.pbi-facts { padding: 14px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.pbi-fact { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.pbi-events-card { margin-top: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.pbi-events-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border-soft); }
+.pbi-events-head h2 { margin: 0; font-size: 14px; }
+.pbi-events { list-style: none; margin: 0; padding: 4px 14px; max-height: 180px; overflow: auto; font-family: var(--mono); font-size: 12px; }
+.pbi-events li { display: grid; grid-template-columns: 90px 140px minmax(0, 1fr); gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.pbi-events .good { color: #1d6b3e; }
+.pbi-events .bad { color: var(--danger); }
+.pbi-event-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .pbi-studio { flex-direction: column; } .pbi-side { width: auto; } }

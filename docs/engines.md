@@ -145,11 +145,12 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
 
 ### Databricks SQL functions on this PC
 
-Of 135 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB
-engine doesn't answer the same way, checked by running each one through the engine's own translation
-(sqlglot, then DuckDB) against the value Databricks gives: its documented example, or one worked by
-hand where the reference gives none. A test runs them again, so the table
-changes when an upgrade fixes or breaks one. A function not listed here or below hasn't been checked.
+The DuckDB engine's own translation (sqlglot, then DuckDB) runs each check against the value
+Databricks gives: its documented example, or one worked by hand where the reference gives none. A
+test runs them again, so the table changes when an upgrade fixes or breaks one. A function not listed
+here or below hasn't been checked.
+
+Of 135 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |

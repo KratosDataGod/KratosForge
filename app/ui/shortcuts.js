@@ -637,7 +637,7 @@ function scChangeList(changes, after, showWhere) {
         c.note ? h("div", { class: "muted-text small" }, c.note) : null),
       h("span", { class: "small" }, c.how === "app" ? (c.by_user || "KratosForge") : c.how === "check" ? "Health check" : "Seen at scan",
         c.how === "scan" ? h("div", { class: "muted-text small" }, "made outside the app") : null),
-      ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
+      c.undoable && ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
         ? btn(c.kind === "removed" ? "Recreate" : "Undo", null, () => undo(c), "tool link small") : h("span", {})));
   }
   return h("div", { class: "sc-changes" }, out);

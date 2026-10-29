@@ -248,3 +248,27 @@ def test_deprecated_products_and_broken_shortcuts_in_use_are_needs():
 def test_describe_keeps_the_target_to_make_it_again():
     d = shortcuts.describe({"name": "x", "path": "Files/raw", "target": {"type": "AmazonS3", **S3}})
     assert d["rest_target"] == S3
+
+
+def test_undo_runs_only_for_a_change_its_author_could_make(svc):
+    center_of(svc)
+    LocalPlatform(svc._catalog().path, lambda: "chris@example.com").call("whoami")  # the first in is its admin
+    eve = LocalPlatform(svc._catalog().path, lambda: "eve@example.com")
+    assert not eve.call("whoami")["admin"]
+    customer = {"workspace_id": "ws-dev", "lakehouse_id": "lh-1", "workspace_name": "Sales Dev",
+                "lakehouse_name": "LH_Silver", "path": "Tables/dbo", "name": "customer"}
+    # A non-member's repoint is only reported, with what it pointed at taken from the inventory.
+    eve.call("log_shortcut_change", kind="repointed", shortcut=dict(customer, target=GOLD),
+             before=dict(customer, target=S3), after=dict(customer, target=GOLD))
+    reported = svc.shortcut_changes()["changes"][0]
+    assert reported["note"].startswith("reported") and reported["before"]["target"] == GOLD
+    assert not reported["undoable"]
+    with pytest.raises(RuntimeError, match="can be undone. Nothing was changed"):
+        svc.shortcut_undo(reported["id"])
+    # Anyone may log an add, but undoing one a non-member logged would remove a real shortcut.
+    eve.call("log_shortcut_change", kind="added", shortcut=dict(customer, target=GOLD), after=dict(customer, target=GOLD))
+    added = svc.shortcut_changes()["changes"][0]
+    assert added["kind"] == "added" and not added["undoable"]
+    with pytest.raises(RuntimeError, match="can be undone"):
+        svc.shortcut_undo(added["id"])
+    assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD

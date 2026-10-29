@@ -466,6 +466,11 @@ class ShortcutMixin:
         c = next((x for x in changes if x["id"] == change_id), None)
         if c is None:
             raise LookupError("That change isn't in the history any more")
+        if "undoable" not in c:
+            raise RuntimeError("Not undone: the platform needs Platform > Settings > Finish or repair once first.")
+        if not c["undoable"]:
+            raise RuntimeError("Not undone: only a change made by a platform admin, or by a member of a project "
+                               "with a product in that lakehouse, can be undone. Nothing was changed.")
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
 
         def now(d: dict[str, Any]) -> dict[str, Any] | None:

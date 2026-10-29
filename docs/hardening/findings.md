@@ -45,7 +45,7 @@ No Critical issue was confirmed. Twelve are High.
 | AR-1 | Medium | Leases | A lease that stops renewing isn't marked lost, and loss is only checked after the commit | HD-016 |
 | EP-3 | Medium | Audit | The audit hash chain forks when the app and a scheduled run write at once; tail deletion goes unnoticed | HD-017 |
 | EP-5 | Medium | Governance | The two-person promote rule compares OS login names and can be switched off in an unversioned file | Partly closed by HD-030: a matching Entra object id or a matching login counts as the same person; the switch is still in `environments.toml` |
-| EP-6 | Medium | Governance | "Block" governance policies are stored but enforced nowhere | HD-031 (GOV-002) |
+| EP-6 | Medium | Governance | "Block" governance policies are stored but enforced nowhere | **Closed for promote** by GOV-003: a Block finding no exception covers stops promote, and Prod fails closed when the policies can't be read. Deploy isn't gated. HD-031's "not enforced yet" label is removed |
 | EP-7 | Medium | Business keys | T-SQL key import sends 3,000 parameters per statement; SQL Server allows 2,100 | HD-032 |
 | EN-7 | Medium | Docs | `docs/security.md` says the engine has no network listener; it runs one on 127.0.0.1:47615 | HD-009 |
 | SH-5 | Medium | Distribution | Any different build installs (downgrades included), and `exe.old` is deleted before the new build proves it starts | HD-022 |
@@ -220,7 +220,7 @@ No Critical issue was confirmed. Twelve are High.
 | Id | Where | Finding and fix |
 | --- | --- | --- |
 | EP-5 | `meta_service.py:508-530`, `duties.py:46-67`, `meta/project.py:56` | Compare Entra object ids, not `getpass.getuser()`; take `separate_promoter` from platform policy or versioned files; label it advisory |
-| EP-6 | `central/policy.py:131-164`, `docs/governance.md:18` | "Block" stops nothing yet. Label it "not enforced yet" in Governance until GOV-002 adds the promote gate (governance thread) |
+| EP-6 | `central/policy.py:131-164`, `docs/governance.md:18` | "Block" stops nothing yet. Label it "not enforced yet" in Governance until GOV-002 adds the promote gate (governance thread). Update: GOV-003 enforces Block at promote (`central/checks_service.py` `governance_promote_gate`, called by `meta_promote_check` and `meta_promote`), so the label is gone |
 | EP-7 | `central/core.py:363-367` | Chunk T-SQL key import at 699 rows or use OPENJSON like `issue_keys`; add a T-SQL contract test (inferred from SQL Server's documented 2,100-parameter limit, not run) |
 | EN-7, DOC-1 | `docs/security.md`, `docs/product/release-readiness.md`, `docs/permissions.md:148`, `docs/product/ai-integration-security.md:56` | Correct: the engine runs a loopback HTTP server (guarded by Host and Origin checks and a hashed token); redaction exists; scanning, SBOM, provenance and SHA pinning exist; AI-tool code can reach tokens; run-notebook approval doesn't show code; G3 to G8 PRs are merged |
 | SH-5 | `app/ui/app.js:2409-2422`, `main.rs:504-529`, `:974-976` | Refuse older builds unless the channel changes; keep `exe.old` until the new build's first health check; restore it on failure |

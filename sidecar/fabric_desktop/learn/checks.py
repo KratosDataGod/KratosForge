@@ -33,7 +33,20 @@ from ..sqlcompat import practices as sql_practices
 MAX_ROWS = 1_000_000   # a result bigger than this isn't compared row by row
 
 
+def guard(con: duckdb.DuckDBPyConnection, sql: str) -> None:
+    """Refuse an answer that starts or ends a transaction: a COMMIT inside it would keep its changes
+    in the lab, past the rollback every check ends with. SQL that doesn't parse is left to fail when
+    it runs, with DuckDB's own message."""
+    try:
+        statements = con.extract_statements(sql)
+    except duckdb.Error:
+        return
+    if any(st.type == duckdb.StatementType.TRANSACTION for st in statements):
+        raise ValueError("a lab answer can't use BEGIN, COMMIT or ROLLBACK; the lab undoes every answer itself")
+
+
 def _rows(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[list[str], list[tuple[Any, ...]]]:
+    guard(con, sql)
     con.begin()
     try:
         cur = con.execute(sql)

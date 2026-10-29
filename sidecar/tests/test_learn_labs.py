@@ -162,6 +162,10 @@ def test_a_lab_answer_cant_reach_files_or_change_the_lab(tmp_path):
         assert not out["passed"], sql
     assert not (tmp_path / "out.csv").exists() and not (tmp_path / "x.db").exists()
     labs.check(tmp_path, "LM-01", "north-big-orders", "DROP TABLE orders; SELECT 1 AS x")
+    for sql in ("COMMIT; DROP TABLE orders; SELECT 1 AS x", "ROLLBACK; DELETE FROM orders; SELECT 1 AS x",
+                "begin transaction; DELETE FROM orders; commit; SELECT 1 AS x"):
+        out = labs.check(tmp_path, "LM-01", "north-big-orders", sql)
+        assert not out["passed"] and "BEGIN, COMMIT or ROLLBACK" in out["results"][0]["detail"], sql
     labs.save_answer(tmp_path, "LM-01", "north-big-orders", content.file_text("LM-01", "solution.sql"))
     assert labs.check(tmp_path, "LM-01", "north-big-orders")["passed"], "the DROP was rolled back"
 
@@ -188,3 +192,11 @@ def test_labs_import_nothing_that_reaches_fabric():
                 names = [node.module or ""] + ([a.name for a in node.names] if not node.module else [])
             for n in names:
                 assert n in allowed, f"{path.name} imports {n}"
+
+
+def test_guard_refuses_only_transaction_statements(con):
+    checks.guard(con, "CREATE TABLE x AS SELECT 1; SELECT * FROM x")
+    checks.guard(con, "SELEC broken")   # left to fail when it runs
+    for sql in ("COMMIT", "SELECT 1; ROLLBACK", "BEGIN; SELECT 1"):
+        with pytest.raises(ValueError):
+            checks.guard(con, sql)

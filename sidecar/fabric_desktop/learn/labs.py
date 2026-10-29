@@ -151,6 +151,10 @@ def _run(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, referen
         return checks.defects_found(con, answer, defects, kinds=c.get("kinds"))
     if kind in ("table_shape", "integrity"):
         # These look at tables the answer makes: run it in a transaction, check, then roll back.
+        try:
+            checks.guard(con, answer)
+        except ValueError as exc:
+            return {"kind": kind, "passed": False, "detail": f"Your SQL wasn't run: {exc}."}
         con.begin()
         try:
             con.execute(answer)

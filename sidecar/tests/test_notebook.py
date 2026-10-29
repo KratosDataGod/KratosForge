@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import polars as pl
 import pyarrow as pa
 import pytest
 from deltalake import DeltaTable, write_deltalake
@@ -424,3 +423,15 @@ def test_heading_collapse_and_cell_titles_round_trip_where_jupyterlab_and_databr
     store.save("nb", cells)
     raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
     assert raw["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] == {"nuid": "abc", "showTitle": True}
+
+
+@pytest.mark.parametrize("schemas", [True, False])
+@pytest.mark.parametrize("name", ["dbo/../x", "../x", "a/b", "dbo.a\\b", "dbo..sales", ".sales", "dbo.", "",
+                                  "Fabric_Lakehouse..sales"])
+def test_a_table_name_cant_point_outside_its_folder(tmp_path, schemas, name):
+    _attach(tmp_path, schemas)
+    try:
+        with pytest.raises(ValueError, match="isn't a table name"):
+            lakehouse.table_ref(name)
+    finally:
+        lakehouse.attach(None)

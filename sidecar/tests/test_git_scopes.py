@@ -11,7 +11,6 @@ import pytest
 from fabric_desktop.git import scopes
 from fabric_desktop.git.cli import GitError
 from fabric_desktop.git.repo import init
-from fabric_desktop.git_service import GitMixin
 
 from test_git import Svc, git_home, nb, write  # noqa: F401  (git_home is an autouse fixture)
 

@@ -126,14 +126,16 @@ async function productItemDialog(p, g, done) {
     problem.textContent = "";
     list.replaceChildren(loading());
     const id = ws.value;
+    let found = [], why = "";
     try {
-      items = (await rpc("list_items", { workspace_id: id })).filter((i) => i.type === g.type)
+      found = (await rpc("list_items", { workspace_id: id })).filter((i) => i.type === g.type)
         .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName)));
     } catch (err) {
-      items = [];
-      problem.textContent = trustError(err);
+      why = trustError(err);
     }
-    if (ws.value !== id) return;
+    if (ws.value !== id) return; // an earlier workspace's list answered late: keep the one picked since
+    items = found;
+    problem.textContent = why;
     list.replaceChildren(...(items.length ? items.map((i, n) => h("label", { class: "check" },
       h("input", { type: "radio", name: "product-item", value: i.id, checked: n === 0 ? true : null }), h("span", {}, i.displayName)))
       : [h("p", { class: "muted-text small" }, `No ${g.word} in this workspace that you can see.`)]));

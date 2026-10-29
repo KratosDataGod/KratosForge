@@ -22,7 +22,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -354,7 +354,7 @@ class MetaMixin:
         preview: dict[str, Any] | None = None
         try:
             store = self._store(project, env)
-            log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
+            log = store.meta_where("run_log", pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
             if e.layer in project.layer_names():
                 preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
@@ -378,6 +378,9 @@ class MetaMixin:
         new_name = spec.get("name")
         if not new_name:
             raise ValueError("Not saved: the file needs a name, like name = \"silver.orders\"")
+        for n in (name, new_name):
+            if problem := entity_name_problem(n):
+                raise ValueError(f"Not saved: {n}: {problem}")
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -397,6 +400,8 @@ class MetaMixin:
             raise ValueError(f"template must be one of {', '.join(TEMPLATES)}")
         if name in project.entities:
             raise ValueError(f"{name} already exists")
+        if problem := entity_name_problem(name):
+            raise ValueError(f"{name}: {problem}")
         layer = name.split(".")[0]
         if layer not in project.layer_names():
             raise ValueError(f"{layer} is not a layer; use one of {', '.join(project.layer_names())}")
@@ -535,13 +540,13 @@ class MetaMixin:
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
         store = self._store(project, env)
-        run = store.meta("run_log").filter(pl.col("run_id") == run_id)
+        run = store.meta_where("run_log", pl.col("run_id") == run_id)
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
         row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
-        row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
+        row["dq"] = _json_rows(store.meta_where("dq_results", pl.col("run_id") == run_id), 100)
         return row
 
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:

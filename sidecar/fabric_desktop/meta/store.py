@@ -256,6 +256,10 @@ class Store:
         never drops another writer's rows. False (the default) writes whatever is there."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, mode == "append")
+        if safe != data.schema:
+            data = data.cast(safe)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -272,7 +276,7 @@ class Store:
         try:
             how = extra.get("mode", mode)
             check_held()  # the table's lease is still ours, with time to commit (HD-016)
-            write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
+            write_deltalake(target, data, **({"mode": mode} | extra), storage_options=self.options(),
                             schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         except Exception as exc:
@@ -288,6 +292,9 @@ class Store:
         no table), so another writer committing meanwhile makes it fail instead of being lost."""
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        safe = self._delta_safe(uri, schema, table, rows.schema, False)
+        if safe != rows.schema:
+            rows = pa.RecordBatchReader.from_batches(safe, (b.cast(safe) for b in rows))
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
         delta_profile.check_target(uri, self.options())
@@ -324,6 +331,27 @@ class Store:
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
+
+    def _delta_safe(self, uri: str, schema: str, table: str, columns: pa.Schema, append: bool) -> pa.Schema:
+        """``columns`` with each type delta-rs can't write made Fabric-safe, or a plain error naming the
+        table and column (localdata.delta.delta_safe), before anything is written (#954)."""
+        from ..localdata import delta as local_delta
+
+        def existing() -> dict[str, pa.DataType]:
+            current = open_table(uri, self.options())
+            return {} if current is None else \
+                {f.name.lower(): f.type for f in pa.schema(current.schema().to_arrow())}
+        try:
+            return local_delta.delta_safe(columns, existing if append else None)
+        except ValueError as exc:
+            raise ValueError(f"Table {schema}.{table}: {exc}") from None
+
+    def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame) -> pa.Table:
+        """``df`` as Arrow a MERGE can take: types made Fabric-safe as for an append, so a TIME column
+        stops with a plain message and a UInt32 isn't narrowed to INT (#954)."""
+        data = df.to_arrow()
+        safe = self._delta_safe(uri, schema, table, data.schema, True)
+        return data.cast(safe) if safe != data.schema else data
 
     # ---- files a write that didn't commit left behind (PB-067)
 
@@ -436,13 +464,14 @@ class Store:
         """
         from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         try:
             target = DeltaTable(uri, storage_options=self.options(), version=version)
         except TableNotFoundError:
             if version is not None:
                 raise
             # A new table: created empty only if still absent, then merged into like any other.
-            self.create_if_absent(lakehouse, schema, table, dict(df.schema))
+            self.create_if_absent(lakehouse, schema, table, dict(pl.from_arrow(data.schema.empty_table()).schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
         current = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(current)
@@ -450,7 +479,7 @@ class Store:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         check_held()
-        target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
+        target.merge(data, predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
         return self._committed(uri, DeltaTable(uri, storage_options=self.options()))
 
@@ -474,6 +503,7 @@ class Store:
         in the same commit, and the column is never written.
         """
         uri = self.uri(lakehouse, schema, table)
+        data = self._merge_source(uri, schema, table, df)
         delta_profile.check_target(uri, self.options())
         target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
@@ -486,7 +516,7 @@ class Store:
             bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
         predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         check_held()
-        merger = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+        merger = target.merge(data, predicate, source_alias="s", target_alias="t", merge_schema=True,
                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
         if delete_flag:
             # Rows flagged in df remove their match from the table; the flag itself is never written.

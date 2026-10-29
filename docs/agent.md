@@ -162,6 +162,7 @@ Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ## Operate
 
 ```bash
+fabric-desktop agent run                             # the service: schedules, queue, retries
 fabric-desktop agent status                          # queue counts, next schedule times, the last 20 jobs
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
@@ -412,6 +413,25 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
 9. Takeover (Preview): with `take_over = true` on two agents, end one agent's process with Task Manager or `kill -9` while it runs a pipeline request. After its `stale_after` and one poll, the other agent's name is in `status/<id>.json`, `agents` lists both, and the run ends `succeeded`. Start the first agent again and check its log says the request was taken over and it writes nothing for it. This is the first time `If-Match` replace on OneLake is used for takeover.
 10. Shortcut health: with `[shortcut_health] enabled = true` and `minutes = 15` on a Test agent, make a shortcut in a Test lakehouse and remove its target. Within 15 minutes Teams gets one **Shortcut broken** message, and no second one 15 minutes later or after restarting the agent. Put the target back: one **Shortcut fixed**. Remove it again: one new **Shortcut broken**. With a second agent checking Test, still one message per break. Check the Fabric capacity metrics show no job from the agent.
+
+## Job files
+
+A job file runs DuckDB SQL or a Polars script and publishes the result, with `fabric-desktop preview job.toml` and `fabric-desktop run job.toml`. The agent doesn't run job files yet; see [Limits in this version](#limits-in-this-version).
+
+```toml
+name = "sales_by_region"
+engine = "duckdb"            # or "polars" with script = "file.py" defining transform()
+sql = "select region, sum(amount) as total from read_csv_auto('data/sales.csv') group by region"
+
+[target]
+workspace_id = "<workspace guid>"
+lakehouse = "Sales"          # created as a schema-enabled lakehouse if missing
+schema = "dbo"
+table = "sales_by_region"
+mode = "overwrite"           # or "append"
+```
+
+Relative paths in a job resolve from the job file's folder.
 
 ## Limits in this version
 

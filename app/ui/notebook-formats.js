@@ -63,7 +63,7 @@ function nbfPlural(n, word) {
 
 // What a Databricks conversion dropped, changed, or carried over as written but won't run the same
 // (notebook_formats.py): one row per note, with its cell number ("Whole notebook" when it has none).
-const NBF_NOTE_KINDS = { dropped: "Not carried over", changed: "Changed", check: "Check before running" };
+const NBF_NOTE_KINDS = { dropped: "Not carried over", changed: "Changed", check: "Check before running", fabric: "Before running in Fabric" };
 
 function nbfNotesTable(notes) {
   return h("table", { class: "list nbf-notes" }, h("thead", {}, h("tr", {}, h("th", {}, "Cell"), h("th", {}, ""), h("th", {}, "What"))),

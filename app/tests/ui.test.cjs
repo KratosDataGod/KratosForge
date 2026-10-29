@@ -3985,8 +3985,10 @@ ${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
 ${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
 this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
   const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
-  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" }]).kids[1].kids;
-  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path"]);
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" },
+    { cell: 4, kind: "fabric", what: "widgets" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path",
+    "4|Before running in Fabric|widgets"]);
   const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
   assert.strictEqual(blocks.length, 1);
   assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);

@@ -22,7 +22,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -378,6 +378,9 @@ class MetaMixin:
         new_name = spec.get("name")
         if not new_name:
             raise ValueError("Not saved: the file needs a name, like name = \"silver.orders\"")
+        for n in (name, new_name):
+            if problem := entity_name_problem(n):
+                raise ValueError(f"Not saved: {n}: {problem}")
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -397,6 +400,8 @@ class MetaMixin:
             raise ValueError(f"template must be one of {', '.join(TEMPLATES)}")
         if name in project.entities:
             raise ValueError(f"{name} already exists")
+        if problem := entity_name_problem(name):
+            raise ValueError(f"{name}: {problem}")
         layer = name.split(".")[0]
         if layer not in project.layer_names():
             raise ValueError(f"{layer} is not a layer; use one of {', '.join(project.layer_names())}")

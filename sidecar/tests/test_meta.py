@@ -788,6 +788,13 @@ def test_service_round_trip(tmp_path):
     assert ent["impact"] == ["gold.fact_sales"] and ent["preview"]["total"] == 5
     bad = call("meta_save_entity", name="silver.orders", text="name = ")
     assert "isn't valid TOML" in bad["error"]
+    before = set(tmp_path.rglob("*.toml"))
+    for name in ("silver.../x", "silver.a/b", "silver.a\\b", "silver..t", "silver.c:x", "silver/../../x.t"):
+        out = call("meta_save_entity", name="silver.orders", text=f"name = '{name}'")  # a literal string, so a backslash stays one
+        assert "Not saved" in out["error"] and "name" in out["error"], (name, out)
+        out = call("meta_new_entity", template="dim1", name=name, source="silver.orders", keys=["order_id"])
+        assert "name" in out["error"] and "already exists" not in out["error"], (name, out)
+    assert set(tmp_path.rglob("*.toml")) == before  # no file written anywhere
     blocked = call("meta_delete_entity", name="silver.orders")
     assert blocked["error"].startswith("Blocked by the save gate:\n- can't delete silver.orders")
     new = call("meta_new_entity", template="dim1", name="gold.dim_product", source="silver.orders",

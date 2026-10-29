@@ -232,3 +232,22 @@ def test_a_later_batch_of_another_kind_is_still_refused_and_nothing_is_written(t
     assert res.status == "failed" and "schema change refused: score int64 to string" in res.message, res.message
     assert "overwrite_schema = true" in res.message
     assert DeltaTable(s.store.uri("LH_Bronze", "dbo", "events")).version() == version
+
+
+def test_a_change_of_kind_is_refused_in_the_same_words_batched_or_not(tmp_path):
+    """#1014: one helper words the refusal, so the batched and unbatched paths can't drift apart."""
+    s = _scored_table(tmp_path)
+    # The first batch leaves score empty, so the batched refusal comes from a later batch (fit), not the first.
+    write_deltalake(str(s.src), _scored([None, "x", "x"]).to_arrow(), mode="overwrite", schema_mode="overwrite")
+    batched = _batched(s).run("bronze.events")
+    whole = Engine(Project(s.root), s.store, DAY1)
+    whole.batch_rows = 10_000  # one batch: the ordinary path
+    unbatched = whole.run("bronze.events")
+    assert not any(st.name == "plan batches" for st in unbatched.steps)
+    assert any(st.name == "plan batches" for st in batched.steps)
+    assert batched.status == unbatched.status == "failed"
+    assert batched.message == unbatched.message == (
+        "schema change refused: score int64 to string would narrow a column's type or change its kind, which "
+        "breaks readers of the table. Nothing was written. Change the contract or the source back, or, to rewrite "
+        "bronze.events with the new types, add this line under [contract] in its entity file: overwrite_schema = "
+        "true (and take it out again after the run)")

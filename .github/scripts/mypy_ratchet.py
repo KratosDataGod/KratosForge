@@ -9,8 +9,8 @@ kind than sidecar/mypy-baseline.json records, and passes otherwise. Fixing error
 Settings (which files, Python version) are in sidecar/pyproject.toml [tool.mypy]. Errors are counted
 per file and error code, not per line, so moving code within a file doesn't break the check. Two
 changes do shift the counts, so run ``--update`` in the same pull request: renaming or moving a file
-(its errors count as new under the new name), and moving a package version in constraints.txt (a
-package's new type information can add or remove errors).
+(its errors count as new under the new name), and moving a package version in constraints.txt or
+mypy's own in ci-constraints.txt (new type information can add or remove errors).
 """
 
 from __future__ import annotations

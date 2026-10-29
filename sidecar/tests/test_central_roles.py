@@ -68,6 +68,8 @@ ANYONE = {
     "save_enrichment": 'core.py: "everyone: ... catalog text"',
     "request": 'core.py: "everyone: ... requests"',
     "note_seen": "note_seen: records that the caller used the platform today",
+    "call_once": "runs the named change under that change's own role check (pinned below); reads, repeatable "
+                 "operations and call_once itself are refused",
     "follow_product": "a person follows a product for themselves",
     "unfollow_product": "a person stops following a product for themselves",
     "log_workload_action": "log_workload_action: the caller's own action, on the audit",
@@ -260,6 +262,25 @@ def test_a_role_write_succeeds_for_someone_with_the_role(seeded, tmp_path, op, a
     before = _dump(path)
     LocalPlatform(path, lambda: allowed).call(op, **kwargs)
     assert _dump(path) != before
+
+
+def test_the_platform_s_own_lists_of_reads_and_repeatable_operations_match_these():
+    assert core.READ_OPERATIONS == set(READS)
+    assert core.REPEATABLE_OPERATIONS <= set(ANYONE)
+
+
+@pytest.mark.parametrize("op,allowed,args", ROLE_WRITES, ids=[r[0] for r in ROLE_WRITES])
+def test_a_role_write_sent_through_call_once_still_refuses_anyone_without_the_role(seeded, tmp_path, op, allowed, args):
+    path = _copy(seeded, tmp_path)
+    db = _db(path)
+    kwargs = args(db)
+    db.conn.close()
+    before = _dump(path)
+    with pytest.raises(core.PlatformError) as refused:
+        LocalPlatform(path, lambda: NOBODY).call("call_once", call_id="0" * 32, operation=op, args=kwargs)
+    assert not any(own in str(refused.value) for own in ("call id", "call_once", "never an argument")), \
+        "refused by the operation's own role check, not by call_once"
+    assert _dump(path) == before  # the change, and its call id too
 
 
 @pytest.mark.parametrize("user", [ADMIN, NOBODY])

@@ -255,6 +255,32 @@ def test_an_answer_too_big_to_keep_says_the_change_was_made(tmp_path, monkeypatc
     assert len([r for r in rows_of(p, "audit") if r["action"] == "save domain"]) == 1
 
 
+def test_a_change_that_commits_and_then_fails_frees_its_call_id(tmp_path, monkeypatch):
+    """Many operations commit their own work; one that fails after that must still free its id, or the
+    retry would be told the change was made with its answer lost, instead of running again."""
+    p = platform_db(tmp_path)
+    runs = []
+
+    def commits_then_fails(db, name, by=""):
+        db.run(f"INSERT INTO {db.t('catalog', 'domain')} (id, name) VALUES (?, ?)", (name.lower(), name))
+        db.commit()
+        runs.append(name)
+        if len(runs) == 1:
+            raise core.PlatformError("failed after committing")
+        return {"ok": name}
+
+    monkeypatch.setitem(core.OPERATIONS, "commits_then_fails", commits_then_fails)
+    with pytest.raises(core.PlatformError, match="failed after committing"):
+        p.call("call_once", call_id=CID, operation="commits_then_fails", args={"name": "Ops"})
+    assert rows_of(p, "call") == []
+    with p._db() as db:
+        db.run(f"DELETE FROM {db.t('catalog', 'domain')}")
+        db.commit()
+    assert p.call("call_once", call_id=CID, operation="commits_then_fails", args={"name": "Ops"}) == {
+        "result": {"ok": "Ops"}, "replayed": False}
+    assert runs == ["Ops", "Ops"]
+
+
 def test_every_operation_is_a_read_a_repeatable_one_or_a_change_call_once_runs():
     reads, again = core.READ_OPERATIONS, core.REPEATABLE_OPERATIONS
     assert reads <= set(core.OPERATIONS) and again <= set(core.OPERATIONS) and not reads & again

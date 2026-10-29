@@ -276,6 +276,21 @@ imported profile says what's missing.
 Switching closes every open engine session (they may hold data read with the old sign-in). Cells
 and outputs stay. A notebook with unsaved changes must be saved or discarded first.
 
+## Adding an engine
+
+Every engine with an adapter must pass the shared contract checks in
+`sidecar/tests/engine_conformance.py`, run by `tests/test_engine_conformance.py`. The checks read the
+engine's own descriptor and hold the adapter to it: claimed capabilities work, unsupported ones
+raise `Unsupported` with a reason, a cell in a language or dialect the engine marks unsupported never
+comes back as run, a failing cell is an error output that never repeats a secret, a closed session
+refuses cells, two sessions share nothing, and a remote engine contacts nothing before it has an
+authorization. Remote engines run against the same fakes as their own tests, so the checks never
+reach a workspace.
+
+A new adapter adds a harness there: how to open a session (against a fake for a remote engine), a
+cell that runs, a cell that fails, and cells it refuses. The run fails until every engine with an
+adapter has one.
+
 ## Not yet
 
 - No screens: the notebook's engine picker and profile setup come next, after a mockup.

@@ -1,0 +1,53 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-01",
+  "kind": "lab",
+  "title": "Build your first data pipeline",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 30,
+  "objectives": [
+    "Find every data quality problem with queries you can run again",
+    "Decide what each problem means for the answer",
+    "Build a clean, checked result from raw data"
+  ],
+  "prerequisites": ["LM-03", "LM-04"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": ["shop"],
+  "size": "S",
+  "exercises": [
+    {
+      "id": "find-problems",
+      "prompt": "List every problem row, one row per problem, as table_name and key.",
+      "engine": "duckdb",
+      "starter": "starter-defects.sql",
+      "solution": "solution-defects.sql",
+      "hints": [
+        "There are six problems: three in customers and three in orders. The starter finds one.",
+        "In customers: a row loaded twice, a missing email, a region spelled differently. In orders: a negative amount, a date in the future, a store that doesn't exist.",
+        "Combine one query per problem with UNION ALL. GROUP BY customer_id HAVING count(*) > 1 finds the duplicate."
+      ],
+      "checks": [{"kind": "defects_found"}]
+    },
+    {
+      "id": "top-customers",
+      "prompt": "Show the ten customers with the most revenue from complete orders, leaving out the bad rows: customer_id, orders, revenue, largest first, customer_id breaking ties.",
+      "engine": "duckdb",
+      "starter": "starter-revenue.sql",
+      "solution": "solution-revenue.sql",
+      "hints": [
+        "Only orders with status 'complete' are revenue.",
+        "Leave out the three bad orders you found: a negative amount, a future date and an unknown store.",
+        "ORDER BY revenue DESC, customer_id makes ties come out the same way every time."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://duckdb.org/docs/guides/meta/summarize"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

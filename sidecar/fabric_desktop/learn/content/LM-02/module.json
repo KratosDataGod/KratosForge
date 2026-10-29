@@ -1,0 +1,54 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-02",
+  "kind": "module",
+  "title": "Data types, and why decimals beat floats for money",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 12,
+  "objectives": [
+    "Find values that can't be read as the type they should be, with TRY_CAST",
+    "Choose DECIMAL for money and DOUBLE for measurements",
+    "Make a table with the types its columns need"
+  ],
+  "prerequisites": ["LM-01"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "bad-dates",
+      "prompt": "List the payment_id of every staging row whose paid_on isn't a real date, as a whole number, smallest first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-bad-dates.sql",
+      "solution": "solution-bad-dates.sql",
+      "hints": [
+        "CAST stops at the first value it can't read. Which function gives an empty value instead?",
+        "TRY_CAST(paid_on AS DATE) IS NULL keeps the rows that aren't dates. Cast payment_id to INTEGER so it sorts as a number."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}],
+      "expected": {"columns": ["payment_id"], "rows": [[3], [5]]}
+    },
+    {
+      "id": "typed-payments",
+      "prompt": "Make a payments table from the good rows: payment_id INTEGER, paid_on DATE, amount DECIMAL(12, 2).",
+      "engine": "duckdb",
+      "starter": "starter-payments.sql",
+      "solution": "solution-payments.sql",
+      "hints": [
+        "The starter keeps every row and makes amount a DOUBLE. What does the lesson say about money?",
+        "CAST each column to its type, and keep only the rows where TRY_CAST(paid_on AS DATE) IS NOT NULL."
+      ],
+      "checks": [{"kind": "table_shape", "table": "payments",
+                  "columns": {"payment_id": "INTEGER", "paid_on": "DATE", "amount": "DECIMAL"},
+                  "unique": ["payment_id"], "not_null": ["payment_id", "paid_on", "amount"]}]
+    }
+  ],
+  "rules": ["SM003"],
+  "docs": ["semantic-model-rules.md#sm003", "https://duckdb.org/docs/sql/data_types/numeric"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

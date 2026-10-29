@@ -1,0 +1,45 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-05",
+  "kind": "module",
+  "title": "Keys: primary, foreign, business and surrogate",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 15,
+  "objectives": [
+    "Tell business, surrogate, primary and foreign keys apart",
+    "Build a dimension with a unique surrogate key and its business key",
+    "Check that every fact row finds its dimension row"
+  ],
+  "prerequisites": ["LM-02"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "customer-star",
+      "prompt": "Make dim_customer (customer_key, customer_code once each, name) and fact_sales (sale_id, customer_key, amount), where every sale finds its customer.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "C-001 is in src_customers twice. How many customer_key values does the starter give it?",
+        "Number the rows of (SELECT DISTINCT customer_code, name FROM src_customers) so each customer gets one key.",
+        "fact_sales needs customer_key, not customer_code: join src_sales to dim_customer on customer_code."
+      ],
+      "checks": [
+        {"kind": "table_shape", "table": "dim_customer", "columns": {"customer_key": "", "customer_code": "VARCHAR", "name": "VARCHAR"},
+         "unique": ["customer_code"], "not_null": ["customer_key", "customer_code"]},
+        {"kind": "table_shape", "table": "dim_customer", "unique": ["customer_key"]},
+        {"kind": "integrity", "child": "fact_sales", "column": "customer_key", "parent": "dim_customer"}
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://learn.microsoft.com/fabric/data-warehouse/table-constraints"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

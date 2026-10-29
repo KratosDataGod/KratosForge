@@ -1,6 +1,6 @@
 [
-  {"id": "data-fundamentals", "title": "Data Fundamentals", "modules": ["LM-01"]},
-  {"id": "sql-development", "title": "SQL Development", "modules": ["LAB-02"]},
+  {"id": "data-fundamentals", "title": "Data Fundamentals", "modules": ["LM-01", "LM-02", "LM-05", "LAB-01"]},
+  {"id": "sql-development", "title": "SQL Development", "modules": ["LM-03", "LM-04", "LAB-02"]},
   {"id": "python-data-engineering", "title": "Python & Data Engineering", "modules": []},
   {"id": "microsoft-fabric", "title": "Microsoft Fabric", "modules": []},
   {"id": "databricks", "title": "Databricks", "modules": []},

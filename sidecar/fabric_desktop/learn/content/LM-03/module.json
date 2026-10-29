@@ -1,0 +1,44 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-03",
+  "kind": "module",
+  "title": "Joins without surprise row counts",
+  "path": "sql-development",
+  "level": "beginner",
+  "minutes": 12,
+  "objectives": [
+    "Join two tables on their key",
+    "Spot a key that isn't unique before it doubles your rows",
+    "Choose between JOIN and LEFT JOIN when a row has no match"
+  ],
+  "prerequisites": ["LM-01"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "orders-with-names",
+      "prompt": "List every order once, with its customer's name and amount, in order_id order. Keep order 105, whose customer is missing.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "Run the starter and count the rows. There are 5 orders. How many rows come back, and which are missing or doubled?",
+        "Customer 2 is in customers twice, and customer 4 isn't there at all.",
+        "LEFT JOIN to (SELECT DISTINCT customer_id, name FROM customers) keeps every order exactly once."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}, {"kind": "no_findings", "rules": ["SQ006"]}],
+      "expected": {
+        "columns": ["order_id", "name", "amount"],
+        "rows": [[101, "Contoso", 50.0], [102, "Fabrikam", 75.0], [103, "Fabrikam", 20.0], [104, "Tailspin", 10.0], [105, null, 30.0]]
+      }
+    }
+  ],
+  "rules": ["SQ006"],
+  "docs": ["sql-best-practices.md#sq006", "https://duckdb.org/docs/sql/query_syntax/from"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

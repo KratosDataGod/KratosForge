@@ -16,6 +16,21 @@ never publishes anything to Fabric.
 
 A lesson marked **Draft** is still being written and may change.
 
+## What's in it
+
+| Id | Lesson or lab | Path | Teaches the rule |
+| --- | --- | --- | --- |
+| LM-01 | Your first query on this PC | Data Fundamentals | SQ002 |
+| LM-02 | Data types, and why decimals beat floats for money | Data Fundamentals | SM003 |
+| LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
+| LAB-01 | Build your first data pipeline: find six planted problems, then a clean answer | Data Fundamentals | |
+| LM-03 | Joins without surprise row counts | SQL Development | SQ006 |
+| LM-04 | Grouping and aggregation | SQL Development | SQ009 |
+| LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
+
+More lessons and the other paths (Python, Fabric, Databricks, Snowflake, Enterprise Architecture)
+come in later updates.
+
 ## A lesson or lab
 
 Opening one shows its lesson on the left and **Checks** on the right.

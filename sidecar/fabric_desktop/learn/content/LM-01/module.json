@@ -34,5 +34,6 @@
   "rules": ["SQ002"],
   "docs": ["sql-best-practices.md", "https://duckdb.org/docs/sql/query_syntax/select"],
   "version": 1,
-  "status": "draft"
+  "status": "live",
+  "reviewed": "2026-10-29"
 }

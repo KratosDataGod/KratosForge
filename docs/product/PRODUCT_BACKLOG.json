@@ -666,7 +666,8 @@
       "capability": "spark.sql MERGE/UPDATE/DELETE and DeltaTable merge executed through delta-rs on the PC, with the Fabric Delta profile check, behind a Preview flag.",
       "evidence": [
         "spark_local.py raises for MERGE, UPDATE, DELETE",
-        "meta/engine.py already merges with delta-rs for metadata runs"
+        "meta/engine.py already merges with delta-rs for metadata runs",
+        "MERGE INTO (#933) and UPDATE and DELETE (#1028) run on this PC as Preview, and the run check judges them against the notebook's lakehouse (#1054) on main at 02118fa4. Criterion 4, a Prove run equal on PC and Fabric, is still to do"
       ],
       "features": [
         "FEAT-NB-04"
@@ -707,7 +708,9 @@
         "priority": "P2"
       },
       "prs": [
-        933
+        933,
+        1028,
+        1054
       ],
       "issues": [
         848
@@ -2021,7 +2024,8 @@
         "mailbox.py tests use fakes",
         "docs/enterprise-roadmap.md still calls it unbuilt",
         "Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change",
-        "Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes)"
+        "Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes)",
+        "One pipeline run vouches for one request (#1059, issue #969) on main at 02118fa4"
       ],
       "features": [
         "FEAT-ORC-04"
@@ -2057,10 +2061,12 @@
         "priority": "P2"
       },
       "issues": [
-        920
+        920,
+        969
       ],
       "prs": [
-        931
+        931,
+        1059
       ]
     },
     {
@@ -2165,7 +2171,8 @@
         923,
         937,
         939,
-        944
+        944,
+        1055
       ],
       "issues": [
         863
@@ -3148,7 +3155,8 @@
         "priority": "P2"
       },
       "prs": [
-        996
+        996,
+        1084
       ],
       "issues": [
         896
@@ -4399,7 +4407,10 @@
         1030,
         1032,
         1048,
-        1050
+        1050,
+        1055,
+        1089,
+        1122
       ],
       "issues": [
         910,
@@ -4410,7 +4421,9 @@
         963,
         964,
         965,
-        1049
+        968,
+        1049,
+        1087
       ]
     },
     {
@@ -4491,7 +4504,9 @@
         988,
         990,
         991,
-        998
+        998,
+        1088,
+        1131
       ],
       "issues": [
         928,
@@ -4570,7 +4585,13 @@
         1021,
         1024,
         1025,
-        1029
+        1029,
+        1075,
+        1086,
+        1093,
+        1095,
+        1097,
+        1107
       ]
     },
     {
@@ -4735,7 +4756,8 @@
         823,
         912,
         949,
-        985
+        985,
+        1112
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5243,9 +5265,10 @@
     {
       "id": "PB-116",
       "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
-      "state": "In progress",
+      "state": "In review",
       "prs": [
-        891
+        891,
+        1133
       ],
       "category": "Fabric Integration and Deployment",
       "effort": "M",
@@ -5256,7 +5279,8 @@
       "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
       "evidence": [
         "Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main",
-        "Story KF-FABRIC-SPARK in the orchestration plan (#864)"
+        "Story KF-FABRIC-SPARK in the orchestration plan (#864)",
+        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -5346,7 +5370,7 @@
     {
       "id": "PB-118",
       "title": "Databricks notebook conversion says what it could not carry over",
-      "state": "Proposed",
+      "state": "In review",
       "category": "SQL, Python, and Notebook Development",
       "effort": "S",
       "issues": [
@@ -5355,7 +5379,8 @@
       "problem": "Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.",
       "capability": "A loss report on every Databricks import and export, extending the existing converter.",
       "evidence": [
-        "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)"
+        "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)",
+        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4"
       ],
       "features": [
         "FEAT-NB-26",
@@ -5382,11 +5407,160 @@
       "confidence": "Medium",
       "owner": "Fabric and Databricks unified development",
       "external_dependencies": [],
-      "prs": [],
+      "prs": [
+        1053,
+        1146
+      ],
       "computed": {
         "benefit": 2.2,
         "cost": 2.0,
         "score": 1.76,
+        "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-119",
+      "title": "Learn: lessons, labs and guidance modes",
+      "state": "In progress",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1063,
+        1076,
+        1083,
+        1137,
+        1138,
+        1139,
+        1140
+      ],
+      "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
+      "capability": "A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.",
+      "evidence": [
+        "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
+        "No backlog item tracked it before this check"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-GOV-09"
+      ],
+      "source_refs": [
+        "LX-01..08"
+      ],
+      "acceptance": [
+        "Owned and specified by the Learning experience program (LX)"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-120",
+      "title": "Platform support levels and one engine contract",
+      "state": "In progress",
+      "owner": "Fabric and Databricks unified development",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "effort": "L",
+      "prs": [
+        1078,
+        1115,
+        1118,
+        1124,
+        1125,
+        1142,
+        1056
+      ],
+      "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
+      "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
+      "evidence": [
+        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4"
+      ],
+      "features": [
+        "FEAT-EXT-05",
+        "FEAT-SQL-03"
+      ],
+      "source_refs": [
+        "KUDP-01..06"
+      ],
+      "acceptance": [
+        "Owned and specified by the unified platform program (KUDP)"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.75,
+        "cost": 2.5,
+        "score": 2.62,
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-121",
+      "title": "Power BI embedding (Embed Studio)",
+      "state": "In progress",
+      "owner": "Power BI embedding (PBE)",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1126,
+        1134,
+        1135
+      ],
+      "problem": "Reports and semantic models can't be viewed or tested inside the app.",
+      "capability": "An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.",
+      "evidence": [
+        "PBE-02 design proposed (docs/architecture/power-bi-embedding.md); PBE-03 host frame and PBE-04 engine calls merged; no screen yet on main at 02118fa4"
+      ],
+      "features": [
+        "FEAT-FAB-05"
+      ],
+      "source_refs": [
+        "PBE-02..04"
+      ],
+      "acceptance": [
+        "Owned and specified by the Power BI embedding program (PBE)"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 3.0,
+        "score": 1.56,
         "priority": "P3"
       }
     }

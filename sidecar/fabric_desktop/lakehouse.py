@@ -191,6 +191,10 @@ def table_ref(table: str) -> TableRef:
     # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
     if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
         parts = parts[1:]
+    # A name is one folder under Tables/: a part that is empty or holds a path separator would
+    # point somewhere else (Tables/a/../b), so it's refused for every read and write.
+    if not all(parts) or any(c in p for p in parts for c in "/\\"):
+        raise ValueError(f"{table!r} isn't a table name: a schema or table name can't be empty or hold / or \\.")
     if len(parts) > 2:
         raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
     schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])

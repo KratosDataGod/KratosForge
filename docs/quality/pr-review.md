@@ -6,6 +6,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| #993 3e2f0b50 | SF-00 Snowflake connection profiles | PASS at 3e2f0b50 (carried from 7c7285a) | 9.2 | Second quality reviewer. The only change is a test-only Windows key path; the escaped-form check keeps the assertion. 86 passed; ui 301/0 with main merged. Needs Chris's go. |
+
+| #995 d7990305 | SF-04 Snowflake SQL on this PC | PASS at d7990305 (carried from 6538085) | 9.1 | Second quality reviewer. Main merge only; the change set is identical. 118 passed; ui 302/0. Needs Chris's go. |
+
 | #1002 c7b5bca1 | Time-zone-proof tests: pin the platform's date (second cause) | PASS | 9.3 | One commit on 5a032c1c (PASS 9.2). Autouse fixtures pin core._today and policy._today (policy imports the name) in test_requests_core_four, and core._today and mesh.utc_today in test_versioned_contracts; every caller reads mesh.utc_today as a module attribute, so the pin reaches them. governance_service days_left now uses core._today(), the same UTC date, so behaviour is unchanged. Midnight crossing simulated here by moving TODAY a day ahead: both files pass 59/59 with the pins. Merges main cleanly. governance*, policy*, silent_except and both files: 177 passed, 1 skipped. |
 
 | #986 cbb831d0 | Local pipelines in Workloads (Preview), main merge | PASS at cbb831d0 (carried) | 9.1 | The PR's own delta is identical to fdead408 (sorted +/- lines compared against the merge-base), and it merges main b19b7456 cleanly. The main it merged predates #972, so ui.test at the head is 299/1: the main-wide Preview-id test that #972 fixed. With b19b7456 merged in, ui.test is 301/0. silent_except + workload* 83 passed. Merge it with current main, or bring main in first, so CI is green. |

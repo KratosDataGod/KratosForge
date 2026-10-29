@@ -22,9 +22,11 @@ WHERE TRY_CAST(paid_on AS DATE) IS NULL;
 value, not exactly it:
 
 ```sql
-SELECT 0.1::DOUBLE + 0.2::DOUBLE;              -- 0.30000000000000004
-SELECT 0.1::DECIMAL(12,2) + 0.2::DECIMAL(12,2); -- 0.30
+SELECT CAST(0.1 AS DOUBLE) + CAST(0.2 AS DOUBLE);                 -- 0.30000000000000004
+SELECT CAST(0.1 AS DECIMAL(12, 2)) + CAST(0.2 AS DECIMAL(12, 2)); -- 0.30
 ```
+
+(In T-SQL, the floating point type is `FLOAT`.)
 
 `DECIMAL(12, 2)` keeps exactly two decimal places, up to 12 digits in all. Sums of money stay
 exact, and an equality test such as `amount = 0.30` means what it says. Use `DOUBLE` for measurements

@@ -11,8 +11,8 @@
     "Build a dimension with a unique surrogate key and its business key",
     "Check that every fact row finds its dimension row"
   ],
-  "prerequisites": ["LM-02"],
-  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "prerequisites": ["LM-02", "LM-03"],
+  "platforms": ["DuckDB", "Fabric Warehouse"],
   "engines": ["duckdb"],
   "lesson": "lesson.md",
   "datasets": [],

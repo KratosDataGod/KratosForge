@@ -12,7 +12,7 @@
     "Make a table with the types its columns need"
   ],
   "prerequisites": ["LM-01"],
-  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "platforms": ["DuckDB", "Fabric Warehouse"],
   "engines": ["duckdb"],
   "lesson": "lesson.md",
   "datasets": [],

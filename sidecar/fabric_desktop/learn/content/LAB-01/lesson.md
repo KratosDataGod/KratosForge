@@ -1,13 +1,14 @@
-# Build your first data pipeline
+# From raw data to a checked answer
 
-A pipeline takes raw data, checks it, cleans it and turns it into something people can use. This lab
+Every data pipeline starts the same way: take raw data, check it, clean it and turn it into
+something people can use. This lab
 has a small retailer's data, generated on this PC: customers, stores, products and a thousand
 orders. Six problems were put into it on purpose, as real data has.
 
 ## The steps
 
-1. **Look.** Count rows, and look at a few. `SUMMARIZE orders` shows each column's range, empty
-   values and distinct counts in one go.
+1. **Look.** Count rows, and look at a few. In DuckDB, `SUMMARIZE orders` shows each column's
+   range, empty values and approximate distinct counts in one go (it's DuckDB's own command).
 2. **Find the problems.** Write one query that lists every bad row as `(table_name, key)`.
 3. **Clean and transform.** Build the answer from the good rows only.
 4. **Check the result.** Does it add up? Does every row still mean what it says?

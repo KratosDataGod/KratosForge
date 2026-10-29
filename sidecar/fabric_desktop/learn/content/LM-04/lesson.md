@@ -1,13 +1,13 @@
 # Grouping and aggregation
 
 Most questions about data are totals: revenue per region, orders per day, the busiest store.
-`GROUP BY` makes one row per group, and aggregate functions such as `count`, `SUM`, `AVG`, `MIN`
+`GROUP BY` makes one row per group, and aggregate functions such as `COUNT`, `SUM`, `AVG`, `MIN`
 and `MAX` work out a value for each group.
 
 ## One row per group
 
 ```sql
-SELECT region, count(*) AS sales, SUM(amount) AS total
+SELECT region, COUNT(*) AS sales, SUM(amount) AS total
 FROM sales
 GROUP BY region;
 ```

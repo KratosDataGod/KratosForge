@@ -2,7 +2,7 @@
   "schema": "kratosforge/learn-module@1",
   "id": "LAB-01",
   "kind": "lab",
-  "title": "Build your first data pipeline",
+  "title": "From raw data to a checked answer",
   "path": "data-fundamentals",
   "level": "beginner",
   "minutes": 30,

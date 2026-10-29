@@ -93,12 +93,14 @@ function renderNotebook() {
   const computeBtn = h("button", { class: `tool outline compute-btn${fabricMode ? " fabric" : ""}`,
     title: "Where Run all runs this notebook", onclick: (e) => showMenu(e.currentTarget, computeMenu(nb)) },
     icon(fabricMode ? "cloud" : "desktop", 16), `Runs on: ${where.short}`, icon("chevronDown", 14));
+  // engines.js: Engine replaces Runs on while Preview features show; with them hidden, Runs on stays.
+  const engineCtl = () => previewShown() ? engineToolbar(nb) : [computeBtn];
   const sel = selectedCell();
   const toggleBtn = (label, iconName, on, onClick, attrs = {}) =>
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
+    home: [runAllBtn, cancelBtn, ...engineCtl(), ribbonMenu("Check", "ok", () => [sbsToggle(nb), validateToggle(nb), proveToggle(nb)],
         "Side by side, Validate and Prove (also on the Run tab)"),
       h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", () => saveExplicitly(() => document.querySelector("button[data-save]")), "tool", { "data-save": true }),
@@ -126,7 +128,7 @@ function renderNotebook() {
       btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run selected cells", "play", runSelectedCells, "tool", localOnlyAttrs({ disabled: busy, "data-run": true,
         title: "Run the cells you selected with Shift+click or Shift+Up/Down, in order" })),
-      depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
+      depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, ...engineCtl(), sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook)), runsToggle(nb)],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
@@ -398,6 +400,7 @@ function renderGutter(cell) {
 function cellResults(cell) {
   const parts = [];
   if (cell.status) parts.push(statusLine(cell));
+  if (cell.engineFlag) parts.push(engineFlagPanel(cell));  // engines.js
   if (cell.paused) parts.push(dbgPausedPanel(cell));  // debugging.js
   if (!cell.outputs.length) return cell.hidden?.length ? [...parts, dbgCellWarning(cell)].filter(Boolean) : parts;
   if (cell.meta?.outputs_hidden) {
@@ -451,7 +454,9 @@ function statusLine(cell) {
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
       h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
-    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, isFabricStep(cell) ? "Fabric step" : cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
+    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, isFabricStep(cell) ? "Fabric step" : cell.partial ? "Ran the selection on this PC"
+      : cell.ranOn ? cell.ranOn : "Ran on this PC") : null,
+    cell.ranOn && cell.rows != null && s === "ok" ? h("span", {}, `${cell.rows} row${cell.rows === 1 ? "" : "s"}`) : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
 }
@@ -1437,8 +1442,12 @@ function renderInspect(o, numeric) {
 // the cell isn't marked as run for dependencies, since the rest of it didn't run.
 async function runCell(cell, { timeLimit = true, code = null, debug = false, nb = state.notebook } = {}) {
   if (cell.type !== "code") return true;
+  // engines.js: on another engine the cell runs there; Run this cell on Python sets onKernel for one run here.
+  const kernel = cell.onKernel === true;
+  delete cell.onKernel;
+  if (!kernel && nbOnEngine(nb) && !cell.meta?.frozen) return runEngineCell(cell, nb);
   // ``nb`` keeps running in its own session if another notebook is opened meanwhile.
-  if (nbWhere(nb).fabric) {
+  if (!kernel && nbWhere(nb).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
     return false;
   }
@@ -1457,6 +1466,9 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
   cell.status = "running";
   cell.outputs = [];
   cell.seconds = 0;
+  cell.engineFlag = null;
+  cell.ranOn = kernel && nbOnEngine(nb) ? "Python (this PC), this cell only" : null;
+  cell.rows = null;
   updateResults(cell);
   cell.hidden = null;
   const started = performance.now();
@@ -1579,6 +1591,7 @@ function nbLastRunText(r) {
 
 function runAll() {
   if (sbsOn(state.notebook)) return runSideBySide();  // sidebyside.js
+  if (nbOnEngine(state.notebook)) return runCells(state.notebook.cells);  // engines.js
   return nbWhere(state.notebook).fabric ? runInFabric() : runCells(state.notebook.cells);
 }
 
@@ -1613,6 +1626,7 @@ function setKernel(status, nb = state.notebook) {
 async function cancelRun() {
   if (sbsRunning(state.notebook)) return cancelSideBySide(state.notebook);
   if (proveRunning(state.notebook)) return cancelProof(state.notebook);
+  if (state.notebook?.engineRunning) return cancelEngineCell(state.notebook);  // engines.js
   const nb = state.notebook;
   if (nb) nb.cancelRequested = true;
   nb?.cells.forEach((c) => { if (c.status === "queued") { c.status = null; updateResults(c); } });

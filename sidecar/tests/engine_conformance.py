@@ -24,6 +24,7 @@ fails when an engine with an adapter has no harness.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -56,6 +57,8 @@ class Harness:
     # Remote engines: try to open with no authorization, and count what reached the fake platform.
     open_unauthorized: Callable[[Any], Any] | None = None
     contacted: Callable[[], int] | None = None
+    # A cell to ask for a whole result, when the engine returns them only for some cells (ok_cell otherwise).
+    result_cell: CellRequest | None = None
     # Isolation: leave some state in a session, and say whether a session can see it.
     leave_state: Callable[[Any], None] | None = None
     sees_state: Callable[[Any], bool] | None = None
@@ -196,6 +199,21 @@ def check_optional_capabilities(h: Harness) -> None:
     assert not problems, f"{h.engine}: " + "; ".join(problems)
 
 
+def check_result(h: Harness) -> None:
+    """A whole result comes back only from an engine that claims ``result``, only when asked, never to the app."""
+    s = h.session()
+    plain = s.execute(h.ok_cell)
+    assert plain.table is None, f"{h.engine}: returned a result table nobody asked for"
+    r = s.execute(dataclasses.replace(h.result_cell or h.ok_cell, result_rows=10_000))
+    _check_result(h, r, "a cell asking for its whole result")
+    if not h.descriptor.capability("result").available:
+        assert r.table is None, f"{h.engine}: marks result unsupported but returned a table"
+        return
+    assert r.status == "ok" and r.table is not None, f"{h.engine}: claims result but returned no table"
+    assert r.table.num_rows == r.rows, f"{h.engine}: the result table has {r.table.num_rows} rows, the cell {r.rows}"
+    assert "table" not in r.as_dict(), f"{h.engine}: the result table would be sent to the app"
+
+
 def _plan_code(h: Harness) -> str:
     return h.ok_cell.code if h.ok_cell.language == "sql" else "SELECT 1"
 
@@ -239,6 +257,7 @@ CHECKS: dict[str, Callable[[Harness], None]] = {
     "errors": check_errors_are_outputs,
     "refused": check_refused_cells,
     "capabilities": check_optional_capabilities,
+    "result": check_result,
     "idle_cancel": check_idle_cancel,
     "close": check_close,
     "isolation": check_isolation,

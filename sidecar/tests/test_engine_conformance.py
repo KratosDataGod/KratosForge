@@ -119,6 +119,7 @@ def fabric_spark(tmp_path, monkeypatch):
         "fabric-spark", lambda: fs_t.adapter(livy), lambda a: a.open_session(config, fs_t.ok()),
         ok_cell=CellRequest("print('hi')", "pyspark"), error_cell=CellRequest("boom", "python"),
         refused_cells=(CellRequest("x", "r"), sql("SELECT 1", "tsql")),
+        result_cell=sql("SELECT id, name, amount FROM sales"),
         open_unauthorized=lambda a: a.open_session(config), contacted=lambda: len(livy.calls),
         secrets=(fs_t.TOKEN,))
 
@@ -163,15 +164,16 @@ def test_every_adapter_has_a_harness():
 
 
 class _Overclaiming:
-    """Claims a plan and a catalog it doesn't have, shows variables it doesn't claim, runs a language it
-    marks unsupported, never fails a cell, and its harness doesn't show that sessions share nothing."""
+    """Claims a plan, a catalog and whole results it doesn't have, shows variables it doesn't claim, runs a
+    language it marks unsupported, never fails a cell, and its harness doesn't show that sessions share nothing."""
 
     desc = EngineDescriptor(
         "local-duckdb", "Overclaiming", "local", "local", "none", adapter=True,
         languages={"sql": Support("native", evidence="unit_tests")},
         capabilities={"execute": Support("native", evidence="unit_tests"),
                       "plan": Support("native", evidence="unit_tests"),
-                      "catalog": Support("native", evidence="unit_tests")})
+                      "catalog": Support("native", evidence="unit_tests"),
+                      "result": Support("native", evidence="unit_tests")})
 
     def __init__(self):
         self.engine, self.closed = "local-duckdb", False
@@ -215,6 +217,7 @@ def _overclaiming_harness():
     ("refused", "ran a python"),
     ("errors", "came back 'ok'"),
     ("isolation", "a local harness shows"),
+    ("result", "claims result but returned no table"),
 ])
 def test_an_adapter_that_overclaims_fails_the_checks(check, message):
     with pytest.raises(AssertionError, match=message):

@@ -9,6 +9,7 @@
 const NB_RUN_TRIGGERS = {
   schedule: "Schedule",
   manual: "Schedule, Run now",
+  home: "Run from Home",
   fabric: "Run in Fabric",
   run_now: "Fabric schedule, Run now",
   prove: "Prove this notebook",

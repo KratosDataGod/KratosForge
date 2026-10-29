@@ -2,8 +2,9 @@
 
 KratosForge is growing from "this PC or Fabric" into one place to develop for Microsoft Fabric,
 Azure Databricks and Snowflake, alone or together. This page describes the two foundations that work is built on, what
-they can do today, and what is planned. **Nothing on this page has a screen in the app yet**: it
-is the engine underneath, built and tested first so the screens can't promise more than it does.
+they can do today, and what is planned. With Preview features shown, a notebook picks its engine
+from the [engine picker](#engine-picker-preview); connection profiles have no screen of their own
+yet, and a Databricks connection comes from a saved profile or the Databricks CLI.
 
 - An **engine** is what runs a notebook cell: Python on this PC, DuckDB, SQLite and Polars, and,
   as Preview engines tested against fakes, a Databricks SQL warehouse, Databricks Connect on a
@@ -31,22 +32,25 @@ here has run against a Fabric tenant or a Databricks workspace yet: the Databric
 Databricks Connect and Fabric Spark engines are tested against fakes of the platforms' documented
 APIs and clients, and stay Preview until they have.
 
-| Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Billed | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | Nothing | Tested |
-| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Nothing | Tested |
-| SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Nothing | Tested |
-| Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | Nothing | Tested |
+| Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | No | Nothing | Tested |
+| DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
+| SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
+| Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
-| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Fabric capacity | Preview, tested against fakes |
-| Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | DBUs | Preview, tested against fakes |
-| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | DBUs | Preview, tested against fakes |
+| Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
+| Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 
 Engines on this PC bill nothing themselves. **Reading or writing OneLake from this PC still uses
 Fabric capacity**, so "runs on this PC" never means "uses no capacity".
+
+**Whole result** means the engine can hand back every row of a result, not just the preview, so
+two engines' answers can be compared (below).
 
 A session's database file (an existing DuckDB or SQLite file) is opened read-only. Each session is
 its own in-memory database or Python process: two notebooks never see each other's tables or
@@ -163,6 +167,33 @@ Of 138 checks on commonly used Databricks SQL built-in functions, these are the 
 
 These 132 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`.
 
+## Databricks workspace discovery (Preview)
+
+To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
+what you can use. Discovery is a command, with no screen in the app yet:
+
+```
+fabric-desktop databricks-discover --profile dev
+fabric-desktop databricks-discover --host https://adb-1234567890123456.7.azuredatabricks.net --json
+```
+
+It lists who you're signed in as, the SQL warehouses (state, size, auto-stop), the all-purpose
+clusters (job clusters are left out), the Unity Catalog metastore and its catalogs, and then a
+warehouse and a cluster to try first.
+
+- **Nothing starts.** Every request is a read of a documented Databricks REST API, so discovery never
+  starts a warehouse or a cluster and bills no DBUs. It needs no confirm for that reason.
+- **Databricks Connect, before you try it.** Each cluster says whether Databricks Connect can use it
+  and, if not, why: its runtime line (16.4 or 17.3 in this version) or an access mode without Unity
+  Catalog (Connect needs Dedicated or Standard). Installing the client is a separate step.
+- **No auto-stop is called out.** A warehouse or cluster that never stops on its own bills DBUs until
+  someone stops it, so it's flagged and never suggested.
+- **Each part stands alone.** A part you can't read (a 403 on clusters, say) says why, and the rest
+  still come back. The command exits 0 when every part was read, 1 when one couldn't be, and 2 when
+  it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
+
+It's tested against fakes of those APIs, not yet against a live workspace.
+
 ## Databricks Connect (Preview)
 
 PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while
@@ -219,6 +250,25 @@ finds it (local engines only; a remote session is never left running).
 If a cell can't run on the chosen engine, KratosForge says why and stops. **It never moves the cell
 to another engine on its own**, and above all never to a remote one.
 
+## Comparing two engines' answers (engine only, no screen yet)
+
+`engines/compare.py` runs one query on two open sessions, for example DuckDB and SQLite on this PC,
+and compares the two results with the same rules, levels and limits as Prove (`verify.py`): key
+columns, numeric tolerances, and only counts and a checksum above 5,000,000 rows. Each side can have
+its own SQL, so a query and its translation can be checked against each other.
+
+- Only engines with **Whole result** take part. Any other engine is refused before anything runs,
+  with the reason.
+- The whole result is never cut short. More rows than asked for (1,000,000 by default), or more than
+  256 MB, makes that side an error, and nothing is compared.
+- If the first engine fails, the second doesn't run.
+- A remote engine's result would be copied onto this PC. That never happens on its own: the caller
+  asks you first, and approving the session itself doesn't count. Fabric Spark is the only remote
+  engine that returns whole results so far, for SQL cells: Spark sends the rows as JSON with its
+  schema, and this PC types them back. Timestamps read as the session's time zone shows them.
+  Nested types and binary come back as text, and the cell says which columns.
+- Both results stay in memory and are gone when the comparison is returned. Nothing is written.
+
 ## Remote compute needs your say-so
 
 A remote engine can start compute that is billed. It opens only when:
@@ -228,6 +278,40 @@ A remote engine can start compute that is billed. It opens only when:
 - the connection profile's execution policy allows that engine without asking.
 
 A profile can also forbid remote compute altogether.
+
+## Engine picker (Preview)
+
+With Preview features shown (Settings), **Engine** replaces **Runs on** in the notebook ribbon,
+beside **Run all**, which stays the main button. Nothing else in the ribbon moves. With Preview
+hidden, Runs on works as before.
+
+- **Badge.** Beside the engine, *This PC* or *Remote* says where cells run; a remote engine also
+  says how it bills ("bills DBUs" for Databricks, "uses Fabric capacity" for Fabric).
+- **Connection.** For a Databricks engine, **Connection** picks the saved profile connection or
+  Databricks CLI profile to use. Only the host and warehouse or cluster id reach the screen; tokens
+  stay with the sidecar. The connection's default catalog and schema show beside it, as a label.
+- **Engine menu.** Python (this PC) first, then the other engines on this PC (DuckDB, SQLite,
+  Polars), then **Remote**: Run in Fabric (the whole notebook as a Fabric job, as before), Fabric
+  Spark, Databricks SQL warehouse and Databricks Connect, each marked Preview. Engines that are
+  planned but not built are listed under **More** as information only; they can't be chosen.
+  Hover ⓘ for what each engine runs and how it differs from the platform.
+- **Remote confirm.** Choosing a remote engine opens a confirm that names the engine, the
+  warehouse, cluster or lakehouse, the connection, how it bills, and what the 60-minute grant
+  allows. It runs a risk check first: the policy, whether the warehouse or cluster is running and
+  its auto-stop, cells that write data, and cells the engine can't run. The check is advice only
+  and never blocks; when it can't read something it says "Couldn't run" and why. A profile whose
+  policy already allows the engine skips the confirm. Nothing remote starts without one or the
+  other, and KratosForge never falls back to remote compute on its own.
+- **Switching.** Leaving an engine with a session lists what is lost (its variables) and kept
+  (cells and outputs). **Switch and close session** is red; **Keep both** keeps a local session in
+  the background. Going back to Python from another engine also closes that engine's session.
+- **Cells.** The status line under a cell names the engine that ran it. A cell the engine can't
+  run is flagged before anything runs, with the reason and **Run this cell on Python**, which runs
+  that one cell in the Python kernel on this PC; the notebook stays on its engine.
+
+The choice lasts while the app is open; it isn't saved in the notebook file yet. Engine sessions
+close when the app quits or the notebook switches back to Python, not when its tab closes. Remote
+engines have run against fakes only, not a live Fabric tenant or Databricks workspace.
 
 ## Usage figures
 
@@ -319,7 +403,8 @@ Every engine with an adapter must pass the shared contract checks in
 engine's own descriptor and hold the adapter to it: claimed capabilities work, unsupported ones
 raise `Unsupported` with a reason, a cell in a language or dialect the engine marks unsupported never
 comes back as run, a failing cell is an error output that never repeats a secret, a closed session
-refuses cells, two sessions share nothing, and a remote engine contacts nothing before it has an
+refuses cells, two sessions share nothing, a whole result comes back only from an engine that
+claims it and only when asked, and a remote engine contacts nothing before it has an
 authorization. Remote engines run against the same fakes as their own tests, so the checks never
 reach a workspace.
 
@@ -329,14 +414,14 @@ adapter has one.
 
 ## Not yet
 
-- No screens: the notebook's engine picker and profile setup come next, after a mockup.
+- No profile setup screen: connection profiles are read, not edited, by the engine picker.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's
   local testing framework, which can't run `session.sql` and implements only some functions.
 - Databricks SQL warehouses sign in through the Databricks CLI or a service principal and run SQL
-  through the Statement Execution API, tested against fakes only. Databricks workspace discovery and
-  Databricks Connect aren't built yet, and stay Preview until tested against a live workspace.
+  through the Statement Execution API, tested against fakes only. Workspace discovery and Databricks
+  Connect stay Preview until tested against a live workspace.
 - Databricks Connect will run in its own Python environment: it ships its own PySpark, which would
   otherwise change what `spark` means in every local notebook. Its version is checked before
   anything starts (Databricks Runtime 16.4 or later, or serverless, for this app's Python 3.12).

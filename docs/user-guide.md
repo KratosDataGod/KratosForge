@@ -117,7 +117,8 @@ From the top:
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
 | **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
-| **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
+| **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
+| **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
@@ -246,13 +247,13 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 ## Notebook best practices (Preview)
 
-**Best practices** on a notebook's View tab opens a panel that checks the notebook's code cells against the notebook rules (NB001 to NB012) as you type: secrets in code, collect() without a limit, CSV read without a schema, unpinned %pip and the rest. Each finding has its severity, what to do, and **Go to cell** (to the line). Nothing runs and no capacity is used. The governance policies in force for the open project tune the rules: one a policy turns off isn't shown, and a policy can change a rule's severity. See [Notebook best practices](notebook-best-practices.md).
+**Best practices** on a notebook's View tab opens a panel that checks the notebook's code cells against the notebook rules (NB001 to NB012, NB018 to NB020) as you type: secrets in code, collect() without a limit, CSV read without a schema, unpinned %pip, Python UDFs, short VACUUM retention and the rest. Each finding has its severity, what to do, and **Go to cell** (to the line). Nothing runs and no capacity is used. The governance policies in force for the open project tune the rules: one a policy turns off isn't shown, and a policy can change a rule's severity. See [Notebook best practices](notebook-best-practices.md).
 
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
-- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
+- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
 - Click a workspace's row to open it: its lakehouses, with **New lakehouse**, **New notebook** and **Open in notebook**.
 - **Open in Fabric** opens the workspace in the Fabric page.
@@ -684,6 +685,7 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Explanations.** **On request** (the default) keeps the help out of the way: each page's one-line explanation and its **How this works** panel, which says what the page reads, what it changes and where results go, open together as a drawer from the info button in the title bar. Escape or the button closes it. The button shows only on pages that have help. **Beside the page** puts the explanation under the title and the panel in a column on the right, as before. Confirms before a change always say what they change, whichever you pick.
 - **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
+- **Learning guidance** (Preview). **Focus** (the default), **Guided** or **Learning**: how much the best-practice panels and Learn suggest lessons. See [Learn](learn.md#guidance).
 
 ### Motion and effects
 

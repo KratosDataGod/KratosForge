@@ -63,6 +63,17 @@ def _rank(role: str) -> int:
     return core.WORKSPACE_ROLES.index(role)
 
 
+def _assigned(assignments: Any, who: dict[str, Any]) -> dict[str, Any] | None:
+    """The role assignment given directly to ``who`` (a request's principal), if any."""
+    found = None
+    for r in assignments:
+        p = access_mod.principal(r.get("principal") or {})
+        if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
+                who.get("email") and str(p["email"]).lower() == who["email"]):
+            found = r
+    return found
+
+
 def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     """Call a platform operation that came with an update. A UDF_Platform made before it has no such
     function (Fabric answers 404, read as LookupError), or refuses a request kind it doesn't know:
@@ -104,6 +115,32 @@ class RequestsMixin:
                 raise LookupError(f"The platform can't take this kind of request yet: UDF_Platform is older "
                                   f"than this app. {REPAIR}") from exc
             raise
+
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        """Each waiting workspace access request the viewer can decide says the role its person or group
+        has in that workspace today (``today``: ``{"role": "Admin"}``, ``{"role": ""}`` for none of its
+        own, or ``{"checked": False}``), read from Fabric as the viewer once per workspace and never
+        stored, so the approver sees whether approving changes anything (#1108)."""
+        out = super().platform_requests(status)  # type: ignore[misc]
+        asks = [r for r in out if r.get("kind") == "workspace_access" and r.get("status") == "waiting"
+                and r.get("can_decide")]
+        roles: dict[str, list[Any] | None] = {}
+        for r in asks:
+            d = r.get("detail") or {}
+            wid = str(d.get("workspace_id") or "")
+            if wid not in roles:
+                try:
+                    roles[wid] = list(self._rq_fabric().list_role_assignments(wid))
+                except Exception as exc:  # noqa: BLE001 - the row says it couldn't check; approving still works
+                    _log.info("Couldn't read the roles in %s: %s", wid, describe(exc))
+                    roles[wid] = None
+            have = roles[wid]
+            if have is None:
+                r["today"] = {"checked": False}
+            else:
+                found = _assigned(have, d.get("principal") or {})
+                r["today"] = {"role": str((found or {}).get("role") or "")}
+        return out
 
     def _rq_name_free(self, name: str) -> None:
         """Refuse a new workspace whose name is taken, as far as the person asking can see."""
@@ -260,12 +297,7 @@ class RequestsMixin:
 
         def give() -> str:
             """The role they already had and kept, or "" when this gave or raised it."""
-            current = None
-            for r in api.list_role_assignments(wid):
-                p = access_mod.principal(r.get("principal") or {})
-                if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
-                        who.get("email") and str(p["email"]).lower() == who["email"]):
-                    current = r
+            current = _assigned(api.list_role_assignments(wid), who)
             if current is None:
                 self._rq_add(api, wid, who, role)
                 return ""

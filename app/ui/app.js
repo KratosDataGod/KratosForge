@@ -790,6 +790,7 @@ async function renderHome() {
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
     // start something; then readiness, problems and what is running.
     start,
+    homePinnedCard(),
     recent,
     ready,
     ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
@@ -821,13 +822,11 @@ async function renderHome() {
     const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
     if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
-    list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
-      h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
-        h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
-        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
-        h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
+    // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
+    const recentList = shown.length ? homeRecentList(shown) : null;
+    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    return recentList?.done;
   });
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
@@ -1140,10 +1139,10 @@ async function renderMonitor() {
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
-      kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
+      kind: r.trigger === "home" ? "Run from Home" : r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
       rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
-      open: () => { monitorPage.panel = "schedules"; render(); },
+      open: r.trigger === "home" ? () => openNotebook(r.label) : () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
@@ -1278,7 +1277,8 @@ async function renderWorkspaces() {
     }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
-    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
+    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] })),
+    PREVIEW_FEATURES.itemPins && previewShown() ? itemPinsLoaded() : null]);
   if (state.view !== "workspaces") return;
   wp.marks = marks;
   const here = () => state.view === "workspaces";
@@ -1320,6 +1320,8 @@ async function renderWorkspaces() {
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
             : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
+        PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
+          name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,

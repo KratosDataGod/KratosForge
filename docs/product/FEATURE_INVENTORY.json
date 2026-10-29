@@ -7656,7 +7656,7 @@
     {
       "id": "FEAT-GOV-09",
       "name": "Best-practice checks and templates",
-      "description": "Notebook rules NB001-NB012 and T-SQL rules SQ001-SQ010 read on this PC without running anything; governance policies name the rules they check, people add their own templates, and Check now runs them with a product checklist (Preview). Naming checks use RE2, so no pattern can stall a check.",
+      "description": "Notebook rules NB001-NB012 and NB018-NB020, T-SQL rules SQ001-SQ010 read on this PC without running anything; governance policies name the rules they check, people add their own templates, and Check now runs them with a product checklist (Preview). Naming checks use RE2, so no pattern can stall a check.",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
       "status": "Implemented",

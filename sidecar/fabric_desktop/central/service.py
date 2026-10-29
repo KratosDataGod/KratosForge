@@ -356,11 +356,11 @@ class PlatformMixin:
                 raise PermissionError("Only a Fabric administrator can create domains in Fabric, and Fabric refused "
                                       "this account. Nothing was changed.") from exc
             if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
-                created = self._domain_made_by(admin, marker, name, parent_fid) if marker else None
-                if created is None:
+                found = self._domain_made_by(admin, marker, name, parent_fid) if marker else None
+                if found is None:
                     raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to "
                                      "bring it in.") from exc
-                adopted = True
+                created, adopted = found, True
             else:
                 raise
         try:

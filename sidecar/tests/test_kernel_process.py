@@ -97,7 +97,9 @@ def described(pid):
 
 
 def alive(pid):
-    """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
+    """Whether process ``pid`` is still running. A zombie waiting to be reaped counts as ended, and so
+    does one being reaped ("X (dead)"), which comes after "Z": treating it as running let the check
+    see the process end and then come back."""
     if sys.platform == "win32":
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -116,7 +118,9 @@ def alive(pid):
     if not Path("/proc").is_dir():
         return True  # macOS: the signal is all there is to go on
     try:
-        return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
+        lines = Path(f"/proc/{pid}/status").read_text().splitlines()
+        state = next((line for line in lines if line.startswith("State:")), "State:\tX")
+        return state.split()[1] not in ("Z", "X")
     except (FileNotFoundError, ProcessLookupError):
         return False  # a zombie reaped between the signal and the read: it ended
 

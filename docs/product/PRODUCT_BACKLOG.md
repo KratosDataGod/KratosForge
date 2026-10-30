@@ -139,7 +139,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.
 - **Proposed capability:** A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.
-- **Current-state evidence:** fabric_run.py compute_check is regex-based; docs/product/enterprise-gap-analysis.md FD-111 partial
+- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial
 - **Inventory features:** [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** [PB-013](#pb-013)
 - **Owner:** Prove (FD-111)

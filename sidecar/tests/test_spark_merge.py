@@ -137,7 +137,9 @@ def test_the_compute_check_lets_merge_run_on_this_pc():
     assert local("%%sql\nUPDATE t SET a = 1 WHERE id = 2")["ok"]
     assert not local("%%sql\nUPDATE LH_Keys.keys.customer SET a = 1")["ok"]
     assert local("spark.sql('MERGE INTO t USING s ON t.r = \\'EU\\' WHEN MATCHED THEN DELETE')")["ok"]
-    assert local('spark.sql(f"MERGE INTO {target} USING s ON t.id = s.id WHEN MATCHED THEN DELETE")')["ok"]
+    # A table named only at run time could be another lakehouse's: Unknown, not runs here (PB-014).
+    dynamic = local('spark.sql(f"MERGE INTO {target} USING s ON t.id = s.id WHEN MATCHED THEN DELETE")')
+    assert not dynamic["ok"] and dynamic["status"] == "unknown" and not dynamic["reasons"]
 
 
 def test_the_compute_check_sends_a_python_cell_merge_it_cant_run_to_fabric(monkeypatch):

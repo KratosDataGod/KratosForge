@@ -110,6 +110,11 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
             out.append(finding(sev, f"runs_on_{target}", f"{where_text} can't run on {label}",
                                f"It {r['text']}.", "Set Runs on to the other place, or change the cell." if r.get("cell")
                                else "", r.get("cell"), cells))
+        for r in where[side]["unknown"]:
+            out.append(finding("warning" if runs_on in (None, target) else "info", f"runs_on_{target}_unknown",
+                               f"Cell {r['cell']} may not run on {label}",
+                               f"It {r['text']}.", "Prove the notebook to find out, or write the code so it can be "
+                               "read (a literal name or SQL text).", r["cell"], cells))
 
     # Packages.
     env = envprofile.check(cells, observed)

@@ -113,6 +113,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
                 continue  # already said
             c = cells[r["cell"] - 1] if r.get("cell") else None
             add(blockers, r.get("cell"), c, f"can't run on {label}: {r['text']}")
+        for r in compat[side]["unknown"]:  # not a blocker: running both sides is how a proof finds out
+            add(warnings, r["cell"], cells[r["cell"] - 1], f"may not run on {label}: it {r['text']}")
     for n, c in enumerate(cells, 1):
         source = c.get("source") or ""
         if c.get("type") == "markdown" or not source.strip():

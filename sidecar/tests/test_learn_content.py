@@ -132,6 +132,6 @@ def test_catches_identity_and_publishing_problems(tree):
 
 
 def test_catches_paths_that_name_unknown_things(tree):
-    (tree / "paths.json").write_text(json.dumps([{"id": "x", "title": "X", "modules": ["LM-09"]}]), encoding="utf-8")
-    _one(tree, "unknown module LM-09")
+    (tree / "paths.json").write_text(json.dumps([{"id": "x", "title": "X", "modules": ["LM-90"]}]), encoding="utf-8")
+    _one(tree, "unknown module LM-90")
     _one(tree, "unknown path data-fundamentals")

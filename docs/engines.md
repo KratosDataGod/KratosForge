@@ -143,6 +143,9 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   write and test a warehouse query against local tables without starting the warehouse. Unity
   Catalog three-part names need that catalog and schema in the local session, and Delta-only
   commands don't run there.
+- **If the connection drops mid-cell:** the statement is cancelled on the warehouse, so it doesn't
+  keep the warehouse busy with no one watching. If the cancel can't get through either, the error
+  says the statement may still be running; stop it in Databricks' query history.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
@@ -240,7 +243,9 @@ can't run twice. **Cancel** cancels the running statement in Fabric, and closing
   from KratosForge.
 - **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
   features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
-  per cell. A cell still running after two hours is cancelled.
+  per cell. A cell still running after two hours is cancelled. If the connection drops mid-cell,
+  the cell is cancelled in Fabric; if that can't get through either, the error says it may still be
+  running, so stop it from the Monitor hub or close the session.
 
 ## Switching engines
 

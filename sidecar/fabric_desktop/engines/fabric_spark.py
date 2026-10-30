@@ -333,7 +333,10 @@ class FabricSparkSession:
                     raise FabricSparkError(f"The cell was still running after {self._max_seconds / 60:.0f} minutes, "
                                            "so it was cancelled.")
                 self._sleep(POLL_SECONDS)
-                reply = self._client.statement(self.id, self._statement)
+                try:
+                    reply = self._client.statement(self.id, self._statement)
+                except Exception as exc:  # noqa: BLE001 - any failed poll (network, sign-in) stops the statement
+                    raise FabricSparkError(self._abandon(exc)) from None
         except FabricSparkError as exc:
             out = {"type": "error", "ename": "FabricSparkError", "evalue": str(exc)}
             if on_output:
@@ -366,6 +369,17 @@ class FabricSparkSession:
             return [{"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}], None, None, "error"
         note = [{"type": "stream", "text": f"Kept as text: {', '.join(as_text)}.\n"}] if as_text else []
         return [*note, _table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
+
+    def _abandon(self, exc: Exception) -> str:
+        """The failed poll's message, once the statement has been asked to stop: a statement this PC
+        lost track of must not keep the session busy (and using capacity) with no one watching it."""
+        problem = str(exc) if isinstance(exc, FabricSparkError) else f"Couldn't check the cell: {type(exc).__name__}."
+        try:
+            self._client.cancel(self.id, self._statement)
+        except Exception:  # noqa: BLE001 - the first failure is the one to report
+            return (f"{problem} The cell may still be running in the Fabric Spark session: stop it from "
+                    "the Monitor hub in Fabric, or close the session here.")
+        return f"{problem} The cell was stopped in Fabric."
 
     def cancel(self) -> bool:
         if not self._lock.locked():

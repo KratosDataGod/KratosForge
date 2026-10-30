@@ -446,3 +446,34 @@ def test_a_reply_with_the_mark_but_the_wrong_shape_is_an_error(fields, rows):
     livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": fields, "rows": rows})
     r = open_session(livy).execute(CellRequest("SELECT 1", "sql", result_rows=10))
     assert r.status == "error" and "expected form" in r.outputs[0]["evalue"]
+
+
+# ---------------------------------------------------------------- a failed poll (KF-REMOTE-ORPHAN, #1188)
+
+
+@pytest.mark.parametrize("refuse_cancel", [False, True])
+def test_a_failed_poll_stops_the_cell_in_fabric_or_says_it_may_still_run(refuse_cancel):
+    livy = FakeLivy(polls=3)
+    s = open_session(livy)
+
+    def drop():
+        if refuse_cancel:
+            livy.refuse = 503
+        raise ConnectionError("network down " + TOKEN)
+    livy.on_poll = drop
+    r = s.execute(CellRequest("spark.range(10).count()", "pyspark"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "error" and evalue.startswith("Couldn't reach Fabric")
+    if refuse_cancel:
+        assert "may still be running" in evalue and livy.cancelled == []
+    else:
+        assert "was stopped in Fabric" in evalue and livy.cancelled == ["0"]
+    assert TOKEN not in json.dumps(r.as_dict())
+
+
+def test_a_failed_submit_sends_no_cancel_to_livy():
+    livy = FakeLivy()
+    s = open_session(livy)
+    livy.refuse = 503
+    r = s.execute(CellRequest("1 + 1", "pyspark"))
+    assert r.status == "error" and not any(p.endswith("/cancel") for _, p, _ in livy.calls)

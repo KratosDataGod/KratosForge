@@ -298,7 +298,10 @@ class DatabricksSqlSession:
                 raise DatabricksError(f"The statement was still running after {self._max_seconds / 60:.0f} minutes, "
                                       "so it was cancelled on the warehouse.")
             self._sleep(POLL_SECONDS)
-            reply = self._client.status(self._statement)
+            try:
+                reply = self._client.status(self._statement)
+            except (DatabricksError, DatabricksAuthError) as exc:
+                raise DatabricksError(self._abandon(str(exc))) from None
         state = reply["status"]["state"]
         if state == "FAILED":
             err = reply["status"].get("error") or {}
@@ -306,6 +309,16 @@ class DatabricksSqlSession:
         if state != "SUCCEEDED":
             raise DatabricksError("Cancelled.")
         return reply
+
+    def _abandon(self, problem: str) -> str:
+        """``problem`` after a failed poll, once the statement has been asked to stop: a statement this
+        PC lost track of must not keep the warehouse busy (and billing) with no one watching it."""
+        try:
+            self._client.cancel(self._statement)
+        except (DatabricksError, DatabricksAuthError):
+            return (f"{problem} The statement may still be running on {self.warehouse_name}: stop it in "
+                    "Databricks' query history.")
+        return f"{problem} The statement was stopped on {self.warehouse_name}."
 
     def execute(self, request: CellRequest, on_output: OutputSink | None = None) -> CellResult:
         self._check_open()

@@ -207,6 +207,40 @@ def test_long_statements_are_polled_until_they_finish():
     assert sum(1 for m, p, *_ in ws.calls if m == "GET" and p.startswith("/api/2.0/sql/statements/")) == 3
 
 
+def _drop_on_poll(ws, refuse_cancel=False):
+    def drop():
+        if refuse_cancel:
+            ws.refuse = 503
+        raise ConnectionError("network down " + PAT)
+    ws.on_poll = drop
+
+
+def test_a_failed_poll_stops_the_statement_on_the_warehouse():
+    ws = FakeWorkspace(polls=3)
+    _drop_on_poll(ws)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and ws.cancelled == ["s1"]
+    assert "Couldn't reach" in r.outputs[0]["evalue"] and "was stopped on Shared" in r.outputs[0]["evalue"]
+    assert PAT not in json.dumps(r.as_dict())
+
+
+def test_when_the_cancel_fails_too_the_error_says_where_to_stop_it():
+    ws = FakeWorkspace(polls=3)
+    _drop_on_poll(ws, refuse_cancel=True)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "error" and evalue.startswith("Couldn't reach") and "may still be running on Shared" in evalue
+    assert "query history" in evalue and PAT not in json.dumps(r.as_dict())
+
+
+def test_a_failed_submit_sends_no_cancel():
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    ws.refuse = 503
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and not any(p.endswith("/cancel") for _, p, *_ in ws.calls)
+
+
 def test_a_failed_statement_is_the_cells_error_without_a_token():
     ws = FakeWorkspace(fail="[TABLE_OR_VIEW_NOT_FOUND] nope; token " + PAT)
     r = open_session(ws).execute(CellRequest("SELECT * FROM nope", "sql"))

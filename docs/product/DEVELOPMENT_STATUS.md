@@ -25,11 +25,12 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   - Three new notebook rules (#1116).
 - PB-116 and PB-118 moved to In review. PB-015 stays In progress: its Prove run on PC and Fabric is
   still to do.
-- 25 items are In review and wait on the product owner (acceptance batch 2 covers 23 of them; PB-116
-  and PB-118 are new).
+- Acceptance batch 2 (2026-10-30): the product owner accepted 19 items, 10 of them with documented
+  limitations, and approved the changed criteria for PB-031, PB-049 and PB-072. PB-005, PB-024,
+  PB-045 and PB-084 stay In review, with PB-116 and PB-118.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 18 are Proposed, 26 In progress, 25 In review and 40 Accepted.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 18 are Proposed, 26 In progress, 6 In review and 59 Accepted.
 
 ## Workstreams
 
@@ -52,7 +53,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 25 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
+two release gates. Also waiting: acceptance of the 6 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

@@ -458,7 +458,10 @@ def test_agent_runs_a_queued_environment_with_run_details(setup):
     finish(agent)
     done = agent.queue.get(job["id"])
     assert done["state"] == "succeeded", done["error"]
-    assert done["result"]["tables"] == 6 and done["result"]["failed"] == 0
+    # It once failed here in a full local run and didn't again in 2 more full runs and 6 alone: say
+    # what the job recorded, so the next failure shows which count was off and why.
+    result = done["result"] or {}
+    assert result.get("tables") == 6 and result.get("failed") == 0, f"job result {result!r}, attempts {done['attempts']}"
     log = LocalStore(setup.project / ".local" / "dev", "dev").meta("run_log")
     assert set(log["worker"]) == {"etl-01"} and set(log["job_id"]) == {job["id"]}
     assert set(log["attempt"]) == {1} and all(b.startswith("agent-") for b in log["batch_id"])

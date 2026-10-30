@@ -782,6 +782,7 @@ async function renderHome() {
   const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
+  const started = gettingStarted();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
@@ -790,6 +791,7 @@ async function renderHome() {
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
     // start something; then readiness, problems and what is running.
     start,
+    started.el,
     homePinnedCard(),
     recent,
     ready,
@@ -869,12 +871,10 @@ async function renderHome() {
     if (!onHome()) return;
     if (project) state.meta.project = project;
     const hasProject = !!project?.path;
-    // Environments mean nothing before there's a metadata project: show the first steps instead.
-    if (!hasProject) {
-      await notebooksDone;
-      if (!onHome()) return;
-      envSection.replaceWith(getStarted(project, notebookCount) || "");
-    }
+    // Environments mean nothing before there's a metadata project; Getting started says where to begin.
+    if (!hasProject) envSection.remove();
+    // A notebook list that failed to draw (allSettled below) still ticks what it can, with no stray rejection.
+    notebooksDone.catch(() => {}).then(() => onHome() && started.mark(project, notebookCount));
 
     // The latest run of each table in each environment says how that table stands now.
     const latest = new Map();

@@ -1185,13 +1185,15 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .whatsnew-more { align-self: flex-start; }
 .whatsnew-history li { display: flex; flex-direction: column; gap: 1px; }
 
-/* Get started (Home, before there's a metadata project) */
-.get-started ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.get-started li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-soft); }
-.get-started li:first-child { border-top: 0; }
-.get-started .step-mark { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border-input); color: #fff; flex: none; }
-.get-started li.done .step-mark { background: #107c10; border-color: #107c10; }
-.get-started li.done b { color: var(--muted); text-decoration: line-through; }
+/* Getting started with KratosForge (Home): starting points that fold to one line */
+.get-started .gs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+.get-started .gs-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; }
+.get-started .gs-title { gap: 6px; width: 100%; }
+.get-started .gs-title > .icon { color: var(--brand-orange); flex: none; }
+.get-started .gs-tick { display: none; color: #107c10; }
+.get-started .gs-tile.done .gs-tick { display: inline-flex; }
+.get-started .gs-tile > .tool { padding-left: 0; }
+.get-started .gs-foot { gap: 12px; margin-top: 8px; align-items: center; }
 .seg.meta-tabs { padding: 0; min-height: 0; border-right: 1px solid var(--border-input); }
 
 /* Item preview: what you click on the Workspaces pages, in a panel on the right (item-preview.js). */

@@ -79,10 +79,6 @@
       },
       "ready": [
         {
-          "story": "PB-043",
-          "issue": 850
-        },
-        {
           "story": "PB-049",
           "issue": 920
         }
@@ -142,15 +138,10 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "PB-031",
-        "issue": 904,
-        "note": "Built locally. Widening still rewrites (delta-rs can't write type widening). Behaviour change: narrowing now fails unless overwrite_schema = true; Chris decides."
+        "issue": 935,
+        "title": "Platform client: a non-JSON or 5xx answer from UDF_Platform gives a clear, typed error"
       },
       "ready": [
-        {
-          "issue": 935,
-          "title": "Platform client: a non-JSON or 5xx answer from UDF_Platform gives a clear, typed error"
-        },
         {
           "issue": 936,
           "title": "Test: every UDF_Platform function takes the same parameters as the platform operation it calls"
@@ -169,7 +160,7 @@
         "Workload pipelines mockup waits on Chris"
       ],
       "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
-      "next_action": "Open #904 when CI clears, with the behaviour change at the top of the PR."
+      "next_action": "#935, then #936. PB-031 (#904) was accepted on 2026-10-30."
     },
     {
       "key": "devex",

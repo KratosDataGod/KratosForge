@@ -295,7 +295,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-004).
-- **Current-state evidence:** SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636); mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809; Narrowed to warehouses and SQL analytics endpoints (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); Fabric SQL database moved to PB-114. Stays In review until the ODBC driver licence terms (PB-024 review, finding 2) are settled
+- **Current-state evidence:** SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636); mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809; Narrowed to warehouses and SQL analytics endpoints (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); Fabric SQL database moved to PB-114. Stays In review until the ODBC driver licence terms (PB-024 review, finding 2) are settled; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Stays open until the end-user terms are settled.
 - **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** [PB-021](#pb-021), Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126), End-user terms for the Microsoft ODBC driver the engine ships (counsel)
 - **Owner:** Build full warehouse development experience (SQL-004)
@@ -414,19 +414,19 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | In review |
-| [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | In review |
+| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | Accepted |
+| [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | Accepted |
 | [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | In progress |
-| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | In review |
+| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | Accepted |
 | [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | In progress |
 
 ### PB-019
 
-**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · In review
+**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · Accepted
 
 - **Problem:** The watermark filter is strictly greater-than, so rows that arrive late are dropped, and deletes at the source never reach the table.
 - **Proposed capability:** A lookback window and soft- or hard-delete handling per entity.
-- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3; Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509
+- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3; Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Opt-in, for Delta sources with keys only. An empty source stops a deletes run instead of deleting everything. Not run on a tenant.
 - **Inventory features:** [FEAT-META-02](FEATURE_INVENTORY.md#feat-meta-02)
 - **Dependencies:** Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Staged roadmap (FD-117)
@@ -439,18 +439,18 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-031
 
-**Schema evolution without full rewrites** · P2 (score 2.04) · M · confidence Medium · In review
+**Schema evolution without full rewrites** · P2 (score 2.04) · M · confidence Medium · Accepted
 
 - **Problem:** Type changes rewrite whole tables and contracts aren't versioned per change.
 - **Proposed capability:** Additive and widening changes applied in place; versioned schema history tied to the breaking-change check.
-- **Current-state evidence:** meta/drift.py; docs/scale-and-operations-plan.md FD-118; Each schema change is recorded in meta.schema_history with its version, and narrowing is refused unless overwrite_schema (#979) on main at 188d5a93. Widening still rewrites the table: delta-rs 1.6.6 can't write typeWidening, and it would leave the Fabric-safe profile. Criterion 1 can't be met as written; Chris decides at acceptance
+- **Current-state evidence:** meta/drift.py; docs/scale-and-operations-plan.md FD-118; Each schema change is recorded in meta.schema_history with its version, and narrowing is refused unless overwrite_schema (#979) on main at 188d5a93. Widening still rewrites the table: delta-rs 1.6.6 can't write typeWidening, and it would leave the Fabric-safe profile. Criterion 1 can't be met as written; Chris decides at acceptance; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): criterion 1 changed and Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: widening rewrites the table, because delta-rs 1.6.6 can't write Delta's typeWidening and it would leave the Fabric-safe profile
 - **Inventory features:** [FEAT-META-07](FEATURE_INVENTORY.md#feat-meta-07)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-118)
 - **Pull requests:** [#979](https://github.com/KratosDataGod/KratosForge/pull/979)
 - **Story issues:** [#904](https://github.com/KratosDataGod/KratosForge/issues/904)
 - **Acceptance criteria:**
-    - Widening a type commits without rewriting data files
+    - Widening a type rewrites the table, narrowing is refused unless overwrite_schema
     - Each schema change is recorded with its version
 
 ### PB-067
@@ -471,11 +471,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-068
 
-**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · In review
+**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · Accepted
 
 - **Problem:** Every keyed run reads the whole key table, which grows with the business.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.
-- **Current-state evidence:** meta/keys.py read_keys
+- **Current-state evidence:** meta/keys.py read_keys; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-META-05](FEATURE_INVENTORY.md#feat-meta-05)
 - **Dependencies:** Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101), Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant
 - **Owner:** Staged roadmap (FD-115)
@@ -510,7 +510,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | Accepted |
 | [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | Accepted |
 | [PB-045](#pb-045) | Shared queue for several workers | P3 | Workload management | L | In review |
-| [PB-048](#pb-048) | Schedule editing and safer schedule removal | P2 | Master product (unassigned) | M | In review |
+| [PB-048](#pb-048) | Schedule editing and safer schedule removal | P2 | Master product (unassigned) | M | Accepted |
 | [PB-049](#pb-049) | Run the pipeline mailbox once on a tenant | P2 | Staged roadmap | S | In progress |
 | [PB-107](#pb-107) | Data Factory program | P3 | Build full Data Factory experience | XL | In progress |
 
@@ -594,7 +594,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Each agent has its own queue, so work can't spread across machines.
 - **Proposed capability:** A worker registry and shared claims, as the Workload management program plans.
-- **Current-state evidence:** jobqueue.py per machine; docs/agent.md; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The mechanism that makes it safe hasn't been tried on a tenant yet.
+- **Current-state evidence:** jobqueue.py per machine; docs/agent.md; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The mechanism that makes it safe hasn't been tried on a tenant yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Waits on the live check (your PB-002/PB-003 yes).
 - **Inventory features:** [FEAT-ORC-06](FEATURE_INVENTORY.md#feat-orc-06)
 - **Dependencies:** [PB-003](#pb-003)
 - **Owner:** Workload management (FD-124)
@@ -604,11 +604,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-048
 
-**Schedule editing and safer schedule removal** · P2 (score 1.84) · M · confidence High · In review
+**Schedule editing and safer schedule removal** · P2 (score 1.84) · M · confidence High · Accepted
 
 - **Problem:** Schedules can't be edited, removal has no confirmation, and only 12 time zones are offered.
 - **Proposed capability:** Edit time and frequency, confirm removal, full time-zone list; PC schedules that run when the user is signed out.
-- **Current-state evidence:** schedules.js; local_schedules.py; A schedule's time edits in place, Remove asks with a danger confirm, every Windows time zone (time_zones.py) on main at b19b7456
+- **Current-state evidence:** schedules.js; local_schedules.py; A schedule's time edits in place, Remove asks with a danger confirm, every Windows time zone (time_zones.py) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Editing a Fabric schedule in place hasn't been tried on a tenant.
 - **Inventory features:** [FEAT-FAB-08](FEATURE_INVENTORY.md#feat-fab-08), [FEAT-ORC-01](FEATURE_INVENTORY.md#feat-orc-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -625,7 +625,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The pipeline-to-agent mailbox has only run against fakes and records free-text submitters.
 - **Proposed capability:** One live run per the live test, and the writer's identity recorded.
-- **Current-state evidence:** mailbox.py tests use fakes; docs/enterprise-roadmap.md still calls it unbuilt; Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change; Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes); One pipeline run vouches for one request (#1059, issue #969) on main at 02118fa4
+- **Current-state evidence:** mailbox.py tests use fakes; docs/enterprise-roadmap.md still calls it unbuilt; Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change; Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes); One pipeline run vouches for one request (#1059, issue #969) on main at 02118fa4; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (check the named run against Fabric's job history) approved (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); stays In progress for the live run
 - **Inventory features:** [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04)
 - **Dependencies:** [PB-002](#pb-002)
 - **Owner:** Staged roadmap (Scale plan capability 7)
@@ -657,9 +657,9 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-018](#pb-018) | Publish matches Fabric items by id, not display name | P2 | Master product (unassigned) | S | Accepted |
 | [PB-040](#pb-040) | Fabric workspace Git integration | P2 | Git-native development | L | Proposed |
 | [PB-041](#pb-041) | Deployment preview and item deploy | P2 | Git-native development | L | Proposed |
-| [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | In review |
-| [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | In review |
-| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | In review |
+| [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Accepted |
+| [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Accepted |
+| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-110](#pb-110) | Semantic model interchange (Apache Ossie) | P3 | TMDL and OSI semantic model conversion | M | In progress |
 | [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | In review |
 | [PB-121](#pb-121) | Power BI embedding (Embed Studio) | P3 | Power BI embedding (PBE) | L | In progress |
@@ -708,11 +708,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-042
 
-**Release rollback and the committed-revision rule** · P2 (score 1.95) · M · confidence Medium · In review
+**Release rollback and the committed-revision rule** · P2 (score 1.95) · M · confidence Medium · Accepted
 
 - **Problem:** A bad promote can be undone only table by table, and Test/Prod can be promoted from uncommitted files.
 - **Proposed capability:** Release-level rollback from meta.deployments and decision D1 enforced.
-- **Current-state evidence:** meta/release.py; docs/scale-and-operations-plan.md D1; PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open; Roll back... on a Test or Prod release card restores a kept release and records it as a new release (meta/promote.py rollback, #508); D1 enforced by #707 on main at b19b7456
+- **Current-state evidence:** meta/release.py; docs/scale-and-operations-plan.md D1; PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open; Roll back... on a Test or Prod release card restores a kept release and records it as a new release (meta/promote.py rollback, #508); D1 enforced by #707 on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Only releases that kept their files can be rolled back. Tables keep their rows until their next run. Not run on a tenant.
 - **Inventory features:** [FEAT-META-09](FEATURE_INVENTORY.md#feat-meta-09), [FEAT-META-10](FEATURE_INVENTORY.md#feat-meta-10)
 - **Dependencies:** Product-owner decision D1, Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-121)
@@ -724,11 +724,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-043
 
-**Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · In review
+**Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.
 - **Proposed capability:** A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.
-- **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions; Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't; Cancel in Monitor > Runs and the tray (Preview id fabric-cancel), tested in test_cloud.py and fabric-cancel.test.cjs on main at b19b7456
+- **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions; Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't; Cancel in Monitor > Runs and the tray (Preview id fabric-cancel), tested in test_cloud.py and fabric-cancel.test.cjs on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Preview. Not yet tried against a real Fabric run.
 - **Inventory features:** [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -741,11 +741,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-051
 
-**Fabric REST client resilience** · P1 (score 2.16) · S · confidence High · In review
+**Fabric REST client resilience** · P1 (score 2.16) · S · confidence High · Accepted
 
 - **Problem:** The client retries only 429s; a 5xx or expired token fails the action, and long-running operations give up after 300 seconds.
 - **Proposed capability:** Bounded retries on safe 5xx for idempotent calls, one token refresh on 401, configurable LRO timeout.
-- **Current-state evidence:** fabric_api.py retry handles 429 only (code reading); send_with_retry retries safe methods on 5xx and 429; a 401 gets one new token and one resend (#923); LRO poll_timeout is a FabricClient setting on main at b19b7456
+- **Current-state evidence:** fabric_api.py retry handles 429 only (code reading); send_with_retry retries safe methods on 5xx and 429; a 401 gets one new token and one resend (#923); LRO poll_timeout is a FabricClient setting on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-FAB-01](FEATURE_INVENTORY.md#feat-fab-01)
 - **Dependencies:** Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Codebase audit and hardening (HD-039/HD-051)
@@ -808,7 +808,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-052](#pb-052) | Verify the central platform on a tenant | P1 | Master product (unassigned) | M | In progress |
-| [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | In review |
+| [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Accepted |
 | [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Accepted |
 | [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
 
@@ -832,11 +832,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-053
 
-**Scheduled shortcut health check with alerts** · P2 (score 2.12) · S · confidence Medium · In review
+**Scheduled shortcut health check with alerts** · P2 (score 2.12) · S · confidence Medium · Accepted
 
 - **Problem:** Broken shortcuts are found only when someone opens the page.
 - **Proposed capability:** A scheduled check (app or agent) that posts to Teams once per break.
-- **Current-state evidence:** docs/shortcuts.md lists it as not built; [shortcut_health] in agent.toml runs the check on a schedule and posts each break once through platform_notify's ledger (#902) on main at b19b7456
+- **Current-state evidence:** docs/shortcuts.md lists it as not built; [shortcut_health] in agent.toml runs the check on a schedule and posts each break once through platform_notify's ledger (#902) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Runs in the agent only, not the desktop app, and only on the agent's own environments. Preview, not run on a tenant.
 - **Inventory features:** [FEAT-ONE-03](FEATURE_INVENTORY.md#feat-one-03)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -879,12 +879,12 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | Accepted |
-| [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | In review |
+| [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Accepted |
 | [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Accepted |
 | [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
 | [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Accepted |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Accepted |
-| [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | In review |
+| [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Accepted |
 | [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
 | [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | Accepted |
 | [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | Accepted |
@@ -907,11 +907,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-057
 
-**Offline policy validation** · P1 (score 2.8) · M · confidence Medium · In review
+**Offline policy validation** · P1 (score 2.8) · M · confidence Medium · Accepted
 
 - **Problem:** Policy checks need Fabric today or don't exist.
 - **Proposed capability:** Owned and specified by the Enterprise governance foundation thread (GOV-002; GOV-003..005 follow there).
-- **Current-state evidence:** No offline validator; GOV-002 built: hash-checked policy packages and offline Check (#882); GOV-003 enforcement is issue #903 on main at b19b7456
+- **Current-state evidence:** No offline validator; GOV-002 built: hash-checked policy packages and offline Check (#882); GOV-003 enforcement is issue #903 on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Packages are hash-checked, not signed. An offline check can't read catalog text, product terms, endorsement or run logs, so those rules say unknown. No screen to pick a package.
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
 - **Dependencies:** [PB-056](#pb-056)
 - **Owner:** Enterprise governance foundation (GOV-002, GOV-003..005)
@@ -977,11 +977,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-083
 
-**Endorsed items scope in the catalog** · P2 (score 1.9) · S · confidence High · In review
+**Endorsed items scope in the catalog** · P2 (score 1.9) · S · confidence High · Accepted
 
 - **Problem:** The Endorsed filter is always unavailable and its reason text points at an embedded catalog that doesn't exist.
 - **Proposed capability:** Fix the text now; read endorsements when a supported API is confirmed.
-- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing; The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93
+- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing; The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-ONE-02](FEATURE_INVENTORY.md#feat-one-02)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -996,7 +996,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
@@ -1068,11 +1068,11 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-034](#pb-034) | Start the notebook wizard from a table | P2 | Prove | S | Proposed |
 | [PB-062](#pb-062) | Save a support bundle from Settings | P2 | Enterprise readiness | S | Proposed |
-| [PB-077](#pb-077) | User and agent docs match the code | P2 | Master product (unassigned) | S | In review |
-| [PB-078](#pb-078) | Preview tags match the docs | P1 | Master product (unassigned) | S | In review |
+| [PB-077](#pb-077) | User and agent docs match the code | P2 | Master product (unassigned) | S | Accepted |
+| [PB-078](#pb-078) | Preview tags match the docs | P1 | Master product (unassigned) | S | Accepted |
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
 | [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | Accepted |
-| [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | In review |
+| [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Accepted |
 | [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | Accepted |
 | [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 | [PB-113](#pb-113) | Action-first experience program | P2 | Action-first experience | L | In progress |
@@ -1107,11 +1107,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-077
 
-**User and agent docs match the code** · P2 (score 2.45) · S · confidence High · In review
+**User and agent docs match the code** · P2 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** Several docs describe behavior the code doesn't have (Report a problem adds the tenant id; workload views read agent status; the mailbox is unbuilt; incidents are a Delta table; %%sql publish).
 - **Proposed capability:** Each mismatch fixed in the docs, with a doc-claims checklist added to the review template.
-- **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06; The package's mismatches corrected (#876) on main at b19b7456
+- **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06; The package's mismatches corrected (#876) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-10](FEATURE_INVENTORY.md#feat-shl-10), [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04), [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
 - **Dependencies:** Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102), Theme (Chris's unit testing, 2026-10-18, items 9, 14, 18, 28, 34): a docs page per area, linked from each page's in-app guidance
 - **Owner:** Master product (unassigned)
@@ -1124,11 +1124,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-078
 
-**Preview tags match the docs** · P1 (score 2.45) · S · confidence High · In review
+**Preview tags match the docs** · P1 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** Docs call batch_by, release records, who-can-promote, objectives and column lineage Preview, but the app has no Preview id for them, so they can't be hidden by policy.
 - **Proposed capability:** A PREVIEW_FEATURES id for each, or the docs changed where the feature is not exposed in the UI.
-- **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels; Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left; Every docs Preview heading maps to a PREVIEW_FEATURES id or a stated reason, kept by a UI test (#874) on main at b19b7456
+- **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels; Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left; Every docs Preview heading maps to a PREVIEW_FEATURES id or a stated reason, kept by a UI test (#874) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-05](FEATURE_INVENTORY.md#feat-shl-05)
 - **Dependencies:** Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)
 - **Owner:** Master product (unassigned)
@@ -1170,11 +1170,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-087
 
-**Clean up downloaded preview files** · P2 (score 1.9) · S · confidence Medium · In review
+**Clean up downloaded preview files** · P2 (score 1.9) · S · confidence Medium · Accepted
 
 - **Problem:** File previews download whole into the app data folder and are never removed (inference).
 - **Proposed capability:** Size limit and cleanup on close.
-- **Current-state evidence:** preview_service.py (code reading); Previews download to their own folder, removed once read; 200 MB cap; leftovers go at next start (#885) on main at b19b7456
+- **Current-state evidence:** preview_service.py (code reading); Previews download to their own folder, removed once read; 200 MB cap; leftovers go at next start (#885) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: A file over 200 MB isn't previewed at all, rather than previewing its head.
 - **Inventory features:** [FEAT-FAB-04](FEATURE_INVENTORY.md#feat-fab-04)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
@@ -1256,7 +1256,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | Accepted |
 | [PB-092](#pb-092) | Shared workload ownership | P3 | Workload management | M | Proposed |
 | [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | Accepted |
-| [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | In review |
+| [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Accepted |
 | [PB-104](#pb-104) | Optimize central lakehouse program | P1 | Optimize central lakehouse | XL | In progress |
 
 ### PB-017
@@ -1388,11 +1388,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-094
 
-**Measure the process kernel, not the engine** · P2 (score 2.48) · S · confidence Medium · In review
+**Measure the process kernel, not the engine** · P2 (score 2.48) · S · confidence Medium · Accepted
 
 - **Problem:** With the process kernel on, CPU and memory are measured from the engine process (inference), so scorecards can be wrong.
 - **Proposed capability:** Measure the child kernel's resources.
-- **Current-state evidence:** measure.py RunMeter; RunMeter reads the kernel process's CPU and memory (#895) on main at b19b7456
+- **Current-state evidence:** measure.py RunMeter; RunMeter reads the kernel process's CPU and memory (#895) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Processes a cell starts aren't counted.
 - **Inventory features:** [FEAT-PRV-05](FEATURE_INVENTORY.md#feat-prv-05)
 - **Dependencies:** none
 - **Owner:** Prove (FD-119)
@@ -1520,7 +1520,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-007](#pb-007) | Audit trail of runs and changes | P1 | Enterprise readiness | M | Accepted |
 | [PB-008](#pb-008) | Keep the embedded Fabric view on Fabric hosts | P1 | Enterprise readiness | S | Accepted |
 | [PB-009](#pb-009) | Local data retention | P1 | Enterprise readiness | S | Accepted |
-| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | In review |
+| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-061](#pb-061) | Missing policy keys | P2 | Enterprise readiness | M | Proposed |
 | [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | In progress |
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
@@ -1548,7 +1548,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The MSAL token cache is a plain file on Windows.
 - **Proposed capability:** DPAPI-protected cache through msal-extensions.
-- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.
+- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).
 - **Inventory features:** [FEAT-AUTH-03](FEATURE_INVENTORY.md#feat-auth-03)
 - **Dependencies:** Decision D-C2, Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1624,11 +1624,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-010
 
-**Security and network docs match the shipped app** · P1 (score 2.2) · S · confidence High · In review
+**Security and network docs match the shipped app** · P1 (score 2.2) · S · confidence High · Accepted
 
 - **Problem:** docs/security.md says there is no redaction, scanning, SBOM or provenance (all exist); enterprise-install.md's host list omits hosts the app calls and misattributes one.
 - **Proposed capability:** Corrected security and network documentation that IT can rely on.
-- **Current-state evidence:** docs/security.md:41; ci.yml audit and SBOM jobs; docs/enterprise-install.md hosts table; security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456; A test keeps the firewall host list in step with the code (#1047, issue #959) on main at 188d5a93
+- **Current-state evidence:** docs/security.md:41; ci.yml audit and SBOM jobs; docs/enterprise-install.md hosts table; security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456; A test keeps the firewall host list in step with the code (#1047, issue #959) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03), [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
 - **Dependencies:** Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Codebase audit and hardening (HD-009)
@@ -1711,12 +1711,12 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-003](#pb-003) | Prove OneLake leases and MERGE writes live | P1 | Enterprise readiness | S | In progress |
 | [PB-064](#pb-064) | Per-build release assets, pinning and rollback | P1 | Enterprise readiness | M | Accepted |
 | [PB-066](#pb-066) | Backup and restore of local state | P2 | Enterprise readiness | S | Accepted |
-| [PB-069](#pb-069) | Compare large tables in batches | P2 | Staged roadmap | M | In review |
-| [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | In review |
+| [PB-069](#pb-069) | Compare large tables in batches | P2 | Staged roadmap | M | Accepted |
+| [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | Accepted |
 | [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Codebase audit and hardening | S | Accepted |
-| [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | In review |
+| [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | Accepted |
 | [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | In progress |
-| [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | In review |
+| [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Accepted |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
 | [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
 
@@ -1789,11 +1789,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-069
 
-**Compare large tables in batches** · P2 (score 1.99) · M · confidence Medium · In review
+**Compare large tables in batches** · P2 (score 1.99) · M · confidence Medium · Accepted
 
 - **Problem:** Environment compare reads whole tables.
 - **Proposed capability:** Batched or sampled compare.
-- **Current-state evidence:** meta/compare.py; Above 5,000,000 rows the compare streams counts, totals and a row checksum through DuckDB (#897) on main at b19b7456
+- **Current-state evidence:** meta/compare.py; Above 5,000,000 rows the compare streams counts, totals and a row checksum through DuckDB (#897) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Above 5,000,000 rows a compare says whether tables differ (counts, totals, a row checksum), not which rows.
 - **Inventory features:** [FEAT-META-08](FEATURE_INVENTORY.md#feat-meta-08)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-114)
@@ -1804,11 +1804,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-070
 
-**UI tests for the notebook editor and command bar** · P2 (score 2.07) · M · confidence High · In review
+**UI tests for the notebook editor and command bar** · P2 (score 2.07) · M · confidence High · Accepted
 
 - **Problem:** UI tests check parsing, names and a few behaviors; the editor and keyboard flows have none.
 - **Proposed capability:** Behavior tests for the editor, command mode and command bar.
-- **Current-state evidence:** app/tests/ui.test.cjs has 23 tests; command-bar.test.cjs adds Ctrl+K browser tests; editor and command mode tests already existed on main at b19b7456
+- **Current-state evidence:** app/tests/ui.test.cjs has 23 tests; command-bar.test.cjs adds Ctrl+K browser tests; editor and command mode tests already existed on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-NB-01](FEATURE_INVENTORY.md#feat-nb-01), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
@@ -1836,11 +1836,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-072
 
-**Long engine calls stop blocking the app** · P1 (score 1.48) · L · confidence Medium · In review
+**Long engine calls stop blocking the app** · P1 (score 1.48) · L · confidence Medium · Accepted
 
 - **Problem:** All engine calls share one pipe behind a mutex; anything off the watchdog's quick list has no time limit, so a slow Fabric call freezes every page.
 - **Proposed capability:** Concurrent or cancellable long calls with time limits.
-- **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list; The engine runs quick calls in their own lane (server.py, test_server_lanes.py, #508), so a slow Fabric call doesn't block them on main at b19b7456; #898 bounds four more calls (open); Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change; #898 bounds Monitor's status refresh (30 s), the drift card's read and the sign-in window (10 min) on main at 188d5a93. The changed acceptance (quick calls 60 s, long calls end with Stop) still needs Chris
+- **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list; The engine runs quick calls in their own lane (server.py, test_server_lanes.py, #508), so a slow Fabric call doesn't block them on main at b19b7456; #898 bounds four more calls (open); Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change; #898 bounds Monitor's status refresh (30 s), the drift card's read and the sign-in window (10 min) on main at 188d5a93. The changed acceptance (quick calls 60 s, long calls end with Stop) still needs Chris; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (quick calls 60 s, long calls end with Stop) approved and Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03)
 - **Dependencies:** [PB-071](#pb-071), Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102), Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
@@ -1868,11 +1868,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-074
 
-**Release pipeline hardening** · P1 (score 2.2) · S · confidence High · In review
+**Release pipeline hardening** · P1 (score 2.2) · S · confidence High · Accepted
 
 - **Problem:** Release doesn't wait for the audit job; docs.yml and codex-review.yml use tag-pinned actions; zensical installs unpinned.
 - **Proposed capability:** Release depends on audit; all actions SHA-pinned; tool versions pinned.
-- **Current-state evidence:** ci.yml; docs.yml; codex-review.yml; Release needs the audit job, with dated exceptions in .github/audit-exceptions.txt (#867); actions are SHA-pinned on main at b19b7456
+- **Current-state evidence:** ci.yml; docs.yml; codex-review.yml; Release needs the audit job, with dated exceptions in .github/audit-exceptions.txt (#867); actions are SHA-pinned on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03)
 - **Dependencies:** Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-103)

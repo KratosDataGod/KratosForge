@@ -231,7 +231,9 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "telemetry": False, "sql_warehouse_writes": False,
                               "wh_monitoring_views": False,
                               "allow_dbconnect_install": False,
-                              "platform_presence": False}
+                              "platform_presence": False,
+                              "allow_replay_samples": False, "allow_optimize_lakehouse": False,
+                              "allow_notebook_packages": False}
 
 
 def policy_path() -> Path:
@@ -290,8 +292,8 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
-                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry, "
+                "external AI tools, package installs and the central lakehouse off. Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:

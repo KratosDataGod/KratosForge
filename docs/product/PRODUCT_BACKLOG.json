@@ -4232,13 +4232,16 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.6,
         "cost": 1.0,
         "score": 2.6,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1152
+      ]
     },
     {
       "id": "PB-099",

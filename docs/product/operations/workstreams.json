@@ -196,9 +196,7 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {
-        "story": "PB-098"
-      },
+      "active": {},
       "ready": [],
       "backlog": [
         "PB-061"
@@ -210,8 +208,8 @@
         "Rest of PB-072 needs a Stop design mockup",
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#867 PB-074, #911 HD-023, #898 PB-072, #930 HD-050 slice 2, #938 conftest leak fix (PASS); #923 PB-051 at review",
-      "next_action": "One list of engine methods (PB-098), building on the HD-050 RPC cleanup."
+      "last_completed": "#1152 PB-098 one list of engine methods (In review); #1154, #1155, #1156, #1164 at PASS with Release management",
+      "next_action": "Fuzz every engine method with malformed input: a typed error, never a traceback or a partial write (lead files the issue)."
     }
   ],
   "new_stories": {},

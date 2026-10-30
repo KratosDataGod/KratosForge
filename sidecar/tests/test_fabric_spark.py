@@ -103,7 +103,7 @@ def fabric_runs_allowed(monkeypatch):
 
 
 def adapter(livy):
-    return fs.FabricSparkAdapter(client_for=lambda ws, lh: fs.LivyClient(lambda: TOKEN, ws, lh, livy),
+    return fs.FabricSparkAdapter(client_for=lambda ws, lh: fs.LivyClient(lambda: TOKEN, ws, lh, livy, sleep=lambda s: None),
                                  sleep=lambda s: None)
 
 
@@ -174,7 +174,7 @@ def test_a_session_that_dies_while_starting_says_so():
 def test_a_session_that_never_starts_is_ended():
     livy = FakeLivy(start_polls=10**6)
     now = [0.0]
-    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy)
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None)
     with pytest.raises(fs.FabricSparkError, match="didn't start within 1 minutes"):
         fs.FabricSparkSession(SessionConfig("nb"), client, sleep=lambda s: now.__setitem__(0, now[0] + 30),
                               clock=lambda: now[0], start_seconds=60)
@@ -266,7 +266,7 @@ def test_cancel_cancels_the_statement_in_fabric():
 def test_a_statement_running_too_long_is_cancelled():
     livy = FakeLivy(polls=10**6)
     now = [0.0]
-    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy)
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None)
     s = fs.FabricSparkSession(SessionConfig("nb"), client, sleep=lambda x: now.__setitem__(0, now[0] + 60),
                               clock=lambda: now[0], max_seconds=300)
     r = s.execute(CellRequest("spark.range(1).count()", "pyspark"))
@@ -446,3 +446,84 @@ def test_a_reply_with_the_mark_but_the_wrong_shape_is_an_error(fields, rows):
     livy.result_text = json.dumps({"mark": fs.RESULT_MARK, "fields": fields, "rows": rows})
     r = open_session(livy).execute(CellRequest("SELECT 1", "sql", result_rows=10))
     assert r.status == "error" and "expected form" in r.outputs[0]["evalue"]
+
+
+# ---------------------------------------------------------------- a failed poll (KF-REMOTE-ORPHAN, #1188)
+
+
+@pytest.mark.parametrize("refuse_cancel", [False, True])
+def test_a_failed_poll_stops_the_cell_in_fabric_or_says_it_may_still_run(refuse_cancel):
+    livy = FakeLivy(polls=3)
+    s = open_session(livy)
+
+    def drop():
+        raise ConnectionError("network down " + TOKEN)
+    livy.on_poll = drop
+    if refuse_cancel:
+        _flaky(livy, [403], lambda m, p: p.endswith("/cancel"))
+    r = s.execute(CellRequest("spark.range(10).count()", "pyspark"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "error" and evalue.startswith("Couldn't reach Fabric")
+    if refuse_cancel:
+        assert "may still be running" in evalue and livy.cancelled == []
+    else:
+        assert "was stopped in Fabric" in evalue and livy.cancelled == ["0"]
+    assert TOKEN not in json.dumps(r.as_dict())
+
+
+def test_a_failed_submit_sends_no_cancel_to_livy():
+    livy = FakeLivy()
+    s = open_session(livy)
+    livy.refuse = 503
+    r = s.execute(CellRequest("1 + 1", "pyspark"))
+    assert r.status == "error" and not any(p.endswith("/cancel") for _, p, _ in livy.calls)
+
+# ---------------------------------------------------------------- retries (KF-REMOTE-RETRY, #1189)
+
+
+def _flaky(livy, statuses, when):
+    real, left = livy.request, list(statuses)
+
+    def request(method, url, **kw):
+        if left and when(method, url[len(BASE):]):
+            livy.calls.append((method, url[len(BASE):], None))
+            return Resp(left.pop(0), {"message": "busy " + TOKEN})
+        return real(method, url, **kw)
+    livy.request = request
+
+
+def test_throttled_livy_polls_are_tried_again():
+    livy = FakeLivy(polls=2)
+    s = open_session(livy)
+    _flaky(livy, [429, 504], lambda m, p: m == "GET" and "/statements/" in p)
+    assert s.execute(CellRequest("1 + 1", "pyspark")).status == "ok" and livy.cancelled == []
+
+
+def test_a_livy_submit_is_never_resent_after_a_5xx():
+    livy = FakeLivy()
+    s = open_session(livy)
+    _flaky(livy, [503], lambda m, p: m == "POST" and p == "/7/statements")
+    r = s.execute(CellRequest("1 + 1", "pyspark"))
+    assert r.status == "error" and sum(1 for m, p, _ in livy.calls if p == "/7/statements") == 1
+
+
+def test_after_the_last_livy_try_the_error_says_it_was_retried_without_a_token():
+    livy = FakeLivy()
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None)
+    _flaky(livy, [503] * 4, lambda m, p: m == "GET")
+    with pytest.raises(fs.FabricSparkError) as err:
+        client.session("7")
+    assert str(err.value).startswith("Fabric refused the request (HTTP 503).")
+    assert str(err.value).endswith("Tried 4 times.") and TOKEN not in str(err.value)
+
+
+def test_one_dropped_livy_poll_neither_fails_the_cell_nor_stops_it():
+    livy = FakeLivy(polls=2)
+    s = open_session(livy)
+    drops = [ConnectionError("reset")]
+
+    def drop_once():
+        if drops:
+            raise drops.pop()
+    livy.on_poll = drop_once
+    assert s.execute(CellRequest("1 + 1", "pyspark")).status == "ok" and livy.cancelled == []

@@ -33,6 +33,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from .. import redact
+from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -105,21 +106,32 @@ def _checked(value: str, pattern: re.Pattern[str], what: str) -> str:
 
 
 class LivyClient:
-    """The Livy calls for one lakehouse. Writes are sent once; errors never quote the token."""
+    """The Livy calls for one lakehouse. A write is sent again only after a 429; errors never quote the token."""
 
-    def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None):
+    def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None,
+                 sleep: Callable[[float], None] = time.sleep):
         if http is None:
             from ..http_session import session
             http = session()
         self._token = token
         self._http = http
+        self._sleep = sleep
+        self.stopped: Callable[[], bool] = lambda: False  # the session points this at its Cancel
         self.base = (f"{API}/workspaces/{_checked(workspace_id, _GUID, 'workspace')}/lakehouses/"
                      f"{_checked(lakehouse_id, _GUID, 'lakehouse')}/{LIVY}/sessions")
 
-    def _call(self, method: str, path: str = "", **kwargs: Any) -> dict[str, Any]:
+    def _call(self, method: str, path: str = "", repeatable: bool | None = None, **kwargs: Any) -> dict[str, Any]:
+        """One Livy call. Throttling (429) is tried again; 502/503/504 too when the call is
+        ``repeatable`` (left out: GETs are). Cancels and deletes are never cut short by Cancel itself."""
+        if repeatable is None:
+            repeatable = method == "GET"
+        undo = method == "DELETE" or path.endswith("/cancel")
         headers = {"Authorization": f"Bearer {self._token()}"}
+
+        def send() -> Any:
+            return self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
         try:
-            resp = self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
+            resp, tries = send_remote(send, repeatable, self._sleep, (lambda: False) if undo else self.stopped)
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
             raise FabricSparkError(f"Couldn't reach Fabric: {type(exc).__name__}.") from None
         if resp.status_code >= 400:
@@ -131,8 +143,9 @@ class LivyClient:
             hint = {401: "Sign in again.", 403: "You need Contributor on the workspace.",
                     404: "Check the workspace and lakehouse.", 429: "The capacity is busy; try again shortly.",
                     430: "The capacity's Spark limit is reached; close another session or try later."}
-            raise FabricSparkError(f"Fabric refused the request (HTTP {resp.status_code}). "
-                                   + (f"{message} " if message else "") + hint.get(resp.status_code, ""))
+            raise FabricSparkError((f"Fabric refused the request (HTTP {resp.status_code}). "
+                                    + (f"{message} " if message else "") + hint.get(resp.status_code, "")).rstrip()
+                                   + (f" Tried {tries} times." if tries > 1 else ""))
         try:
             return resp.json() if resp.content else {}
         except ValueError:
@@ -151,10 +164,11 @@ class LivyClient:
         return self._call("GET", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}")
 
     def cancel(self, sid: str, n: str) -> None:
-        self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}/cancel")
+        self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}/cancel",
+                   repeatable=True)
 
     def delete(self, sid: str) -> None:
-        self._call("DELETE", f"/{_checked(sid, _ID, 'session')}")
+        self._call("DELETE", f"/{_checked(sid, _ID, 'session')}", repeatable=True)
 
 
 def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, Any]], int | None]:
@@ -275,6 +289,7 @@ class FabricSparkSession:
         self._statement = ""
         self._cancelled = False
         self._closed = False
+        client.stopped = lambda: self._cancelled
         conf = {k: str(v) for k, v in (config.options.get("conf") or {}).items()}
         created = client.create(f"KratosForge {config.notebook}"[:100], conf)
         self.id = str(created.get("id", ""))
@@ -333,7 +348,10 @@ class FabricSparkSession:
                     raise FabricSparkError(f"The cell was still running after {self._max_seconds / 60:.0f} minutes, "
                                            "so it was cancelled.")
                 self._sleep(POLL_SECONDS)
-                reply = self._client.statement(self.id, self._statement)
+                try:
+                    reply = self._client.statement(self.id, self._statement)
+                except Exception as exc:  # noqa: BLE001 - any failed poll (network, sign-in) stops the statement
+                    raise FabricSparkError(self._abandon(exc)) from None
         except FabricSparkError as exc:
             out = {"type": "error", "ename": "FabricSparkError", "evalue": str(exc)}
             if on_output:
@@ -366,6 +384,17 @@ class FabricSparkSession:
             return [{"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}], None, None, "error"
         note = [{"type": "stream", "text": f"Kept as text: {', '.join(as_text)}.\n"}] if as_text else []
         return [*note, _table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
+
+    def _abandon(self, exc: Exception) -> str:
+        """The failed poll's message, once the statement has been asked to stop: a statement this PC
+        lost track of must not keep the session busy (and using capacity) with no one watching it."""
+        problem = str(exc) if isinstance(exc, FabricSparkError) else f"Couldn't check the cell: {type(exc).__name__}."
+        try:
+            self._client.cancel(self.id, self._statement)
+        except Exception:  # noqa: BLE001 - the first failure is the one to report
+            return (f"{problem} The cell may still be running in the Fabric Spark session: stop it from "
+                    "the Monitor hub in Fabric, or close the session here.")
+        return f"{problem} The cell was stopped in Fabric."
 
     def cancel(self) -> bool:
         if not self._lock.locked():
@@ -426,7 +455,7 @@ class FabricSparkAdapter:
         if self._client_for is not None:
             client = self._client_for(ws, lh)
         elif self._token is not None:
-            client = LivyClient(self._token, ws, lh)
+            client = LivyClient(self._token, ws, lh, sleep=self._sleep)
         else:
             raise Unsupported("Fabric Spark sessions use the app's Fabric sign-in. Sign in first.")
         return FabricSparkSession(config, client, self._sleep)

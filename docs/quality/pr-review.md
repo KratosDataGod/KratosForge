@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-30 | #1187 7d4d7ae7 | Recent activity shows approved AI tool calls when they start | PASS 9.2 | Merges clean. Merge result: integrations + mcp + silent_except 366 pass and 1 skipped, ruff clean, mypy ratchet exit 0, ui 309/0. The approval_uses table is additive. Recent activity drops a started line once its outcome line exists, and unfinished rows come from approval_uses, minus approvals that have a line anywhere in the store, with arguments shown in their redacted form. |
+
 | 2026-10-30 | #1185 b414730d | PB-096 AI client checklist hand run | PASS 9.2 | Merges clean. Merge result: integrations + auth + mcp + silent_except 363 pass and 1 skipped, ruff clean, mypy ratchet exit 0, ui 309/0. The launcher's LOCALAPPDATA restore is Windows-only and runs only when the variable is unset. Its base is root/bin/../.., which equals service.data_dir()'s parent, and a path cmd would expand is skipped. A test covers both cases. No test or UI depends on the old message text. The docs mark Claude Code as Partly tested and the rest as Untested. Security QC has the launcher read. |
 
 | 2026-10-30 | #901 56c307a5 | PB-027 notebook SQL completion | PASS carry | Changes since 9b263ef0: RM merge a85cc179 (server.METHODS/QUICK and the watchdog list are main's plus cached_schemas, checked in the remerge diff), and schema_cache writes json.dumps(data) through jsonfile.write_text, which gives the same compact atomic write. Merge result: schema_cache + rpc_surface + silent_except + mypy_ratchet 29 pass, ruff clean, mypy ratchet exit 0, ui 309/0. |

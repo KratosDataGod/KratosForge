@@ -119,6 +119,10 @@ says what was checked, never that a skill was mastered. Every line says where it
 - **Generated summary**: fixed wording filled in from verified accomplishments. Nothing is inferred.
 - **Not measured**: there is no measurement for it in the period.
 
+The report names the notebooks and warehouses your accomplishments came from, such as a notebook
+you validated or the warehouse a checked fix ran on, so read it before you share it. To leave an
+accomplishment out, **Exclude** it on Overview.
+
 XP, levels and achievements are left out unless you tick **Include KratosForge achievements**.
 **Save Markdown** saves a new file in Downloads (it never replaces one), and **Copy summary**
 copies the summary as plain text.

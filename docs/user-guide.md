@@ -117,6 +117,7 @@ From the top:
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
 | **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
+| **Getting started with KratosForge** | Six starting points, each with a button that opens it, and a tick once tried. Click the heading to fold it to one line; Home remembers that. See [Get started](#get-started). |
 | **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
 | **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |

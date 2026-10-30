@@ -41,7 +41,7 @@ Import-Module "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\Modules\\Sche
 $folder = '\\{folder}\\'
 """
 
-PROMPT_SECONDS = 15 * 60  # a prompt nobody answers (or one stuck on a hidden console) ends here
+PROMPT_SECONDS = 5 * 60  # a prompt nobody answers (or one stuck on a hidden console) ends here
 
 REGISTER = _PRELUDE + """
 $me = "$env:USERDOMAIN\\$env:USERNAME"
@@ -124,7 +124,7 @@ def register(folder: str, schedule_id: str, xml: str) -> None:
     try:
         res = _powershell(REGISTER, folder, {"KF_TASK_XML": f.name, "KF_TASK_ID": schedule_id}, prompt=True)
     except subprocess.TimeoutExpired as e:
-        raise PasswordNotSaved("Windows' password prompt wasn't answered within 15 minutes; nothing changed.") from e
+        raise PasswordNotSaved("Windows' password prompt wasn't answered within 5 minutes; nothing changed. It may have opened on another screen.") from e
     finally:
         os.unlink(f.name)
     if res.returncode != 0:

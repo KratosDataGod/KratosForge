@@ -184,7 +184,7 @@ def test_an_unanswered_prompt_ends_and_changes_nothing(monkeypatch):
         assert kw["timeout"] == signed_out_tasks.PROMPT_SECONDS
         raise subprocess.TimeoutExpired(args, kw["timeout"])
     monkeypatch.setattr(signed_out_tasks.subprocess, "run", run)
-    with pytest.raises(signed_out_tasks.PasswordNotSaved, match="wasn't answered within 15 minutes"):
+    with pytest.raises(signed_out_tasks.PasswordNotSaved, match="wasn't answered within 5 minutes"):
         signed_out_tasks.register("FabricDesktop", "abc", "<Task/>")
 
 

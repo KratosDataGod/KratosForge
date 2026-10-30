@@ -10,6 +10,8 @@ const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const calls = [];
+const recordSignedOut = (p) => { calls.push(["signed_out", p]); return {}; };
+let signedOutMock = recordSignedOut;
 const row = (id, label, extra = {}) => ({ id, enabled: true, label, text: "Every day at 02:00", next_run: null,
   target: { kind: "notebook", name: label }, last: null, config: { type: "Daily", times: ["02:00"], localTimeZoneId: "Local" }, ...extra });
 const rows = [
@@ -25,7 +27,7 @@ before(async () => {
     readiness_check: () => [],
     all_schedules: () => ({ pc: rows, windows: true, fabric: { pending: false, items: [], workspaces: 0 }, runs: [], pc_set_aside: [] }),
     pc_schedules_for: () => [rows[2]],
-    set_pc_schedule_signed_out: (p) => { calls.push(["signed_out", p]); return {}; },
+    set_pc_schedule_signed_out: (p) => signedOutMock(p),
     update_pc_schedule: (p) => { calls.push(["update", p]); return {}; },
     add_pc_schedule: (p) => { calls.push(["add", p]); return { schedule: {}, windows: true }; },
   } });
@@ -104,6 +106,20 @@ test("The Schedule dialog adds a signed-out schedule on this PC, and hides the b
   await d.locator(".seg button:has-text('Fabric')").click();
   assert.ok(await d.locator(".signed-out-field").isHidden());
   await page().click(".dialog button:has-text('Close')");
+});
+
+test("While Windows' prompt is open the app says so, and the note goes when it's answered", { skip }, async () => {
+  calls.length = 0;
+  let answer;
+  signedOutMock = (p) => new Promise((resolve) => { calls.push(["signed_out", p]); answer = resolve; });
+  await monitor();
+  await page().click("tr:has-text('nb_password') a:has-text('Enter it')");
+  await page().waitForSelector(".windows-prompt-note");
+  assert.match(await page().textContent(".windows-prompt-note"), /may be on another screen/);
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "schedules-windows-prompt-note.png") });
+  answer({});
+  await page().waitForFunction(() => !document.querySelector(".windows-prompt-note"));
+  signedOutMock = recordSignedOut;
 });
 
 test("When IT turns it off, the box can only be unticked and rows say so", { skip }, async () => {

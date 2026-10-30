@@ -77,14 +77,26 @@ function signedOutField(on) {
   return { field, checked: () => box.checked, set: (v) => { box.checked = !!v; sync(); } };
 }
 
+// While Windows' own password prompt is open (a call that saves a signed-out task), say so in the app: Windows
+// places that prompt itself, and on a PC with several screens it can open on another one.
+async function whileWindowsAsks(asks, call) {
+  if (!asks) return call();
+  const note = h("div", { class: "windows-prompt-note", role: "status" },
+    h("b", {}, "Windows is asking for your Windows password"),
+    h("div", {}, "Look for the \u201cWindows PowerShell credential request\u201d window. It may be on another screen or behind this one. "
+      + "Nothing is saved until you answer it; it closes by itself after 5 minutes."));
+  document.body.append(note);
+  try { return await call(); } finally { note.remove(); }
+}
+
 // Saves an edit of one of this PC's schedules: new times and/or signed-out on or off, asking Windows for the
 // password at most once, and not at all when nothing changed.
 async function savePcSchedule(s, schedule, signedOut) {
   const was = !!s.signed_out;
   const timesChanged = JSON.stringify(scheduleValues(s.config)) !== JSON.stringify({ ...scheduleValues(s.config), ...scheduleTimes(schedule) });
   // New times (with the setting, in one save: one prompt, and a closed prompt saves neither), only the setting, or nothing.
-  if (timesChanged) await rpc("update_pc_schedule", { schedule_id: s.id, schedule, signed_out: signedOut });
-  else if (was !== signedOut) await rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: signedOut });
+  if (timesChanged) await whileWindowsAsks(signedOut, () => rpc("update_pc_schedule", { schedule_id: s.id, schedule, signed_out: signedOut }));
+  else if (was !== signedOut) await whileWindowsAsks(signedOut, () => rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: signedOut }));
   return true;
 }
 const scheduleTimes = (v) => ({ kind: v.kind, times: v.times.map((t) => t.trim()).filter(Boolean), every_minutes: v.every_minutes, weekdays: v.weekdays });
@@ -142,7 +154,7 @@ function pcScheduleRows(rows, changed, { showWhat = false, onEdit = null } = {})
 function signedOutNote(s, changed) {
   const again = (on, label) => h("a", { href: "#", onclick: async (e) => {
     e.preventDefault();
-    if (await attempt(() => rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: on }), "Not saved")) changed();
+    if (await attempt(() => whileWindowsAsks(on, () => rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: on })), "Not saved")) changed();
   } }, label);
   const problem = {
     password: ["Windows needs your new password. ", again(true, "Enter it")],
@@ -241,7 +253,8 @@ async function openScheduleDialog(o) {
       return;
     }
     if (mode === "pc") {
-      const res = await attempt(() => rpc("add_pc_schedule", { target: o.pc.target, schedule, signed_out: signed.checked() }), "Schedule not added");
+      const res = await attempt(() => whileWindowsAsks(signed.checked(),
+        () => rpc("add_pc_schedule", { target: o.pc.target, schedule, signed_out: signed.checked() })), "Schedule not added");
       if (!res) return;
       toast(res.windows ? "Scheduled on this PC. Windows starts it at those times, even with the app closed."
         : "Saved, but only Windows can start schedules on this PC.", !res.windows);

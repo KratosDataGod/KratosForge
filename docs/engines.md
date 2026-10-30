@@ -89,10 +89,11 @@ The same session rules apply as for any DuckDB cell (no files, extensions or net
 shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions; each probe statement is a test.
+and DuckDB versions, and from 114 function checks against Snowflake's documented values (below);
+each is a test.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.10.1.
+Rules 2026.10.2.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -100,12 +101,15 @@ Rules 2026.10.1.
 | SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
 | SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
+| SFX-005 | Rewritten | A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless its alias names the columns. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
-| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
+| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Dividing by zero gives infinity or NULL here, where Snowflake stops with an error. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-005 | Runs, with a difference: FLATTEN rows and keys | FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for array elements (Snowflake gives NULL) and PATH is written differently. |
+| SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. |
+| SFD-007 | Runs, with a difference: TYPEOF names DuckDB's types | TYPEOF gives Snowflake's VARIANT type names (INTEGER, VARCHAR, OBJECT...); here it gives DuckDB's (JSON for a parsed value). |
 | SFN-001 | Runs only in Snowflake | Streams. |
 | SFN-002 | Runs only in Snowflake | Tasks. |
 | SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |
@@ -120,6 +124,27 @@ Rules 2026.10.1.
 | SFN-012 | Runs only in Snowflake | Cortex AI functions. |
 | SFN-013 | Runs only in Snowflake | TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a time zone name. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
+
+### Snowflake functions checked value by value
+
+Each check runs a Snowflake function through the same rules and DuckDB and compares the answer
+with the value Snowflake's SQL reference documents for it. A function that answers differently is
+always labelled as a difference when it runs, never as translated.
+
+<!-- Generated from snowflake_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
+Of 114 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
+
+| Function | Group | On this PC | What to know |
+| --- | --- | --- | --- |
+| `SOUNDEX` | String | Runs only in Snowflake | The rules have no DuckDB rewrite for it, so the cell runs only in Snowflake (SFX-000). |
+| `/ (by zero)` | Numeric | Different result | Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
+| `DATE_TRUNC (DATE)` | Date and time | Different result | The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006). |
+| `DATEADD (DATE, month end)` | Date and time | Different result | The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006). |
+| `TYPEOF` | Semi-structured | Different result | It names DuckDB's type (JSON), not Snowflake's VARIANT type (SFD-007). |
+| `RATIO_TO_REPORT` | Aggregate | Doesn't run | DuckDB has no RATIO_TO_REPORT; write x / SUM(x) OVER () instead. |
+| `HAVERSINE` | Geospatial | Doesn't run | DuckDB has no HAVERSINE outside its spatial extension, which this PC's sessions don't load. |
+
+These 107 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `IS_NULL_VALUE`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `APPROX_COUNT_DISTINCT`, `STDDEV_SAMP`.
 
 ## Databricks SQL warehouse (Preview)
 

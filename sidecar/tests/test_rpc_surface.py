@@ -120,7 +120,7 @@ REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_pat
            # Slice 6 (#1153): no screen, MCP tool or other caller used these by RPC name; the
            # tests call the Service methods in-process.
            "optimize_inspect", "risk_acknowledgements", "usage_imports",
-           # Slice 7: no screen called these; only engine and browser tests did, and they now call the
+           # Slice 7 (#1156): no screen called these; only engine and browser tests did, and they now call the
            # Service methods or a call the app makes. They also leave QUICK and watchdog.rs.
            "kernel_info", "sql_compat_profiles", "sql_dialects", "sql_executions")
 

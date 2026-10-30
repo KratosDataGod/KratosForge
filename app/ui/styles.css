@@ -2639,6 +2639,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-detail { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border-radius: 6px; background: var(--border-soft); font-size: 13px; }
 .learn-detail p { margin: 0; }
 .learn-detail .learn-code { margin: 0; }
+.learn-pattern { display: flex; flex-direction: column; gap: 8px; max-width: 640px; max-height: 60vh; font-size: 13px; }
+.learn-pattern .learn-code { margin: 0; white-space: pre; overflow-x: auto; }
 .learn-dismissed { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
 .learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }

@@ -7929,7 +7929,7 @@
     {
       "id": "FEAT-DEV-04",
       "name": "Learn",
-      "description": "Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance modes (Focus, Guided, Learning) and Learn evidence in Profile.",
+      "description": "Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance levels (Expert, Professional, Guided) and Learn evidence in Profile.",
       "pillar": "Local development",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",

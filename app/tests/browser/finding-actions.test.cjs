@@ -96,6 +96,8 @@ test("every shipped guide gives Professional a whole first sentence", { skip }, 
       .filter(([, line]) => line.length < 30 || !/[.!?]$/.test(line));
   });
   assert.deepStrictEqual(short, []);
+  assert.strictEqual(await page().evaluate(async () => learnFirstSentence((await rpc("learn_rule_guides")).NB002.why)),
+    "An abfss://<workspace id>@... path points at one workspace.", "a period inside code doesn't end the sentence");
   assert.strictEqual(await page().evaluate(() => learnFirstSentence("Use a key, e.g. `dbo.sales.id`... or not. Then more.")),
     "Use a key, e.g. dbo.sales.id... or not.");
 });

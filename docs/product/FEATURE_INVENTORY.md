@@ -2534,7 +2534,7 @@ on quality.
 
 ### FEAT-DEV-04
 
-**Learn.** Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance modes (Focus, Guided, Learning) and Learn evidence in Profile.
+**Learn.** Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance levels (Expert, Professional, Guided) and Learn evidence in Profile.
 
 - **Pillar and category:** Local development; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.

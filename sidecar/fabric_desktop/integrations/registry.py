@@ -326,17 +326,27 @@ class Registry:
             error = IntegrationError("internal", f"{type(exc).__name__}: {exc}")
             raise
         finally:
-            if self.audit is not None:
-                execution = ""
-                for source in (result, arguments):
-                    if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
-                        execution = source["execution_id"]
-                        break
-                try:
-                    self.audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived,
-                               time.monotonic() - clock, error, execution)
-                except Exception as exc:  # noqa: BLE001 - a full disk mustn't fail the call; say so on stderr
-                    print(f"audit: could not record {cap_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            execution = ""
+            for source in (result, arguments):
+                if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
+                    execution = source["execution_id"]
+                    break
+            self._audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived, time.monotonic() - clock,
+                        error, execution)
+
+    def _audit(self, ctx: CallContext, cap_id: str, *line: Any, stage: str = "") -> None:
+        if self.audit is None:
+            return
+        try:
+            if stage:
+                self.audit(ctx, cap_id, *line, stage=stage)
+            else:
+                self.audit(ctx, cap_id, *line)
+        except Exception as exc:  # noqa: BLE001 - a full disk mustn't fail a finished call; say so on stderr
+            print(f"audit: could not record {cap_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            if stage == "started":  # approved work never runs without its line
+                raise IntegrationError("internal", "KratosForge couldn't record the call, so it didn't run. "
+                                       "Check there is free space for its data folder, then try again.") from exc
 
     def _invoke(self, service: Any, cap: Capability | None, cap_id: str, arguments: dict[str, Any] | None,
                 ctx: CallContext) -> Any:
@@ -351,6 +361,10 @@ class Registry:
         workspaces = lambda: scope.targets(cap, service, args, ctx)  # noqa: E731 - read only for a limited tool
         self.authorizer.check(cap, args, ctx, bind, workspaces=workspaces)  # may wait for the person's approval
         ctx.decision = ctx.decision or "allowed"
+        if ctx.decision == "approved":
+            # A line before the work starts: the outcome line is written when the call returns, and a
+            # process that is killed first (the tool closed, TerminateProcess) never writes it.
+            self._audit(ctx, cap_id, cap.permission, arguments, time.time(), 0.0, None, "", stage="started")
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
         if cap.needs_service and service is None:

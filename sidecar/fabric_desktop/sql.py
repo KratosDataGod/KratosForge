@@ -104,7 +104,8 @@ _ANON_TEMPLATES = {
                       "OR LIST_POSITION({1}, NULL) IS NOT NULL) THEN NULL ELSE FALSE END",
     "ARRAY_UNION": "CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER(LIST_CONCAT({0}, {1}), "
                    "(kf_v, kf_i) -> LIST_POSITION(LIST_CONCAT({0}, {1}), kf_v) = kf_i) END",
-    # Half-even rounding (bround with one argument rounds to 0 places; see _spark_functions).
+    # Half-even rounding (bround with one argument rounds to 0 places; see _spark_functions). DuckDB
+    # returns a DOUBLE where Databricks keeps a decimal input decimal; the value is the same.
     "BROUND": "ROUND_EVEN({0}, {1})",
     # conv(num, from, to), as Spark's NumberConverter: the digits up to the first invalid one, read
     # as an unsigned 64-bit number (more saturates to all ones); a negative number with a positive

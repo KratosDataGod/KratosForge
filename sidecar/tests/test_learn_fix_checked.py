@@ -13,12 +13,21 @@ from fabric_desktop.progress_service import ProgressMixin
 T = pa.table({"region": ["n", "s", "e", "w"], "revenue": [1.5, 2.0, 3.0, 4.0]})
 
 
+BEFORE = "SELECT region, SUM(amount) AS revenue FROM dbo.sales WHERE YEAR(order_date) = 2026 GROUP BY region"
+AFTER = BEFORE.replace("YEAR(order_date) = 2026", "(order_date >= '2026-01-01' AND order_date < '2027-01-01')")
+QUERIES = {"a": BEFORE, "b": AFTER, "c": "SELECT region, SUM(amount) AS revenue FROM dbo.sales GROUP BY region",
+           "d": "SELECT region, revenue FROM sales", "e": "SELECT region, revenue FROM dbo.sales"}
+
+
 class _Runs:
     def __init__(self, runs):
         self.runs = runs
 
     def table(self, run_id):
         return self.runs[run_id]
+
+    def query_of(self, run_id):
+        return QUERIES[run_id]
 
 
 class _Svc(LearnMixin, ProgressMixin):
@@ -32,7 +41,8 @@ class _Svc(LearnMixin, ProgressMixin):
 
 def _runs(after=T, **extra):
     st = {"seconds": 1.84, "target": "warehouse", "warehouse": "WH_Gold"}
-    return {"a": (st, T), "b": ({**st, "seconds": 0.21, **extra}, after)}
+    return {"a": (st, T), "b": ({**st, "seconds": 0.21, **extra}, after), "c": (st, T), "d": (st, T),
+            "e": ({**st, "seconds": 0.21}, T)}
 
 
 @pytest.fixture(autouse=True)
@@ -66,17 +76,29 @@ def test_different_rows_a_write_or_an_unknown_rule_record_nothing(tmp_path):
     assert progress.load(progress.path_for(tmp_path, "dev@contoso.com"))["evidence"] == []
 
 
+def test_only_the_runs_of_the_finding_and_its_fix_count(tmp_path):
+    """The same run twice, the same SQL twice, an unrelated query, or the fix and the original swapped:
+    rows that match prove nothing about the fix, so nothing is recorded."""
+    svc = _Svc(tmp_path, _runs())
+    assert svc.learn_fix_checked("a", "a", "SQ002") == {"recorded": False}      # one run against itself
+    assert svc.learn_fix_checked("c", "c", "SQ002") == {"recorded": False}
+    assert svc.learn_fix_checked("c", "b", "SQ002") == {"recorded": False}      # the first never had SQ002
+    assert svc.learn_fix_checked("b", "a", "SQ002") == {"recorded": False}      # the second still has it
+    assert svc.learn_fix_checked("a", "b", "SQ005") == {"recorded": False}      # no SQ005 in either
+    assert progress.load(svc._profile_path())["evidence"] == []
+
+
 def test_recording_off_records_nothing(tmp_path):
     svc = _Svc(tmp_path, _runs())
     profile = progress.load(svc._profile_path())
     profile["settings"]["record"] = False
     progress.save(svc._profile_path(), profile)
-    assert svc.learn_fix_checked("a", "b", "SQ005") == {"recorded": False}
+    assert svc.learn_fix_checked("a", "b", "SQ002") == {"recorded": False}
 
 
 def test_a_checked_fix_earns_no_xp_and_the_report_says_what_was_checked(tmp_path):
     svc = _Svc(tmp_path, _runs())
-    svc.learn_fix_checked("a", "b", "SQ005")
+    assert svc.learn_fix_checked("d", "e", "SQ005") == {"recorded": True}
     profile = progress.load(svc._profile_path())
     p = progress.progression(profile)
     assert p["xp"] == 0 and p["achievements"] == []
@@ -85,7 +107,7 @@ def test_a_checked_fix_earns_no_xp_and_the_report_says_what_was_checked(tmp_path
     md = progress.report(profile)["markdown"]
     assert "1 best-practice fix (SQ005) applied after running the query as written and as fixed and finding the same rows. *(Verified)*" in md
     assert "SQ005 fix on WH\\_Gold: 1.84 s as written, 0.21 s fixed, one run each, measured. *(Verified, E1)*" in md
-    assert "E1 · " in md and "Compare for SQ005 · runs a and b · same" in md
+    assert "E1 · " in md and "Compare for SQ005 · runs d and e · same" in md
     assert "master" not in md.lower()
 
 

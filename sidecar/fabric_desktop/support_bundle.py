@@ -71,14 +71,15 @@ def about() -> dict[str, Any]:
 def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     """The policy file's state for support, without a single value from it: whether it applies (or
     the last copy that could be read stands in), why not, the setting names it sets, and which
-    settings take their value from it now."""
+    settings take their value from it now. Only names of real settings are listed; others are counted."""
     data, reason, from_copy = app_settings._policy_file()
     settings = settings if settings is not None else app_settings.load()
     if not app_settings.policy_path().exists():
         state = "none"
     else:
         state = "last_known_good" if from_copy else "unreadable" if reason else "applied"
-    return {"state": state, "problem": reason or "", "sets": sorted(str(k) for k in data),
+    known = [k for k in data if k in app_settings.DEFAULTS]  # an unknown key is free text IT typed: only counted
+    return {"state": state, "problem": reason or "", "sets": sorted(known), "unknown_keys": len(data) - len(known),
             "from_policy": sorted(k for k, entry in settings.items() if entry.get("source") == "policy")}
 
 
@@ -100,7 +101,7 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "Taken out of every file: tokens, keys, passwords, email addresses, user names in paths,",
                 "and tenant, workspace and item ids. No table data, notebook contents or sign-in cache is included.",
                 "Settings that hold a secret, such as a connection string, show only whether they are set.",
-                "The policy file shows only the setting names it sets, never their values.",
+                "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
     return {name: for_support(text) for name, text in files.items()}

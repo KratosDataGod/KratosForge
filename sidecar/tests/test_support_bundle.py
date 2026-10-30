@@ -66,10 +66,11 @@ def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
 
 def test_policy_state_names_what_it_sets_but_never_a_value(tmp_path, pc):
     app_settings.policy_path().write_text(json.dumps({"allow_fabric_runs": False, "channel": "preview",
-                                                      "allowed_tenants": [TENANT]}))
+                                                      "allowed_tenants": [TENANT], "call Ann on 555-0100": 1}))
     policy = json.loads(_bundle(tmp_path)["about.json"])["policy"]
     assert policy["state"] == "applied" and policy["problem"] == ""
     assert policy["sets"] == ["allow_fabric_runs", "allowed_tenants", "channel"]
+    assert policy["unknown_keys"] == 1 and "555-0100" not in json.dumps(policy)  # a key that isn't a setting is only counted
     assert {"allow_fabric_runs", "allowed_tenants", "channel"} <= set(policy["from_policy"])
     assert "preview" not in json.dumps(policy) and TENANT not in json.dumps(policy)
 

@@ -151,8 +151,8 @@ function learnAsk() {
     render();  // Learn's head, with the picker, is built before the lessons are read
     document.querySelector(".learn-guidance select")?.focus();
   };
-  const say = { focus: "Findings and their About link. No suggestions.",
-    guided: "Each finding also links the Learn lesson that covers it.",
+  const say = { focus: "Findings, their About link and Dismiss. No suggestions.",
+    guided: "Each finding also offers Explain, an example and the lesson that covers it.",
     learning: "Everything in Guided, plus a suggested next lesson on Learn." };
   const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
     h("input", { type: "radio", name: "learn-ask", value, checked: value === "focus" ? true : null }),
@@ -189,6 +189,161 @@ function learnFindingLink(ruleId) {
     else slot.remove();
   });
   return slot;
+}
+
+// ---------- beside a finding (LX-09, from the approved mockup) ----------
+
+// Explain and Show example read each rule's section of the best-practices guide, shipped with the
+// app (learn/guides.py). Dismiss hides a finding in this person's own panels on this PC
+// (learn/dismissals.py); the check still runs. In Focus only Dismiss shows; Guided and Learning add
+// Explain, Show example and the Lesson link. A rule a policy for the project names can't be
+// dismissed. All of it is Preview.
+let learnGuidesLoad = null;
+function learnGuidesCached() {
+  return (learnGuidesLoad ||= rpc("learn_rule_guides").catch(() => { learnGuidesLoad = null; return {}; }));
+}
+let learnGuides = {};
+let learnDismissed = null;  // the dismissals, once read; null until then
+let learnDismissedLoad = null;
+function learnDismissalsCached() {
+  return (learnDismissedLoad ||= Promise.all([rpc("learn_dismissals"), learnGuidesCached()])
+    .then(([rows, g]) => { learnGuides = g || {}; learnDismissed = rows; return rows; })
+    .catch(() => { learnDismissedLoad = null; learnDismissed = []; return []; }));
+}
+const learnDetail = new Map();   // which finding has Explain or Show example open: key -> "explain" | "example"
+const learnShowHidden = new Set();  // the panels (by where) showing their dismissed list
+
+// SHA-256 of the trimmed line, so a line dismissal keeps no code (a line can hold a secret: NB001).
+async function learnLineHash(text) {
+  const bytes = new TextEncoder().encode(String(text || "").trim());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Gives each finding its line_hash (lineOf: the finding's line of code), and reads the dismissals.
+async function learnPrepareFindings(rows, lineOf) {
+  await learnDismissalsCached();
+  await Promise.all((rows || []).map(async (f) => { f.line_hash = await learnLineHash(lineOf(f)); }));
+  return rows;
+}
+
+function learnDismissalFor(f, where) {
+  return (learnDismissed || []).find((d) => d.rule_id === f.rule_id && (d.scope === "never"
+    || (d.where === where && (d.scope === "file" || d.line === f.line_hash))));
+}
+
+// {shown, hidden}: hidden are [finding, its dismissal]. With preview hidden, or a rule a policy
+// names (required), nothing is hidden.
+function learnSplitFindings(rows, where, required) {
+  const shown = [];
+  const hidden = [];
+  (rows || []).forEach((f) => {
+    const d = previewShown() && !required(f.rule_id) ? learnDismissalFor(f, where) : null;
+    if (d) hidden.push([f, d]); else shown.push(f);
+  });
+  return { shown, hidden };
+}
+
+const LEARN_SCOPE_SAID = { line: "Not on this line", file: "Not in this file", never: "Never shown" };
+const LEARN_SCOPE_TOAST = { line: "on this line", file: "in this file", never: "everywhere" };
+
+// Every press redraws the whole panel, so keyboard focus goes back to the control that was pressed
+// (data-learn-focus), or, when that control went away, to the first of `fallbacks` still there.
+function learnRedraw(ctx, ...keys) {
+  ctx.redraw();
+  const all = [...document.querySelectorAll("[data-learn-focus]")];
+  for (const key of keys) {
+    const el = all.find((e) => e.dataset.learnFocus === key);
+    if (el) { el.focus(); return; }
+  }
+}
+
+const learnFocusKey = (ctx, f, what) => `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}|${what}`;
+
+async function learnDismiss(f, scope, ctx) {
+  const rows = await attempt(() => rpc("learn_dismiss", { rule_id: f.rule_id, scope, where: ctx.where, line: f.line_hash || "" }), "Not dismissed");
+  if (!rows) return;
+  learnDismissed = rows;
+  toast(`${f.rule_id} hidden ${LEARN_SCOPE_TOAST[scope]}. Show it again from Dismissed below.`);
+  learnRedraw(ctx, `${ctx.where}|dismissed`);
+}
+
+async function learnUndismiss(id, ctx, back = []) {
+  const rows = await attempt(() => rpc("learn_undismiss", id ? { dismissal_id: id } : {}), "Not shown again");
+  if (!rows) return;
+  learnDismissed = rows;
+  learnRedraw(ctx, ...back, `${ctx.where}|dismissed`);
+}
+
+// The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
+function learnFindingActions(f, ctx) {
+  if (!previewShown()) return null;
+  const guided = learnMode() !== "focus";
+  const guide = learnGuides[f.rule_id];
+  const key = `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}`;
+  const open = learnDetail.get(key);
+  const toggle = (what) => {
+    if (open === what) learnDetail.delete(key); else learnDetail.set(key, what);
+    learnRedraw(ctx, learnFocusKey(ctx, f, what));
+  };
+  const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
+  const row = h("div", { class: "row learn-actions" });
+  if (guided && guide) {
+    row.append(btn("Explain", null, () => toggle("explain"), `tool small outline${open === "explain" ? " toggled" : ""}`, pressed("explain")));
+    if (guide.after) row.append(btn("Show example", null, () => toggle("example"), `tool small outline${open === "example" ? " toggled" : ""}`, pressed("example")));
+  }
+  const lesson = guided ? learnFindingLink(f.rule_id) : null;
+  if (lesson) row.append(lesson);
+  if (ctx.required(f.rule_id)) {
+    row.append(h("span", { class: "muted-text small" }, "Your organization requires this rule."));
+  } else {
+    const menu = h("div", { class: "learn-dismiss-menu", hidden: true },
+      [["line", "Not on this line", `Hides ${f.rule_id} on this line, and any identical line here, until it changes`],
+        ["file", "Not in this file", "This notebook or query only"],
+        ["never", `Never show ${f.rule_id}`, "Everywhere, for you on this PC"]].map(([scope, label, say]) =>
+        h("button", { class: "learn-dismiss-item", onclick: () => learnDismiss(f, scope, ctx) },
+          h("span", {}, label), h("span", { class: "muted-text small" }, say))));
+    const opener = btn("Dismiss ▾", null, (e) => {
+      menu.hidden = !menu.hidden;
+      e.currentTarget.setAttribute("aria-expanded", String(!menu.hidden));
+      if (!menu.hidden) menu.querySelector("button")?.focus();
+    }, "tool small outline", { "aria-expanded": "false", "aria-label": `Dismiss ${f.rule_id}: choose where`,
+      "data-learn-focus": learnFocusKey(ctx, f, "dismiss") });
+    const close = (refocus) => { menu.hidden = true; opener.setAttribute("aria-expanded", "false"); if (refocus) opener.focus(); };
+    const wrap = h("span", { class: "learn-dismiss" }, opener, menu);
+    menu.addEventListener("keydown", (e) => { if (e.key === "Escape") close(true); });
+    // One menu at a time: it closes when focus or a click goes anywhere else.
+    wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
+    row.append(wrap);
+  }
+  if (!guided || !guide || !open) return row;
+  const detail = open === "explain"
+    ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
+      guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
+      guide.instead ? [h("b", {}, "Do this instead"), markdown(guide.instead)] : null,
+      h("span", { class: "muted-text small" }, "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
+    : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
+      h("b", {}, "After"), h("pre", { class: "learn-code after" }, guide.after),
+      h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(guide.after)
+        .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
+      h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
+  return [row, detail];
+}
+
+// "2 dismissed · Show", and when shown, each with Show again, and Show all again.
+function learnDismissedBlock(hidden, ctx) {
+  if (!hidden.length) return null;
+  const where = ctx.where;
+  const on = learnShowHidden.has(where);
+  const flip = () => { if (on) learnShowHidden.delete(where); else learnShowHidden.add(where); learnRedraw(ctx, `${where}|dismissed`); };
+  return h("div", { class: "learn-dismissed" },
+    btn(`${hidden.length} dismissed · ${on ? "Hide" : "Show"}`, null, flip, "link-btn", { "aria-expanded": String(on), "data-learn-focus": `${where}|dismissed` }),
+    on ? h("ul", { class: "learn-dismissed-list" }, hidden.map(([f, d]) => h("li", {},
+      h("span", {}, h("b", {}, `${f.rule_id} · ${f.rule}`), h("span", { class: "muted-text small" },
+        ` ${LEARN_SCOPE_SAID[d.scope]}${d.scope === "line" ? ` · line ${f.line}` : d.scope === "never" ? " · everywhere" : ""}`)),
+      // The finding comes back with its Dismiss button: focus goes there.
+      btn("Show again", null, () => learnUndismiss(d.id, ctx, [learnFocusKey(ctx, f, "dismiss")]), "tool small")))) : null,
+    on ? btn("Show all again", null, () => learnUndismiss(null, ctx, hidden.map(([f]) => learnFocusKey(ctx, f, "dismiss"))), "link-btn") : null);
 }
 
 // ---------- one module or lab ----------

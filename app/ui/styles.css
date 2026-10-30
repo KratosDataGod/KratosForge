@@ -2624,3 +2624,19 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-pass { font-weight: 600; margin: 0; }
 .learn-hint { background: var(--accent-soft); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .learn-hint p { margin: 0; }
+/* Learn beside a finding (learn.js, LX-09): Explain, Show example, Lesson, Dismiss. */
+.learn-actions { gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+.learn-actions .learn-finding:not(:empty) { margin-left: 2px; }
+.learn-dismiss { position: relative; display: inline-block; }
+.learn-dismiss-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 260px; display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border-input); border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14); padding: 4px 0; }
+.learn-dismiss-menu[hidden] { display: none; }
+.learn-dismiss-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 40px;
+  padding: 6px 12px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.learn-dismiss-item:hover, .learn-dismiss-item:focus-visible { background: var(--border-soft); }
+.learn-detail { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border-radius: 6px; background: var(--border-soft); font-size: 13px; }
+.learn-detail p { margin: 0; }
+.learn-detail .learn-code { margin: 0; }
+.learn-dismissed { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+.learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
+.learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }

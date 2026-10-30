@@ -10,7 +10,9 @@ and it uses no capacity.
 type (when the code changes, every second or so) and lists each finding with its severity, what to
 do, and **Go to cell n, line m**, which selects the cell and puts the cursor on that line.
 **About NB0nn** opens the rule's explanation in [Each rule explained](#each-rule-explained). The button
-shows how many findings there are while the panel is open.
+shows how many findings there are while the panel is open. Under each finding, **Dismiss** hides it
+for you, and in Guided or Learning guidance **Explain** and **Show example** show its section of this
+page in the panel ([Learn](learn.md#beside-a-finding)).
 
 The panel reads the governance policies in force for the open project (`governance_practice_settings`).
 A rule a policy turns off (`enabled = false`) isn't shown, and a policy's severity, or its `severity`

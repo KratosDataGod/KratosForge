@@ -69,12 +69,29 @@ policy can set it, and then it can't be changed here.
 
 | Mode | What it adds |
 | --- | --- |
-| Focus (the default) | Nothing: a best-practice finding shows its rule and **About** link |
-| Guided | **Lesson: <title>** beside a notebook or SQL finding whose rule a published lesson covers. It opens that lesson. Draft lessons are linked only from Learn |
+| Focus (the default) | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
+| Guided | **Explain** and **Show example** under each notebook or SQL finding, and **Lesson: <title>** where a published lesson covers its rule. The lesson link opens that lesson. Draft lessons are linked only from Learn |
 | Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
 
-The checks themselves run the same in every mode; guidance only adds links. Guidance shows only
-while **Show preview features** is on.
+The checks themselves run the same in every mode; guidance only adds explanations and links.
+Guidance shows only while **Show preview features** is on.
+
+### Beside a finding
+
+- **Explain** shows why the rule matters, and when it's fine to leave, from the rule's section of the
+  notebook or SQL best-practices guide. That text ships with the app, so it works offline and nothing
+  is sent anywhere.
+- **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
+  isn't changed for you.
+- **Dismiss** hides the finding in your own Best practices panels on this PC: **Not on this line**
+  (that line, and any line in the same file that reads exactly the same, until it changes), **Not in
+  this file** (this notebook or saved SQL file, by its folder and name; an unsaved SQL tab by its
+  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of the line is kept, never your code. The check still runs,
+  and governance checks and everything else that reads findings still see it. The panel's
+  **N dismissed** list has **Show again** for each, and **Show all again**.
+- A rule a governance policy for the project turns on can't be dismissed: the finding says **Your
+  organization requires this rule**, and an earlier dismissal of it doesn't hide it. A policy that
+  only changes a rule's severity doesn't stop you dismissing it.
 
 The first time you open Learn, a card at the top of Home asks **Would you like KratosForge to help you
 improve your development skills?** with the three modes and Focus picked. **Save** keeps the mode you

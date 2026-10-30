@@ -91,8 +91,11 @@ test("Explain says how important a rule is, its principle and how to check the c
   await nb001.locator("button", { hasText: "Explain" }).click();
   const explain = nb001.locator(".learn-detail");
   await explain.waitFor();
-  assert.strictEqual(await explain.locator(".learn-importance").innerText(), "Critical");
-  assert.match(await explain.innerText(), /The principle\s+Keep secrets out of code[\s\S]*Impact\s+Security\.[\s\S]*How to check\s+Best practices shows no NB001/);
+  const tag = explain.locator(".learn-importance");
+  assert.strictEqual(await tag.innerText(), "Critical · Security");
+  assert.strictEqual(await tag.getAttribute("aria-label"), "Importance: Critical, Security");
+  assert.match(await tag.getAttribute("title"), /^Critical: it can leak a secret, lose data or put wrong data in place\.$/);
+  assert.match(await explain.innerText(), /What to do\s+Keep secrets out of code[\s\S]*How to check\s+Best practices shows no NB001/);
   assert.strictEqual(await nb001.locator(".pill-s").first().innerText(), "Error", "the severity stays the rule's");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-practices-explain.png") });
 });

@@ -554,3 +554,157 @@ def test_one_dropped_poll_neither_fails_the_cell_nor_stops_the_statement():
     ws.on_poll = drop_once
     r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
     assert r.status == "ok" and ws.cancelled == []
+
+
+# ---------------------------------------------------------------- whole results (KF-DBX-CHUNKS, #1167)
+
+
+class ChunkedWorkspace(FakeWorkspace):
+    """Results split into ``chunks`` (lists of rows); the statement's reply carries chunk 0 and each
+    chunk names the next, as the INLINE disposition does. ``row_limit`` is applied as the API does."""
+
+    def __init__(self, chunks, columns, refuse_chunk=None, loop=False):
+        super().__init__(rows=[r for c in chunks for r in c], columns=columns)
+        self.chunks = chunks
+        self.refuse_chunk = refuse_chunk
+        self.loop = loop
+        self.limits = []
+
+    def _page(self, n, limit):
+        before = sum(len(c) for c in self.chunks[:n])
+        rows = self.chunks[n][:max(0, limit - before)] if limit else self.chunks[n]
+        more = n + 1 < len(self.chunks) and (not limit or before + len(self.chunks[n]) < limit)
+        page = {"chunk_index": n, "data_array": rows}
+        if more or self.loop:
+            page["next_chunk_index"] = 0 if self.loop else n + 1
+        return page
+
+    def request(self, method, url, headers=None, timeout=None, json=None, params=None):
+        path = url[len(HOST):]
+        if "/result/chunks/" in path:
+            self.calls.append((method, path, headers, json, params))
+            if self.refuse_chunk:
+                return Resp(self.refuse_chunk, {"error_code": "PERMISSION_DENIED", "message": "no " + PAT})
+            return Resp(200, self._page(int(path.rsplit("/", 1)[1]), self.limit))
+        if path == "/api/2.0/sql/statements" and method == "POST":
+            self.limits.append(json.get("row_limit"))
+            self.limit = json.get("row_limit") or 0
+        resp = super().request(method, url, headers, timeout, json, params)
+        body = resp.json()
+        if (body.get("manifest") or {}).get("schema", {}).get("columns"):
+            body["result"] = self._page(0, self.limit)
+            body["manifest"]["total_chunk_count"] = len(self.chunks)
+            resp = Resp(200, body)
+        return resp
+
+
+TYPED = [{"name": "id", "type_name": "INT"}, {"name": "amount", "type_name": "DECIMAL", "type_precision": 10,
+                                               "type_scale": 2},
+         {"name": "at", "type_name": "TIMESTAMP"}, {"name": "day", "type_name": "DATE"},
+         {"name": "ok", "type_name": "BOOLEAN"}, {"name": "tags", "type_name": "ARRAY", "type_text": "ARRAY<STRING>"}]
+
+
+def _typed_rows(start, n):
+    return [[str(i), f"{i}.50", f"2024-03-10T0{i % 10}:45:10.000Z", "2024-03-10", "true" if i % 2 else "false",
+             '["a"]'] for i in range(start, start + n)]
+
+
+def test_a_whole_result_reads_every_chunk_in_order_and_types_the_values():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3), _typed_rows(6, 2)], TYPED)
+    s = open_session(ws)
+    r = s.execute(CellRequest("USE main; SELECT * FROM t", "sql", preview_rows=2, result_rows=100))
+    assert r.status == "ok" and r.rows == 8 and r.table.num_rows == 8
+    assert r.table.column("id").to_pylist() == list(range(8))
+    assert str(r.table.schema.field("amount").type) == "decimal128(10, 2)"
+    assert str(r.table.schema.field("at").type) == "timestamp[us]"   # UTC, no zone, as Fabric Spark keeps it
+    assert r.table.column("at")[1].as_py().hour == 1
+    assert r.table.column("ok").to_pylist()[:2] == [False, True]
+    # The first statement runs as before; the last asks for one row more than allowed.
+    assert ws.limits == [None, 101]
+    assert [p for _, p, *_ in ws.calls if "/result/chunks/" in p] == \
+        ["/api/2.0/sql/statements/s2/result/chunks/1", "/api/2.0/sql/statements/s2/result/chunks/2"]
+    assert r.outputs[0] == {"type": "stream", "text": "Kept as text: tags (array<string>).\n"}
+    assert r.outputs[1]["total_rows"] == 8 and len(r.outputs[1]["rows"]) == 2
+
+
+def test_more_rows_than_asked_for_is_an_error_with_no_table():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=4))
+    assert r.status == "error" and r.table is None and r.rows is None
+    assert "more than the 4 rows" in r.outputs[0]["evalue"]
+
+
+def test_a_result_over_the_byte_cap_is_an_error(monkeypatch):
+    monkeypatch.setattr(dbsql, "RESULT_BYTES", 300)
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and r.table is None and "larger than" in r.outputs[0]["evalue"]
+
+
+def test_a_refused_chunk_is_an_error_that_never_shows_the_token():
+    ws = ChunkedWorkspace([_typed_rows(0, 2), _typed_rows(2, 2)], TYPED, refuse_chunk=403)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and r.table is None
+    assert PAT not in json.dumps(r.as_dict()) and "CAN USE" in r.outputs[0]["evalue"]
+
+
+def test_chunks_that_go_round_stop_with_an_error():
+    ws = ChunkedWorkspace([_typed_rows(0, 1)], TYPED, loop=True)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
+
+
+def test_empty_chunks_that_never_end_stop_at_the_chunk_cap(monkeypatch):
+    monkeypatch.setattr(dbsql, "MAX_CHUNKS", 5)
+    ws = ChunkedWorkspace([_typed_rows(0, 1)] + [[] for _ in range(20)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "more than 5 chunks" in r.outputs[0]["evalue"]
+    assert sum(1 for _, p, *_ in ws.calls if "/result/chunks/" in p) == 4
+
+
+@pytest.mark.parametrize("first", [-1_000_000_000, "x"])
+def test_the_first_chunk_index_from_the_warehouse_doesnt_steer_the_loop(first):
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    page = ws._page
+    ws._page = lambda n, limit: {**page(n, limit), "chunk_index": first} if n == 0 else page(n, limit)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "ok" and r.table.num_rows == 2
+
+
+def test_a_chunk_index_that_skips_ahead_stops_with_an_error():
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    ws._page, page = (lambda n, limit: {**page(n, limit), "next_chunk_index": 7} if n == 0 else page(n, limit)), ws._page
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
+
+
+def test_a_cell_that_ends_without_a_query_has_no_result_to_compare():
+    r = open_session(ChunkedWorkspace([[]], TYPED)).execute(CellRequest("USE main", "sql", result_rows=10))
+    assert r.status == "error" and "End the cell with a query" in r.outputs[0]["evalue"]
+
+
+def test_two_columns_of_one_name_cant_be_compared():
+    cols = [{"name": "x", "type_name": "INT"}, {"name": "x", "type_name": "INT"}]
+    r = open_session(ChunkedWorkspace([[["1", "2"]]], cols)).execute(
+        CellRequest("SELECT 1 AS x, 2 AS x", "sql", result_rows=10))
+    assert r.status == "error" and "more than one column named x" in r.outputs[0]["evalue"]
+
+
+def test_a_value_that_doesnt_read_as_its_type_stays_text_and_is_named():
+    cols = [{"name": "n", "type_name": "INT"}]
+    r = open_session(ChunkedWorkspace([[["1"], ["not a number"]]], cols)).execute(
+        CellRequest("SELECT n FROM t", "sql", result_rows=10))
+    assert r.status == "ok" and r.table.column("n").to_pylist() == ["1", "not a number"]
+    assert "Kept as text: n (int)" in r.outputs[0]["text"]
+
+
+def test_a_normal_cell_still_shows_the_first_chunk_only():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql"))
+    assert r.status == "ok" and r.table is None and ws.limits == [None]
+    assert not any("/result/chunks/" in p for _, p, *_ in ws.calls)
+
+
+def test_the_result_capability_says_the_rows_are_copied_onto_this_pc():
+    note = registry.get("databricks-sql").capability("result")
+    assert note.available and "copied onto this PC" in note.note

@@ -3,34 +3,30 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-29 23:42 UTC, main 02118fa4.** Covers the PRs merged from #135 to #1146.
+**Product check of 2026-10-30 23:42 UTC, main 0c96c9ce.** Covers the PRs merged from #135 to #1191.
 
 ## Summary
 
-- 59 PRs merged since the morning check's commit (188d5a93). The first recorded live run on a Fabric
-  tenant happened: on 2026-10-29 the KUDP comparison signed in, listed workspaces and lakehouses, and
-  ran 10 Spark SQL queries in a Fabric Spark session against DuckDB on this PC. Eight matched. One
-  difference is real (decimal division) and one was a local bug, fixed by #1144
-  ([platforms.md](../platforms.md#live-runs)).
-- New programs, now tracked in the backlog:
-  - Learn (PB-119, LX-01 to LX-08, Preview).
-  - Platform support levels and one engine contract (PB-120, KUDP).
-  - Power BI embedding (PB-121, PBE). Its design is proposed; the host frame and engine calls are built.
-- Also merged:
-  - The notebook engine picker (Preview, #1096).
-  - MERGE, UPDATE and DELETE on this PC (Preview, PB-015).
-  - Fabric Spark sessions through Livy (PB-116).
-  - The Databricks conversion loss report (PB-118).
-  - Running several notebooks at once from Home (#1131).
-  - Three new notebook rules (#1116).
-- PB-116 and PB-118 moved to In review. PB-015 stays In progress: its Prove run on PC and Fabric is
-  still to do.
-- Acceptance batch 2 (2026-10-30): the product owner accepted 19 items, 10 of them with documented
-  limitations, and approved the changed criteria for PB-031, PB-049 and PB-072. PB-005, PB-024,
-  PB-045 and PB-084 stay In review, with PB-116 and PB-118.
+- 23 PRs merged since the last check's commit (02118fa4), besides the product data PRs.
+- Acceptance batch 2 (2026-10-30, #1163): the product owner accepted 19 items, 10 of them with
+  documented limitations, and approved the changed criteria for PB-031, PB-049 and PB-072.
+- Merged:
+  - Learn guidance levels, with Professional the default (GD-01, #1161), and Try the fix and Compare
+    beside SQL findings (GD-02, #1162). Also Explain and Lesson buttons (#1160) and the Microsoft
+    Fabric path (#1159). All Preview.
+  - The Getting started panel on Home (#1147).
+  - Column completion in notebook `%%sql` cells, offline too (PB-027, #901).
+  - Prove takes Spark notebooks with MERGE, UPDATE and DELETE (PB-015, #1157).
+  - The AI client checklist run with Claude Code, Codex CLI and curl (PB-096, #1185).
+  - The remaining allow_ policy switches fail closed (PB-061, #1150). The engine's method lists are
+    checked against each other (PB-098, #1152). HD-050 slices 6 and 7 (#1153, #1156).
+  - Databricks SQL whole results and functions (#1180, #1183), and retries for remote Spark and
+    Databricks calls (#1191).
+- PB-027 and PB-096 moved to In review. PB-061 is In progress: the keys FD-105 lists are still to
+  decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 17 are Proposed, 26 In progress, 7 In review and 59 Accepted.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 15 are Proposed, 26 In progress, 9 In review and 59 Accepted.
 
 ## Workstreams
 
@@ -53,7 +49,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 6 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 9 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

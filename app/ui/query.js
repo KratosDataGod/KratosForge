@@ -700,22 +700,39 @@ function renderQuery() {
         `Compare runs the query as written, then as fixed, on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"}. ` +
         "Both only read, and both use capacity. Nothing in the editor changes until you Apply.", "Run both");
       if (!ok) return null;
+      const job = fixActions.job = { id: null, stopped: false };
+      // Stop, or leaving this tab, ends the run in Fabric (both use capacity) and polls no more.
       const one = async (query) => {
         let st = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql",
           warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } });
+        job.id = st.id;
         let wait = 150;
         while (["queued", "running", "cancelling"].includes(st.state)) {
+          if (!job.stopped && !here()) fixActions.stop();
+          if (job.stopped) { rpc("sql_cancel", { execution: st.id }).catch(() => {}); return null; }
           await new Promise((r) => setTimeout(r, wait));
           wait = Math.min(1000, wait * 1.5);
           st = await rpc("sql_status", { execution: st.id });
         }
+        if (job.stopped) return null;
         if (st.state !== "completed") throw new Error(st.error || `The query ${SQL_STATE[st.state]?.[1].toLowerCase() || st.state}.`);
         return st;
       };
-      const before = await one(f.fix.compare.before);
-      const after = await one(f.fix.compare.after);
-      return rpc("learn_fix_compare", { before: before.id, after: after.id });
+      try {
+        const before = await one(f.fix.compare.before);
+        const after = before && await one(f.fix.compare.after);
+        return after ? await rpc("learn_fix_compare", { before: before.id, after: after.id }) : null;
+      } finally {
+        if (fixActions.job === job) fixActions.job = null;
+      }
     },
+    stop() {
+      const job = fixActions.job;
+      if (!job || job.stopped) return;
+      job.stopped = true;
+      if (job.id) rpc("sql_cancel", { execution: job.id }).catch(() => {});
+    },
+    job: null,
   };
   function drawPracticesChip() {
     const r = tab.practices;

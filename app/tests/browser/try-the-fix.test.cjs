@@ -17,6 +17,7 @@ const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 
 let app;
+let hold = false;  // the next runs stay running until stopped
 let compared = { result: "match", level: "complete", rows: { before: 4, after: 4 }, seconds: { before: 1.84, after: 0.21 }, limitations: [] };
 const page = () => app.page;
 const panel = () => page().locator(".sql-compat");
@@ -29,8 +30,9 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "save_app_settings", "sql_format", "sql_analyze", "sql_practices", "sql_queries_list",
       "governance_practice_settings", "learn_catalog", "learn_rule_guides", "learn_dismissals", "learn_fixes"],
-    mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
-      sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }),
+    mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse", ...(hold ? { state: "running" } : {}) }),
+      sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse", ...(hold ? { state: "running" } : {}) }),
+      sql_cancel: ({ execution }) => ({ id: execution, state: "cancelling" }),
       learn_fix_compare: () => compared },
   });
   await page().waitForFunction(() => state.settings && "learn_mode" in state.settings);
@@ -129,5 +131,20 @@ test("SQL changed since the check: Apply changes nothing", { skip }, async () =>
   await sq002().getByRole("button", { name: "Try the fix" }).click();
   await page().evaluate(() => { sqlPage.tabs[sqlPage.active].compatText = "stale"; });
   await sq002().getByRole("button", { name: "Apply", exact: true }).click();
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), SQL);
+});
+
+test("Stop ends a Compare that is still running, in Fabric too, and nothing is applied", { skip }, async () => {
+  await page().evaluate(() => { sqlPage.tabs[sqlPage.active].compatText = sqlPage.editor.text(); });  // as checked
+  hold = true;
+  const before = starts().length;
+  await sq002().getByRole("button", { name: "Compare before applying" }).click();
+  await page().getByRole("dialog").getByRole("button", { name: "Run both" }).click();
+  await sq002().getByRole("button", { name: "Stop" }).click();
+  await sq002().getByRole("button", { name: "Compare before applying" }).waitFor();
+  hold = false;
+  assert.strictEqual(starts().length, before + 1, "the fixed version never started");
+  const cancels = app.calls.filter((c) => c.method === "sql_cancel").map((c) => c.params.execution);
+  assert.ok(cancels.length && cancels.every((id) => id === cancels[0]), "the running query was stopped");
   assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), SQL);
 });

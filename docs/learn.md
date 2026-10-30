@@ -100,14 +100,16 @@ Guidance shows only while **Show preview features** is on.
   as fixed. That works for a SELECT, or the query of CREATE or ALTER VIEW. It asks first each time:
   both versions only read, and both use capacity. It then says whether the rows are the same (every
   row compared, or a checksum above the comparison limit) and gives each run's measured time. The
-  fixed version runs second, so data the first run cached can favor it. A lakehouse tab's T-SQL
-  doesn't run on this PC, so it has no Compare. Each fix ends with the principle behind it.
- in your own Best practices panels on this PC: **Not on this line**
+  fixed version runs second, so data the first run cached can favor it. **Stop** ends a Compare that
+  is still running. A lakehouse tab's T-SQL doesn't run on this PC, so it has no Compare. Each fix
+  ends with the principle behind it.
+- **Dismiss** hides the finding in your own Best practices panels on this PC: **Not on this line**
   (that line, and any line in the same file that reads exactly the same, until it changes), **Not in
   this file** (this notebook or saved SQL file, by its folder and name; an unsaved SQL tab by its
-  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of the line is kept, never your code. The check still runs,
-  and governance checks and everything else that reads findings still see it. The panel's
-  **N dismissed** list has **Show again** for each, and **Show all again**.
+  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of
+  the line is kept, never your code. The check still runs, and governance checks and everything else
+  that reads findings still see it. The panel's **N dismissed** list has **Show again** for each, and
+  **Show all again**.
 - A rule a governance policy for the project turns on can't be dismissed: the finding says **Your
   organization requires this rule**, and an earlier dismissal of it doesn't hide it. A policy that
   only changes a rule's severity doesn't stop you dismissing it.

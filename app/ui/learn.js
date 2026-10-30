@@ -292,7 +292,7 @@ function learnFindingActions(f, ctx) {
   const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
   const row = h("div", { class: "row learn-actions" });
   // Try the fix (GD-02), at every level: only a finding the engine found a safe rewrite for has one.
-  if (f.fix && ctx.fix) row.append(btn("Try the fix", null, () => toggle("fix"), `tool small${open === "fix" ? " toggled" : " primary"}`, pressed("fix")));
+  if (f.fix && ctx.fix) row.append(btn("Try the fix", null, () => toggle("fix"), `tool small outline${open === "fix" ? " toggled" : ""}`, pressed("fix")));
   // Professional: the guide's first sentence, so why it matters is there without a press.
   const why = mode === "professional" && guide?.why ? h("p", { class: "learn-why muted-text small" }, learnFirstSentence(guide.why)) : null;
   if (guided && guide) {
@@ -380,13 +380,17 @@ function learnFixPreview(f, ctx, key) {
     try {
       const result = await ctx.fix.compare(f);
       if (result) learnFixCompare.set(key, { state: "done", result });
-      else learnFixCompare.delete(key);  // the person said no to running it
+      else learnFixCompare.delete(key);  // the person said no to running it, or pressed Stop
     } catch (err) {
       learnFixCompare.set(key, { state: "failed", error: friendlyError(err).text });
     }
     learnRedraw(ctx, focusKey("apply"));
   };
-  const close = () => { learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix")); };
+  const close = () => {
+    if (cmp?.state === "running") ctx.fix.stop();
+    learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix"));
+  };
+  const running = cmp?.state === "running";
   const apply = () => { if (ctx.fix.apply(f)) { learnDetail.delete(key); learnFixCompare.delete(key); } };
   const canCompare = ctx.fix.canCompare(f);
   const done = cmp?.state === "done";
@@ -397,9 +401,9 @@ function learnFixPreview(f, ctx, key) {
     h("span", {}, fx.why_safe),
     cmp ? learnFixResult(cmp, ctx) : null,
     h("div", { class: "row" },
-      canCompare && !done ? btn(cmp?.state === "running" ? "Comparing..." : "Compare before applying", null, compare,
-        "tool small primary", { disabled: cmp?.state === "running" ? true : null, "data-learn-focus": focusKey("compare") }) : null,
-      btn("Apply", null, apply, `tool small${canCompare && !done ? " outline" : " primary"}`, { "data-learn-focus": focusKey("apply") }),
+      canCompare && !done && !running ? btn("Compare before applying", null, compare, "tool small primary", { "data-learn-focus": focusKey("compare") }) : null,
+      running ? btn("Stop", null, () => ctx.fix.stop(), "tool small outline", { "data-learn-focus": focusKey("compare") }) : null,
+      btn("Apply", null, apply, `tool small${canCompare && !done ? " outline" : " primary"}`, { disabled: running ? true : null, "data-learn-focus": focusKey("apply") }),
       btn("Cancel", null, close, "tool small outline")),
     h("span", { class: "muted-text small" }, canCompare
       ? "Apply is one edit you can undo with Ctrl+Z. Compare runs both versions, read-only, and changes nothing."

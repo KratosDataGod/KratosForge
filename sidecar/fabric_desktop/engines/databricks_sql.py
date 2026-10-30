@@ -50,6 +50,7 @@ WAIT = "10s"                 # how long the first request waits for a quick stat
 POLL_SECONDS = 1.0
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELED", "CLOSED")
 CATALOG_LIMIT = 1000         # items listed per Catalog call, across pages
+MAX_CHUNKS = 10_000          # result chunks read for a whole result; more stops with an error
 MAX_SECONDS = 2 * 60 * 60    # a statement still running after this is cancelled and reported
 # Warehouse and statement IDs as Databricks issues them; checked before either goes into a URL path.
 _ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -427,7 +428,7 @@ class DatabricksSqlSession:
         statement = str(reply.get("statement_id") or "")
         data = reply.get("result") or {}
         rows: list[list[Any]] = []
-        size, seen = 0, set()
+        size, index = 0, int(data.get("chunk_index") or 0)
         while True:
             batch = data.get("data_array") or []
             size += len(json.dumps(batch))
@@ -441,9 +442,13 @@ class DatabricksSqlSession:
                 return rows
             if self._cancelled:
                 raise DatabricksError("Cancelled.")
-            if not isinstance(nxt, int) or nxt in seen:   # a chunk index that goes round would never end
+            # Chunks come in order, one after another, and a result has at most MAX_CHUNKS: a reply that
+            # skips, repeats or never ends (empty chunks included) stops here.
+            if isinstance(nxt, bool) or not isinstance(nxt, int) or nxt != index + 1:
                 raise DatabricksError("The warehouse sent result chunks out of order.")
-            seen.add(nxt)
+            if nxt >= MAX_CHUNKS:
+                raise DatabricksError(f"The result has more than {MAX_CHUNKS:,} chunks, so none of it was kept.")
+            index = nxt
             data = self._client.chunk(statement, nxt)
 
     def _whole_result(self, manifest: dict[str, Any], rows: list[list[Any]], request: CellRequest,

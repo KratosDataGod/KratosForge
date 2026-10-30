@@ -554,6 +554,21 @@ def test_chunks_that_go_round_stop_with_an_error():
     assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
 
 
+def test_empty_chunks_that_never_end_stop_at_the_chunk_cap(monkeypatch):
+    monkeypatch.setattr(dbsql, "MAX_CHUNKS", 5)
+    ws = ChunkedWorkspace([_typed_rows(0, 1)] + [[] for _ in range(20)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "more than 5 chunks" in r.outputs[0]["evalue"]
+    assert sum(1 for _, p, *_ in ws.calls if "/result/chunks/" in p) == 4
+
+
+def test_a_chunk_index_that_skips_ahead_stops_with_an_error():
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    ws._page, page = (lambda n, limit: {**page(n, limit), "next_chunk_index": 7} if n == 0 else page(n, limit)), ws._page
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
+
+
 def test_a_cell_that_ends_without_a_query_has_no_result_to_compare():
     r = open_session(ChunkedWorkspace([[]], TYPED)).execute(CellRequest("USE main", "sql", result_rows=10))
     assert r.status == "error" and "End the cell with a query" in r.outputs[0]["evalue"]

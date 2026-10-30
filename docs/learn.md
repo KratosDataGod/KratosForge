@@ -35,7 +35,8 @@ A lesson marked **Draft** is still being written and may change.
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
-teach how lakehouses, OneLake, notebooks and Direct Lake work, and the SQL carries over to Fabric.
+teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
+where a lesson uses DuckDB's own SQL, it says so.
 Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
 Snowflake, Enterprise Architecture) come in later updates.
 

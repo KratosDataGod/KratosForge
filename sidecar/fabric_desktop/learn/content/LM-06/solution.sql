@@ -5,6 +5,6 @@ SELECT CAST(order_id AS INTEGER) AS order_id,
 FROM (
     SELECT *, row_number() OVER (PARTITION BY order_id ORDER BY loaded_at DESC) AS load_rank
     FROM bronze_orders
-)
+) AS ranked
 WHERE load_rank = 1
 ORDER BY order_id;

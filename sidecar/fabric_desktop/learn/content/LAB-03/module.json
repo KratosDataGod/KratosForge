@@ -32,14 +32,14 @@
     },
     {
       "id": "sales-star",
-      "prompt": "Make dim_customer (customer_key, customer_id, name, region), dim_product (product_key, product_id, product_name, category) and fact_sales (order_id, customer_key, product_key, date_key INTEGER, quantity, amount) from complete orders, where every sale finds its customer and product.",
+      "prompt": "Make dim_customer (customer_key, customer_id, name, region), dim_product (product_key, product_id, product_name, category) and fact_sales (order_id, customer_key, product_key, date_key INTEGER, quantity, amount) from complete orders, where every sale finds its customer and product. Every order's customer and product exist in this data.",
       "engine": "duckdb",
       "starter": "starter-star.sql",
       "solution": "solution-star.sql",
       "hints": [
-        "The customer you found in the first exercise gets two customer_key values from the starter. SELECT DISTINCT before numbering.",
+        "The customer you found in the first exercise gets two customer_key values from the starter. Its copies are exact duplicates here, so SELECT DISTINCT before numbering.",
         "row_number() OVER (ORDER BY customer_id) gives each customer one key. Do the same for products.",
-        "fact_sales joins orders to both dimensions on their business keys, and keeps status = 'complete'. date_key is CAST(strftime(order_date, '%Y%m%d') AS INTEGER), as in LM-09."
+        "fact_sales joins orders to both dimensions on their business keys, and keeps status = 'complete'. date_key is CAST(year(order_date) * 10000 + month(order_date) * 100 + day(order_date) AS INTEGER), as in LM-09."
       ],
       "checks": [
         {"kind": "table_shape", "table": "dim_customer", "columns": {"customer_key": "", "customer_id": "", "name": "VARCHAR", "region": "VARCHAR"},

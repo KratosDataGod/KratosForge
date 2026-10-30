@@ -11,11 +11,12 @@ to the table is a numbered **commit** in the log, and each commit says which fil
 which it **removes**. Files are never changed in place:
 
 - An insert adds new files.
-- An update or delete adds files with the new rows and removes the files that held the old ones.
+- By default, an update or delete adds files with the new rows and removes the files that held the
+  old ones. (Tables with deletion vectors turned on can mark rows deleted instead.)
 - **OPTIMIZE** adds a few large files and removes the many small ones they replace. Same rows,
   faster reads.
 
-A **version** of the table is every file added and not yet removed by that commit. That is how
+A **version** of the table is every file added up to that commit and not removed by then. That is how
 time travel works: Spark SQL's `SELECT * FROM orders VERSION AS OF 2` reads the files that made up
 version 2.
 

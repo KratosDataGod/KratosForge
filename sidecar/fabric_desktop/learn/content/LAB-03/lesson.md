@@ -10,7 +10,7 @@ The lab has a small retailer's data, generated on this PC, with some of the prob
 ## Before you build
 
 A dimension needs one row per business key. If the source lists a customer twice, numbering its
-rows gives that customer two surrogate keys, and each of their sales can match both. So look first:
+rows gives that customer two surrogate keys, and each of their sales joins to both rows and is counted twice. So look first:
 
 ```sql
 SELECT customer_id, count(*) AS copies
@@ -26,7 +26,9 @@ HAVING count(*) > 1;
 2. **The fact.** Only the rows the report counts (complete orders), with each dimension's
    surrogate key in place of its business key, and a whole-number `date_key`.
 3. **Check.** Every key in each dimension is unique, and every fact row finds its dimensions. A
-   sale that finds no customer disappears from any visual that uses customer.
+   sale that finds no customer disappears from any visual that uses customer. In this lab every
+   order's customer and product exist; with real data, count the sales that don't find theirs
+   before you join, and decide what to do with them.
 
 ## Try it
 

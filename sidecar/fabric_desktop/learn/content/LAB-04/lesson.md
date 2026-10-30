@@ -13,7 +13,7 @@ Two things went wrong, and they're common:
 ## Repair, then prevent
 
 1. **Find what's doubled.** `GROUP BY` the key, `HAVING count(*) > 1`.
-2. **Rebuild** the table with one row per key, the latest load, as in Bronze to Silver (LM-06).
+2. **Rebuild** the table with one row per key, the latest load, as in the Keep the latest load step of LM-06.
 3. **Make the load safe to run again.** A load that leaves the same table whether it runs once or
    three times is called *idempotent*. `MERGE` is the usual way: it updates the rows that are
    already there and inserts only the new ones.

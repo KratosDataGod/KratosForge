@@ -16,7 +16,7 @@ SELECT region, count(*) AS orders FROM stores GROUP BY region
 ## The driver and the executors
 
 Spark spreads the work over several machines, the **executors**. Your notebook's Python runs on one
-more, the **driver**. A query's work stays on the executors until you ask for the rows:
+more machine, the **driver**. A query's work stays on the executors until you ask for the rows:
 
 - `display(df)` and `df.show()` bring back a limited number of rows.
 - `df.collect()` and `df.toPandas()` bring back **every** row, to the driver's memory.

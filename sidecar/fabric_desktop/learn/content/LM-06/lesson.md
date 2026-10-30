@@ -30,16 +30,18 @@ When every Bronze row carries the time it was loaded, a window function picks th
 key:
 
 ```sql
-SELECT *
+SELECT order_id, order_date, amount, status
 FROM (
     SELECT *, row_number() OVER (PARTITION BY order_id ORDER BY loaded_at DESC) AS load_rank
     FROM bronze_orders
-)
+) AS ranked
 WHERE load_rank = 1;
 ```
 
-The same query runs in DuckDB on this PC, in a Fabric notebook's Spark SQL cell, and on a Fabric
-Warehouse, so you can build the step here and run it in Fabric later.
+The outer query lists its columns, so `load_rank` stays behind, and the inner query has a name
+(`AS ranked`), which T-SQL requires. Written this way it runs in DuckDB on this PC, in a Fabric
+notebook's Spark SQL cell and on a Fabric Warehouse, so you can build the step here and run it in
+Fabric later.
 
 ## Try it
 

@@ -2540,6 +2540,15 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
 
+/* "Run even when I'm signed out of Windows" on this PC's schedules (PB-048). */
+.signed-out-field { display: flex; flex-direction: column; gap: 8px; }
+.signed-out-field label.check { align-items: flex-start; gap: 8px; }
+.signed-out-field ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* Shown while Windows' own password prompt is open for a signed-out schedule (PB-048): that prompt can open on another screen. */
+.windows-prompt-note { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10000; max-width: 520px;
+  padding: 12px 16px; border: 1px solid #f3dca5; border-radius: 6px; background: #fff8e6; color: #242424;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 /* A folder box with Browse… beside it (#971, folderField in app.js). */
 .folder-field { display: flex; gap: 8px; align-items: center; }
 .folder-field > input { flex: 1; min-width: 0; }

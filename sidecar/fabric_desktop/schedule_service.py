@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import notebook_cells
+from . import app_settings, notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
@@ -64,11 +64,11 @@ class ScheduleMixin:
 
     @property
     def pc_schedules(self) -> LocalSchedules:
-        return LocalSchedules(self.root)  # type: ignore[attr-defined]
+        return LocalSchedules(self.root, allow_signed_out=bool(app_settings.value("allow_signed_out_schedules")))  # type: ignore[attr-defined]
 
     # ---- schedules on this PC
 
-    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any]) -> dict[str, Any]:
+    def add_pc_schedule(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
         if target.get("kind") == "notebook":
             self.notebooks.load(target.get("name", ""))  # type: ignore[attr-defined]  # it exists
         elif target.get("kind") == "pipeline":
@@ -78,7 +78,7 @@ class ScheduleMixin:
             unknown = [n for n in target.get("entities") or [] if n not in project.entities]
             if unknown:
                 raise ValueError(f"Not in the project: {', '.join(unknown)}")
-        item = self.pc_schedules.add(target, schedule)
+        item = self.pc_schedules.add(target, schedule, signed_out=bool(signed_out))
         return {"schedule": item, "windows": self.pc_schedules.scheduler.available}
 
     def _pipeline_schedule_target(self, target: dict[str, Any]) -> dict[str, Any]:
@@ -122,9 +122,15 @@ class ScheduleMixin:
     def set_pc_schedule_enabled(self, schedule_id: str, enabled: bool) -> dict[str, Any]:
         return self.pc_schedules.set_enabled(schedule_id, enabled)
 
-    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
-        """Change when one of this PC's schedules runs (PB-048)."""
-        return self.pc_schedules.update(schedule_id, schedule)
+    def set_pc_schedule_signed_out(self, schedule_id: str, signed_out: bool) -> dict[str, Any]:
+        """Also run while signed out of Windows (Windows asks for the password), or only while signed
+        in. Turning it on again is how a changed Windows password is given (PB-048)."""
+        return self.pc_schedules.set_signed_out(schedule_id, signed_out)
+
+    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any], signed_out: bool | None = None) -> dict[str, Any]:
+        """Change when one of this PC's schedules runs, and optionally whether it also runs while signed
+        out, in one save (PB-048)."""
+        return self.pc_schedules.update(schedule_id, schedule, None if signed_out is None else bool(signed_out))
 
     def time_zones(self) -> dict[str, Any]:
         """Every Windows time zone and this PC's, for the Fabric schedule form (PB-048)."""
@@ -202,9 +208,12 @@ class ScheduleMixin:
                        and r.get("item_id") in items]
 
     def sync_pc_schedules(self) -> dict[str, Any]:
-        """Called when the app starts: point every task at this engine."""
+        """Called when the app starts: point every task at this engine, and pause signed-out schedules
+        IT has turned off (allow_signed_out_schedules)."""
         try:
-            return {"updated": self.pc_schedules.sync()}
+            schedules = self.pc_schedules
+            paused = schedules.pause_disallowed()  # IT's control first, so a failed sync can't skip it
+            return {"updated": schedules.sync(), "paused": paused}
         except Exception as exc:  # Task Scheduler refused: the list still shows them
             return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -226,9 +235,16 @@ class ScheduleMixin:
         """One scheduled run on this PC (Task Scheduler calls this through the CLI)."""
         schedules = self.pc_schedules
         s = schedules.get(schedule_id)
-        lock = self._lock(schedule_id)
         row: dict[str, Any] = {"schedule_id": schedule_id, "label": target_label(s["target"]), "trigger": trigger,
                                "started": _now(), "pid": os.getpid()}
+        if s.get("signed_out") and not schedules.allow_signed_out:
+            # A task set up before IT turned it off still has its password; it never runs, and says why.
+            row |= {"ended": _now(), "seconds": 0, "status": "skipped",
+                    "message": "Your organization turned off runs while you're signed out of Windows. "
+                               "Edit the schedule to run only while you're signed in."}
+            schedules.log_run(row)
+            return row
+        lock = self._lock(schedule_id)
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
@@ -480,7 +496,7 @@ class ScheduleMixin:
         return out
 
     def update_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
-                               schedule: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+                               schedule: dict[str, Any], enabled: bool) -> dict[str, Any]:
         """Change when a Fabric schedule runs, in place (Update Item Schedule): it keeps its id and whether
         it is on (PB-048)."""
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),

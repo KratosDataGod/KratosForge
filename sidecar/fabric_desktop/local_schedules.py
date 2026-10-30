@@ -3,7 +3,9 @@
 Windows Task Scheduler starts each run, so a schedule fires with the app closed, as long as
 you are signed in to Windows. The task runs this sidecar's own ``pythonw.exe -m
 fabric_desktop.cli run-schedule <id>``; the app re-points every task at the current engine
-when it starts (an update installs a new engine folder). Each run is logged to
+when it starts (an update installs a new engine folder). A schedule set to run while you're signed
+out too (signed_out_tasks) runs ``KratosForge.exe --run-schedule <id>`` instead, which finds the
+current engine itself: its task keeps your password, and changing it would ask for that again. Each run is logged to
 ``schedule_runs.jsonl`` so Monitor can show the last result of every schedule.
 """
 
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
+from . import signed_out_tasks
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
 from .jsonfile import read_json, read_text, write_json
 
@@ -136,15 +139,29 @@ def _triggers(config: dict[str, Any]) -> str:
     return "".join(out)
 
 
-def task_xml(schedule: dict[str, Any], executable: str, workdir: str) -> str:
+def app_launcher() -> str | None:
+    """The app's own exe, which the app hands the engine (FABRIC_DESKTOP_APP_EXE): its path stays the
+    same across updates, so a signed-out task that runs it never has to change. None in development."""
+    exe = os.environ.get("FABRIC_DESKTOP_APP_EXE") or ""
+    return exe if exe and os.path.isabs(exe) and os.path.isfile(exe) else None
+
+
+def task_xml(schedule: dict[str, Any], executable: str, workdir: str, launcher: str | None = None) -> str:
     """Task Scheduler's definition: run as you, only while you are signed in to Windows (your
-    Fabric sign-in lives in your profile), start a missed run when the PC wakes, never two at once."""
-    args = f"-m fabric_desktop.cli run-schedule {schedule['id']}"
+    Fabric sign-in lives in your profile), start a missed run when the PC wakes, never two at once.
+    A signed-out schedule logs on with the password Windows keeps for the task, through ``launcher``
+    (the app's exe) when there is one."""
+    signed_out = bool(schedule.get("signed_out"))
+    if signed_out and launcher:
+        executable, args = launcher, f"--run-schedule {schedule['id']}"
+    else:
+        args = f"-m fabric_desktop.cli run-schedule {schedule['id']}"
+    logon = "Password" if signed_out else "InteractiveToken"
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>{escape("KratosForge: " + target_label(schedule["target"]))}</Description></RegistrationInfo>
   <Triggers>{_triggers(schedule["config"])}</Triggers>
-  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Principals><Principal id="Author"><LogonType>{logon}</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -181,8 +198,13 @@ class TaskScheduler:
         if res.returncode != 0:
             raise RuntimeError(f"Task Scheduler: {(res.stderr or res.stdout).strip()}")
 
-    def register(self, schedule: dict[str, Any], executable: str, workdir: str) -> None:
+    def register(self, schedule: dict[str, Any], executable: str, workdir: str, launcher: str | None = None) -> None:
+        """Saves the task. A signed-out schedule's task is saved through Windows' password prompt
+        (signed_out_tasks.register), which raises PasswordNotSaved when it is closed or refused."""
         if not self.available:
+            return
+        if schedule.get("signed_out"):
+            signed_out_tasks.register(TASK_FOLDER, schedule["id"], task_xml(schedule, executable, workdir, launcher))
             return
         with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False, encoding="utf-16") as f:
             f.write(task_xml(schedule, executable, workdir))
@@ -198,6 +220,15 @@ class TaskScheduler:
             except RuntimeError:
                 pass  # already gone
 
+    def set_enabled(self, schedule_id: str, enabled: bool) -> None:
+        """Pause or resume a signed-out task without asking for the password again."""
+        if self.available:
+            signed_out_tasks.set_enabled(TASK_FOLDER, schedule_id, enabled)
+
+    def results(self) -> dict[str, dict[str, Any]]:
+        """Task Scheduler's last result for each task, by schedule id."""
+        return signed_out_tasks.last_results(TASK_FOLDER) if self.available else {}
+
     def run_now(self, schedule_id: str) -> bool:
         if not self.available:
             return False
@@ -206,10 +237,24 @@ class TaskScheduler:
 
 
 class LocalSchedules:
-    def __init__(self, root: Path, scheduler: TaskScheduler | None = None, executable: str | None = None):
+    def __init__(self, root: Path, scheduler: TaskScheduler | None = None, executable: str | None = None,
+                 allow_signed_out: bool = True):
         self.root = root
+        self.allow_signed_out = allow_signed_out  # IT's allow_signed_out_schedules
         self.scheduler = scheduler or TaskScheduler()
         self.executable = pythonw(executable)
+        self.launcher = app_launcher()
+
+    def _register(self, s: dict[str, Any]) -> None:
+        if s.get("signed_out"):
+            if not self.allow_signed_out:
+                raise PermissionError("Your organization doesn't allow schedules that run while you're signed out of "
+                                      "Windows (allow_signed_out_schedules in its policy file).")
+            self.scheduler.register(s, self.executable, str(self.root), self.launcher)
+            s["launcher"] = self.launcher or ""
+        else:
+            self.scheduler.register(s, self.executable, str(self.root))
+            s.pop("launcher", None)
 
     @property
     def file(self) -> Path:
@@ -264,10 +309,12 @@ class LocalSchedules:
             raise LookupError(f"There is no schedule {schedule_id} on this PC")
         return found
 
-    def add(self, target: dict[str, Any], schedule: dict[str, Any]) -> dict[str, Any]:
+    def add(self, target: dict[str, Any], schedule: dict[str, Any], signed_out: bool = False) -> dict[str, Any]:
         item = {"id": uuid.uuid4().hex[:12], "target": check_target(target), "config": local_configuration(schedule),
                 "enabled": True, "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
-        self.scheduler.register(item, self.executable, str(self.root))
+        if signed_out:
+            item["signed_out"] = True
+        self._register(item)
         data = self._load()
         data["schedules"].append(item)
         data["engine"] = self.executable
@@ -279,20 +326,48 @@ class LocalSchedules:
         for s in data["schedules"]:
             if s["id"] == schedule_id:
                 s["enabled"] = bool(enabled)
-                self.scheduler.register(s, self.executable, str(self.root))
+                if s.get("signed_out"):
+                    if s["enabled"] and not self.allow_signed_out:
+                        raise PermissionError("Your organization doesn't allow schedules that run while you're signed "
+                                              "out of Windows. Edit it to run only while you're signed in, then resume it.")
+                    self.scheduler.set_enabled(schedule_id, s["enabled"])
+                else:
+                    self._register(s)
                 self._save(data)
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
 
-    def update(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+    def update(self, schedule_id: str, schedule: dict[str, Any], signed_out: bool | None = None) -> dict[str, Any]:
         """New times for an existing schedule. Its Windows task is replaced under the same id, so its run
-        history stays, and a paused schedule stays paused."""
+        history stays, and a paused schedule stays paused. ``signed_out`` (when given) turns running while
+        signed out on or off in the same save, so Windows asks for the password at most once and a closed
+        prompt leaves both the times and the setting as they were."""
         config = local_configuration(schedule)  # checks the times before anything changes
         data = self._load()
         for s in data["schedules"]:
             if s["id"] == schedule_id:
                 s["config"] = config
-                self.scheduler.register(s, self.executable, str(self.root))
+                if signed_out is not None:
+                    s["signed_out"] = bool(signed_out)
+                self._register(s)  # a signed-out schedule's task: Windows asks for the password again
+                if not s.get("signed_out"):
+                    s.pop("signed_out", None)
+                self._save(data)
+                return s
+        raise LookupError(f"There is no schedule {schedule_id} on this PC")
+
+    def set_signed_out(self, schedule_id: str, signed_out: bool) -> dict[str, Any]:
+        """Run also while you're signed out of Windows (Windows asks for your password and keeps it
+        with the task), or only while signed in again. Also how a new password is given: turning it
+        on again saves the task with the password entered now. Nothing changes if the prompt is
+        closed or Windows refuses (PasswordNotSaved)."""
+        data = self._load()
+        for s in data["schedules"]:
+            if s["id"] == schedule_id:
+                s["signed_out"] = bool(signed_out)
+                self._register(s)
+                if not s["signed_out"]:
+                    s.pop("signed_out")
                 self._save(data)
                 return s
         raise LookupError(f"There is no schedule {schedule_id} on this PC")
@@ -315,16 +390,33 @@ class LocalSchedules:
         self.scheduler.unregister(schedule_id)
         self._save(data)
 
+    def pause_disallowed(self) -> list[str]:
+        """When IT turned off runs while signed out (allow_signed_out_schedules), pauses every signed-out
+        schedule still on, so Windows stops starting them (pausing needs no password). Returns their ids."""
+        if self.allow_signed_out:
+            return []
+        data = self._load()
+        paused = []
+        for s in [s for s in data["schedules"] if s.get("signed_out") and s.get("enabled", True)]:
+            self.scheduler.set_enabled(s["id"], False)
+            s["enabled"] = False
+            self._save(data)  # each one as it's paused, so a refusal partway leaves the list true
+            paused.append(s["id"])
+        return paused
+
     def sync(self) -> int:
         """Point every task at this engine (after an update). Returns how many were re-registered."""
         data = self._load()
         if not data["schedules"] or data.get("engine") == self.executable:
             return 0
-        for s in data["schedules"]:
-            self.scheduler.register(s, self.executable, str(self.root))
+        # A signed-out task runs the app's exe, which finds the new engine itself; changing the task
+        # would ask for the password, so it is left as it is.
+        moved = [s for s in data["schedules"] if not s.get("signed_out")]
+        for s in moved:
+            self._register(s)
         data["engine"] = self.executable
         self._save(data)
-        return len(data["schedules"])
+        return len(moved)
 
     def runs(self, limit: int = 500) -> list[dict[str, Any]]:
         try:
@@ -349,9 +441,19 @@ class LocalSchedules:
         latest: dict[str, dict[str, Any]] = {}
         for r in self.runs():
             latest.setdefault(r["schedule_id"], r)
+        schedules = self._load()["schedules"]
+        results = self.scheduler.results() if any(s.get("signed_out") for s in schedules) else {}
         out = []
-        for s in self._load()["schedules"]:
+        for s in schedules:
             nxt = next_run(s["config"], now) if s.get("enabled", True) else None
-            out.append(s | {"label": target_label(s["target"]), "text": describe_schedule({"configuration": s["config"]}).replace(" Local", ""),
+            extra: dict[str, Any] = {}
+            if s.get("signed_out") and not self.allow_signed_out:
+                extra["signed_out_problem"] = "policy"
+            elif s.get("signed_out"):
+                problem = signed_out_tasks.needs_password((results.get(s["id"]) or {}).get("result"))
+                if not problem and (s.get("launcher") or "") != (self.launcher or ""):
+                    problem = "moved"  # the app's exe moved: the task must be saved again, with the password
+                extra["signed_out_problem"] = problem
+            out.append(s | extra | {"label": target_label(s["target"]), "text": describe_schedule({"configuration": s["config"]}).replace(" Local", ""),
                             "next_run": nxt.isoformat() if nxt else None, "last": latest.get(s["id"])})
         return out

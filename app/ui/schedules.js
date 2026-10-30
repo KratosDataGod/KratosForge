@@ -53,7 +53,56 @@ function scheduleSummary(v, fabric) {
   return fabric && v.kind !== "cron" && v.time_zone ? `${when}, ${v.time_zone}` : when;
 }
 
-// PB-048: change when a schedule runs, in place. o = { title, text, fabric, where, config, save(values), done() }
+// PB-048: "Run even when I'm signed out of Windows", for this PC's schedules. Windows asks for the
+// password itself and keeps it with the task; checked() says whether it is ticked.
+const signedOutAllowed = () => state.settings?.allow_signed_out_schedules?.value !== false;  // IT's policy key
+function signedOutField(on) {
+  const box = h("input", { type: "checkbox", checked: on ? true : null });
+  const allowed = signedOutAllowed();
+  const blocked = h("div", { class: "muted-text small", hidden: allowed ? true : null },
+    "Your organization doesn't allow runs while you're signed out (its policy file).");
+  const field = h("div", { class: "signed-out-field" },
+    h("label", { class: "check" }, box, h("span", {}, h("b", {}, "Run even when I'm signed out of Windows"), " ", previewTag(),
+      h("div", { class: "muted-text small" }, "The PC still has to be on. Windows asks for your Windows password and keeps it with the task; KratosForge never sees or stores it."))),
+    h("div", { class: "warn-box card pad small" }, h("b", {}, "Check before you rely on it"), h("ul", {},
+      h("li", {}, "When your Windows password changes, these runs stop until you enter the new one (the schedule says so)."),
+      h("li", {}, "Your organization may not allow runs while signed out; Windows then refuses and nothing is saved."),
+      h("li", {}, "Reading or writing OneLake uses your saved Fabric sign-in. If it has expired, the run fails and says sign in again."))));
+  const warn = field.lastChild;
+  field.insertBefore(blocked, warn);
+  // Under the policy, a schedule already set that way can only be unticked.
+  const sync = () => { warn.hidden = !box.checked; box.disabled = !allowed && !box.checked; };
+  box.addEventListener("change", sync);
+  sync();
+  return { field, checked: () => box.checked, set: (v) => { box.checked = !!v; sync(); } };
+}
+
+// While Windows' own password prompt is open (a call that saves a signed-out task), say so in the app: Windows
+// places that prompt itself, and on a PC with several screens it can open on another one.
+async function whileWindowsAsks(asks, call) {
+  if (!asks) return call();
+  const note = h("div", { class: "windows-prompt-note", role: "status" },
+    h("b", {}, "Windows is asking for your Windows password"),
+    h("div", {}, "Look for the \u201cWindows PowerShell credential request\u201d window. It may be on another screen or behind this one. "
+      + "Nothing is saved until you answer it; it closes by itself after 5 minutes."));
+  document.body.append(note);
+  try { return await call(); } finally { note.remove(); }
+}
+
+// Saves an edit of one of this PC's schedules: new times and/or signed-out on or off, asking Windows for the
+// password at most once, and not at all when nothing changed.
+async function savePcSchedule(s, schedule, signedOut) {
+  const was = !!s.signed_out;
+  const timesChanged = JSON.stringify(scheduleValues(s.config)) !== JSON.stringify({ ...scheduleValues(s.config), ...scheduleTimes(schedule) });
+  // New times (with the setting, in one save: one prompt, and a closed prompt saves neither), only the setting, or nothing.
+  if (timesChanged) await whileWindowsAsks(signedOut, () => rpc("update_pc_schedule", { schedule_id: s.id, schedule, signed_out: signedOut }));
+  else if (was !== signedOut) await whileWindowsAsks(signedOut, () => rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: signedOut }));
+  return true;
+}
+const scheduleTimes = (v) => ({ kind: v.kind, times: v.times.map((t) => t.trim()).filter(Boolean), every_minutes: v.every_minutes, weekdays: v.weekdays });
+
+// PB-048: change when a schedule runs, in place. o = { title, text, fabric, where, config, save(values, signedOut), done(),
+// signedOut (this PC only: whether it also runs while signed out) }
 function editScheduleDialog(o) {
   const form = scheduleForm();
   form.set(scheduleValues(o.config));
@@ -61,15 +110,16 @@ function editScheduleDialog(o) {
   const hideZone = () => { if (!o.fabric) zoneField.hidden = true; };  // this PC runs in its own time zone
   hideZone();
   const after = h("b");
-  const show = () => { after.textContent = scheduleSummary(form.value(), o.fabric); };
+  const signed = o.fabric ? null : signedOutField(o.signedOut);
+  const show = () => { after.textContent = scheduleSummary(form.value(), o.fabric) + (signed?.checked() ? ", also while you're signed out" : ""); };
   const box = h("div", { class: "scroll", oninput: show, onchange: () => { hideZone(); show(); } },
     h("p", { class: "text" }, `Now: ${o.text}, ${o.fabric ? `in Fabric${o.where ? ` (${o.where})` : ""}. Fabric changes the schedule in place; runs already started aren't changed.`
       : "on this PC. The change applies from the next run; a run going on now finishes as it is."}`),
-    form.fields, h("div", { class: "pass-box small" }, "After saving: ", after));
+    form.fields, h("div", { class: "pass-box small" }, "After saving: ", after), signed?.field);
   show();
   showDialog(o.title, box, [btn("Cancel", null, closeDialog, "tool outline"),
     btn("Save changes", "save", async () => {
-      if (await attempt(() => o.save(form.value()), "Not saved")) { closeDialog(); toast("Schedule changed."); o.done?.(); }
+      if (await attempt(() => o.save(form.value(), signed?.checked()), "Not saved")) { closeDialog(); toast("Schedule changed."); o.done?.(); }
     }, "tool primary")]);
 }
 
@@ -80,7 +130,7 @@ function pcScheduleRows(rows, changed, { showWhat = false, onEdit = null } = {})
       if (await attempt(() => rpc("set_pc_schedule_enabled", { schedule_id: s.id, enabled: on }), on ? "Not turned on" : "Not paused")) changed();
     })),
     showWhat ? h("td", {}, h("b", {}, s.label), h("div", { class: "muted-text small" }, ({ notebook: "Notebook", pipeline: "Pipeline" })[s.target.kind] || "Metadata run")) : null,
-    h("td", {}, s.text),
+    h("td", {}, s.text, s.signed_out ? signedOutNote(s, changed) : null),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,
       s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null,
@@ -93,14 +143,29 @@ function pcScheduleRows(rows, changed, { showWhat = false, onEdit = null } = {})
         }
       }, "tool link small"),
       btn("Edit", "create", () => (onEdit ? onEdit(s) : editScheduleDialog({ title: `Edit the schedule for ${s.label}`, text: s.text,
-        config: s.config, save: (schedule) => rpc("update_pc_schedule", { schedule_id: s.id, schedule }), done: changed })), "tool link small"),
+        config: s.config, signedOut: s.signed_out, save: (schedule, signedOut) => savePcSchedule(s, schedule, signedOut), done: changed })), "tool link small"),
       btn("Remove", "delete", async () => {
         if (!(await confirmRemoveSchedule(s.label, s.text, false))) return;
         if (await attempt(() => rpc("delete_pc_schedule", { schedule_id: s.id }), "Not removed")) changed();
       }, "tool link small"))));
 }
 
-const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with KratosForge closed, while you are signed in to Windows. A run missed while the PC was off starts when it is back.";
+// Under a signed-out schedule's times: that it runs signed out too, and what Windows needs when it can't.
+function signedOutNote(s, changed) {
+  const again = (on, label) => h("a", { href: "#", onclick: async (e) => {
+    e.preventDefault();
+    if (await attempt(() => whileWindowsAsks(on, () => rpc("set_pc_schedule_signed_out", { schedule_id: s.id, signed_out: on })), "Not saved")) changed();
+  } }, label);
+  const problem = {
+    password: ["Windows needs your new password. ", again(true, "Enter it")],
+    moved: ["KratosForge moved, so Windows needs your password again. ", again(true, "Enter it")],
+    not_allowed: ["Your organization doesn't allow runs while you're signed out. ", again(false, "Run only while signed in")],
+    policy: ["Your organization has turned off runs while you're signed out. ", again(false, "Run only while signed in")],
+  }[s.signed_out_problem];
+  return h("div", {}, h("div", { class: "muted-text small" }, "Also while signed out"), problem ? h("div", { class: "reason" }, problem) : null);
+}
+
+const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with KratosForge closed, while you are signed in to Windows (or also while signed out, if you tick that). A run missed while the PC was off starts when it is back.";
 
 // One dialog for a notebook's or an environment's schedules, on this PC or in Fabric.
 //   o.what names it in confirms.   o.pc = { target, query, intro }   o.fabric = { intro, list(), add(schedule), remove(id), unavailable }
@@ -111,7 +176,8 @@ async function openScheduleDialog(o) {
   const form = scheduleForm();
   const kind = form.fields[0].querySelector("select");
   const zoneField = form.fields[4];
-  const hideZone = () => { if (mode === "pc") zoneField.hidden = true; };
+  const signed = signedOutField(false);
+  const hideZone = () => { if (mode === "pc") zoneField.hidden = true; signed.field.hidden = mode !== "pc"; };
   kind.addEventListener("change", hideZone);
   const seg = h("div", { class: "seg", role: "group", "aria-label": "Runs on" });
   // Editing one of the listed schedules (PB-048): the form below holds it and Add becomes Save changes.
@@ -122,6 +188,7 @@ async function openScheduleDialog(o) {
   const startEditing = (row, config, text) => {
     editing = { ...row, mode };
     form.set(scheduleValues(config));
+    signed.set(row.signed_out);
     hideZone();
     heading.textContent = `Edit the schedule: ${text}`;
     addBtn.lastChild.textContent = "Save changes";
@@ -133,11 +200,12 @@ async function openScheduleDialog(o) {
     heading.textContent = "Add a schedule";
     addBtn.lastChild.textContent = "Add schedule";
     cancelEdit.hidden = true;
+    signed.set(false);
   }
 
   const showPc = (rows) => {
     list.replaceChildren(rows?.length ? h("table", { class: "mini" }, h("tbody", {}, pcScheduleRows(rows, draw,
-      { onEdit: (s) => startEditing({ id: s.id }, s.config, s.text) })))
+      { onEdit: (s) => startEditing(s, s.config, s.text) })))
       : h("p", { class: "muted-text" }, "No schedules on this PC yet."));
   };
   const showFabric = (res) => {
@@ -175,7 +243,7 @@ async function openScheduleDialog(o) {
     const schedule = form.value();
     if (editing) {
       const e = editing;
-      const ok = await attempt(() => (e.mode === "pc" ? rpc("update_pc_schedule", { schedule_id: e.id, schedule })
+      const ok = await attempt(() => (e.mode === "pc" ? savePcSchedule(e, schedule, signed.checked())
         : rpc("update_fabric_schedule", { workspace_id: e.workspace_id, item_id: e.item_id, job_type: o.fabric.jobType || "RunNotebook",
           schedule_id: e.id, schedule, enabled: e.enabled })), "Not saved");
       if (!ok) return;
@@ -185,7 +253,8 @@ async function openScheduleDialog(o) {
       return;
     }
     if (mode === "pc") {
-      const res = await attempt(() => rpc("add_pc_schedule", { target: o.pc.target, schedule }), "Schedule not added");
+      const res = await attempt(() => whileWindowsAsks(signed.checked(),
+        () => rpc("add_pc_schedule", { target: o.pc.target, schedule, signed_out: signed.checked() })), "Schedule not added");
       if (!res) return;
       toast(res.windows ? "Scheduled on this PC. Windows starts it at those times, even with the app closed."
         : "Saved, but only Windows can start schedules on this PC.", !res.windows);
@@ -199,7 +268,7 @@ async function openScheduleDialog(o) {
   };
   showDialog(o.title, h("div", { class: "scroll" },
     h("div", { class: "compute-row" }, h("span", { class: "muted-text small" }, "Runs on"), seg),
-    intro, list, h("div", { class: "row wrap" }, heading, cancelEdit), form.fields,
+    intro, list, h("div", { class: "row wrap" }, heading, cancelEdit), form.fields, signed.field,
     h("p", { class: "muted-text small" }, "Every schedule, on this PC and in Fabric, is listed in Monitor > KratosForge > Schedules and Monitor > Fabric > Schedules.")),
   [btn("Close", null, closeDialog, "tool outline"), addBtn]);
   draw();

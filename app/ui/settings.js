@@ -764,6 +764,8 @@ async function renderSettings() {
       h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allow_signed_out_schedules?.value === false ? [h("dt", {}, "Schedules on this PC"),
+        h("dd", {}, "Only while you're signed in to Windows: your organization turned off runs while signed out")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")

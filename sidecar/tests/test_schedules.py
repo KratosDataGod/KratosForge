@@ -17,11 +17,17 @@ class FakeScheduler:
     def __init__(self):
         self.tasks = {}
 
-    def register(self, schedule, executable, workdir):
+    def register(self, schedule, executable, workdir, launcher=None):
         self.tasks[schedule["id"]] = (schedule["enabled"], executable)
 
     def unregister(self, schedule_id):
         self.tasks.pop(schedule_id, None)
+
+    def set_enabled(self, schedule_id, enabled):
+        self.tasks[schedule_id] = (enabled, self.tasks[schedule_id][1])
+
+    def results(self):
+        return {}
 
 
 @pytest.fixture

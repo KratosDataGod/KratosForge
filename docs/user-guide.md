@@ -705,7 +705,7 @@ On **Platform > Settings**. Each environment shows whether it uses a Platform wo
 
 ### External AI tools
 
-**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
+**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. Claude Code has been partly tried with it. The others haven't been tried yet, so they are marked **Untested** ([compatibility](product/ai-integration-compatibility.md)).
 
 1. Turn on **Let AI tools connect**. It's off until you do, and your organization can keep it off.
 2. **Add a tool**: pick it, name it, and choose what it may do. **Read metadata** (names, structure, schemas, checks, no rows) is always included. **Read data** reads rows. **Run code on this PC** runs Python and notebooks, and asks you every time.

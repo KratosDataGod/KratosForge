@@ -5863,8 +5863,13 @@
           "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
+          "kind": "report",
+          "ref": "docs/product/ai-integration-compatibility.md#checklist-runs",
+          "note": "Claude Code 2.1.314 and curl partly tested by hand on Linux, 2026-10-30 (PB-096)"
+        },
+        {
           "kind": "absent",
-          "ref": "No named AI tool has been run against it (docs/product/ai-integration-client-checklist.md, PB-096)"
+          "ref": "No named AI tool has run the whole checklist on Windows with a Fabric sign-in (docs/product/ai-integration-client-checklist.md, PB-096)"
         }
       ],
       "source": [
@@ -5908,7 +5913,7 @@
         1111
       ],
       "workstream": "Bring your own AI integration",
-      "next_action": "Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
+      "next_action": "Finish the client checklist on Windows with a Fabric sign-in for each named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
       "backlog": [
         "PB-095",
         "PB-096"

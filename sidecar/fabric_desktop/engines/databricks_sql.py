@@ -17,12 +17,19 @@ so a result over 25 MB is refused by the warehouse; add a LIMIT. Cancel stops th
 on the warehouse; closing the session cancels it too. The warehouse itself is never stopped by this
 session (it stops on its own after its auto-stop minutes).
 
+A cell can also hand back its whole result (the ``result`` capability, to compare engines): the
+last statement runs with a row limit one above the rows asked for, every result chunk is read in
+order (``GET .../{id}/result/chunks/{n}``), and the values are typed from the manifest. More rows
+than asked for, or more than ``RESULT_BYTES``, is an error, never a cut table. The rows come onto
+this PC, so a caller asks for them only after its own confirm (engines/compare.py).
+
 Usage: this PC measures wall seconds per cell. Billed DBUs are only in Databricks' system billing
 tables, per warehouse and hour, never per cell, so this engine reports none (ADR-006).
 """
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -34,14 +41,16 @@ from .. import redact
 from ..paging import Pages, PagingError
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
-from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
 from .databricks_auth import DatabricksAuthError, TokenProvider, provider_for
+from .local_sql import ResultTooLarge
 
 _T = "unit_tests"
 WAIT = "10s"                 # how long the first request waits for a quick statement to finish
 POLL_SECONDS = 1.0
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELED", "CLOSED")
 CATALOG_LIMIT = 1000         # items listed per Catalog call, across pages
+MAX_CHUNKS = 10_000          # result chunks read for a whole result; more stops with an error
 MAX_SECONDS = 2 * 60 * 60    # a statement still running after this is cancelled and reported
 # Warehouse and statement IDs as Databricks issues them; checked before either goes into a URL path.
 _ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -70,6 +79,10 @@ DATABRICKS_SQL = EngineDescriptor(
                         "hour, not per cell. A running warehouse bills DBUs until it auto-stops."),
         "compat": Support("partial", "The language and dialect are checked before running; the warehouse "
                           "checks the SQL itself.", _T),
+        "result": Support("partial", "The last statement's whole result, every chunk, typed from the warehouse's "
+                          "schema; arrays, maps, structs, binary and intervals come back as text. Inline results "
+                          "are capped at 25 MB by the warehouse. More rows than asked for is an error. The rows "
+                          "are copied onto this PC.", _T),
     },
     requirements=("An Azure Databricks workspace with Unity Catalog", "A SQL warehouse, and CAN USE on it",
                   "Unity Catalog privileges on the data",
@@ -77,7 +90,8 @@ DATABRICKS_SQL = EngineDescriptor(
     limitations=("Preview: tested against fakes of the documented APIs, not yet against a live workspace.",
                  "A statement sent to a stopped warehouse starts it; the warehouse bills DBUs while it runs.",
                  "Results come back inline: over 25 MB the warehouse refuses them, so add a LIMIT.",
-                 "Only the last statement's result is shown, and only from its first result chunk.",
+                 "Only the last statement's result is shown, and only from its first result chunk (a whole "
+                 "result for comparing engines reads every chunk).",
                  "Cells can change data on the warehouse (CREATE, INSERT, MERGE, DROP) with no further confirm, as "
                  "in a Databricks notebook; the confirm is for starting the session.",
                  "A statement still running after two hours is cancelled."),
@@ -127,6 +141,43 @@ def to_table(manifest: dict[str, Any], rows: list[list[Any]]) -> pa.Table:
         arrays.append(arr)
         names.append(str(col.get("name") or f"col{i}"))
     return pa.Table.from_arrays(arrays, names=names) if names else pa.table({})
+
+
+# Manifest type names and the Arrow types a whole result uses for them; TIMESTAMP is read as UTC and
+# kept without a zone, as the Fabric Spark engine keeps it, so the two compare.
+_WHOLE_TYPES = {"BYTE": pa.int8(), "SHORT": pa.int16(), "INT": pa.int32(), "LONG": pa.int64(),
+                "FLOAT": pa.float32(), "DOUBLE": pa.float64(), "BOOLEAN": pa.bool_(), "STRING": pa.string(),
+                "DATE": pa.date32(), "TIMESTAMP_NTZ": pa.timestamp("us")}
+
+
+def whole_table(manifest: dict[str, Any], rows: list[list[Any]]) -> tuple[pa.Table, list[str]]:
+    """A whole result typed from the manifest, and the columns kept as text (with their type). Raises
+    DatabricksError for a reply that isn't one value per column, or two columns of one name."""
+    columns = (manifest.get("schema") or {}).get("columns") or []
+    names = [str(c.get("name") or f"col{i}") for i, c in enumerate(columns)]
+    if any(not isinstance(r, list) or len(r) != len(names) for r in rows):
+        raise DatabricksError("The warehouse sent a result that doesn't have one value per column.")
+    twice = sorted({n for n in names if names.count(n) > 1})
+    if twice:   # verify matches columns by name, so two of one name can't be compared honestly
+        raise DatabricksError(f"The result has more than one column named {', '.join(twice)}. "
+                              "Give each column its own name (AS ...) to compare it.")
+    arrays, as_text = [], []
+    for i, col in enumerate(columns):
+        values = pa.array([r[i] for r in rows], pa.string())
+        kind = str(col.get("type_name") or "").upper()
+        try:
+            if kind == "TIMESTAMP":
+                arr = values.cast(pa.timestamp("us", tz="UTC")).cast(pa.timestamp("us"))
+            elif kind == "DECIMAL":
+                arr = values.cast(pa.decimal128(int(col["type_precision"]), int(col["type_scale"])))
+            else:
+                arr = values.cast(_WHOLE_TYPES.get(kind, pa.string()))
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, KeyError, TypeError, ValueError):
+            arr = values   # a value that doesn't read as its type stays text
+        if arr.type == pa.string() and kind != "STRING":
+            as_text.append(f"{names[i]} ({str(col.get('type_text') or kind).lower()})")
+        arrays.append(arr)
+    return (pa.Table.from_arrays(arrays, names=names) if names else pa.table({})), as_text
 
 
 def _checked_id(value: str, what: str) -> str:
@@ -230,6 +281,11 @@ class Client:
     def status(self, statement_id: str) -> dict[str, Any]:
         return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}")
 
+    def chunk(self, statement_id: str, index: int) -> dict[str, Any]:
+        """One result chunk of a finished statement (INLINE: rows in ``data_array``)."""
+        return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}"
+                                 f"/result/chunks/{int(index)}")
+
     def cancel(self, statement_id: str) -> None:
         self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel")
 
@@ -280,9 +336,11 @@ class DatabricksSqlSession:
         if self._closed:
             raise SessionClosed("This Databricks SQL session was closed. Start the engine again to run cells.")
 
-    def _run_one(self, statement: str) -> dict[str, Any]:
-        body = {"warehouse_id": self.warehouse_id, "statement": statement, "wait_timeout": WAIT,
-                "on_wait_timeout": "CONTINUE", "disposition": "INLINE", "format": "JSON_ARRAY"}
+    def _run_one(self, statement: str, row_limit: int = 0) -> dict[str, Any]:
+        body: dict[str, Any] = {"warehouse_id": self.warehouse_id, "statement": statement, "wait_timeout": WAIT,
+                                "on_wait_timeout": "CONTINUE", "disposition": "INLINE", "format": "JSON_ARRAY"}
+        if row_limit:
+            body["row_limit"] = row_limit
         if self.catalog_name:
             body["catalog"] = self.catalog_name
         if self.schema_name:
@@ -322,10 +380,19 @@ class DatabricksSqlSession:
         started = time.perf_counter()
         try:
             reply: dict[str, Any] = {}
-            for statement in statements:
+            whole = request.result_rows > 0
+            for n, statement in enumerate(statements, 1):
                 if self._cancelled:
                     raise DatabricksError("Cancelled.")
-                reply = self._run_one(statement)
+                last = n == len(statements)
+                reply = self._run_one(statement, request.result_rows + 1 if whole and last else 0)
+            if whole:
+                rows = self._all_rows(reply, request.result_rows)
+        except ResultTooLarge as exc:
+            out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
+            if on_output:
+                on_output(out)
+            return CellResult("error", [out], time.perf_counter() - started, None, self.engine)
         except (DatabricksError, DatabricksAuthError) as exc:
             out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
             if on_output:
@@ -338,6 +405,8 @@ class DatabricksSqlSession:
         seconds = time.perf_counter() - started
         manifest = reply.get("manifest") or {}
         columns = (manifest.get("schema") or {}).get("columns") or []
+        if whole:
+            return self._whole_result(manifest, rows, request, seconds, on_output)
         if columns:
             from .local_sql import _table_output
             rows = ((reply.get("result") or {}).get("data_array") or [])[:request.preview_rows]
@@ -352,6 +421,58 @@ class DatabricksSqlSession:
         if on_output:
             on_output(out)
         return result
+
+    def _all_rows(self, reply: dict[str, Any], limit: int) -> list[list[Any]]:
+        """Every row of a finished statement, chunk by chunk, within ``limit`` rows and RESULT_BYTES."""
+        from .local_sql import _too_big, _too_many
+        statement = str(reply.get("statement_id") or "")
+        data = reply.get("result") or {}
+        rows: list[list[Any]] = []
+        size, index, read = 0, 0, 1   # the statement's own reply carries chunk 0
+        while True:
+            batch = data.get("data_array") or []
+            size += len(json.dumps(batch))
+            rows += batch
+            if len(rows) > limit:
+                raise _too_many(limit)
+            if size > RESULT_BYTES:
+                raise _too_big()
+            nxt = data.get("next_chunk_index")
+            if nxt is None:
+                return rows
+            if self._cancelled:
+                raise DatabricksError("Cancelled.")
+            # Chunks come in order, one after another, and a result has at most MAX_CHUNKS: a reply that
+            # skips, repeats or never ends (empty chunks included) stops here.
+            if isinstance(nxt, bool) or not isinstance(nxt, int) or nxt != index + 1:
+                raise DatabricksError("The warehouse sent result chunks out of order.")
+            if read >= MAX_CHUNKS:
+                raise DatabricksError(f"The result has more than {MAX_CHUNKS:,} chunks, so none of it was kept.")
+            index, read = nxt, read + 1
+            data = self._client.chunk(statement, nxt)
+
+    def _whole_result(self, manifest: dict[str, Any], rows: list[list[Any]], request: CellRequest,
+                      seconds: float, on_output: OutputSink | None) -> CellResult:
+        from .local_sql import _table_output
+        if not (manifest.get("schema") or {}).get("columns"):
+            out = {"type": "error", "ename": "DatabricksError",
+                   "evalue": "The last statement returned no result to compare. End the cell with a query."}
+            if on_output:
+                on_output(out)
+            return CellResult("error", [out], seconds, None, self.engine)
+        try:
+            table, as_text = whole_table(manifest, rows)
+        except DatabricksError as exc:
+            out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
+            if on_output:
+                on_output(out)
+            return CellResult("error", [out], seconds, None, self.engine)
+        outputs = [{"type": "stream", "text": f"Kept as text: {', '.join(as_text)}.\n"}] if as_text else []
+        outputs.append(_table_output(table.slice(0, request.preview_rows), table.num_rows))
+        if on_output:
+            for o in outputs:
+                on_output(o)
+        return CellResult("ok", outputs, seconds, table.num_rows, self.engine, table=table)
 
     def cancel(self) -> bool:
         if not self._lock.locked():

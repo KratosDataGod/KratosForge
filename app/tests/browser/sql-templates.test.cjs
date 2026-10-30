@@ -26,7 +26,7 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_templates_list", "sql_template_save", "sql_template_import",
+    engine: ["sql_format", "sql_analyze", "sql_templates_list", "sql_template_save", "sql_template_import",
       "sql_template_delete", "sql_template_export"],
     mocks: { ...sqlRunMocks(() => ({ columns: [{ name: "x", type: "int" }], rows: [[1]] })) },
   });

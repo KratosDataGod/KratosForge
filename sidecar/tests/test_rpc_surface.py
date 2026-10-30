@@ -70,11 +70,7 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
-    "kernel_info": _NO_SCREEN,
     "optimize_share_local_runs": _LOCAL_RUNS,
-    "sql_compat_profiles": _NO_SCREEN,
-    "sql_dialects": _NO_SCREEN,
-    "sql_executions": _NO_SCREEN,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "pbi_embed_token": _EMBED,
     "pbi_embed_content": _EMBED,
@@ -123,7 +119,10 @@ REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_pat
            "workload_actions", "governance_version", "meta_git_status", "usage_reconciliation",
            # Slice 6 (#1153): no screen, MCP tool or other caller used these by RPC name; the
            # tests call the Service methods in-process.
-           "optimize_inspect", "risk_acknowledgements", "usage_imports")
+           "optimize_inspect", "risk_acknowledgements", "usage_imports",
+           # Slice 7: no screen called these; only engine and browser tests did, and they now call the
+           # Service methods or a call the app makes. They also leave QUICK and watchdog.rs.
+           "kernel_info", "sql_compat_profiles", "sql_dialects", "sql_executions")
 
 
 def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):

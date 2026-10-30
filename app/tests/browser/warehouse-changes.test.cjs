@@ -37,7 +37,7 @@ before(async () => {
   const runs = sqlRunMocks(() => ({ columns: [{ name: "x", type: "int" }], rows: [[1]] }));
   const changed = new Set();  // runs started as a change: their status says so, as the engine's does
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: {
       // One Keys workspace shared by Dev and Prod (#293): it counts as Prod, the strictest.
       meta_project: () => ({ environments: { dev: { workspace_id: "ws1", keys_workspace_id: "wsK" },

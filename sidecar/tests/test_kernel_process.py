@@ -192,13 +192,13 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     s = Service(root=tmp_path / "app")
-    assert call(s, "kernel_info") == {"process": False, "pid": os.getpid()}
+    assert s.kernel_info() == {"process": False, "pid": os.getpid()}
     assert call(s, "stop_kernel_process") == {"stopped": False, "in_engine": True}
     call(s, "save_app_settings", changes={"kernel_process": True})
     assert app_settings.value("kernel_process") is True
     try:
         call(s, "start_cell", code="import time\ntime.sleep(600)")
-        info = call(s, "kernel_info")
+        info = s.kernel_info()
         assert info["process"] is True and info["pid"] != os.getpid()
         out = handle(s, json.dumps({"id": 1, "method": "save_app_settings", "params": {"changes": {"kernel_process": False}}}))
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))

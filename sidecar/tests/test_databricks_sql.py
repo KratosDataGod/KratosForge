@@ -110,7 +110,7 @@ def tokens():
 
 
 def adapter(ws):
-    return dbsql.DatabricksSqlAdapter(client_for=lambda conn: dbsql.Client(tokens(), ws), sleep=lambda s: None)
+    return dbsql.DatabricksSqlAdapter(client_for=lambda conn: dbsql.Client(tokens(), ws, sleep=lambda s: None), sleep=lambda s: None)
 
 
 def open_session(ws, **options):
@@ -209,10 +209,10 @@ def test_long_statements_are_polled_until_they_finish():
 
 def _drop_on_poll(ws, refuse_cancel=False):
     def drop():
-        if refuse_cancel:
-            ws.refuse = 503
         raise ConnectionError("network down " + PAT)
     ws.on_poll = drop
+    if refuse_cancel:
+        _flaky(ws, [403], lambda m, p: p.endswith("/cancel"))
 
 
 def test_a_failed_poll_stops_the_statement_on_the_warehouse():
@@ -442,7 +442,7 @@ def test_on_windows_only_databricks_exe_in_a_drive_folder_counts(tmp_path, monke
 @pytest.mark.parametrize("bad", ["../../api/2.0/clusters/delete", "wh1/x", "wh 1", "", "a" * 65])
 def test_ids_are_checked_before_they_reach_a_url(bad):
     ws = FakeWorkspace()
-    client = dbsql.Client(tokens(), ws)
+    client = dbsql.Client(tokens(), ws, sleep=lambda s: None)
     for call in (client.warehouse, client.status, client.cancel):
         with pytest.raises(dbsql.DatabricksError, match="isn't a Databricks"):
             call(bad)
@@ -452,7 +452,7 @@ def test_ids_are_checked_before_they_reach_a_url(bad):
 def test_a_statement_running_too_long_is_cancelled_and_reported():
     ws = FakeWorkspace(polls=1000)
     now = [0.0]
-    s = dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws), "wh1",
+    s = dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws, sleep=lambda s: None), "wh1",
                                    sleep=lambda sec: now.__setitem__(0, now[0] + 60), clock=lambda: now[0],
                                    max_seconds=300)
     r = s.execute(CellRequest("SELECT 1", "sql"))
@@ -488,3 +488,69 @@ def test_a_refusal_names_the_api_that_refused_and_never_a_token():
     msg = dbsql.Client._refusal(resp, "/api/2.1/clusters/get")
     assert msg.startswith("Databricks refused the request (HTTP 404).") and msg.endswith("Check the cluster ID and the workspace.")
     assert PAT not in msg and "warehouse" not in msg
+
+# ---------------------------------------------------------------- retries (KF-REMOTE-RETRY, #1189)
+
+
+def _flaky(ws, statuses, when):
+    """The next calls matching ``when(method, path)`` answer ``statuses`` before the fake's own answer."""
+    real, left = ws.request, list(statuses)
+
+    def request(method, url, **kw):
+        if left and when(method, url[len(HOST):]):
+            ws.calls.append((method, url[len(HOST):], None, None, None))
+            return Resp(left.pop(0), {"message": "busy " + PAT})
+        return real(method, url, **kw)
+    ws.request = request
+
+
+def _submits(ws):
+    return sum(1 for m, p, *_ in ws.calls if m == "POST" and p == "/api/2.0/sql/statements")
+
+
+def test_throttled_and_briefly_unavailable_polls_are_tried_again():
+    ws = FakeWorkspace(polls=2)
+    _flaky(ws, [429, 503], lambda m, p: m == "GET" and p.startswith("/api/2.0/sql/statements/"))
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "ok" and ws.cancelled == []
+
+
+def test_a_submit_is_resent_after_429_but_never_after_a_5xx():
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    _flaky(ws, [429], lambda m, p: m == "POST" and p == "/api/2.0/sql/statements")
+    assert s.execute(CellRequest("SELECT 1", "sql")).status == "ok" and ws.n == 1 and _submits(ws) == 2
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    _flaky(ws, [503], lambda m, p: m == "POST" and p == "/api/2.0/sql/statements")
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and _submits(ws) == 1 and "Tried" not in r.outputs[0]["evalue"]
+
+
+def test_after_the_last_try_the_error_says_it_was_retried_without_a_token():
+    ws = FakeWorkspace()
+    _flaky(ws, [503] * 4, lambda m, p: p == "/api/2.0/sql/warehouses/wh1")
+    with pytest.raises(dbsql.DatabricksError) as err:
+        open_session(ws)
+    assert str(err.value).startswith("Databricks refused the request (HTTP 503).")
+    assert str(err.value).endswith("Tried 4 times.") and PAT not in str(err.value)
+
+
+def test_a_cancel_is_tried_again_after_a_gateway_error():
+    ws = FakeWorkspace(polls=3)
+    _flaky(ws, [502], lambda m, p: p.endswith("/cancel"))
+    _drop_on_poll(ws)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert "was stopped on Shared" in r.outputs[0]["evalue"] and ws.cancelled == ["s1"]
+
+
+def test_one_dropped_poll_neither_fails_the_cell_nor_stops_the_statement():
+    ws = FakeWorkspace(polls=2)
+    drops = [ConnectionError("reset")]
+
+    def drop_once():
+        if drops:
+            raise drops.pop()
+    ws.on_poll = drop_once
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "ok" and ws.cancelled == []

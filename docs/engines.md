@@ -143,7 +143,12 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   write and test a warehouse query against local tables without starting the warehouse. Unity
   Catalog three-part names need that catalog and schema in the local session, and Delta-only
   commands don't run there.
-- **If the connection drops mid-cell:** the statement is cancelled on the warehouse, so it doesn't
+- **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
+  times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
+  waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
+  only after a 429, because the warehouse turned it away unread; after any other failure it is never
+  resent, so it can't run twice. An error after the last try says how many times it was tried.
+- **If the connection stays down mid-cell:** the statement is cancelled on the warehouse, so it doesn't
   keep the warehouse busy with no one watching. If the cancel can't get through either, the error
   says the statement may still be running; stop it in Databricks' query history.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
@@ -234,8 +239,10 @@ the rest of the cell's Python runs on this PC.
 
 Cells can run in an interactive Spark session in your Fabric workspace, on a lakehouse you pick,
 through Fabric's Livy API with your own Fabric sign-in. PySpark, Python, Spark SQL and Scala cells
-run in the same session, as in a Fabric notebook. Each cell is sent once and never retried, so it
-can't run twice. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
+run in the same session, as in a Fabric notebook. A cell is sent again only when Fabric turns it
+away as busy (HTTP 429) before accepting it, so it can't run twice; checking on a cell, cancelling it
+and closing the session are tried up to four times through throttling, gateway errors and a dropped
+connection, within 30 seconds of waiting. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
 
 - **It uses Fabric capacity** for as long as the session is open, including while it sits idle,
   until you close it or Fabric ends it. A session opens only after your confirmation for that
@@ -243,7 +250,7 @@ can't run twice. **Cancel** cancels the running statement in Fabric, and closing
   from KratosForge.
 - **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
   features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
-  per cell. A cell still running after two hours is cancelled. If the connection drops mid-cell,
+  per cell. A cell still running after two hours is cancelled. If the connection stays down mid-cell,
   the cell is cancelled in Fabric; if that can't get through either, the error says it may still be
   running, so stop it from the Monitor hub or close the session.
 

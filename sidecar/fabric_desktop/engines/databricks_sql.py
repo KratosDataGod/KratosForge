@@ -32,6 +32,7 @@ import pyarrow as pa
 
 from .. import redact
 from ..paging import Pages, PagingError
+from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -172,22 +173,32 @@ def refusal_hint(status: int, path: str, error_code: str = "") -> str:
 class Client:
     """The few REST calls the session makes, with the token on each; errors never quote a token."""
 
-    def __init__(self, tokens: TokenProvider, http: Any = None):
+    def __init__(self, tokens: TokenProvider, http: Any = None, sleep: Callable[[float], None] = time.sleep):
         if http is None:
             from ..http_session import session
             http = session()
         self.host = tokens.host
         self._tokens = tokens
         self._http = http
+        self._sleep = sleep
+        self.stopped: Callable[[], bool] = lambda: False  # the session points this at its Cancel
 
-    def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        headers = self._tokens.headers()
+    def _call(self, method: str, path: str, repeatable: bool | None = None, **kwargs: Any) -> dict[str, Any]:
+        """One REST call. Throttling (429) is tried again; 502/503/504 too when the call is
+        ``repeatable`` (left out: GETs are). Cancels are never cut short by Cancel itself."""
+        if repeatable is None:
+            repeatable = method == "GET"
+        headers = self._tokens.headers()  # a sign-in problem is its own error, not "couldn't reach"
+
+        def send() -> Any:
+            return self._http.request(method, self.host + path, headers=headers, timeout=60, **kwargs)
         try:
-            resp = self._http.request(method, self.host + path, headers=headers, timeout=60, **kwargs)
+            resp, tries = send_remote(send, repeatable, self._sleep,
+                                      (lambda: False) if path.endswith("/cancel") else self.stopped)
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
             raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
         if resp.status_code >= 400:
-            raise DatabricksError(self._refusal(resp, path))
+            raise DatabricksError(self._refusal(resp, path).rstrip() + (f" Tried {tries} times." if tries > 1 else ""))
         try:
             return resp.json() if resp.content else {}
         except ValueError:
@@ -231,7 +242,8 @@ class Client:
         return self._call("GET", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}")
 
     def cancel(self, statement_id: str) -> None:
-        self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel")
+        self._call("POST", f"/api/2.0/sql/statements/{_checked_id(statement_id, 'statement')}/cancel",
+                   repeatable=True)
 
     def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -268,6 +280,7 @@ class DatabricksSqlSession:
         self._statement = ""
         self._cancelled = False
         self._closed = False
+        client.stopped = lambda: self._cancelled
         info = client.warehouse(warehouse_id)
         self.warehouse_name = str(info.get("name") or warehouse_id)
         self.warehouse_state = str(info.get("state") or "")

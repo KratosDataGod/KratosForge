@@ -107,13 +107,17 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1102,
-        "title": "Databricks refusals say what to check for the API that refused (KF-DBX-ERRORS)"
+        "issue": 1168,
+        "title": "Close the remaining Databricks SQL parity gaps on the DuckDB engine (KF-DBX-SQLGAPS)"
       },
       "ready": [
         {
-          "issue": 1103,
-          "title": "Databricks SQL function parity table for DuckDB on this PC (KF-DBX-SQLPARITY)"
+          "issue": 1167,
+          "title": "Databricks SQL warehouse returns whole results, not only the first chunk (KF-DBX-CHUNKS)"
+        },
+        {
+          "issue": 853,
+          "title": "Snowflake pillar: audit, ADRs and parity matrix (KF-SNOWFLAKE-RESEARCH)"
         }
       ],
       "backlog": [],

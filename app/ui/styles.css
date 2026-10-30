@@ -2591,6 +2591,13 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-guidance { gap: 6px; color: var(--muted); }
 .learn-home-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .learn-suggest { display: flex; flex-direction: column; gap: 6px; }
+.learn-ask { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.learn-ask h2 { margin: 0; }
+.learn-ask-modes { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.learn-ask-modes legend { padding: 0; margin-bottom: 4px; font-weight: 600; }
+.learn-ask-option { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.learn-ask-option input { margin-top: 3px; }
+.learn-ask-say { display: block; }
 .learn-finding:not(:empty) { margin-left: 8px; }
 .learn-body > .card > h2:first-child { margin-top: 0; }
 .learn-grid, .learn-paths { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }

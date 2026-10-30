@@ -64,7 +64,7 @@ async function renderLearn() {
   if (next && learnPage.tab !== "home") cont.replaceChildren(btn(`${next.started ? "Continue" : "Start"}: ${next.title}`, null, () => learnOpen(next.id), "tool primary"));
   if (learnPage.tab === "paths") fill(body, ...learnPaths(cat, byId));
   else if (learnPage.tab === "labs") fill(body, learnCards(cat.modules.filter((m) => m.kind === "lab"), "No labs yet."));
-  else fill(body, ...learnHome(cat, byId, next, inOrder));
+  else fill(body, learnAsk(), ...learnHome(cat, byId, next, inOrder));
 }
 
 function learnHome(cat, byId, next, inOrder) {
@@ -137,6 +137,36 @@ function learnGuidancePicker() {
     h("select", { disabled: locked ? true : null, title: locked ? "Set by your organization's policy" : null,
       onchange: async (e) => { if (await saveSettings({ [key]: e.target.value })) render(); } },
     LAYOUT_CHOICES[key][2].map(([value, label]) => h("option", { value, selected: learnMode() === value ? true : null }, label))));
+}
+
+// The first time Learn opens (from the approved mockup): would you like help improving your skills?
+// Asked once, only while the mode is still the default and nobody (policy or environment) set it.
+// Save or Skip both store a choice, so it's never asked again; Skip keeps Focus.
+function learnAsk() {
+  const key = "learn_mode";
+  if (!previewShown() || state.settings?.[key]?.source !== "default") return null;
+  // The card goes when the page renders again, so keyboard focus moves on to the guidance picker.
+  const choose = async (value) => {
+    if (!(await saveSettings({ [key]: value }))) return;
+    render();  // Learn's head, with the picker, is built before the lessons are read
+    document.querySelector(".learn-guidance select")?.focus();
+  };
+  const say = { focus: "Findings and their About link. No suggestions.",
+    guided: "Each finding also links the Learn lesson that covers it.",
+    learning: "Everything in Guided, plus a suggested next lesson on Learn." };
+  const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
+    h("input", { type: "radio", name: "learn-ask", value, checked: value === "focus" ? true : null }),
+    h("span", {}, h("b", {}, label), value === "focus" ? h("span", { class: "muted-text small" }, " · the default") : null,
+      h("span", { class: "muted-text small learn-ask-say" }, say[value]))));
+  const card = h("section", { class: "card pad learn-ask", "aria-labelledby": "learn-ask-title" },
+    h("h2", { id: "learn-ask-title" }, "Would you like KratosForge to help you improve your development skills?"),
+    h("p", { class: "muted-text" }, "This only changes how much guidance you see beside your work. Checks run the same either way, and you can change it at any time with Learning guidance, above, or in Settings > Appearance > Layout."),
+    h("fieldset", { class: "learn-ask-modes" }, h("legend", {}, "How much guidance would you like?"), options),
+    h("div", { class: "row" },
+      btn("Save", null, () => choose(card.querySelector("input[name=learn-ask]:checked")?.value || "focus"), "tool primary"),
+      btn("Skip", null, () => choose("focus"), "tool outline")),
+    h("p", { class: "muted-text small" }, "Your organization can set this for everyone. Learning progress stays on this PC."));
+  return card;
 }
 
 // The lessons, read once per session, for the Lesson link beside findings.

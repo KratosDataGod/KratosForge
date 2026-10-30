@@ -1424,7 +1424,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-095](#pb-095) | MCP server and local API for external AI tools | P2 | Bring your own AI integration | XL | Accepted |
 | [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | Proposed |
 | [PB-097](#pb-097) | Extensions | P3 | Git-native development | XL | Proposed |
-| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | Proposed |
+| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | In review |
 | [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | In progress |
 | [PB-120](#pb-120) | Platform support levels and one engine contract | P1 | Fabric and Databricks unified development | L | In progress |
 
@@ -1471,7 +1471,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-098
 
-**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · Proposed
+**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · In review
 
 - **Problem:** server.py METHODS and the capability registry can drift apart.
 - **Proposed capability:** METHODS generated from, or checked against, the capability registry.
@@ -1479,6 +1479,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
 - **Dependencies:** [PB-095](#pb-095)
 - **Owner:** Bring your own AI integration (PR-AI-003)
+- **Pull requests:** [#1152](https://github.com/KratosDataGod/KratosForge/pull/1152)
 - **Acceptance criteria:**
     - A test fails when a method is in one list and not the other
 

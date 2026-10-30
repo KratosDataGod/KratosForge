@@ -30,7 +30,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   PB-045 and PB-084 stay In review, with PB-116 and PB-118.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 18 are Proposed, 26 In progress, 6 In review and 59 Accepted.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 17 are Proposed, 26 In progress, 7 In review and 59 Accepted.
 
 ## Workstreams
 

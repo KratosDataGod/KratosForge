@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-28",
+  "updated": "2026-10-30",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -37,12 +37,11 @@
       },
       "ready": [
         {
-          "issue": 953,
-          "title": "Notebook table writes give plain messages and Fabric-safe types for float16, time, uint64 and all-NULL columns"
+          "issue": 1110,
+          "title": "FS-05 (local engine): cross-check local table maintenance thresholds against skills-for-fabric"
         },
         {
-          "issue": 954,
-          "title": "Metadata loads give plain messages for TIME, INTERVAL and float16 columns"
+          "story": "PB-014"
         }
       ],
       "backlog": [
@@ -56,7 +55,7 @@
         "#933 MERGE on this PC waits on Chris's go"
       ],
       "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
-      "next_action": "UPDATE and DELETE on this PC (PB-015 second PR) once #933 settles; #953 and #954 are built locally."
+      "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
     },
     {
       "key": "fabric",
@@ -74,19 +73,24 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 947,
-        "title": "Hardening: a warehouse deploy change runs only if its object is still as the preview saw it"
+        "issue": 869,
+        "title": "PB-048 Schedule editing and safer schedule removal"
       },
       "ready": [
+        {
+          "issue": 1109,
+          "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric"
+        },
         {
           "story": "PB-049",
           "issue": 920
         }
       ],
       "backlog": [
+        "PB-003",
+        "PB-052",
         "PB-040",
-        "PB-041",
-        "PB-048"
+        "PB-041"
       ],
       "dependencies": [],
       "blockers": [
@@ -95,7 +99,7 @@
         "#799 staging cleaner held"
       ],
       "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
-      "next_action": "Work review findings first (eleven drafts at review), then #947; no further stacked drafts until the base PRs merge."
+      "next_action": "PB-048 schedule editing, then #1109 (FS-05) and PB-049 part 1; tenant harnesses against fakes until Chris says yes."
     },
     {
       "key": "dbx-snow",
@@ -107,15 +111,10 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1102,
-        "title": "Databricks refusals say what to check for the API that refused (KF-DBX-ERRORS)"
+        "story": "PB-117",
+        "issue": 853
       },
-      "ready": [
-        {
-          "issue": 1103,
-          "title": "Databricks SQL function parity table for DuckDB on this PC (KF-DBX-SQLPARITY)"
-        }
-      ],
+      "ready": [],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -125,7 +124,7 @@
         "Databricks live runs need a workspace and Chris's yes"
       ],
       "last_completed": "#1056 runtimes merged; #1058 live test, #1096 engine picker and #1101 workspace discovery (#1099) passed review",
-      "next_action": "Per-API refusal hints (#1102), then the SQL parity table (#1103). The live Databricks run waits on Chris's yes; a discovery RPC waits until the picker UI needs it."
+      "next_action": "Lead tops up two no-go stories (Databricks and Snowflake hardening, conversion fidelity, tests against fakes)."
     },
     {
       "key": "enterprise",
@@ -138,17 +137,11 @@
         "Workload management workspace"
       ],
       "active": {
-        "issue": 935,
-        "title": "Platform client: a non-JSON or 5xx answer from UDF_Platform gives a clear, typed error"
+        "story": "PB-062",
+        "note": "Engine and CLI support bundle with redaction first; the Settings button waits on a mockup. Needs a security read."
       },
-      "ready": [
-        {
-          "issue": 936,
-          "title": "Test: every UDF_Platform function takes the same parameters as the platform operation it calls"
-        }
-      ],
+      "ready": [],
       "backlog": [
-        "PB-052",
         "PB-060",
         "PB-092"
       ],
@@ -160,7 +153,7 @@
         "Workload pipelines mockup waits on Chris"
       ],
       "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
-      "next_action": "#935, then #936. PB-031 (#904) was accepted on 2026-10-30."
+      "next_action": "Support bundle engine and CLI (PB-062), with a test that a planted secret never reaches the zip."
     },
     {
       "key": "devex",
@@ -174,25 +167,22 @@
         "Run continuous product management"
       ],
       "active": {
-        "issue": 955,
-        "title": "KratosForge stays usable in Windows High Contrast"
+        "story": "PB-096"
       },
       "ready": [
         {
-          "issue": 948,
-          "title": "AI integration architecture page matches what shipped"
+          "story": "PB-027",
+          "issue": 878
         }
       ],
       "backlog": [
         "PB-087",
-        "PB-062",
-        "PB-034",
-        "PB-027"
+        "PB-034"
       ],
       "dependencies": [],
       "blockers": [],
       "last_completed": "#876 PB-077 docs match the code (merged); #879 PB-070, #885, #901, #917 PB-010 PASS",
-      "next_action": "#955 locally; #948 is built and opens when CI clears."
+      "next_action": "Run the AI client checklist for each named tool (PB-096); then PB-027."
     },
     {
       "key": "platform",
@@ -206,28 +196,20 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {
-        "story": "PB-061",
-        "issue": 960,
-        "note": "Docs and a guard test built locally. allowed_hosts and a three-way allowed_compute were never built: Chris decides drop or build."
-      },
-      "ready": [
-        {
-          "issue": 959,
-          "title": "Test: the network host list stays in step with the code (PB-010 follow-up, after #917)"
-        }
-      ],
+      "active": {},
+      "ready": [],
       "backlog": [
-        "PB-062"
+        "PB-061"
       ],
       "dependencies": [],
       "blockers": [
         "PB-001 code signing waits on Microsoft identity validation",
         "#744 HD-030 waits on Chris's fail-closed decision",
-        "Rest of PB-072 needs a Stop design mockup"
+        "Rest of PB-072 needs a Stop design mockup",
+        "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#867 PB-074, #911 HD-023, #898 PB-072, #930 HD-050 slice 2, #938 conftest leak fix (PASS); #923 PB-051 at review",
-      "next_action": "Hosts-table guard test (#959, #917 has merged); then the next ready story."
+      "last_completed": "#1152 PB-098 one list of engine methods (In review); #1154, #1155, #1156, #1164 at PASS with Release management",
+      "next_action": "Fuzz every engine method with malformed input: a typed error, never a traceback or a partial write (lead files the issue)."
     }
   ],
   "new_stories": {},
@@ -277,11 +259,6 @@
         {
           "issue": 1127,
           "title": "PBE-03 Power BI embed host frame: pbiembed scheme, its own policy, main-window pop-up rule",
-          "status": "active"
-        },
-        {
-          "issue": 1128,
-          "title": "PBE-04 Power BI embed token and discovery calls in the engine",
           "status": "active"
         },
         {

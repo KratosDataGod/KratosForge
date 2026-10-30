@@ -17,12 +17,16 @@ A session never reaches past its own database (the same refusals the SQL page ma
 
 The result of the last statement comes back as a table (the first ``preview_rows`` rows, with the
 exact total counted by reading the rest in batches), the same shape the notebook already shows.
-Results arrive when the statement finishes; none of these engines stream rows to the cell.
+Results arrive when the statement finishes; none of these engines stream rows to the cell. DuckDB and
+SQLite also hand back the whole result as a table when the request asks (``result_rows``), so
+engines/compare.py can compare two engines' answers; more rows than asked for, or more than
+``RESULT_BYTES``, is an error, never a cut table.
 
 What runs where, honestly (see each descriptor):
 
 - DuckDB runs DuckDB SQL natively, and Spark SQL and Databricks SQL translated by sqlglot (the same translation the SQL
-  page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark.
+  page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark. Snowflake SQL is translated too
+  (snowflake_sql.py), statement by statement with a label, and the label comes back as the cell's first output.
 - SQLite runs SQLite's SQL. Python's own sqlite3; nothing to install.
 - Polars runs the SQL subset Polars implements over its own tables; its plan is Polars' optimized plan.
 """
@@ -39,13 +43,30 @@ from typing import Any
 import pyarrow as pa
 
 from .capabilities import EngineDescriptor, Support
-from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
 
 _T = "unit_tests"
 _LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
                       "time. Reading or writing OneLake from this PC still uses Fabric capacity.")
 _NO_VARIABLES = Support("unsupported", "A SQL session holds tables, not variables; Catalog lists them.")
 _NO_STREAM = Support("unsupported", "The result arrives when the statement finishes.")
+_RESULT = Support("native", f"The whole result as a table, up to the rows asked for and {RESULT_BYTES // 2**20} MB; "
+                  "a larger result is an error, never cut.", _T)
+_NO_RESULT = Support("unsupported", "Not in this version; DuckDB and SQLite return whole results.")
+
+
+class ResultTooLarge(RuntimeError):
+    """The whole result was asked for, and it has more rows or bytes than allowed."""
+
+
+def _too_many(rows: int) -> ResultTooLarge:
+    return ResultTooLarge(f"The result has more than the {rows:,} rows asked for, so none of it was kept. "
+                          "Narrow the query, or ask for more rows.")
+
+
+def _too_big() -> ResultTooLarge:
+    return ResultTooLarge(f"The result is larger than {RESULT_BYTES // 2**20} MB, so none of it was kept. "
+                          "Narrow the query (fewer rows or columns).")
 
 
 def _table_output(table: pa.Table, total: int) -> dict[str, Any]:
@@ -70,6 +91,8 @@ class _SqlSession:
         self._running = False
         self._cancelled = False
         self._closed = False
+        self._preamble: list[dict[str, Any]] = []   # outputs _run adds before the result (a translation report)
+        self._result: pa.Table | None = None         # the whole result, when the request set result_rows
 
     @property
     def closed(self) -> bool:
@@ -86,6 +109,8 @@ class _SqlSession:
         if not self._lock.acquire(blocking=False):
             raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
         self._running, self._cancelled = True, False
+        self._preamble = []
+        self._result = None
         started = time.perf_counter()
         try:
             try:
@@ -95,20 +120,35 @@ class _SqlSession:
                 status = "cancelled" if self._cancelled else "error"
                 out = {"type": "error", "ename": type(exc).__name__,
                        "evalue": "Cancelled." if self._cancelled else str(exc)}
+                outputs = [*self._preamble, out]
                 if on_output:
-                    on_output(out)
-                return CellResult(status, [out], seconds, None, self.engine)
+                    for o in outputs:
+                        on_output(o)
+                return CellResult(status, outputs, seconds, None, self.engine)
             seconds = time.perf_counter() - started
-            out = _table_output(table, total) if table is not None else _done(seconds)
+            outputs = [*self._preamble, _table_output(table, total) if table is not None else _done(seconds)]
             if on_output:
-                on_output(out)
-            return CellResult("ok", [out], seconds, total if table is not None else None, self.engine)
+                for o in outputs:
+                    on_output(o)
+            return CellResult("ok", outputs, seconds, total if table is not None else None, self.engine,
+                              table=self._result)
         finally:
             self._running = False
             self._lock.release()
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         raise NotImplementedError
+
+    def _keep(self, table: pa.Table, total: int, request: CellRequest) -> tuple[pa.Table, int]:
+        """Keep the whole result when it was asked for; the cell shows the first ``preview_rows``."""
+        if request.result_rows <= 0:
+            return table, total
+        if total > request.result_rows:
+            raise _too_many(request.result_rows)
+        if table.nbytes > RESULT_BYTES:
+            raise _too_big()
+        self._result = table
+        return table.slice(0, request.preview_rows), total
 
     def cancel(self) -> bool:
         if not self._running:
@@ -136,16 +176,25 @@ class _SqlSession:
         raise NotImplementedError
 
 
-def _drain(reader: Any, limit: int) -> tuple[pa.Table, int]:
-    """The first ``limit`` rows of an Arrow batch reader, and how many rows it had in all."""
+def _drain(reader: Any, limit: int, result_rows: int = 0) -> tuple[pa.Table, int]:
+    """The first ``limit`` rows of an Arrow batch reader, and how many rows it had in all.
+
+    With ``result_rows``, every row, stopping with an error as soon as there are more rows than that
+    or more than RESULT_BYTES, so a big result is never held in memory first."""
+    keep = max(limit, result_rows if result_rows > 0 else 0)
     kept: list[pa.RecordBatch] = []
-    have = total = 0
+    have = total = size = 0
     for batch in reader:
         total += batch.num_rows
-        if have < limit:
-            part = batch.slice(0, limit - have)
+        if result_rows > 0 and total > result_rows:
+            raise _too_many(result_rows)
+        if have < keep:
+            part = batch.slice(0, keep - have)
             kept.append(part)
             have += part.num_rows
+            size += part.nbytes
+            if result_rows > 0 and size > RESULT_BYTES:
+                raise _too_big()
     return pa.Table.from_batches(kept, schema=reader.schema), total
 
 
@@ -161,7 +210,11 @@ DUCKDB = EngineDescriptor(
               "databricks": Support("translated", "Databricks SQL is rewritten for DuckDB by sqlglot, so warehouse "
                                     "queries can be written and tried on this PC without starting a warehouse. "
                                     "Most queries match; Unity Catalog three-part names need the catalog and schema "
-                                    "in the session, and Delta-only commands don't run.", _T)},
+                                    "in the session, and Delta-only commands don't run.", _T),
+              "snowflake": Support("translated", "Snowflake SQL is rewritten for DuckDB by sqlglot with KratosForge's "
+                                   "rules; each statement is labelled translated, runs with a known difference, or "
+                                   "runs only in Snowflake, and a cell runs only when every statement can. Results "
+                                   "are not checked against a Snowflake account.", _T)},
     capabilities={
         "session": Support("native", "An in-memory database per session; an existing file opens read-only.", _T),
         "execute": Support("native", evidence=_T),
@@ -173,6 +226,7 @@ DUCKDB = EngineDescriptor(
         "catalog": Support("native", "Schemas, tables and views in the session (information_schema).", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _RESULT,
     },
     requirements=("duckdb (ships with KratosForge)",),
     limitations=("Not Fabric's or Databricks' Spark: results can differ where engines differ (use Prove to compare).",
@@ -194,9 +248,12 @@ def _refuse_outside(code: str, dialect: str | None) -> None:
     """Refuse COPY, ATTACH, INSTALL and the rest before anything runs (sql_policy's fabric_mutation).
 
     A cell sqlglot can't read is left to DuckDB, whose closed connection still can't reach outside."""
-    from .. import sql, sql_policy
+    from .. import snowflake_sql, sql, sql_policy
     try:
-        statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
+        if dialect == "snowflake":
+            statements = snowflake_sql.parse(code)
+        else:
+            statements = _databricks(code) if dialect == "databricks" else sql.parse(code, dialect or "duckdb")
     except ValueError:
         return
     for verdict in sql_policy.classify(statements, "lakehouse"):
@@ -237,19 +294,47 @@ class DuckDBSession(_SqlSession):
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":
             return code
+        if dialect == "snowflake":
+            from .. import snowflake_sql
+            translation = snowflake_sql.translate(code)
+            self._preamble = [translation.as_output()]
+            if not translation.runnable:
+                raise Unsupported(translation.first_refusal() + " Nothing in the cell ran.")
+            return translation.duckdb_sql
         if dialect not in ("spark", "databricks"):
-            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL or DuckDB SQL.")
+            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL, Databricks SQL, Snowflake SQL "
+                              "or DuckDB SQL.")
         from .. import sql
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
         return ";\n".join(s.sql(dialect="duckdb") for s in statements)
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
-        _refuse_outside(request.code, request.dialect)
-        cur = self._con.execute(self._sql(request.code, request.dialect))
+        if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
+            code = self._sql(request.code, request.dialect)
+            _refuse_outside(request.code, request.dialect)
+        else:
+            _refuse_outside(request.code, request.dialect)
+            code = self._sql(request.code, request.dialect)
+        if request.dialect not in ("spark", "databricks"):
+            return self._execute(code, request)
+        # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks
+        # unless a notebook changes it; sqlglot makes it DuckDB's TIMESTAMPTZ, which DuckDB reads in
+        # this PC's zone. So translated cells run in UTC, and the cell after gets the zone back.
+        zone = self._con.execute("SELECT current_setting('TimeZone')").fetchone()
+        self._con.execute("SET TimeZone = 'UTC'")
+        try:
+            return self._execute(code, request)
+        finally:
+            if zone:
+                self._con.execute("SET TimeZone = ?", [str(zone[0])])
+
+    def _execute(self, code: str, request: CellRequest) -> tuple[pa.Table | None, int]:
+        cur = self._con.execute(code)
         if cur.description is None:
             return None, 0
         reader = getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch
-        return _drain(reader(), request.preview_rows)
+        table, total = _drain(reader(), request.preview_rows, request.result_rows)
+        return self._keep(table, total, request)
 
     def _interrupt(self) -> None:
         self._con.interrupt()
@@ -258,7 +343,10 @@ class DuckDBSession(_SqlSession):
         self._check_open()
         _refuse_outside(code, dialect)
         rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
-        return "\n".join(str(r[-1]) for r in rows)
+        text = "\n".join(str(r[-1]) for r in rows)
+        if dialect == "snowflake":
+            return "Plan of the DuckDB translation on this PC, not of Snowflake's plan.\n" + text
+        return text
 
     def catalog(self) -> list[dict[str, Any]]:
         self._check_open()
@@ -297,6 +385,7 @@ SQLITE = EngineDescriptor(
         "catalog": Support("native", "Tables and views in the session (sqlite_master).", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _RESULT,
     },
     requirements=("Python's sqlite3 (built in)",),
     limitations=("SQLite's types and functions are not Spark's or T-SQL's.", "A database file the session opens is read-only.",
@@ -319,6 +408,12 @@ def _statements(code: str) -> list[str]:
     if buf.strip():
         out.append(buf.strip())
     return [s for s in out if s.strip(" ;\n\t")]
+
+
+def _sqlite_table(names: list[str], rows: list[Any]) -> pa.Table:
+    columns = list(zip(*rows)) if rows else [[] for _ in names]
+    return pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
+                                  for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
 
 
 def _sqlite_authorizer(action: int, *_args: Any) -> int:
@@ -352,17 +447,26 @@ class SQLiteSession(_SqlSession):
         if cur.description is None:
             return None, 0
         names = [d[0] for d in cur.description]
-        kept = cur.fetchmany(request.preview_rows)
-        total = len(kept)
-        while True:
-            more = cur.fetchmany(10_000)
-            if not more:
+        keep = max(request.preview_rows, request.result_rows)
+        parts: list[pa.Table] = []   # Arrow per batch, as DuckDB's _drain keeps, never a list of Python rows
+        have = total = size = 0
+        while True:   # in batches, so a whole result is checked against RESULT_BYTES as it is read
+            batch = cur.fetchmany(10_000)
+            if not batch:
                 break
-            total += len(more)
-        columns = list(zip(*kept)) if kept else [[] for _ in names]
-        table = pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
-                                       for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
-        return table, total
+            total += len(batch)
+            if request.result_rows > 0 and total > request.result_rows:
+                raise _too_many(request.result_rows)
+            if have < keep:
+                part = _sqlite_table(names, batch[:keep - have])
+                parts.append(part)
+                have += part.num_rows
+                size += part.nbytes
+                if request.result_rows > 0 and size > RESULT_BYTES:
+                    raise _too_big()
+        # A column that is all NULL in one batch takes its type from the others.
+        table = pa.concat_tables(parts, promote_options="permissive") if parts else _sqlite_table(names, [])
+        return self._keep(table, total, request)
 
     def _interrupt(self) -> None:
         self._con.interrupt()
@@ -412,6 +516,7 @@ POLARS = EngineDescriptor(
         "catalog": Support("native", "Tables registered in the session.", _T),
         "cost": _LOCAL_COST,
         "compat": Support("native", "The language and dialect are checked before running.", _T),
+        "result": _NO_RESULT,
     },
     requirements=("polars (ships with KratosForge)",),
     limitations=("Polars SQL is not Spark SQL; many Spark functions don't exist.",),

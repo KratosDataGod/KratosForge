@@ -44,7 +44,7 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks(catalog);
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", ...PROJECT_METHODS],
     mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }), sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse" }) },
   });
@@ -176,7 +176,7 @@ test("Compare lists each object's state, shows the difference and can take the w
   await page().waitForFunction(() => !document.querySelector(".wh-cmp") && sqlPage.tabs[sqlPage.active].proj?.path === "dbo/Tables/DimCustomer.sql");
   await page().getByRole("tab", { name: "Compare" }).click();
   await view.waitFor();
-  await page().getByRole("button", { name: "Close Compare" }).click();
+  await page().getByRole("tab", { name: "Compare" }).press("Delete");  // the × is mouse-only; Delete closes the tab
   assert.strictEqual(await page().getByRole("tab", { name: "Compare" }).count(), 0);
 });
 

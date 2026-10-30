@@ -39,6 +39,7 @@ from .. import governance_notices as notices
 from ..meta import mesh
 from ..meta.project import EXCEPTION_WARN_DAYS
 from ..workloads.platform_notify import PlatformRouting, validate
+from . import core
 from .core import PlatformError
 from .policy import SETTINGS
 from .requests_service import call_or_repair
@@ -87,7 +88,7 @@ class GovernanceMixin:
                                   policy=policy, active=not include_ended)
         except LookupError as exc:
             return [], str(exc)
-        today = dt.datetime.now(dt.timezone.utc).date()  # the date UDF_Platform runs on
+        today = core._today()  # the date UDF_Platform runs on (UTC), the one policy.py judges ends by
         for row in rows:
             try:
                 left = (dt.date.fromisoformat(str(row.get("until") or "")[:10]) - today).days

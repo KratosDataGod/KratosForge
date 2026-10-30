@@ -131,11 +131,20 @@ def test_fabric_writes_are_not_repeated_after_a_5xx(shared):
     assert [m for m, _, _ in sent.sent] == ["POST"]
 
 
-def test_a_platform_function_call_is_sent_once(shared):
+def test_a_platform_change_without_call_once_is_sent_once(shared):
+    """A change UDF_Platform may have made is never sent again as it is. A read is (#1040), and so is a
+    change sent through call_once, which the platform makes once per call id."""
+    sent = transport(shared, 404, 503)  # an older UDF_Platform: no call_once, then the change itself
+    with pytest.raises(requests.HTTPError):
+        FabricPlatform(token, "ws", "fn", sleep=no_sleep).call("save_domain", domain={"name": "Sales"})
+    assert [u.rsplit("/functions/", 1)[1] for _, u, _ in sent.sent] == ["call_once/invoke", "save_domain/invoke"]
+
+
+def test_a_platform_read_is_sent_again_on_503(shared):
     sent = transport(shared, 503)
-    with pytest.raises(Exception):  # noqa: B017 - which error doesn't matter here, only that it isn't repeated
-        FabricPlatform(token, "ws", "fn").call("key_stats", name="customer")
-    assert [m for m, _, _ in sent.sent] == ["POST"]
+    with pytest.raises(requests.HTTPError):
+        FabricPlatform(token, "ws", "fn", sleep=no_sleep).call("key_stats", name="customer")
+    assert [m for m, _, _ in sent.sent] == ["POST"] * 3
 
 
 def test_an_injected_session_wins(shared):

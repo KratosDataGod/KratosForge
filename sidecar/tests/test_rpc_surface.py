@@ -22,44 +22,24 @@ from fabric_desktop import server
 
 UI = Path(__file__).resolve().parents[2] / "app" / "ui"
 
-_MCP = "MCP/HTTP tool calls the same Service method in-process (integrations/services.py); no screen"
-_CLI = "CLI or headless agent calls the same Service method in-process (cli.py, agent.py); no screen"
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
-_QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
-_SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
+_QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
+_EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
-_PRACTICES = "the notebook rules list, for a template editor to list them; the panel shows findings only (docs/notebook-best-practices.md)"
-
-_SQL_PRACTICES = "the SQL rules list, for a template editor to list them; the SQL page shows findings only (docs/sql-best-practices.md)"
-
 
 NO_UI_CALLER: dict[str, str] = {
-    "notebook_practice_rules": _PRACTICES,
-    "sql_practice_rules": _SQL_PRACTICES,
-    # MCP / local HTTP API tools (in-process).
-    "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
-    "notebook_environment": _MCP,
-    "pipeline_activity_registry": _MCP,
-    "pipeline_inspect": _MCP,
-    "pipeline_validate": _MCP,
-    "receipt_export": _MCP,
-    "receipts_list": _MCP,
-    "run_sql": _MCP,
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
     "model_bpa_check": _BPA,
-    # CLI and headless agent (in-process).
-    "preview_job": _CLI,
-    "run_job": _CLI,
     # Local data projects.
     "list_local_tables": _LOCAL,
     "local_add_source": _LOCAL,
@@ -90,30 +70,12 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
-    "governance_version": _NO_SCREEN,
-    "kernel_info": _NO_SCREEN,
-    "meta_git_status": _NO_SCREEN,
-    "optimize_inspect": _NO_SCREEN,
     "optimize_share_local_runs": _LOCAL_RUNS,
-    "risk_acknowledgements": _NO_SCREEN,
-    "sql_compat_profiles": _NO_SCREEN,
-    "sql_dialects": _NO_SCREEN,
-    "sql_executions": _NO_SCREEN,
-    "usage_imports": _NO_SCREEN,
-    "usage_reconciliation": _NO_SCREEN,
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
-    # Superseded on screen.
-    "run_cell": _SUPERSEDED,  # notebooks use start_cell / poll_cell; engine tests still drive it as one call
+    "pbi_embed_token": _EMBED,
+    "pbi_embed_content": _EMBED,
     # Listed by QA-017 as having no screen.
-    "audit_log": _QA017,
-    "delete_notebook": _QA017,
-    "git_ops": _QA017,
-    "git_scan": _QA017,
-    "meta_diff": _QA017,
-    "meta_preview": _QA017,
-    "notebook_diff": _QA017,
     "platform_sources": _QA017,
-    "workload_actions": _QA017,
 }
 
 
@@ -141,7 +103,26 @@ def test_the_exception_list_stays_honest():
 # HD-050 slice 2 (#927): names no screen called, taken out of METHODS. The Service methods stay, because
 # git_service, shortcut_service and pipeline_service still call git_path_info, all_shortcuts and git_repos.
 REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_path_info", "git_repos",
-           "list_shortcuts")
+           "list_shortcuts",
+           # Slice 3 (#965): the app runs cells with start_cell / poll_cell, and so do the engine tests
+           # (test_prove.run_cell). Service.run_cell stays for in-process tests and scripts.
+           "run_cell",
+           # Slice 4 (#1049): only the MCP tools, the local HTTP API, the CLI and the headless agent
+           # used these, and they call the Service methods in-process (integrations/services.py,
+           # cli.py, agent.py), never by RPC name.
+           "placement_advice", "notebook_environment", "pipeline_activity_registry", "pipeline_inspect",
+           "pipeline_validate", "receipt_export", "receipts_list", "run_sql", "preview_job", "run_job",
+           "environment_fabric_drift",
+           # Slice 5 (#1087, QA-017): nothing called these, in-process or by RPC name. The Service
+           # methods stay for tests and engine code; a screen that needs one adds it back with its caller.
+           "audit_log", "delete_notebook", "git_ops", "git_scan", "meta_diff", "meta_preview", "notebook_diff",
+           "workload_actions", "governance_version", "meta_git_status", "usage_reconciliation",
+           # Slice 6 (#1153): no screen, MCP tool or other caller used these by RPC name; the
+           # tests call the Service methods in-process.
+           "optimize_inspect", "risk_acknowledgements", "usage_imports",
+           # Slice 7 (#1156): no screen called these; only engine and browser tests did, and they now call the
+           # Service methods or a call the app makes. They also leave QUICK and watchdog.rs.
+           "kernel_info", "sql_compat_profiles", "sql_dialects", "sql_executions")
 
 
 def test_methods_no_screen_called_are_refused_over_rpc(tmp_path):

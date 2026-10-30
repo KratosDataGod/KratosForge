@@ -44,6 +44,7 @@ opentelemetry-api==1.45.1
 packaging==26.3
 pandas==2.3.3
 pillow==13.0.0
+pip==26.2.2
 plotly==7.1.0
 polars==2.0.0
 polars-runtime-32==2.0.0
@@ -66,7 +67,7 @@ six==1.17.0
 sqlglot==30.23.0
 sse-starlette==3.5.0
 starlette==1.8.0
-tornado==6.5.10
+tornado==6.6
 truststore==0.10.5
 typing_extensions==4.16.0
 typing-inspection==0.4.4
@@ -75,3 +76,11 @@ urllib3==2.8.0
 uvicorn==0.54.0
 wrapt==2.5.1
 xyzservices==2026.9.1
+# Test tools ([dev] extra). CI installs with -c, which never installs a package on its own, so
+# these pin what CI tests with and never reach the engine.
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+pygments==2.21.0
+pytest==9.1.1
+pytest-xdist==3.8.0

@@ -4,21 +4,50 @@
 
 // ---------- times ----------
 
-function relTime(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return String(iso);
+// Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
+// an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
+// opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
+// never "Invalid Date". opts.seconds adds seconds; opts.weekday adds the day of the week; opts.utc reads a
+// plain day ("2026-10-28") as it is.
+function readDate(at) {
+  if (at === null || at === undefined || at === "") return null;
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateText(at, opts = {}) {
+  const d = readDate(at);
+  if (!d) return opts.empty ?? "";
+  const zone = opts.utc ? { timeZone: "UTC" } : {};
+  return opts.weekday ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", ...zone })
+    : d.toLocaleDateString(undefined, { dateStyle: "medium", ...zone });
+}
+
+function timeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(opts.seconds ? { second: "2-digit" } : {}) }) : (opts.empty ?? "");
+}
+
+function dateTimeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: opts.seconds ? "medium" : "short" }) : (opts.empty ?? "");
+}
+
+// How long ago, then the date once it's two days back.
+function relTime(at) {
+  const t = readDate(at);
+  if (!t) return "";
   const s = Math.round((Date.now() - t.getTime()) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return t.toLocaleDateString();
+  return dateText(t);
 }
 
 // A relative time with the exact time on hover.
 function when(iso) {
-  return h("span", { title: iso ? new Date(iso).toLocaleString() : "" }, relTime(iso));
+  return h("span", { title: dateTimeText(iso, { seconds: true }) }, relTime(iso));
 }
 
 function took(seconds) {
@@ -78,6 +107,8 @@ function friendlyError(err) {
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
     [/AADSTS50076|AADSTS50079|AADSTS50074|AADSTS50072/, "Your organization needs an extra sign-in step (multi-factor authentication). Sign in again and finish the step in the Microsoft window."],
     [/AADSTS50020|AADSTS50034|AADSTS90072/, "That account doesn't belong to your organization's Fabric tenant. Sign in with your work account."],
+    // #1079: Windows sign-in refused a token for one service (seen for Azure SQL and Kusto); the rest still works
+    [/IncorrectConfiguration|AADSTS65002/i, "Windows sign-in wouldn't give KratosForge's built-in sign-in a token for this service (warehouse queries or warehouse Monitoring often need one). The rest of the app keeps working. docs/troubleshooting.md says what IT can check."],
     [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
     [/^SignInError: (AADSTS\d+)/, "Microsoft sign-in didn't finish. Sign in again; if it happens again, ask IT and quote the code in the details below."],
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
@@ -220,7 +251,7 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
-  if (i.status === "running" && !i.stale && remoteActivity(i) && previewShown()) {  // Preview until checked on a tenant
+  if (i.status === "running" && !i.stale && remoteActivity(i) && cancelFabricRunShown()) {
     links.push(btn("Cancel run", null, () => cancelFabricJob(i.id.slice("fabric:".length)), "tool link small danger"));
   }
   if (i.update) links.push(btn("Check for updates", null, () => { toggleTray(false); checkForUpdates(); }, "tool link small"));
@@ -270,6 +301,9 @@ async function trackFabricJobs() {
   }
   if (open) activity.pollTimer = setTimeout(trackFabricJobs, 15000);
 }
+
+// Cancel in Monitor > Runs and the tray is Preview until a cancel has been checked on a tenant.
+const cancelFabricRunShown = () => previewShown() && !!PREVIEW_FEATURES.cancelFabricRun;
 
 // Cancel a Fabric job this app started (Monitor > Runs and the tray), after a danger confirm. Fabric
 // stops it in its own time: the run reads Cancelling until fabric_runs reads how it ended.

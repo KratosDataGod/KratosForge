@@ -99,6 +99,7 @@ const PREVIEW_FEATURES = {
   popOut: "Pop-out windows",
   pipelines: "Pipelines",
   pipelineRuns: "Pipeline runs in Monitor",
+  cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
   trustBadges: "Endorsement and business terms",
   warehouse: "Warehouse queries",
@@ -106,7 +107,11 @@ const PREVIEW_FEATURES = {
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
+  engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  runSeveral: "Run several notebooks from Home",
+  itemPins: "Items pinned to Home",
+  learn: "Learn",
 };
 
 function previewShown() {
@@ -143,6 +148,15 @@ function learnMore(anchor, label = "Learn more") {
   } }, label);
 }
 
+// A link to a docs page section the engine names, like a best-practice finding's url
+// ("sql-best-practices.md#sq002"). open_doc refuses anything that isn't a docs page.
+function docLink(page, label) {
+  return h("a", { href: "#", class: "learn-more", onclick: (e) => {
+    e.preventDefault();
+    attempt(() => invoke("open_doc", { page }), "Could not open the guide");
+  } }, label);
+}
+
 // "How this works": the panel beside a page or tab that says what it reads, what it changes and where
 // its results go, then links to its section of the guide. It folds to its title, remembered on this
 // PC. Every new page or tab gets one (docs/ui-guidelines.md); withHowItWorks puts it on the right,
@@ -173,6 +187,8 @@ const LAYOUT_CHOICES = {
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
     [["tags", "Tags"], ["dots", "Quiet dots"]]],
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
+  learn_mode: ["Learning guidance (Preview)", "Focus shows findings, their About link and Dismiss. Guided adds Explain, Show example and the Learn lesson that covers each finding. Learning also suggests your next lesson on Learn. Checks run the same in every mode.",
+    [["focus", "Focus"], ["guided", "Guided"], ["learning", "Learning"]]],
 };
 const LAYOUT_DEFAULTS = { ui_explanations: "on_request" };  // as app_settings.DEFAULTS; others: the first choice
 const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_DEFAULTS[key] || LAYOUT_CHOICES[key][2][0][0];
@@ -401,7 +417,7 @@ function openPalette(initial = "") {
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
     "aria-label": "Command bar" });
-  const list = h("div", { class: "palette-list", role: "listbox" });
+  const list = h("div", { class: "palette-list", role: "listbox", "aria-label": "Results" });
   const close = () => {
     const open = document.getElementById("palette");
     if (!open) return;

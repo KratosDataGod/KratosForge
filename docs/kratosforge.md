@@ -6,6 +6,8 @@ KratosForge is the app's name everywhere you read it: the window title, the top 
 
 The top bar shows the KratosForge wordmark beside the Wolf Forge emblem, and the release titles on GitHub are **KratosForge (stable)** and **KratosForge (latest build)**.
 
+KratosForge is made by [KratosBI](https://kratosbi.com). The KratosBI logo, the Wolf Forge emblem and the app icon in `docs/brand/`, `app/ui/` and `app/src-tauri/icons/` belong to KratosBI. Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT).
+
 ## Names that stay as they are
 
 Some files, folders, settings and markers keep a legacy name from before KratosForge. Nothing you built moves, and nothing has to be set up again: existing installations, notebooks and workspaces find each other by these names, so they don't change. Where the docs show one, type or look for it exactly as written.

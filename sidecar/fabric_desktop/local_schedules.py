@@ -177,6 +177,9 @@ def task_xml(schedule: dict[str, Any], executable: str, workdir: str, launcher: 
 """
 
 
+SCHTASKS_SECONDS = 60
+
+
 class TaskScheduler:
     """``schtasks.exe``. On other systems schedules are saved but nothing starts them."""
 
@@ -184,7 +187,14 @@ class TaskScheduler:
 
     def _run(self, *args: str) -> None:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags)
+        try:
+            # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
+            # otherwise hold every page's engine calls behind it, with no Stop to reach.
+            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags,
+                                 timeout=SCHTASKS_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "
+                               "Task Scheduler service is running, then try again.") from None
         if res.returncode != 0:
             raise RuntimeError(f"Task Scheduler: {(res.stderr or res.stdout).strip()}")
 

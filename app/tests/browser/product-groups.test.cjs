@@ -3,7 +3,7 @@
 // offer (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, startupReads } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -25,6 +25,7 @@ let items = [item("SemanticModel", SM, "SM_Customer360", "Certified"), item("Rep
 let admin = false;
 let ownerEdits = false; // the server says this person owns the product (its rule, not the app's)
 let older = false;
+let lateLists = 0; // lists of another workspace that have answered
 const mocks = {
   platform_products: () => ({ project: null, can_follow: true, can_group: true, products: [
     { ...base, id: PID, name: "customer_360", ports: ["dim_customer", "fact_orders", "dim_region"].map(port), items },
@@ -45,16 +46,19 @@ const mocks = {
   },
   platform_remove_product_item: ({ item_id }) => { items = items.filter((i) => i.item_id !== item_id); return { product_id: PID, items }; },
   list_workspaces: () => [{ id: "aaaaaaaa-0000-0000-0000-000000000001", displayName: "CRM Prod" }, { id: SALES_WS, displayName: "Sales Prod" }],
-  list_items: ({ workspace_id }) => (workspace_id === SALES_WS ? [
+  // Any other workspace's list answers late, after the workspace picked next (see the Add a model test).
+  list_items: async ({ workspace_id }) => (workspace_id === SALES_WS ? [
     { id: SM, type: "SemanticModel", displayName: "SM_Customer360" },
     { id: "dddddddd-0000-0000-0000-00000000000a", type: "SemanticModel", displayName: "SM_Sales_Daily" },
     { id: "cccccccc-0000-0000-0000-00000000000b", type: "Report", displayName: "Sales report" },
-    { id: "cccccccc-0000-0000-0000-00000000000c", type: "Lakehouse", displayName: "LH_Sales" }] : []),
+    { id: "cccccccc-0000-0000-0000-00000000000c", type: "Lakehouse", displayName: "LH_Sales" }]
+    : await new Promise((r) => setTimeout(() => { lateLists += 1; r([]); }, 300))),
 };
 
 before(async () => {
   if (skip) return;
   app = await openApp({ mocks });
+  await startupReads(app);
 });
 after(async () => { if (app) await app.close(); });
 
@@ -68,6 +72,11 @@ const openProduct = async () => {
   await page().click('a.product-open:has-text("customer_360")');
   await page().waitForSelector('.product-offer [data-group="Report"]');
 };
+async function until(ok, ms = 5000) {
+  for (const end = Date.now() + ms; !ok(); await new Promise((r) => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error("timed out waiting");
+  }
+}
 const shownProducts = () => page().$$eval(".mesh-products a.product-open", (as) => as.map((a) => a.textContent.trim()));
 
 test("the products list says what each offers, badges it with its model's endorsement and filters by it", { skip }, async () => {
@@ -141,6 +150,9 @@ test("Add a model picks a workspace, then a semantic model in it, and records on
   await page().waitForSelector('[role=dialog] label:has-text("SM_Sales_Daily")');
   assert.deepStrictEqual(await page().$$eval("[role=dialog] .product-item-pick label", (ls) => ls.map((l) => l.textContent)),
     ["SM_Customer360", "SM_Sales_Daily"], "only semantic models are offered");
+  // The first workspace's list answers after this one: the dialog must still add from the workspace picked.
+  await until(() => lateLists > 0);
+  await page().evaluate(() => new Promise((r) => setTimeout(r, 50)));
   await page().click('[role=dialog] label:has-text("SM_Sales_Daily")');
   await page().click('[role=dialog] button:has-text("Add")');
   await page().waitForSelector('.product-offer [data-group="SemanticModel"] .product-offer-item:has-text("SM_Sales_Daily")');

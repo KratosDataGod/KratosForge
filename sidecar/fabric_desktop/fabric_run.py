@@ -10,6 +10,7 @@ Spark SQL) are published as they are, for a Spark notebook.
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
 import re
@@ -192,13 +193,15 @@ def uses_spark(cells: list[dict[str, Any]]) -> bool:
 
 
 def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-                 schemas_enabled: bool = True) -> dict[str, Any]:
+                 schemas_enabled: bool = True, sql_calls: bool = False) -> dict[str, Any]:
     """The notebook as it is published to Fabric.
 
     A notebook that uses Spark is published as a Spark notebook, where ``spark`` and ``%%sql``
-    are Fabric's own; one that uses only the lakehouse module becomes a Python notebook."""
+    are Fabric's own; one that uses only the lakehouse module becomes a Python notebook.
+    ``sql_calls`` makes every %%sql cell a ``spark.sql`` call, so a proof's Spark side sees it."""
     cells = fabric_sql_magics([magics.fabric_cell(c) for c in cells],
-                              spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells))
+                              spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells),
+                              every=sql_calls)
     if not lakehouse or not uses_local_module(cells):
         return to_ipynb(cells, lakehouse)
     if uses_spark(cells):
@@ -210,10 +213,11 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     return nb
 
 
-def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str, Any]]:
+def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool, every: bool = False) -> list[dict[str, Any]]:
     """Fabric has %%sql cells but neither ``df = %sql ...`` nor ``_sqldf`` (magics.py, the kernel's
     _run_sql): those become ``spark.sql`` calls (``lakehouse.sql`` in a Python notebook), and a
-    %%sql query whose ``_sqldf`` a later cell uses becomes ``_sqldf = spark.sql(...)``."""
+    %%sql query whose ``_sqldf`` a later cell uses becomes ``_sqldf = spark.sql(...)``. With
+    ``every``, each %%sql cell becomes a call."""
     call = "spark.sql" if spark else "lakehouse.sql"
     later = [bool(_USES_SQLDF.search(c.get("source", ""))) and c.get("type") != "markdown" for c in cells]
     out = []
@@ -223,8 +227,10 @@ def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str
             out.append(c)
         elif _is_sql(c):
             query = magics.cell(source).body.strip()
-            if any(later[i + 1:]) and magics.returns_rows(query):
+            if (every or any(later[i + 1:])) and magics.returns_rows(query):
                 c = {**c, "source": f"_sqldf = {call}({json.dumps(query)})\ndisplay(_sqldf)"}
+            elif every:
+                c = {**c, "source": f"{call}({json.dumps(query)})"}
             out.append(c)
         elif found := [m for m in magics.find(source) if m.name == "sql"]:
             lines = source.split("\n")
@@ -259,8 +265,6 @@ _FABRIC_ONLY = [
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
     (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
-    (re.compile(r"\bspark\.sql\(\s*[rfbu]*[\"']+\s*(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I),
-     "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE), which runs in Fabric only"),
     (re.compile(r"\.option\(\s*[\"'](replaceWhere|partitionOverwriteMode)[\"']", re.I),
      "uses a write option this PC doesn't have (replaceWhere or partitionOverwriteMode); ignoring it would replace the whole table"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
@@ -268,7 +272,43 @@ _FABRIC_ONLY = [
 ]
 # Databricks' utilities: this PC has them, Fabric has notebookutils instead.
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
-_SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
+# MERGE INTO, UPDATE and DELETE run on this PC (spark_local.py, PB-015), into the attached lakehouse.
+_SQL_CHANGE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
+# A spark.sql call on a plain string literal (an f-string's text isn't known until it runs).
+_SPARK_SQL_LITERAL = re.compile(r"""\bspark\.sql\(\s*(?P<lit>[rRuU]?(?P<q>\"\"\"|'''|"|')(?:\\.|(?!(?P=q)).)*(?P=q))""", re.S)
+
+
+def _literal_sql(m: re.Match[str]) -> str:
+    """The SQL text of a spark.sql string literal, as Python reads it (escapes and all)."""
+    try:
+        return str(ast.literal_eval(m["lit"]))
+    except (ValueError, SyntaxError):
+        return ""
+
+
+def _in_comment(source: str, offset: int) -> bool:
+    """Whether ``offset`` in Python ``source`` falls in a # comment. Source Python can't read
+    (magics, a half-typed cell) has no comments found, so nothing in it is skipped."""
+    import io
+    import tokenize
+    line = source.count("\n", 0, offset) + 1
+    col = offset - (source.rfind("\n", 0, offset) + 1)
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT and tok.start[0] == line and tok.start[1] <= col:
+                return True
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return False
+    return False
+
+
+def _sql_in_place(sql: str, lakehouse_name: str | None = None) -> bool:
+    """SQL that changes rows in place in a way this PC doesn't run, and so runs in Fabric only: a
+    MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off (spark_local.change_runs_here)."""
+    if not _SQL_CHANGE.search(sql):
+        return False
+    from . import spark_local
+    return not spark_local.change_runs_here(sql, lakehouse_name)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
 
@@ -287,6 +327,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
     among all cells, as the notebook shows them."""
     local: list[dict[str, Any]] = []
     fabric: list[dict[str, Any]] = []
+    own = (lakehouse or {}).get("name")  # the notebook's lakehouse, for a check made with none attached
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
@@ -297,15 +338,19 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         elif language == "tsql":
             local.append({"cell": n, "text": "runs T-SQL in a Fabric Warehouse or SQL endpoint (%%tsql)", "code": _snippet(source)})
         elif language == "sql":
-            if _SQL_WRITE.search(source):
-                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
+            if _sql_in_place(magics.cell(source).body, own):
+                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source)})
         else:
             hit = next(((m, text) for rx, text in _FABRIC_ONLY if (m := rx.search(source))), None)
+            hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
+                                   "lakehouse, or with Preview features off), which runs in Fabric only")
+                               for m in _SPARK_SQL_LITERAL.finditer(source)
+                               if not _in_comment(source, m.start()) and _sql_in_place(_literal_sql(m), own)), None)
             if hit:
                 local.append({"cell": n, "text": hit[1], "code": _snippet(source, hit[0])})
-            elif m := next((m for m in magics.find(source) if m.name == "sql" and _SQL_WRITE.search(m.rest)), None):
-                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
+            elif m := next((m for m in magics.find(source) if m.name == "sql" and _sql_in_place(m.rest, own)), None):
+                local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
         if m := _DBUTILS.search(source):
             fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "

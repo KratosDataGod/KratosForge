@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, depgraph, envprofile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, jsonfile, notebook_cells, proof, receipts, redact, replay, scorecard, verify, wizard
 from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
@@ -43,6 +43,7 @@ RUNNING = ("preparing", "pc", "fabric", "verifying")
 PROOF_SUFFIX = "_proof"
 
 _log = logging.getLogger(__name__)
+_PROOFS_SAVING = threading.Lock()  # proofs.jsonl is read, changed and written whole
 
 
 def _now() -> str:
@@ -513,19 +514,19 @@ class ProveMixin:
 
     def _proofs_saved(self) -> list[dict[str, Any]]:
         try:
-            lines = self._proofs_file.read_text(encoding="utf-8").splitlines()
+            lines = jsonfile.read_text(self._proofs_file).splitlines()
         except OSError:
             return []
         return [json.loads(line) for line in lines if line.strip()]
 
     def _proof_save(self, record: dict[str, Any]) -> None:
+        # A proof's own thread saves as it ends while a request (Delete outputs) may save too: one at a
+        # time, each through its own temporary file, so neither fails nor drops the other's row.
         keep = {k: v for k, v in record.items() if not k.startswith("_")}
         keep["pc"] = {k: v for k, v in record["pc"].items() if k != "cells"}
-        rows = [r for r in self._proofs_saved() if r.get("id") != record["id"]] + [keep]
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp = self._proofs_file.with_suffix(".tmp")
-        tmp.write_text("".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]), encoding="utf-8")
-        tmp.replace(self._proofs_file)
+        with _PROOFS_SAVING:
+            rows = [r for r in self._proofs_saved() if r.get("id") != record["id"]] + [keep]
+            jsonfile.write_text(self._proofs_file, "".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]))
 
     def proof_busy(self) -> bool:
         return any(r["state"] in RUNNING for r in self._proof_state().values())
@@ -621,7 +622,7 @@ class ProveMixin:
             "check": check, "rules": rules,
             "parameters": parameters, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
-            "fabric": {"status": "pending", "engine": "python"},
+            "fabric": {"status": "pending", "engine": check.get("engine", "python")},
             "inputs": {}, "shared": {}, "tables": [], "verdict": None, "scorecard": None, "receipt_id": None,
             "_cancel": False, "_suffixes": suffixes}
         self._proof_state()[record["id"]] = record
@@ -801,10 +802,14 @@ class ProveMixin:
         """Publish the proof copy (its own item), run it on the workspace's capacity, read its log."""
         f = record["fabric"]
         f["status"] = "publishing"
-        first, last = proof.fabric_cells(config, modules)
-        started = time.monotonic()
         schemas = not config["flat"]
-        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
+        spark = proof.runs_spark(cells)
+        first, last = proof.fabric_cells(config, modules, {
+            "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+            "name": lakehouse_ref.get("name", ""), "schemas": schemas} if spark else None)
+        f["engine"] = "spark" if spark else "python"
+        started = time.monotonic()
+        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas, sql_calls=spark)).encode()
         item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
@@ -818,7 +823,7 @@ class ProveMixin:
         f.update(status="running", job_id=job_id, item_id=item["id"], item_name=item_name,
                  workspace_id=ws["workspace_id"], url=url, submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": item_name, "workspace_id": ws["workspace_id"],  # type: ignore[attr-defined]
-                              "workspace_name": ws["workspace_name"], "engine": "python", "item_id": item["id"],
+                              "workspace_name": ws["workspace_name"], "engine": f["engine"], "item_id": item["id"],
                               "job_id": job_id, "url": url, "proof": record["id"]})
         job: dict[str, Any] = {}
         while time.monotonic() - started < MAX_FABRIC_SECONDS:

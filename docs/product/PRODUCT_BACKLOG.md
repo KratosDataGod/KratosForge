@@ -64,19 +64,19 @@ from, and keep the stricter acceptance criteria. In this first pass:
 <!-- BEGIN GENERATED: summary -->
 | Category | P0 | P1 | P2 | P3 | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| [Local Development and Execution](#local-development-and-execution) | 1 | 3 | 2 | 0 | 6 |
-| [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 6 | 3 | 10 |
+| [Local Development and Execution](#local-development-and-execution) | 1 | 3 | 2 | 1 | 7 |
+| [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 6 | 5 | 12 |
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 4 | 9 |
-| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 1 | 7 |
+| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 6 | 2 | 9 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
-| [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 8 | 0 | 11 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 6 | 1 | 10 |
+| [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 7 | 1 | 11 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
-| [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 2 | 1 | 5 |
+| [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **31** | **52** | **13** | **101** |
+| **Total** | **5** | **32** | **55** | **17** | **109** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -89,20 +89,21 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | In review |
-| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | In review |
+| [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | Accepted |
+| [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | Accepted |
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
-| [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
-| [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
+| [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | In progress |
+| [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | In progress |
 | [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
+| [PB-117](#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | P3 | Fabric and Databricks unified development | M | In progress |
 
 ### PB-012
 
-**Published Spark API compatibility matrix for this PC** · P1 (score 3.51) · M · confidence High · In review
+**Published Spark API compatibility matrix for this PC** · P1 (score 3.51) · M · confidence High · Accepted
 
 - **Problem:** Notebook authors can't tell which PySpark and notebookutils calls work on the PC before they hit an error; docs list some gaps by hand and the code differs from them in places.
 - **Proposed capability:** A matrix of every supported, partial and refused Spark, Spark SQL and notebookutils call, generated from the parity tests on each build and published in the docs and the Prove panel.
-- **Current-state evidence:** sidecar/fabric_desktop/spark_local.py raises for MERGE/UPDATE/DELETE and ignores partitionBy and reader schema(); docs/notebooks.md lists limits by hand; No generated list exists
+- **Current-state evidence:** sidecar/fabric_desktop/spark_local.py raises for MERGE/UPDATE/DELETE and ignores partitionBy and reader schema(); docs/notebooks.md lists limits by hand; No generated list exists; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: MERGE, UPDATE and DELETE, partitionBy and RDDs aren't supported. The page says local results aren't claimed to match Fabric.
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-SQL-02](FEATURE_INVENTORY.md#feat-sql-02)
 - **Dependencies:** none
 - **Owner:** Prove (FD-111, Prove plan Stage 2)
@@ -114,16 +115,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-013
 
-**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · In review
+**Fix local-parity defects that give wrong answers** · P1 (score 2.56) · M · confidence High · Accepted
 
 - **Problem:** Several local behaviors differ silently from Fabric or from the app's own UI: a notebook using variableLibrary is flagged Fabric-only, %%sql MERGE cells report ok, notebookutils.session is missing though documented, insertInto defaults to errorifexists, and scheduled runs execute frozen cells that UI runs skip.
 - **Proposed capability:** Each defect fixed or turned into an explicit, visible refusal, with a regression test per defect.
-- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md)
+- **Current-state evidence:** fabric_run.py _FABRIC_ONLY includes notebookutils.variableLibrary; notebook.py %%sql MERGE path prints a note and returns ok; notebookutils_local.py docstring names session; attribute absent; local_schedules.py runs all cells; notebook.js skips frozen cells (inference from code reading); Re-checked 2026-10-25: all five defects are fixed on main (pr-ready/PB-013.md); No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07), [FEAT-SQL-02](FEATURE_INVENTORY.md#feat-sql-02), [FEAT-ORC-01](FEATURE_INVENTORY.md#feat-orc-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned) (FD-111 (analyzer is separate, PB-014))
 - **Mandatory (required):** Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.
-- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410), [#692](https://github.com/KratosDataGod/KratosForge/pull/692), [#762](https://github.com/KratosDataGod/KratosForge/pull/762), [#771](https://github.com/KratosDataGod/KratosForge/pull/771)
+- **Pull requests:** [#410](https://github.com/KratosDataGod/KratosForge/pull/410), [#692](https://github.com/KratosDataGod/KratosForge/pull/692), [#762](https://github.com/KratosDataGod/KratosForge/pull/762), [#771](https://github.com/KratosDataGod/KratosForge/pull/771), [#890](https://github.com/KratosDataGod/KratosForge/pull/890)
+- **Story issues:** [#851](https://github.com/KratosDataGod/KratosForge/issues/851)
 - **Implementation package:** [pr-ready/PB-013.md](pr-ready/PB-013.md)
 - **Acceptance criteria:**
     - compute_check reports a variableLibrary notebook as able to run on the PC
@@ -148,14 +150,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-015
 
-**Write semantics for MERGE, UPDATE and DELETE on this PC** · P2 (score 2.25) · L · confidence Medium · Proposed
+**Write semantics for MERGE, UPDATE and DELETE on this PC** · P2 (score 2.25) · L · confidence Medium · In progress
 
 - **Problem:** Spark notebooks that MERGE or UPDATE must run in Fabric today, so the most common incremental pattern costs capacity during development.
 - **Proposed capability:** spark.sql MERGE/UPDATE/DELETE and DeltaTable merge executed through delta-rs on the PC, with the Fabric Delta profile check, behind a Preview flag.
-- **Current-state evidence:** spark_local.py raises for MERGE, UPDATE, DELETE; meta/engine.py already merges with delta-rs for metadata runs
+- **Current-state evidence:** spark_local.py raises for MERGE, UPDATE, DELETE; meta/engine.py already merges with delta-rs for metadata runs; MERGE INTO (#933) and UPDATE and DELETE (#1028) run on this PC as Preview, and the run check judges them against the notebook's lakehouse (#1054) on main at 02118fa4. Criterion 4: Prove takes Spark notebooks (proof_spark.py), and a MERGE, UPDATE and DELETE proof matched with Apache Spark 3.5 and Delta 3.2 standing in for Fabric; the live run in Fabric waits on Chris's yes
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04)
 - **Dependencies:** [PB-012](#pb-012), Overlaps FD-LDE-005 local Delta: the LDE thread builds create, append, overwrite and time travel; MERGE, UPDATE and DELETE semantics stay with this item (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Prove (Prove plan (local Spark coverage))
+- **Pull requests:** [#933](https://github.com/KratosDataGod/KratosForge/pull/933), [#1028](https://github.com/KratosDataGod/KratosForge/pull/1028), [#1054](https://github.com/KratosDataGod/KratosForge/pull/1054)
+- **Story issues:** [#848](https://github.com/KratosDataGod/KratosForge/issues/848)
 - **Acceptance criteria:**
     - The parity suite covers MERGE with matched/not-matched clauses, UPDATE and DELETE
     - Written tables pass the Fabric Delta profile check
@@ -164,7 +168,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-016
 
-**Reproducible environments and Fabric Environment items** · P2 (score 1.9) · L · confidence Low · Proposed
+**Reproducible environments and Fabric Environment items** · P2 (score 1.9) · L · confidence Low · In progress
 
 - **Problem:** Packages differ between the PC and Fabric and nothing installs or pins them; Fabric Environment items can't be read or attached.
 - **Proposed capability:** Environment profiles that pin packages for the PC and map to a Fabric Environment item's libraries and Spark settings.
@@ -172,6 +176,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-PRV-04](FEATURE_INVENTORY.md#feat-prv-04), [FEAT-FAB-09](FEATURE_INVENTORY.md#feat-fab-09)
 - **Dependencies:** Product-owner decision: package source for environment profiles (Prove)
 - **Owner:** Prove (FD-109)
+- **Pull requests:** [#906](https://github.com/KratosDataGod/KratosForge/pull/906), [#942](https://github.com/KratosDataGod/KratosForge/pull/942)
+- **Story issues:** [#899](https://github.com/KratosDataGod/KratosForge/issues/899), [#941](https://github.com/KratosDataGod/KratosForge/issues/941)
 - **Acceptance criteria:**
     - A notebook's profile installs the same versions on the PC that its Fabric Environment declares
     - The app can attach a notebook to an existing Environment item
@@ -194,20 +200,39 @@ review moves it to Accepted; a merge alone does neither.
     - As defined in FD-LDE-001..020 by its owning thread
     - Each story's overlap with an existing item follows the owner named in that plan
 
+### PB-117
+
+**Snowflake pillar: audit, ADRs and parity matrix** · P3 (score 1.56) · M · confidence Medium · In progress
+
+- **Problem:** Snowflake is one of the three target platforms and has no work at all.
+- **Proposed capability:** An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.
+- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview
+- **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
+- **Dependencies:** No code and no Snowflake account spend before Chris's go
+- **Owner:** Fabric and Databricks unified development (KF-SNOWFLAKE-RESEARCH)
+- **Pull requests:** [#993](https://github.com/KratosDataGod/KratosForge/pull/993), [#995](https://github.com/KratosDataGod/KratosForge/pull/995)
+- **Story issues:** [#853](https://github.com/KratosDataGod/KratosForge/issues/853)
+- **Acceptance criteria:**
+    - A parity matrix like databricks/parity-matrix.md, with official sources for each row
+    - ADRs for sign-in, the engine adapter and what never runs inside the engine process
+    - A sliced plan of independently reviewable PRs
+
 ## SQL, Python, and Notebook Development
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-020](#pb-020) | Local Warehouse simulation | P3 | SQL development sprint | XL | Proposed |
-| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | In review |
-| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | In review |
-| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | In review |
-| [PB-024](#pb-024) | Native Warehouse and SQL database connectivity | P3 | Build full warehouse development experience | L | In review |
-| [PB-025](#pb-025) | SQL object explorer | P2 | Build full warehouse development experience | M | In review |
-| [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | In review |
-| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | Proposed |
-| [PB-028](#pb-028) | Package install magics that work on this PC | P2 | Prove | S | In review |
+| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | Accepted |
+| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | Accepted |
+| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | Accepted |
+| [PB-024](#pb-024) | Native Warehouse connectivity | P3 | Build full warehouse development experience | L | In review |
+| [PB-025](#pb-025) | SQL object explorer | P2 | Build full warehouse development experience | M | Accepted |
+| [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | Accepted |
+| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | In progress |
+| [PB-028](#pb-028) | Package install magics that work on this PC | P2 | Prove | S | Accepted |
 | [PB-106](#pb-106) | Warehouse development program | P2 | Build full warehouse development experience | XL | In progress |
+| [PB-114](#pb-114) | Fabric SQL database connectivity | P3 | Build full warehouse development experience | L | Proposed |
+| [PB-118](#pb-118) | Databricks notebook conversion says what it could not carry over | P3 | Fabric and Databricks unified development | S | In review |
 
 ### PB-020
 
@@ -224,11 +249,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-021
 
-**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · In review
+**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · Accepted
 
 - **Problem:** The SQL page is a plain textarea with no completion or formatting.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-001).
-- **Current-state evidence:** app/ui/app.js SQL page uses a textarea; PR #118 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** app/ui/app.js SQL page uses a textarea; PR #118 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-001)
@@ -238,11 +263,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-022
 
-**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · In review
+**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · Accepted
 
 - **Problem:** Spark SQL translated to DuckDB can succeed locally and still fail in Fabric (or the reverse), and nothing says so.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-002).
-- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report; PR #120 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report; PR #120 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-002)
@@ -252,11 +277,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-023
 
-**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · In review
+**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · Accepted
 
 - **Problem:** SQL queries can't be cancelled, show only the first 1,000 rows, and Download CSV runs the query again.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-003).
-- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL; PR #134 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL; PR #134 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)
 - **Owner:** SQL development sprint (SQL-003)
@@ -266,13 +291,13 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-024
 
-**Native Warehouse and SQL database connectivity** · P3 (score 1.55) · L · confidence Medium · In review
+**Native Warehouse connectivity** · P3 (score 1.55) · L · confidence Medium · In review
 
 - **Problem:** T-SQL developers can't reach a Warehouse, SQL analytics endpoint or Fabric SQL database from the app.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-004).
-- **Current-state evidence:** SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636); mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809
+- **Current-state evidence:** SQL-004 read-only warehouse queries (#581) with mssql-python (#580); Warehouse page WH-01 (#636); mssql-python is in sidecar/constraints.txt (#580); a first tenant run on 2026-10-27 led to #808 and #809; Narrowed to warehouses and SQL analytics endpoints (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); Fabric SQL database moved to PB-114. Stays In review until the ODBC driver licence terms (PB-024 review, finding 2) are settled; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Stays open until the end-user terms are settled.
 - **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
-- **Dependencies:** [PB-021](#pb-021), Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)
+- **Dependencies:** [PB-021](#pb-021), Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126), End-user terms for the Microsoft ODBC driver the engine ships (counsel)
 - **Owner:** Build full warehouse development experience (SQL-004)
 - **Pull requests:** [#580](https://github.com/KratosDataGod/KratosForge/pull/580), [#581](https://github.com/KratosDataGod/KratosForge/pull/581), [#636](https://github.com/KratosDataGod/KratosForge/pull/636)
 - **Acceptance criteria:**
@@ -280,11 +305,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-025
 
-**SQL object explorer** · P2 (score 2.29) · M · confidence Medium · In review
+**SQL object explorer** · P2 (score 2.29) · M · confidence Medium · Accepted
 
 - **Problem:** There is no tree of schemas, tables, views and procedures for SQL work.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-005).
-- **Current-state evidence:** Lakehouse explorer lists tables only; WH-02 object explorer (#637) and WH-03 Script as (#638) on the Warehouse page
+- **Current-state evidence:** Lakehouse explorer lists tables only; WH-02 object explorer (#637) and WH-03 Script as (#638) on the Warehouse page; Implementation review docs/product/reviews/PB-025-637.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: None blocking. Findings 1 and 2 (wording, keyboard tree) were fixed in #835.
 - **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** [PB-024](#pb-024)
 - **Owner:** Build full warehouse development experience (SQL-005)
@@ -294,11 +319,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-026
 
-**Notebook debugger** · P3 (score 1.6) · L · confidence Medium · In review
+**Notebook debugger** · P3 (score 1.6) · L · confidence Medium · Accepted
 
 - **Problem:** There are no breakpoints, stepping or watches; competitors (Databricks, Snowflake, VS Code) offer debugging.
 - **Proposed capability:** Breakpoints and stepping in the process kernel, planned by the Prove program.
-- **Current-state evidence:** No debugger code; docs/prove/plan.md Stage 5 backlog #44
+- **Current-state evidence:** No debugger code; docs/prove/plan.md Stage 5 backlog #44; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Notebooks only, and it needs Run notebooks in their own process.
 - **Inventory features:** [FEAT-EXT-04](FEATURE_INVENTORY.md#feat-ext-04)
 - **Dependencies:** [PB-073](#pb-073)
 - **Owner:** Prove (Prove plan #44)
@@ -309,7 +334,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-027
 
-**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · Proposed
+**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · In progress
 
 - **Problem:** Completion knows only what the kernel has run, so column names of attached tables aren't offered.
 - **Proposed capability:** Completion of table and column names from the attached lakehouse's Delta schemas.
@@ -317,17 +342,19 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-NB-08](FEATURE_INVENTORY.md#feat-nb-08)
 - **Dependencies:** none
 - **Owner:** Prove (Prove plan #12)
+- **Pull requests:** [#901](https://github.com/KratosDataGod/KratosForge/pull/901)
+- **Story issues:** [#878](https://github.com/KratosDataGod/KratosForge/issues/878)
 - **Acceptance criteria:**
     - Typing a table alias offers its columns without running a cell
     - Works offline from cached schemas
 
 ### PB-028
 
-**Package install magics that work on this PC** · P2 (score 2.0) · S · confidence Medium · In review
+**Package install magics that work on this PC** · P2 (score 2.0) · S · confidence Medium · Accepted
 
 - **Problem:** %pip is skipped with a note, so a missing package fails later; !pip and %%time would be syntax errors.
 - **Proposed capability:** %pip and !pip install into the notebook's environment profile, %%time supported.
-- **Current-state evidence:** notebook.py magic handling (code reading)
+- **Current-state evidence:** notebook.py magic handling (code reading); No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: %%spark, %%sparkr and %%csharp still run in Fabric.
 - **Inventory features:** [FEAT-NB-06](FEATURE_INVENTORY.md#feat-nb-06)
 - **Dependencies:** [PB-016](#pb-016)
 - **Owner:** Prove (FD-109)
@@ -347,30 +374,64 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-024](#pb-024), [PB-025](#pb-025), Decision D1 warehouse writes (Chris), Decision D3 live read query (Chris), Phases 3-5 need Chris's go
 - **Owner:** Build full warehouse development experience (WH-01..21, SF-01..06)
 - **Merged duplicates:** Absorbs PB-020 local warehouse simulation and the SQL sprint's SQL-004/005 screens
-- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731), [#743](https://github.com/KratosDataGod/KratosForge/pull/743), [#745](https://github.com/KratosDataGod/KratosForge/pull/745), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#774](https://github.com/KratosDataGod/KratosForge/pull/774), [#783](https://github.com/KratosDataGod/KratosForge/pull/783), [#787](https://github.com/KratosDataGod/KratosForge/pull/787), [#808](https://github.com/KratosDataGod/KratosForge/pull/808), [#809](https://github.com/KratosDataGod/KratosForge/pull/809), [#823](https://github.com/KratosDataGod/KratosForge/pull/823)
+- **Pull requests:** [#636](https://github.com/KratosDataGod/KratosForge/pull/636), [#637](https://github.com/KratosDataGod/KratosForge/pull/637), [#638](https://github.com/KratosDataGod/KratosForge/pull/638), [#639](https://github.com/KratosDataGod/KratosForge/pull/639), [#641](https://github.com/KratosDataGod/KratosForge/pull/641), [#645](https://github.com/KratosDataGod/KratosForge/pull/645), [#660](https://github.com/KratosDataGod/KratosForge/pull/660), [#662](https://github.com/KratosDataGod/KratosForge/pull/662), [#723](https://github.com/KratosDataGod/KratosForge/pull/723), [#727](https://github.com/KratosDataGod/KratosForge/pull/727), [#728](https://github.com/KratosDataGod/KratosForge/pull/728), [#729](https://github.com/KratosDataGod/KratosForge/pull/729), [#730](https://github.com/KratosDataGod/KratosForge/pull/730), [#731](https://github.com/KratosDataGod/KratosForge/pull/731), [#743](https://github.com/KratosDataGod/KratosForge/pull/743), [#745](https://github.com/KratosDataGod/KratosForge/pull/745), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#774](https://github.com/KratosDataGod/KratosForge/pull/774), [#783](https://github.com/KratosDataGod/KratosForge/pull/783), [#787](https://github.com/KratosDataGod/KratosForge/pull/787), [#808](https://github.com/KratosDataGod/KratosForge/pull/808), [#809](https://github.com/KratosDataGod/KratosForge/pull/809), [#823](https://github.com/KratosDataGod/KratosForge/pull/823), [#912](https://github.com/KratosDataGod/KratosForge/pull/912), [#949](https://github.com/KratosDataGod/KratosForge/pull/949), [#985](https://github.com/KratosDataGod/KratosForge/pull/985), [#1112](https://github.com/KratosDataGod/KratosForge/pull/1112)
+- **Story issues:** [#810](https://github.com/KratosDataGod/KratosForge/issues/810), [#946](https://github.com/KratosDataGod/KratosForge/issues/946), [#947](https://github.com/KratosDataGod/KratosForge/issues/947)
 - **Acceptance criteria:**
     - As defined in WH-01..21 by its owning thread
+
+### PB-114
+
+**Fabric SQL database connectivity** · P3 (score 1.55) · L · confidence Medium · Proposed
+
+- **Problem:** The Warehouse page and the engine reach warehouses and SQL analytics endpoints only; a Fabric SQL database can't be queried (PB-024 review, finding 1).
+- **Proposed capability:** Resolve and connect to Fabric SQL database items the same way as warehouses, with the same read-only rule and write confirms.
+- **Current-state evidence:** Split from PB-024 on Chris's acceptance of the 2026-10-28 batch; warehouse.resolve accepts warehouse and endpoint kinds and *.datawarehouse.fabric.microsoft.com hosts only (PB-024 review)
+- **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
+- **Dependencies:** [PB-024](#pb-024)
+- **Owner:** Build full warehouse development experience (docs/product/reviews/PB-024-581.md finding 1)
+- **Acceptance criteria:**
+    - A Fabric SQL database opens on the Warehouse page and runs a read-only query
+    - Writes follow the same preview and confirm as warehouses
+
+### PB-118
+
+**Databricks notebook conversion says what it could not carry over** · P3 (score 1.76) · S · confidence Medium · In review
+
+- **Problem:** Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.
+- **Proposed capability:** A loss report on every Databricks import and export, extending the existing converter.
+- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4
+- **Inventory features:** [FEAT-NB-26](FEATURE_INVENTORY.md#feat-nb-26), [FEAT-NB-12](FEATURE_INVENTORY.md#feat-nb-12)
+- **Dependencies:** none
+- **Owner:** Fabric and Databricks unified development (KF-DBX-LOSS-REPORT)
+- **Pull requests:** [#1053](https://github.com/KratosDataGod/KratosForge/pull/1053), [#1146](https://github.com/KratosDataGod/KratosForge/pull/1146)
+- **Story issues:** [#854](https://github.com/KratosDataGod/KratosForge/issues/854)
+- **Acceptance criteria:**
+    - Each dropped or changed construct is listed with its cell
+    - Round-trip tests cover widgets, %sh, %fs and dbutils
+    - Docs list what converts and what doesn't
 
 ## Data Engineering and Transformation
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | Proposed |
-| [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | Proposed |
-| [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | Proposed |
-| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | Proposed |
-| [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | Proposed |
+| [PB-019](#pb-019) | Late-arriving rows and source deletes in incremental loads | P2 | Staged roadmap | M | Accepted |
+| [PB-031](#pb-031) | Schema evolution without full rewrites | P2 | Staged roadmap | M | Accepted |
+| [PB-067](#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | P2 | Staged roadmap | M | In progress |
+| [PB-068](#pb-068) | Key lookups without reading whole key tables | P2 | Staged roadmap | M | Accepted |
+| [PB-079](#pb-079) | Decide the future of the TOML job runner | P2 | Master product (unassigned) | S | In progress |
 
 ### PB-019
 
-**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · Proposed
+**Late-arriving rows and source deletes in incremental loads** · P2 (score 2.19) · M · confidence Medium · Accepted
 
 - **Problem:** The watermark filter is strictly greater-than, so rows that arrive late are dropped, and deletes at the source never reach the table.
 - **Proposed capability:** A lookback window and soft- or hard-delete handling per entity.
-- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3
+- **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3; Late-arriving rows and source deletes in incremental loads merged (#914) on main at 4eb1f509; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Opt-in, for Delta sources with keys only. An empty source stops a deletes run instead of deleting everything. Not run on a tenant.
 - **Inventory features:** [FEAT-META-02](FEATURE_INVENTORY.md#feat-meta-02)
 - **Dependencies:** Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Staged roadmap (FD-117)
+- **Pull requests:** [#914](https://github.com/KratosDataGod/KratosForge/pull/914), [#1013](https://github.com/KratosDataGod/KratosForge/pull/1013)
+- **Story issues:** [#883](https://github.com/KratosDataGod/KratosForge/issues/883)
 - **Acceptance criteria:**
     - A late row inside the lookback lands exactly once
     - A source delete marks or removes the row per the entity setting
@@ -378,56 +439,63 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-031
 
-**Schema evolution without full rewrites** · P2 (score 2.04) · M · confidence Medium · Proposed
+**Schema evolution without full rewrites** · P2 (score 2.04) · M · confidence Medium · Accepted
 
 - **Problem:** Type changes rewrite whole tables and contracts aren't versioned per change.
 - **Proposed capability:** Additive and widening changes applied in place; versioned schema history tied to the breaking-change check.
-- **Current-state evidence:** meta/drift.py; docs/scale-and-operations-plan.md FD-118
+- **Current-state evidence:** meta/drift.py; docs/scale-and-operations-plan.md FD-118; Each schema change is recorded in meta.schema_history with its version, and narrowing is refused unless overwrite_schema (#979) on main at 188d5a93. Widening still rewrites the table: delta-rs 1.6.6 can't write typeWidening, and it would leave the Fabric-safe profile. Criterion 1 can't be met as written; Chris decides at acceptance; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): criterion 1 changed and Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: widening rewrites the table, because delta-rs 1.6.6 can't write Delta's typeWidening and it would leave the Fabric-safe profile
 - **Inventory features:** [FEAT-META-07](FEATURE_INVENTORY.md#feat-meta-07)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-118)
+- **Pull requests:** [#979](https://github.com/KratosDataGod/KratosForge/pull/979)
+- **Story issues:** [#904](https://github.com/KratosDataGod/KratosForge/issues/904)
 - **Acceptance criteria:**
-    - Widening a type commits without rewriting data files
+    - Widening a type rewrites the table, narrowing is refused unless overwrite_schema
     - Each schema change is recorded with its version
 
 ### PB-067
 
-**Bounded-memory runs: run dialog and orphan-file cleanup** · P2 (score 2.52) · M · confidence High · Proposed
+**Bounded-memory runs: run dialog and orphan-file cleanup** · P2 (score 2.52) · M · confidence High · In progress
 
 - **Problem:** The preflight estimate exists but has no screen, and a stopped batch can leave orphan files.
 - **Proposed capability:** A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.
-- **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py; Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open
+- **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py; Delete left-overs in Settings and Runs on (#687, #706) removes orphan local write files; the run dialog is still open; A stopped batched load removes the files it wrote, or leaves them for VACUUM when another writer committed (#950) on main at 188d5a93. The run dialog (criterion 1) is still to build: meta_preflight has no caller in app/ui
 - **Inventory features:** [FEAT-META-06](FEATURE_INVENTORY.md#feat-meta-06)
 - **Dependencies:** Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-114)
-- **Pull requests:** [#687](https://github.com/KratosDataGod/KratosForge/pull/687), [#706](https://github.com/KratosDataGod/KratosForge/pull/706)
+- **Pull requests:** [#687](https://github.com/KratosDataGod/KratosForge/pull/687), [#706](https://github.com/KratosDataGod/KratosForge/pull/706), [#950](https://github.com/KratosDataGod/KratosForge/pull/950)
+- **Story issues:** [#915](https://github.com/KratosDataGod/KratosForge/issues/915)
 - **Acceptance criteria:**
     - The run dialog shows the estimate before a large run (after a mockup)
     - Files from a stopped batch are removed or vacuumed
 
 ### PB-068
 
-**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · Proposed
+**Key lookups without reading whole key tables** · P2 (score 2.42) · M · confidence High · Accepted
 
 - **Problem:** Every keyed run reads the whole key table, which grows with the business.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.
-- **Current-state evidence:** meta/keys.py read_keys
+- **Current-state evidence:** meta/keys.py read_keys; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-META-05](FEATURE_INVENTORY.md#feat-meta-05)
 - **Dependencies:** Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101), Direction change (Chris's unit testing, 2026-10-18, item 25): one Fabric SQL database in a dedicated Keys workspace shared by all environments (Chris, 2026-10-20: one for all); built in PR #293, not yet moved on a live tenant
 - **Owner:** Staged roadmap (FD-115)
+- **Pull requests:** [#913](https://github.com/KratosDataGod/KratosForge/pull/913)
+- **Story issues:** [#847](https://github.com/KratosDataGod/KratosForge/issues/847)
 - **Acceptance criteria:**
     - A keyed run reads only matching key rows, shown by a test on a large key table
 
 ### PB-079
 
-**Decide the future of the TOML job runner** · P2 (score 1.85) · S · confidence High · Proposed
+**Decide the future of the TOML job runner** · P2 (score 1.85) · S · confidence High · In progress
 
 - **Problem:** Job files run from the CLI only; the app labels their history as a notebook write and nothing in the UI creates them.
 - **Proposed capability:** A product decision: expose jobs in the app, or keep them a CLI and agent feature and document it so.
-- **Current-state evidence:** jobs.py, cli.py preview/run; no UI caller of preview_job or run_job
+- **Current-state evidence:** jobs.py, cli.py preview/run; no UI caller of preview_job or run_job; Labels made honest: Monitor and Optimize call a job file's run a Job run (#908). The decision isn't recorded in implementation-decisions.md yet on main at b19b7456
 - **Inventory features:** [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11)
 - **Dependencies:** Overlaps FD-LDE-006 local transformations: the LDE thread builds parameterized SQL scripts; pipeline orchestration stays with the ORCH thread (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#908](https://github.com/KratosDataGod/KratosForge/pull/908)
+- **Story issues:** [#900](https://github.com/KratosDataGod/KratosForge/issues/900)
 - **Acceptance criteria:**
     - Decision recorded in docs/product/implementation-decisions.md
     - Docs and Monitor labels match the decision
@@ -437,13 +505,13 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-030](#pb-030) | Data pipeline and Copy job scope after decision D2 | P3 | Staged roadmap | L | Proposed |
-| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In review |
-| [PB-036](#pb-036) | Pipeline activity compatibility registry | P1 | Local Fabric pipeline execution | M | In review |
-| [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | In review |
+| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | Accepted |
+| [PB-036](#pb-036) | Pipeline activity compatibility registry | P1 | Local Fabric pipeline execution | M | Accepted |
+| [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | Accepted |
 | [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | Accepted |
 | [PB-045](#pb-045) | Shared queue for several workers | P3 | Workload management | L | In review |
-| [PB-048](#pb-048) | Schedule editing and safer schedule removal | P2 | Master product (unassigned) | M | Proposed |
-| [PB-049](#pb-049) | Run the pipeline mailbox once on a tenant | P2 | Staged roadmap | S | Proposed |
+| [PB-048](#pb-048) | Schedule editing and safer schedule removal | P2 | Master product (unassigned) | M | Accepted |
+| [PB-049](#pb-049) | Run the pipeline mailbox once on a tenant | P2 | Staged roadmap | S | In progress |
 | [PB-107](#pb-107) | Data Factory program | P3 | Build full Data Factory experience | XL | In progress |
 
 ### PB-030
@@ -462,11 +530,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-035
 
-**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · In review
+**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · Accepted
 
 - **Problem:** Fabric Data pipeline definitions can't be read, validated or run outside Fabric.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).
-- **Current-state evidence:** No pipeline definition parsing in the repo; PR #130 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** No pipeline definition parsing in the repo; PR #130 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Run in Fabric and Refresh in Fabric haven't run on a tenant.
 - **Inventory features:** [FEAT-FAB-10](FEATURE_INVENTORY.md#feat-fab-10)
 - **Dependencies:** none
 - **Owner:** Local Fabric pipeline execution (ORCH-001)
@@ -476,25 +544,26 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-036
 
-**Pipeline activity compatibility registry** · P1 (score 2.76) · M · confidence Medium · In review
+**Pipeline activity compatibility registry** · P1 (score 2.76) · M · confidence Medium · Accepted
 
 - **Problem:** There is no list of which pipeline activities can run locally.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-002).
-- **Current-state evidence:** sidecar/fabric_desktop/orchestration/registry.py and activities.py: 28 entries at registry version 7 (15 local, 5 static, 8 cloud), with the overclaim rules and a fingerprint test; sidecar/tests/test_activity_registry.py: 77 tests pass on main at d0747a66 (2026-10-28); fabric-desktop pipeline compat|activities, Service pipeline_compatibility and pipeline_activity_registry, two Preview capabilities; docs/orchestration/activity-registry.md
+- **Current-state evidence:** sidecar/fabric_desktop/orchestration/registry.py and activities.py: 28 entries at registry version 7 (15 local, 5 static, 8 cloud), with the overclaim rules and a fingerprint test; sidecar/tests/test_activity_registry.py: 77 tests pass on main at d0747a66 (2026-10-28); fabric-desktop pipeline compat|activities, Service pipeline_compatibility and pipeline_activity_registry, two Preview capabilities; docs/orchestration/activity-registry.md; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ORC-09](FEATURE_INVENTORY.md#feat-orc-09)
 - **Dependencies:** [PB-035](#pb-035)
 - **Owner:** Local Fabric pipeline execution (ORCH-002)
-- **Pull requests:** [#150](https://github.com/KratosDataGod/KratosForge/pull/150), [#563](https://github.com/KratosDataGod/KratosForge/pull/563), [#568](https://github.com/KratosDataGod/KratosForge/pull/568)
+- **Pull requests:** [#150](https://github.com/KratosDataGod/KratosForge/pull/150), [#563](https://github.com/KratosDataGod/KratosForge/pull/563), [#568](https://github.com/KratosDataGod/KratosForge/pull/568), [#871](https://github.com/KratosDataGod/KratosForge/pull/871)
+- **Story issues:** [#868](https://github.com/KratosDataGod/KratosForge/issues/868)
 - **Acceptance criteria:**
     - As defined in ORCH-002 by its owning thread
 
 ### PB-037
 
-**Local DAG execution engine** · P3 (score 1.35) · XL · confidence Low · In review
+**Local DAG execution engine** · P3 (score 1.35) · XL · confidence Low · Accepted
 
 - **Problem:** Pipelines run only in Fabric.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-003; ORCH-004..010 follow in that thread).
-- **Current-state evidence:** Metadata runs order entities by dependency; no general DAG runner
+- **Current-state evidence:** Metadata runs order entities by dependency; no general DAG runner; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Copy data runs only in Fabric until P5. Steps that read or write OneLake use capacity.
 - **Inventory features:** [FEAT-ORC-08](FEATURE_INVENTORY.md#feat-orc-08)
 - **Dependencies:** [PB-035](#pb-035), [PB-036](#pb-036)
 - **Owner:** Local Fabric pipeline execution (ORCH-003, ORCH-004..010)
@@ -525,7 +594,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Each agent has its own queue, so work can't spread across machines.
 - **Proposed capability:** A worker registry and shared claims, as the Workload management program plans.
-- **Current-state evidence:** jobqueue.py per machine; docs/agent.md
+- **Current-state evidence:** jobqueue.py per machine; docs/agent.md; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The mechanism that makes it safe hasn't been tried on a tenant yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Waits on the live check (your PB-002/PB-003 yes).
 - **Inventory features:** [FEAT-ORC-06](FEATURE_INVENTORY.md#feat-orc-06)
 - **Dependencies:** [PB-003](#pb-003)
 - **Owner:** Workload management (FD-124)
@@ -535,14 +604,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-048
 
-**Schedule editing and safer schedule removal** · P2 (score 1.84) · M · confidence High · Proposed
+**Schedule editing and safer schedule removal** · P2 (score 1.84) · M · confidence High · Accepted
 
 - **Problem:** Schedules can't be edited, removal has no confirmation, and only 12 time zones are offered.
 - **Proposed capability:** Edit time and frequency, confirm removal, full time-zone list; PC schedules that run when the user is signed out.
-- **Current-state evidence:** schedules.js; local_schedules.py
+- **Current-state evidence:** schedules.js; local_schedules.py; A schedule's time edits in place, Remove asks with a danger confirm, every Windows time zone (time_zones.py) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Editing a Fabric schedule in place hasn't been tried on a tenant.
 - **Inventory features:** [FEAT-FAB-08](FEATURE_INVENTORY.md#feat-fab-08), [FEAT-ORC-01](FEATURE_INVENTORY.md#feat-orc-01)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#881](https://github.com/KratosDataGod/KratosForge/pull/881)
+- **Story issues:** [#869](https://github.com/KratosDataGod/KratosForge/issues/869)
 - **Acceptance criteria:**
     - A schedule's time can be changed in place
     - Remove asks for confirmation
@@ -550,17 +621,19 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-049
 
-**Run the pipeline mailbox once on a tenant** · P2 (score 2.21) · S · confidence Medium · Proposed
+**Run the pipeline mailbox once on a tenant** · P2 (score 2.21) · S · confidence Medium · In progress
 
 - **Problem:** The pipeline-to-agent mailbox has only run against fakes and records free-text submitters.
 - **Proposed capability:** One live run per the live test, and the writer's identity recorded.
-- **Current-state evidence:** mailbox.py tests use fakes; docs/enterprise-roadmap.md still calls it unbuilt
+- **Current-state evidence:** mailbox.py tests use fakes; docs/enterprise-roadmap.md still calls it unbuilt; Acceptance changed 2026-10-28 from 'submitted_by comes from the token': OneLake reports every writer as $superuser (OneLake API parity), so draft #931 (issue #920) checks the named pipeline run instead. Needs Chris's acceptance of the change; Part 1 merged (#931): the agent checks the named pipeline run, and [pipeline] require_run (Preview) refuses requests it can't check on main at 188d5a93. Part 2 is the live run (with PB-002's yes); One pipeline run vouches for one request (#1059, issue #969) on main at 02118fa4; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (check the named run against Fabric's job history) approved (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); stays In progress for the live run
 - **Inventory features:** [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04)
 - **Dependencies:** [PB-002](#pb-002)
 - **Owner:** Staged roadmap (Scale plan capability 7)
+- **Pull requests:** [#931](https://github.com/KratosDataGod/KratosForge/pull/931), [#1059](https://github.com/KratosDataGod/KratosForge/pull/1059)
+- **Story issues:** [#920](https://github.com/KratosDataGod/KratosForge/issues/920), [#969](https://github.com/KratosDataGod/KratosForge/issues/969)
 - **Acceptance criteria:**
     - A Fabric pipeline request runs once on an agent and reports back on the maintainer's tenant
-    - submitted_by comes from the token
+    - The agent checks the pipeline run a request names against Fabric's job history and records whether it checked out
 
 ### PB-107
 
@@ -584,10 +657,12 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-018](#pb-018) | Publish matches Fabric items by id, not display name | P2 | Master product (unassigned) | S | Accepted |
 | [PB-040](#pb-040) | Fabric workspace Git integration | P2 | Git-native development | L | Proposed |
 | [PB-041](#pb-041) | Deployment preview and item deploy | P2 | Git-native development | L | Proposed |
-| [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Proposed |
-| [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Proposed |
-| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Proposed |
+| [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Accepted |
+| [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Accepted |
+| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-110](#pb-110) | Semantic model interchange (Apache Ossie) | P3 | TMDL and OSI semantic model conversion | M | In progress |
+| [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | In review |
+| [PB-121](#pb-121) | Power BI embedding (Embed Studio) | P3 | Power BI embedding (PBE) | L | In progress |
 
 ### PB-018
 
@@ -633,15 +708,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-042
 
-**Release rollback and the committed-revision rule** · P2 (score 1.95) · M · confidence Medium · Proposed
+**Release rollback and the committed-revision rule** · P2 (score 1.95) · M · confidence Medium · Accepted
 
 - **Problem:** A bad promote can be undone only table by table, and Test/Prod can be promoted from uncommitted files.
 - **Proposed capability:** Release-level rollback from meta.deployments and decision D1 enforced.
-- **Current-state evidence:** meta/release.py; docs/scale-and-operations-plan.md D1; PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open
+- **Current-state evidence:** meta/release.py; docs/scale-and-operations-plan.md D1; PR #707 (D1): Test and Prod in OneLake take only files a pushed commit holds; rollback is still open; Roll back... on a Test or Prod release card restores a kept release and records it as a new release (meta/promote.py rollback, #508); D1 enforced by #707 on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Only releases that kept their files can be rolled back. Tables keep their rows until their next run. Not run on a tenant.
 - **Inventory features:** [FEAT-META-09](FEATURE_INVENTORY.md#feat-meta-09), [FEAT-META-10](FEATURE_INVENTORY.md#feat-meta-10)
 - **Dependencies:** Product-owner decision D1, Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-121)
-- **Pull requests:** [#113](https://github.com/KratosDataGod/KratosForge/pull/113), [#707](https://github.com/KratosDataGod/KratosForge/pull/707)
+- **Pull requests:** [#113](https://github.com/KratosDataGod/KratosForge/pull/113), [#508](https://github.com/KratosDataGod/KratosForge/pull/508), [#707](https://github.com/KratosDataGod/KratosForge/pull/707)
 - **Acceptance criteria:**
     - D1 answered
     - Rolling back a release restores the previous configuration in every target
@@ -649,14 +724,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-043
 
-**Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · Proposed
+**Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** A Fabric run started here can be cancelled only as a workload action in Monitor > KratosForge > Operations > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.
 - **Proposed capability:** A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.
-- **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions; Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't
+- **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions; Re-checked 2026-10-25: the Fabric step card cancels a run; Monitor > Runs and the tray still can't; Cancel in Monitor > Runs and the tray (Preview id fabric-cancel), tested in test_cloud.py and fabric-cancel.test.cjs on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Preview. Not yet tried against a real Fabric run.
 - **Inventory features:** [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#875](https://github.com/KratosDataGod/KratosForge/pull/875), [#972](https://github.com/KratosDataGod/KratosForge/pull/972)
+- **Story issues:** [#850](https://github.com/KratosDataGod/KratosForge/issues/850)
 - **Implementation package:** [pr-ready/PB-043.md](pr-ready/PB-043.md)
 - **Acceptance criteria:**
     - Cancel in Monitor > Runs and the tray stops the Fabric job and the run shows Cancelled
@@ -664,15 +741,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-051
 
-**Fabric REST client resilience** · P1 (score 2.16) · S · confidence High · Proposed
+**Fabric REST client resilience** · P1 (score 2.16) · S · confidence High · Accepted
 
 - **Problem:** The client retries only 429s; a 5xx or expired token fails the action, and long-running operations give up after 300 seconds.
 - **Proposed capability:** Bounded retries on safe 5xx for idempotent calls, one token refresh on 401, configurable LRO timeout.
-- **Current-state evidence:** fabric_api.py retry handles 429 only (code reading)
+- **Current-state evidence:** fabric_api.py retry handles 429 only (code reading); send_with_retry retries safe methods on 5xx and 429; a 401 gets one new token and one resend (#923); LRO poll_timeout is a FabricClient setting on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-FAB-01](FEATURE_INVENTORY.md#feat-fab-01)
 - **Dependencies:** Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Codebase audit and hardening (HD-039/HD-051)
 - **Mandatory (required):** Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.
+- **Pull requests:** [#923](https://github.com/KratosDataGod/KratosForge/pull/923), [#937](https://github.com/KratosDataGod/KratosForge/pull/937), [#939](https://github.com/KratosDataGod/KratosForge/pull/939), [#944](https://github.com/KratosDataGod/KratosForge/pull/944), [#1055](https://github.com/KratosDataGod/KratosForge/pull/1055)
+- **Story issues:** [#863](https://github.com/KratosDataGod/KratosForge/issues/863)
 - **Implementation package:** [pr-ready/PB-051.md](pr-ready/PB-051.md)
 - **Acceptance criteria:**
     - GETs retry on 500/502/503/504 with backoff; writes don't retry unless idempotent
@@ -693,26 +772,59 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - Export, preview and import from the Semantic model tab with a confirm; Save TMDL to Git
 
+### PB-116
+
+**Fabric Spark interactive sessions (Livy) as a Preview engine** · P2 (score 1.8) · M · confidence Medium · In review
+
+- **Problem:** Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.
+- **Proposed capability:** A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.
+- **Current-state evidence:** Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main; Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)
+- **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
+- **Dependencies:** none
+- **Owner:** Fabric and Databricks unified development (KF-FABRIC-SPARK)
+- **Pull requests:** [#891](https://github.com/KratosDataGod/KratosForge/pull/891), [#1133](https://github.com/KratosDataGod/KratosForge/pull/1133)
+- **Story issues:** [#852](https://github.com/KratosDataGod/KratosForge/issues/852)
+- **Acceptance criteria:**
+    - Every remote session start goes through the remote compute confirmation and risk check
+    - Tests with Fabric faked cover start, run, cancel and stop
+    - Docs say it uses Fabric capacity and is Preview
+
+### PB-121
+
+**Power BI embedding (Embed Studio)** · P3 (score 1.56) · L · confidence Medium · In progress
+
+- **Problem:** Reports and semantic models can't be viewed or tested inside the app.
+- **Proposed capability:** An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.
+- **Current-state evidence:** PBE-02 design proposed (docs/architecture/power-bi-embedding.md); PBE-03 host frame and PBE-04 engine calls merged; no screen yet on main at 02118fa4
+- **Inventory features:** [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05)
+- **Dependencies:** none
+- **Owner:** Power BI embedding (PBE) (PBE-02..04)
+- **Pull requests:** [#1126](https://github.com/KratosDataGod/KratosForge/pull/1126), [#1134](https://github.com/KratosDataGod/KratosForge/pull/1134), [#1135](https://github.com/KratosDataGod/KratosForge/pull/1135)
+- **Acceptance criteria:**
+    - Owned and specified by the Power BI embedding program (PBE)
+
 ## Enterprise Shared Services
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-052](#pb-052) | Verify the central platform on a tenant | P1 | Master product (unassigned) | M | Proposed |
-| [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Proposed |
+| [PB-052](#pb-052) | Verify the central platform on a tenant | P1 | Master product (unassigned) | M | In progress |
+| [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Accepted |
 | [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Accepted |
 | [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
 
 ### PB-052
 
-**Verify the central platform on a tenant** · P1 (score 1.8) · M · confidence Medium · Proposed
+**Verify the central platform on a tenant** · P1 (score 1.8) · M · confidence Medium · In progress
 
 - **Problem:** SQL_Platform T-SQL runs only on SQLite in tests; whether User Data Functions expose the executing user is unverified; domain import shape is unverified.
 - **Proposed capability:** A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.
-- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests
+- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests; Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93
 - **Inventory features:** [FEAT-MESH-01](FEATURE_INVENTORY.md#feat-mesh-01), [FEAT-MESH-02](FEATURE_INVENTORY.md#feat-mesh-02), [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04)
 - **Dependencies:** [PB-002](#pb-002), Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Central business keys are shared data; a defect would corrupt keys across every domain.
+- **Pull requests:** [#919](https://github.com/KratosDataGod/KratosForge/pull/919), [#1036](https://github.com/KratosDataGod/KratosForge/pull/1036), [#1038](https://github.com/KratosDataGod/KratosForge/pull/1038), [#1041](https://github.com/KratosDataGod/KratosForge/pull/1041), [#1045](https://github.com/KratosDataGod/KratosForge/pull/1045)
+- **Story issues:** [#909](https://github.com/KratosDataGod/KratosForge/issues/909)
 - **Acceptance criteria:**
     - Setup and join run on the maintainer's tenant and are recorded
     - Two concurrent key requests never share a key on Fabric SQL database
@@ -720,14 +832,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-053
 
-**Scheduled shortcut health check with alerts** · P2 (score 2.12) · S · confidence Medium · Proposed
+**Scheduled shortcut health check with alerts** · P2 (score 2.12) · S · confidence Medium · Accepted
 
 - **Problem:** Broken shortcuts are found only when someone opens the page.
 - **Proposed capability:** A scheduled check (app or agent) that posts to Teams once per break.
-- **Current-state evidence:** docs/shortcuts.md lists it as not built
+- **Current-state evidence:** docs/shortcuts.md lists it as not built; [shortcut_health] in agent.toml runs the check on a schedule and posts each break once through platform_notify's ledger (#902) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Runs in the agent only, not the desktop app, and only on the agent's own environments. Preview, not run on a tenant.
 - **Inventory features:** [FEAT-ONE-03](FEATURE_INVENTORY.md#feat-one-03)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#902](https://github.com/KratosDataGod/KratosForge/pull/902)
+- **Story issues:** [#857](https://github.com/KratosDataGod/KratosForge/issues/857)
 - **Acceptance criteria:**
     - The agent runs the check on a schedule
     - A new break posts once
@@ -764,25 +878,26 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In review |
-| [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Proposed |
-| [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | In review |
+| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | Accepted |
+| [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Accepted |
+| [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Accepted |
 | [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
-| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | In review |
-| [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | In review |
-| [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Proposed |
+| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Accepted |
+| [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Accepted |
+| [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Accepted |
 | [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
 | [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | Accepted |
-| [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | In review |
-| [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | In review |
+| [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | Accepted |
+| [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | Accepted |
+| [PB-115](#pb-115) | Run the Fabric Best Practice Analyzer live | P2 | Best Practice Analyzer | M | Proposed |
 
 ### PB-056
 
-**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · In review
+**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · Accepted
 
 - **Problem:** Policies (naming, schema, quality, classification, ownership) live in project files with no central, versioned source.
 - **Proposed capability:** Owned and specified by the Enterprise governance foundation thread (GOV-001).
-- **Current-state evidence:** No policy registry in the repo; PR #119 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** No policy registry in the repo; PR #119 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
 - **Dependencies:** Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise governance foundation (GOV-001)
@@ -792,24 +907,26 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-057
 
-**Offline policy validation** · P1 (score 2.8) · M · confidence Medium · Proposed
+**Offline policy validation** · P1 (score 2.8) · M · confidence Medium · Accepted
 
 - **Problem:** Policy checks need Fabric today or don't exist.
 - **Proposed capability:** Owned and specified by the Enterprise governance foundation thread (GOV-002; GOV-003..005 follow there).
-- **Current-state evidence:** No offline validator
+- **Current-state evidence:** No offline validator; GOV-002 built: hash-checked policy packages and offline Check (#882); GOV-003 enforcement is issue #903 on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Packages are hash-checked, not signed. An offline check can't read catalog text, product terms, endorsement or run logs, so those rules say unknown. No screen to pick a package.
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
 - **Dependencies:** [PB-056](#pb-056)
 - **Owner:** Enterprise governance foundation (GOV-002, GOV-003..005)
+- **Pull requests:** [#882](https://github.com/KratosDataGod/KratosForge/pull/882), [#924](https://github.com/KratosDataGod/KratosForge/pull/924)
+- **Story issues:** [#855](https://github.com/KratosDataGod/KratosForge/issues/855), [#903](https://github.com/KratosDataGod/KratosForge/issues/903)
 - **Acceptance criteria:**
     - As defined in GOV-002 by its owning thread
 
 ### PB-059
 
-**Governance exception requests and approvals** · P2 (score 1.96) · M · confidence Medium · In review
+**Governance exception requests and approvals** · P2 (score 1.96) · M · confidence Medium · Accepted
 
 - **Problem:** Exceptions are lines in a project file with no request, approval or history.
 - **Proposed capability:** Request, approve and expire exceptions with history, aligned with the policy registry.
-- **Current-state evidence:** meta/project.py exceptions.toml; PR #603 shows approved exceptions and warns before they end; #605 adds exception requests on the Governance tab
+- **Current-state evidence:** meta/project.py exceptions.toml; PR #603 shows approved exceptions and warns before they end; #605 adds exception requests on the Governance tab; Implementation review docs/product/reviews/PB-059-605.md: FD-129 narrowed to policy exceptions and Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitation: exceptions.toml entries have no request, approval or audit entry, and their approver is free text
 - **Inventory features:** [FEAT-GOV-03](FEATURE_INVENTORY.md#feat-gov-03)
 - **Dependencies:** [PB-056](#pb-056)
 - **Owner:** Enterprise governance foundation (FD-129)
@@ -832,11 +949,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-081
 
-**Column lineage view** · P1 (score 3.06) · M · confidence High · In review
+**Column lineage view** · P1 (score 3.06) · M · confidence High · Accepted
 
 - **Problem:** Column lineage is computed but no screen shows it.
 - **Proposed capability:** A lineage view after a mockup, as the staged roadmap plans.
-- **Current-state evidence:** meta_lineage has no caller in app/ui; PR #124 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** dataops.js calls meta_lineage; PR #124 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Columns added by Python code can't be traced.
 - **Inventory features:** [FEAT-META-17](FEATURE_INVENTORY.md#feat-meta-17)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-128)
@@ -846,11 +963,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-082
 
-**Versioned data contracts with consumer declarations** · P2 (score 2.38) · M · confidence Medium · In review
+**Versioned data contracts with consumer declarations** · P2 (score 2.38) · M · confidence Medium · Accepted
 
 - **Problem:** Breaking changes are blocked, but consumers can't declare what they read or see deprecations.
 - **Proposed capability:** Consumer declarations and deprecation windows on product ports.
-- **Current-state evidence:** meta/mesh.py breaking-change check; PR #701 (FD-127 8.2): port version history, accepted versions on links, deprecation dates with Teams notices, in the engine
+- **Current-state evidence:** meta/mesh.py breaking-change check; PR #701 (FD-127 8.2): port version history, accepted versions on links, deprecation dates with Teams notices, in the engine; Implementation review docs/product/reviews/PB-082-701.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Every finding is fixed (#817, #836).
 - **Inventory features:** [FEAT-MESH-05](FEATURE_INVENTORY.md#feat-mesh-05)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-127)
@@ -860,14 +977,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-083
 
-**Endorsed items scope in the catalog** · P2 (score 1.9) · S · confidence High · Proposed
+**Endorsed items scope in the catalog** · P2 (score 1.9) · S · confidence High · Accepted
 
 - **Problem:** The Endorsed filter is always unavailable and its reason text points at an embedded catalog that doesn't exist.
 - **Proposed capability:** Fix the text now; read endorsements when a supported API is confirmed.
-- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing
+- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing; The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-ONE-02](FEATURE_INVENTORY.md#feat-one-02)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#889](https://github.com/KratosDataGod/KratosForge/pull/889)
+- **Story issues:** [#856](https://github.com/KratosDataGod/KratosForge/issues/856)
 - **Acceptance criteria:**
     - Reason text and troubleshooting.md describe what actually happens
 
@@ -877,7 +996,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
@@ -902,11 +1021,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-111
 
-**Check now covers SQL scripts and scheduled notebooks** · P2 (score 2.43) · S · confidence Medium · In review
+**Check now covers SQL scripts and scheduled notebooks** · P2 (score 2.43) · S · confidence Medium · Accepted
 
 - **Problem:** Check now has no SQL scripts to give the SQL rules SQ001-SQ010, and checks notebooks as unscheduled, so a policy naming SQ rules or NB004/NB008 always shows not checked.
 - **Proposed capability:** Check now collects this PC's SQL scripts (project .sql files and saved queries) for the SQL rules, and marks notebooks that have a schedule so the scheduled-only rules NB004 and NB008 run on them.
-- **Current-state evidence:** PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md); docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs; PR #798: Check now gives the SQL rules this PC's SQL scripts and runs NB004 and NB008 on notebooks with a PC schedule; a Fabric-only schedule isn't read yet
+- **Current-state evidence:** PB-108 implementation review, findings 2 and 5 (docs/product/reviews/PB-108-643.md); docs/governance.md: Check now has no SQL scripts yet; NB004 and NB008 are for scheduled runs; PR #798: Check now gives the SQL rules this PC's SQL scripts and runs NB004 and NB008 on notebooks with a PC schedule; a Fabric-only schedule isn't read yet; Implementation review docs/product/reviews/PB-111-798.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: A notebook run only by a Fabric schedule isn't checked. #844 now covers notebooks run by a pipeline scheduled on this PC (the review's finding 1).
 - **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
 - **Dependencies:** [PB-108](#pb-108)
 - **Owner:** Enterprise governance foundation (central/checks_service.py governance_check_now)
@@ -917,11 +1036,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-112
 
-**Semantic model best-practice checks in governance policies** · P2 (score 1.8) · M · confidence Medium · In review
+**Semantic model best-practice checks in governance policies** · P2 (score 1.8) · M · confidence Medium · Accepted
 
 - **Problem:** No semantic model checker is registered, so a policy can't name Best Practice Analyzer rules and Check now can't run them.
 - **Proposed capability:** The BPA engine (#560) registers through governance_checks.register with runs_in="fabric"; Check now says those checks run in Fabric and use capacity, and stores their findings with store_fabric_findings.
-- **Current-state evidence:** PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md); PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run; PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live
+- **Current-state evidence:** PB-108 implementation review, finding 1 (docs/product/reviews/PB-108-643.md); PR #753 registers SM001-SM007 so a policy can name them; they read the model on this PC, so no capacity is used, unlike the criterion's Fabric run; PR #560 merged: the Fabric BPA run with semantic-link-labs (engine); not yet run live; Implementation review docs/product/reviews/PB-112-753.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The Fabric half of the criterion (BPA rules that need VertiPaq statistics) isn't proven live.
 - **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
 - **Dependencies:** [PB-108](#pb-108), Chris pastes the BPA cell error from the 2026-10-23 live run
 - **Owner:** Best Practice Analyzer (#560 model_bpa)
@@ -929,20 +1048,35 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - A policy can name semantic model rules; Check now says they run in Fabric and use capacity before running them
 
+### PB-115
+
+**Run the Fabric Best Practice Analyzer live** · P2 (score 1.8) · M · confidence Medium · Proposed
+
+- **Problem:** The Fabric half of PB-112 (BPA rules that need VertiPaq statistics, run on the deployed model with a capacity warning) has not run live; #560's engine run failed on 2026-10-23.
+- **Proposed capability:** Check now runs the Fabric BPA (#560) on a deployed model after the capacity warning and stores its findings.
+- **Current-state evidence:** Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1); PR #560 merged; not yet run live
+- **Inventory features:** [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09), [FEAT-META-13](FEATURE_INVENTORY.md#feat-meta-13)
+- **Dependencies:** [PB-112](#pb-112), Chris pastes the BPA cell error from the live run
+- **Owner:** Best Practice Analyzer (docs/product/reviews/PB-112-753.md finding 1)
+- **Pull requests:** [#560](https://github.com/KratosDataGod/KratosForge/pull/560)
+- **Acceptance criteria:**
+    - A policy naming a VertiPaq-based BPA rule runs it in Fabric after the capacity warning and shows its findings
+
 ## Developer Experience and Productivity
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-034](#pb-034) | Start the notebook wizard from a table | P2 | Prove | S | Proposed |
 | [PB-062](#pb-062) | Save a support bundle from Settings | P2 | Enterprise readiness | S | Proposed |
-| [PB-077](#pb-077) | User and agent docs match the code | P2 | Master product (unassigned) | S | Proposed |
-| [PB-078](#pb-078) | Preview tags match the docs | P1 | Master product (unassigned) | S | Proposed |
+| [PB-077](#pb-077) | User and agent docs match the code | P2 | Master product (unassigned) | S | Accepted |
+| [PB-078](#pb-078) | Preview tags match the docs | P1 | Master product (unassigned) | S | Accepted |
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
-| [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | In review |
-| [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Proposed |
-| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In review |
+| [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | Accepted |
+| [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Accepted |
+| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | Accepted |
 | [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 | [PB-113](#pb-113) | Action-first experience program | P2 | Action-first experience | L | In progress |
+| [PB-119](#pb-119) | Learn: lessons, labs and guidance modes | P2 | Learning experience (LX) | L | In progress |
 
 ### PB-034
 
@@ -973,14 +1107,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-077
 
-**User and agent docs match the code** · P2 (score 2.45) · S · confidence High · Proposed
+**User and agent docs match the code** · P2 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** Several docs describe behavior the code doesn't have (Report a problem adds the tenant id; workload views read agent status; the mailbox is unbuilt; incidents are a Delta table; %%sql publish).
 - **Proposed capability:** Each mismatch fixed in the docs, with a doc-claims checklist added to the review template.
-- **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06
+- **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06; The package's mismatches corrected (#876) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-10](FEATURE_INVENTORY.md#feat-shl-10), [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04), [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
 - **Dependencies:** Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102), Theme (Chris's unit testing, 2026-10-18, items 9, 14, 18, 28, 34): a docs page per area, linked from each page's in-app guidance
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#876](https://github.com/KratosDataGod/KratosForge/pull/876)
+- **Story issues:** [#859](https://github.com/KratosDataGod/KratosForge/issues/859)
 - **Implementation package:** [pr-ready/PB-077.md](pr-ready/PB-077.md)
 - **Acceptance criteria:**
     - Every mismatch listed in the package is corrected
@@ -988,15 +1124,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-078
 
-**Preview tags match the docs** · P1 (score 2.45) · S · confidence High · Proposed
+**Preview tags match the docs** · P1 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** Docs call batch_by, release records, who-can-promote, objectives and column lineage Preview, but the app has no Preview id for them, so they can't be hidden by policy.
 - **Proposed capability:** A PREVIEW_FEATURES id for each, or the docs changed where the feature is not exposed in the UI.
-- **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels; Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left
+- **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels; Re-checked 2026-10-25: the docs Preview table is the app's list (UX-019, ui.test.cjs); only metadata-guide.md's engine-behavior Preview labels are left; Every docs Preview heading maps to a PREVIEW_FEATURES id or a stated reason, kept by a UI test (#874) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-05](FEATURE_INVENTORY.md#feat-shl-05)
 - **Dependencies:** Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.
+- **Pull requests:** [#874](https://github.com/KratosDataGod/KratosForge/pull/874)
+- **Story issues:** [#858](https://github.com/KratosDataGod/KratosForge/issues/858)
 - **Implementation package:** [pr-ready/PB-078.md](pr-ready/PB-078.md)
 - **Acceptance criteria:**
     - Every feature the docs call Preview has an id or the docs say why not
@@ -1018,11 +1156,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-086
 
-**Ready to work checklist** · P1 (score 2.75) · S · confidence High · In review
+**Ready to work checklist** · P1 (score 2.75) · S · confidence High · Accepted
 
 - **Problem:** First-run failures (no capacity, no workspace access) appear as errors later.
 - **Proposed capability:** Built by the enterprise program as FD-136 (PR #94).
-- **Current-state evidence:** PR #94 merged; awaiting implementation review
+- **Current-state evidence:** PR #94 merged; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ADM-04](FEATURE_INVENTORY.md#feat-adm-04)
 - **Dependencies:** Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)
 - **Owner:** Enterprise readiness (FD-136)
@@ -1032,25 +1170,27 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-087
 
-**Clean up downloaded preview files** · P2 (score 1.9) · S · confidence Medium · Proposed
+**Clean up downloaded preview files** · P2 (score 1.9) · S · confidence Medium · Accepted
 
 - **Problem:** File previews download whole into the app data folder and are never removed (inference).
 - **Proposed capability:** Size limit and cleanup on close.
-- **Current-state evidence:** preview_service.py (code reading)
+- **Current-state evidence:** preview_service.py (code reading); Previews download to their own folder, removed once read; 200 MB cap; leftovers go at next start (#885) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: A file over 200 MB isn't previewed at all, rather than previewing its head.
 - **Inventory features:** [FEAT-FAB-04](FEATURE_INVENTORY.md#feat-fab-04)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#885](https://github.com/KratosDataGod/KratosForge/pull/885)
+- **Story issues:** [#877](https://github.com/KratosDataGod/KratosForge/issues/877)
 - **Acceptance criteria:**
     - Preview files are removed when the panel closes or on next start
     - Files over a limit preview their head only
 
 ### PB-100
 
-**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In review
+**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · Accepted
 
 - **Problem:** The What's new dialog shows only the current build, so people who skip updates miss what changed.
 - **Proposed capability:** Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.
-- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link); PR #132 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link); PR #132 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** none
 - **Owner:** Fuller What's new dialog
@@ -1069,7 +1209,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** Theme (Chris's unit testing, 2026-10-18, items 9, 12, 13, 17, 18, 20): best-practice actions and in-app guidance on every page (item 18 routed to this thread)
 - **Owner:** UX and simplicity oversight (UX-001..021, PR-UX-13)
 - **Merged duplicates:** Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)
-- **Pull requests:** [#684](https://github.com/KratosDataGod/KratosForge/pull/684), [#699](https://github.com/KratosDataGod/KratosForge/pull/699), [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#704](https://github.com/KratosDataGod/KratosForge/pull/704), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#769](https://github.com/KratosDataGod/KratosForge/pull/769), [#801](https://github.com/KratosDataGod/KratosForge/pull/801), [#802](https://github.com/KratosDataGod/KratosForge/pull/802), [#803](https://github.com/KratosDataGod/KratosForge/pull/803), [#804](https://github.com/KratosDataGod/KratosForge/pull/804), [#805](https://github.com/KratosDataGod/KratosForge/pull/805), [#806](https://github.com/KratosDataGod/KratosForge/pull/806), [#814](https://github.com/KratosDataGod/KratosForge/pull/814), [#825](https://github.com/KratosDataGod/KratosForge/pull/825), [#826](https://github.com/KratosDataGod/KratosForge/pull/826), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#831](https://github.com/KratosDataGod/KratosForge/pull/831)
+- **Pull requests:** [#684](https://github.com/KratosDataGod/KratosForge/pull/684), [#699](https://github.com/KratosDataGod/KratosForge/pull/699), [#702](https://github.com/KratosDataGod/KratosForge/pull/702), [#703](https://github.com/KratosDataGod/KratosForge/pull/703), [#704](https://github.com/KratosDataGod/KratosForge/pull/704), [#705](https://github.com/KratosDataGod/KratosForge/pull/705), [#719](https://github.com/KratosDataGod/KratosForge/pull/719), [#747](https://github.com/KratosDataGod/KratosForge/pull/747), [#769](https://github.com/KratosDataGod/KratosForge/pull/769), [#801](https://github.com/KratosDataGod/KratosForge/pull/801), [#802](https://github.com/KratosDataGod/KratosForge/pull/802), [#803](https://github.com/KratosDataGod/KratosForge/pull/803), [#804](https://github.com/KratosDataGod/KratosForge/pull/804), [#805](https://github.com/KratosDataGod/KratosForge/pull/805), [#806](https://github.com/KratosDataGod/KratosForge/pull/806), [#814](https://github.com/KratosDataGod/KratosForge/pull/814), [#825](https://github.com/KratosDataGod/KratosForge/pull/825), [#826](https://github.com/KratosDataGod/KratosForge/pull/826), [#827](https://github.com/KratosDataGod/KratosForge/pull/827), [#831](https://github.com/KratosDataGod/KratosForge/pull/831), [#842](https://github.com/KratosDataGod/KratosForge/pull/842), [#843](https://github.com/KratosDataGod/KratosForge/pull/843), [#865](https://github.com/KratosDataGod/KratosForge/pull/865), [#932](https://github.com/KratosDataGod/KratosForge/pull/932), [#943](https://github.com/KratosDataGod/KratosForge/pull/943), [#974](https://github.com/KratosDataGod/KratosForge/pull/974), [#987](https://github.com/KratosDataGod/KratosForge/pull/987), [#988](https://github.com/KratosDataGod/KratosForge/pull/988), [#990](https://github.com/KratosDataGod/KratosForge/pull/990), [#991](https://github.com/KratosDataGod/KratosForge/pull/991), [#998](https://github.com/KratosDataGod/KratosForge/pull/998), [#1088](https://github.com/KratosDataGod/KratosForge/pull/1088), [#1131](https://github.com/KratosDataGod/KratosForge/pull/1131)
+- **Story issues:** [#928](https://github.com/KratosDataGod/KratosForge/issues/928), [#929](https://github.com/KratosDataGod/KratosForge/issues/929), [#948](https://github.com/KratosDataGod/KratosForge/issues/948), [#955](https://github.com/KratosDataGod/KratosForge/issues/955), [#956](https://github.com/KratosDataGod/KratosForge/issues/956), [#961](https://github.com/KratosDataGod/KratosForge/issues/961), [#971](https://github.com/KratosDataGod/KratosForge/issues/971)
 - **Acceptance criteria:**
     - As defined in UX-001..021 by its owning thread
     - Routed items follow the owner named in docs/ux/backlog.md
@@ -1084,33 +1225,47 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** [PB-102](#pb-102)
 - **Owner:** Action-first experience (AF-1..AF-5)
-- **Pull requests:** [#722](https://github.com/KratosDataGod/KratosForge/pull/722), [#760](https://github.com/KratosDataGod/KratosForge/pull/760), [#776](https://github.com/KratosDataGod/KratosForge/pull/776)
+- **Pull requests:** [#722](https://github.com/KratosDataGod/KratosForge/pull/722), [#760](https://github.com/KratosDataGod/KratosForge/pull/760), [#776](https://github.com/KratosDataGod/KratosForge/pull/776), [#865](https://github.com/KratosDataGod/KratosForge/pull/865)
 - **Acceptance criteria:**
     - As defined in AF-1..AF-5 by its owning thread
+
+### PB-119
+
+**Learn: lessons, labs and guidance modes** · P2 (score 2.34) · L · confidence Medium · In progress
+
+- **Problem:** People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.
+- **Proposed capability:** A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.
+- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; No backlog item tracked it before this check
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
+- **Dependencies:** none
+- **Owner:** Learning experience (LX) (LX-01..08)
+- **Pull requests:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140)
+- **Acceptance criteria:**
+    - Owned and specified by the Learning experience program (LX)
 
 ## Enterprise Administration and FinOps
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-017](#pb-017) | Local vs Fabric execution advisor | P1 | Administration and FinOps sprint | M | In review |
-| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | In review |
-| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | In review |
-| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | In review |
-| [PB-089](#pb-089) | Measured CU import and reconciliation | P2 | Administration and FinOps sprint | L | In review |
-| [PB-090](#pb-090) | Preflight risk analyzer | P1 | Administration and FinOps sprint | M | In review |
-| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | In review |
+| [PB-017](#pb-017) | Local vs Fabric execution advisor | P1 | Administration and FinOps sprint | M | Accepted |
+| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | Accepted |
+| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | Accepted |
+| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | Accepted |
+| [PB-089](#pb-089) | Measured CU import and reconciliation | P2 | Administration and FinOps sprint | L | Accepted |
+| [PB-090](#pb-090) | Preflight risk analyzer | P1 | Administration and FinOps sprint | M | Accepted |
+| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | Accepted |
 | [PB-092](#pb-092) | Shared workload ownership | P3 | Workload management | M | Proposed |
-| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | In review |
-| [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Proposed |
+| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | Accepted |
+| [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Accepted |
 | [PB-104](#pb-104) | Optimize central lakehouse program | P1 | Optimize central lakehouse | XL | In progress |
 
 ### PB-017
 
-**Local vs Fabric execution advisor** · P1 (score 3.15) · M · confidence Medium · In review
+**Local vs Fabric execution advisor** · P1 (score 3.15) · M · confidence Medium · Accepted
 
 - **Problem:** Choosing This PC or Fabric is a manual guess.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-005), using the compatibility analyzer and measured costs.
-- **Current-state evidence:** Runs on is a saved choice; no recommendation
+- **Current-state evidence:** Runs on is a saved choice; no recommendation; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The advice is only offered to AI tools (fabric_desktop_placement_advice) and has no screen.
 - **Inventory features:** [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07), [FEAT-META-14](FEATURE_INVENTORY.md#feat-meta-14), [FEAT-ADM-09](FEATURE_INVENTORY.md#feat-adm-09)
 - **Dependencies:** [PB-050](#pb-050), [PB-014](#pb-014)
 - **Owner:** Administration and FinOps sprint (FINOPS-005)
@@ -1120,11 +1275,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-047
 
-**Incident screens** · P2 (score 2.27) · M · confidence High · In review
+**Incident screens** · P2 (score 2.27) · M · confidence High · Accepted
 
 - **Problem:** The incident engine runs only in the agent; the app has six incident methods and no screen.
 - **Proposed capability:** Incident list and detail with acknowledge, assign, resolve, after a mockup.
-- **Current-state evidence:** incident_service.py RPCs have no caller in app/ui; PR #125 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** incidents.js calls the incident RPCs (Monitor > KratosForge > Operations > Incidents); PR #125 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Numbers, priority and SLAs exist in the engine but aren't shown in the list.
 - **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-GOV-07](FEATURE_INVENTORY.md#feat-gov-07), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
 - **Dependencies:** Simplified incident management (PB-105, Chris's unit testing, 2026-10-18, item 33) extends these screens
 - **Owner:** Workload management (FD-123, Workloads stage 2.3B)
@@ -1134,11 +1289,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-050
 
-**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · In review
+**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · Accepted
 
 - **Problem:** Cost panel figures are estimates from fixed defaults and aren't calibrated against the Capacity Metrics app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-001).
-- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU; PR #117 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU; PR #117 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01), [FEAT-PRV-05](FEATURE_INVENTORY.md#feat-prv-05)
 - **Dependencies:** Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104), Monitor > Cost moves to Optimize > Cost and savings (Chris's unit testing, 2026-10-18, item 36; PB-104)
 - **Owner:** Administration and FinOps sprint (FINOPS-001)
@@ -1149,11 +1304,12 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-088
 
-**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · In review
+**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · Accepted
 
 - **Problem:** Admins can't see their capacities' size, state and load from the app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-002).
-- **Current-state evidence:** fabric_api.py lists capacities only; PR #123 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** fabric_api.py lists capacities only; PR #123 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: none recorded; linked to FEAT-ADM-07 at the evening check
+- **Inventory features:** [FEAT-ADM-07](FEATURE_INVENTORY.md#feat-adm-07)
 - **Dependencies:** [PB-050](#pb-050)
 - **Owner:** Administration and FinOps sprint (FINOPS-002)
 - **Pull requests:** [#123](https://github.com/KratosDataGod/KratosForge/pull/123)
@@ -1162,11 +1318,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-089
 
-**Measured CU import and reconciliation** · P2 (score 2.05) · L · confidence Low · In review
+**Measured CU import and reconciliation** · P2 (score 2.05) · L · confidence Low · Accepted
 
 - **Problem:** Estimates are never reconciled with what Fabric actually charged.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-003).
-- **Current-state evidence:** No Capacity Metrics import
+- **Current-state evidence:** No Capacity Metrics import; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Not yet tried with an export from your tenant.
 - **Inventory features:** [FEAT-ADM-10](FEATURE_INVENTORY.md#feat-adm-10)
 - **Dependencies:** [PB-050](#pb-050), Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)
 - **Owner:** Administration and FinOps sprint (FINOPS-003)
@@ -1176,11 +1332,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-090
 
-**Preflight risk analyzer** · P1 (score 3.04) · M · confidence Medium · In review
+**Preflight risk analyzer** · P1 (score 3.04) · M · confidence Medium · Accepted
 
 - **Problem:** People learn a run was expensive or too big after it runs.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-004).
-- **Current-state evidence:** meta/preflight.py estimates memory only
+- **Current-state evidence:** meta/preflight.py estimates memory only; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: The memory preflight (meta_preflight) has no screen of its own.
 - **Inventory features:** [FEAT-META-06](FEATURE_INVENTORY.md#feat-meta-06), [FEAT-ADM-08](FEATURE_INVENTORY.md#feat-adm-08)
 - **Dependencies:** [PB-050](#pb-050)
 - **Owner:** Administration and FinOps sprint (FINOPS-004)
@@ -1190,11 +1346,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-091
 
-**Agent dashboard** · P2 (score 2.4) · M · confidence High · In review
+**Agent dashboard** · P2 (score 2.4) · M · confidence High · Accepted
 
 - **Problem:** Agent status records are written but nothing shows them.
 - **Proposed capability:** Agent list, queue and availability view.
-- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents; PR #133 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents; PR #133 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-122)
@@ -1217,11 +1373,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-093
 
-**Telemetry decision** · P3 (score 1.15) · M · confidence Low · In review
+**Telemetry decision** · P3 (score 1.15) · M · confidence Low · Accepted
 
 - **Problem:** There is no usage data, and whether to collect any is undecided.
 - **Proposed capability:** Decision D-C1, then build only what it allows.
-- **Current-state evidence:** No telemetry code; PR #121 merged 2026-10-17; awaiting implementation review
+- **Current-state evidence:** No telemetry code; PR #121 merged 2026-10-17; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ADM-06](FEATURE_INVENTORY.md#feat-adm-06)
 - **Dependencies:** Product-owner decision D-C1
 - **Owner:** Enterprise readiness (FD-137)
@@ -1232,14 +1388,16 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-094
 
-**Measure the process kernel, not the engine** · P2 (score 2.48) · S · confidence Medium · Proposed
+**Measure the process kernel, not the engine** · P2 (score 2.48) · S · confidence Medium · Accepted
 
 - **Problem:** With the process kernel on, CPU and memory are measured from the engine process (inference), so scorecards can be wrong.
 - **Proposed capability:** Measure the child kernel's resources.
-- **Current-state evidence:** measure.py RunMeter
+- **Current-state evidence:** measure.py RunMeter; RunMeter reads the kernel process's CPU and memory (#895) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Processes a cell starts aren't counted.
 - **Inventory features:** [FEAT-PRV-05](FEATURE_INVENTORY.md#feat-prv-05)
 - **Dependencies:** none
 - **Owner:** Prove (FD-119)
+- **Pull requests:** [#895](https://github.com/KratosDataGod/KratosForge/pull/895)
+- **Story issues:** [#846](https://github.com/KratosDataGod/KratosForge/issues/846)
 - **Acceptance criteria:**
     - Scorecard resources match the kernel process in a test
 
@@ -1263,19 +1421,20 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-095](#pb-095) | MCP server and local API for external AI tools | P2 | Bring your own AI integration | XL | In review |
+| [PB-095](#pb-095) | MCP server and local API for external AI tools | P2 | Bring your own AI integration | XL | Accepted |
 | [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | Proposed |
 | [PB-097](#pb-097) | Extensions | P3 | Git-native development | XL | Proposed |
 | [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | Proposed |
 | [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | In progress |
+| [PB-120](#pb-120) | Platform support levels and one engine contract | P1 | Fabric and Databricks unified development | L | In progress |
 
 ### PB-095
 
-**MCP server and local API for external AI tools** · P2 (score 1.95) · XL · confidence Medium · In review
+**MCP server and local API for external AI tools** · P2 (score 1.95) · XL · confidence Medium · Accepted
 
 - **Problem:** External AI tools can't see or drive the app's capabilities.
 - **Proposed capability:** The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.
-- **Current-state evidence:** PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review
+- **Current-state evidence:** PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
 - **Dependencies:** Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Bring your own AI integration (PR-AI-001..012)
@@ -1337,19 +1496,33 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - As defined in the thread's phases 0-4
 
+### PB-120
+
+**Platform support levels and one engine contract** · P1 (score 2.62) · L · confidence Medium · In progress
+
+- **Problem:** Each engine claimed its own capabilities, and nothing said how far each platform was really proven.
+- **Proposed capability:** A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.
+- **Current-state evidence:** KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4
+- **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-SQL-03](FEATURE_INVENTORY.md#feat-sql-03)
+- **Dependencies:** none
+- **Owner:** Fabric and Databricks unified development (KUDP-01..06)
+- **Pull requests:** [#1078](https://github.com/KratosDataGod/KratosForge/pull/1078), [#1115](https://github.com/KratosDataGod/KratosForge/pull/1115), [#1118](https://github.com/KratosDataGod/KratosForge/pull/1118), [#1124](https://github.com/KratosDataGod/KratosForge/pull/1124), [#1125](https://github.com/KratosDataGod/KratosForge/pull/1125), [#1142](https://github.com/KratosDataGod/KratosForge/pull/1142), [#1056](https://github.com/KratosDataGod/KratosForge/pull/1056)
+- **Acceptance criteria:**
+    - Owned and specified by the unified platform program (KUDP)
+
 ## Security and Enterprise Readiness
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-001](#pb-001) | Sign the app and engine | P0 | Enterprise readiness | S | Proposed |
 | [PB-005](#pb-005) | Encrypt the token cache | P1 | Enterprise readiness | S | In review |
-| [PB-006](#pb-006) | Content Security Policy for the main window | P1 | Enterprise readiness | M | In review |
-| [PB-007](#pb-007) | Audit trail of runs and changes | P1 | Enterprise readiness | M | In review |
-| [PB-008](#pb-008) | Keep the embedded Fabric view on Fabric hosts | P1 | Enterprise readiness | S | In review |
-| [PB-009](#pb-009) | Local data retention | P1 | Enterprise readiness | S | In review |
-| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | Proposed |
+| [PB-006](#pb-006) | Content Security Policy for the main window | P1 | Enterprise readiness | M | Accepted |
+| [PB-007](#pb-007) | Audit trail of runs and changes | P1 | Enterprise readiness | M | Accepted |
+| [PB-008](#pb-008) | Keep the embedded Fabric view on Fabric hosts | P1 | Enterprise readiness | S | Accepted |
+| [PB-009](#pb-009) | Local data retention | P1 | Enterprise readiness | S | Accepted |
+| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-061](#pb-061) | Missing policy keys | P2 | Enterprise readiness | M | Proposed |
-| [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | Proposed |
+| [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | In progress |
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
 | [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
 
@@ -1375,7 +1548,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The MSAL token cache is a plain file on Windows.
 - **Proposed capability:** DPAPI-protected cache through msal-extensions.
-- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a
+- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).
 - **Inventory features:** [FEAT-AUTH-03](FEATURE_INVENTORY.md#feat-auth-03)
 - **Dependencies:** Decision D-C2, Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1387,11 +1560,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-006
 
-**Content Security Policy for the main window** · P1 (score 1.47) · M · confidence Medium · In review
+**Content Security Policy for the main window** · P1 (score 1.47) · M · confidence Medium · Accepted
 
 - **Problem:** The main webview runs with csp: null and the Tauri global, so escaping is the only defense against injected HTML.
 - **Proposed capability:** Move notebook HTML output to another origin, then set a CSP.
-- **Current-state evidence:** tauri.conf.json csp: null, withGlobalTauri: true
+- **Current-state evidence:** tauri.conf.json csp: null, withGlobalTauri: true; Implementation review docs/product/reviews/PB-006-250.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: No committed test renders HTML output and proves the frame can't reach the app. Windows check still to do.
 - **Inventory features:** [FEAT-SEC-02](FEATURE_INVENTORY.md#feat-sec-02)
 - **Dependencies:** Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-102b)
@@ -1403,11 +1576,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-007
 
-**Audit trail of runs and changes** · P1 (score 2.08) · M · confidence High · In review
+**Audit trail of runs and changes** · P1 (score 2.08) · M · confidence High · Accepted
 
 - **Problem:** Nothing records who ran or changed what in a tamper-evident way.
 - **Proposed capability:** Hash-chained audit lines, built in PR #89.
-- **Current-state evidence:** PR #89 merged; awaiting implementation review
+- **Current-state evidence:** PR #89 merged; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Proof receipts have no list screen.
 - **Inventory features:** [FEAT-ADM-02](FEATURE_INVENTORY.md#feat-adm-02), [FEAT-PRV-03](FEATURE_INVENTORY.md#feat-prv-03)
 - **Dependencies:** Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-125)
@@ -1419,11 +1592,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-008
 
-**Keep the embedded Fabric view on Fabric hosts** · P1 (score 1.84) · S · confidence Medium · In review
+**Keep the embedded Fabric view on Fabric hosts** · P1 (score 1.84) · S · confidence Medium · Accepted
 
 - **Problem:** The embedded view's allow-list accepts any *.microsoft.com and *.live.com page.
 - **Proposed capability:** Navigation limited to Fabric, Power BI and sign-in hosts; others open in the browser.
-- **Current-state evidence:** main.rs fabric_view host check (code reading); The Fabric view opens only Fabric and sign-in hosts (SH-12, #259; #455); readiness gate 1 lists SH-12 closed
+- **Current-state evidence:** main.rs fabric_view host check (code reading); The Fabric view opens only Fabric and sign-in hosts (SH-12, #259; #455); readiness gate 1 lists SH-12 closed; Implementation review docs/product/reviews/PB-008-455.md: Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: Only top-level pages and pop-ups are filtered. A refused link does nothing visible.
 - **Inventory features:** [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05)
 - **Dependencies:** [PB-071](#pb-071), Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-102)
@@ -1435,11 +1608,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-009
 
-**Local data retention** · P1 (score 1.72) · S · confidence High · In review
+**Local data retention** · P1 (score 1.72) · S · confidence High · Accepted
 
 - **Problem:** Copies of lakehouse data stay on PCs indefinitely.
 - **Proposed capability:** Built in PR #95 (FD-131b).
-- **Current-state evidence:** PR #95 merged; awaiting implementation review
+- **Current-state evidence:** PR #95 merged; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ADM-05](FEATURE_INVENTORY.md#feat-adm-05)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1451,15 +1624,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-010
 
-**Security and network docs match the shipped app** · P1 (score 2.2) · S · confidence High · Proposed
+**Security and network docs match the shipped app** · P1 (score 2.2) · S · confidence High · Accepted
 
 - **Problem:** docs/security.md says there is no redaction, scanning, SBOM or provenance (all exist); enterprise-install.md's host list omits hosts the app calls and misattributes one.
 - **Proposed capability:** Corrected security and network documentation that IT can rely on.
-- **Current-state evidence:** docs/security.md:41; ci.yml audit and SBOM jobs; docs/enterprise-install.md hosts table
+- **Current-state evidence:** docs/security.md:41; ci.yml audit and SBOM jobs; docs/enterprise-install.md hosts table; security.md and enterprise-install.md corrected (#917); #925 closed as a duplicate; a test for the host list is #959 on main at b19b7456; A test keeps the firewall host list in step with the code (#1047, issue #959) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03), [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
 - **Dependencies:** Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Codebase audit and hardening (HD-009)
 - **Mandatory (required):** Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.
+- **Pull requests:** [#917](https://github.com/KratosDataGod/KratosForge/pull/917), [#1047](https://github.com/KratosDataGod/KratosForge/pull/1047)
+- **Story issues:** [#886](https://github.com/KratosDataGod/KratosForge/issues/886), [#925](https://github.com/KratosDataGod/KratosForge/issues/925), [#959](https://github.com/KratosDataGod/KratosForge/issues/959)
 - **Implementation package:** [pr-ready/PB-010.md](pr-ready/PB-010.md)
 - **Acceptance criteria:**
     - Every claim in security.md matches the code at the time of the PR
@@ -1475,20 +1650,23 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-08](FEATURE_INVENTORY.md#feat-shl-08)
 - **Dependencies:** Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-105)
+- **Story issues:** [#960](https://github.com/KratosDataGod/KratosForge/issues/960)
 - **Acceptance criteria:**
     - As defined in FD-105
 
 ### PB-063
 
-**Assistive technology audit** · P1 (score 2.21) · M · confidence Medium · Proposed
+**Assistive technology audit** · P1 (score 2.21) · M · confidence Medium · In progress
 
 - **Problem:** Accessibility is checked statically only; no screen-reader or contrast audit is recorded.
 - **Proposed capability:** A Narrator and keyboard audit on Windows with fixes.
-- **Current-state evidence:** app/tests/ui.test.cjs static checks
+- **Current-state evidence:** app/tests/ui.test.cjs static checks; Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456; The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet
 - **Inventory features:** [FEAT-SHL-07](FEATURE_INVENTORY.md#feat-shl-07), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102), Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-139)
 - **Mandatory (required):** Enterprise procurement often requires an accessibility conformance statement.
+- **Pull requests:** [#907](https://github.com/KratosDataGod/KratosForge/pull/907), [#926](https://github.com/KratosDataGod/KratosForge/pull/926), [#951](https://github.com/KratosDataGod/KratosForge/pull/951)
+- **Story issues:** [#880](https://github.com/KratosDataGod/KratosForge/issues/880), [#905](https://github.com/KratosDataGod/KratosForge/issues/905), [#945](https://github.com/KratosDataGod/KratosForge/issues/945), [#962](https://github.com/KratosDataGod/KratosForge/issues/962)
 - **Acceptance criteria:**
     - Audit results recorded per page
     - Blocking findings fixed
@@ -1519,7 +1697,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Codebase audit and hardening (HD-001..057)
 - **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
 - **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
-- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#786](https://github.com/KratosDataGod/KratosForge/pull/786)
+- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#786](https://github.com/KratosDataGod/KratosForge/pull/786), [#911](https://github.com/KratosDataGod/KratosForge/pull/911), [#916](https://github.com/KratosDataGod/KratosForge/pull/916), [#918](https://github.com/KratosDataGod/KratosForge/pull/918), [#930](https://github.com/KratosDataGod/KratosForge/pull/930), [#934](https://github.com/KratosDataGod/KratosForge/pull/934), [#938](https://github.com/KratosDataGod/KratosForge/pull/938), [#952](https://github.com/KratosDataGod/KratosForge/pull/952), [#989](https://github.com/KratosDataGod/KratosForge/pull/989), [#992](https://github.com/KratosDataGod/KratosForge/pull/992), [#1003](https://github.com/KratosDataGod/KratosForge/pull/1003), [#1011](https://github.com/KratosDataGod/KratosForge/pull/1011), [#1026](https://github.com/KratosDataGod/KratosForge/pull/1026), [#1030](https://github.com/KratosDataGod/KratosForge/pull/1030), [#1032](https://github.com/KratosDataGod/KratosForge/pull/1032), [#1048](https://github.com/KratosDataGod/KratosForge/pull/1048), [#1050](https://github.com/KratosDataGod/KratosForge/pull/1050), [#1055](https://github.com/KratosDataGod/KratosForge/pull/1055), [#1089](https://github.com/KratosDataGod/KratosForge/pull/1089), [#1122](https://github.com/KratosDataGod/KratosForge/pull/1122)
+- **Story issues:** [#910](https://github.com/KratosDataGod/KratosForge/issues/910), [#916](https://github.com/KratosDataGod/KratosForge/issues/916), [#927](https://github.com/KratosDataGod/KratosForge/issues/927), [#935](https://github.com/KratosDataGod/KratosForge/issues/935), [#936](https://github.com/KratosDataGod/KratosForge/issues/936), [#963](https://github.com/KratosDataGod/KratosForge/issues/963), [#964](https://github.com/KratosDataGod/KratosForge/issues/964), [#965](https://github.com/KratosDataGod/KratosForge/issues/965), [#968](https://github.com/KratosDataGod/KratosForge/issues/968), [#1049](https://github.com/KratosDataGod/KratosForge/issues/1049), [#1087](https://github.com/KratosDataGod/KratosForge/issues/1087)
 - **Acceptance criteria:**
     - As defined in HD-001..057 by its owning thread
     - Overlapping items here follow the owner named in that backlog
@@ -1528,31 +1707,33 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-002](#pb-002) | Tenant smoke test of ten core flows | P0 | Master product (unassigned) | M | Proposed |
-| [PB-003](#pb-003) | Prove OneLake leases and MERGE writes live | P1 | Enterprise readiness | S | Proposed |
-| [PB-064](#pb-064) | Per-build release assets, pinning and rollback | P1 | Enterprise readiness | M | In review |
-| [PB-066](#pb-066) | Backup and restore of local state | P2 | Enterprise readiness | S | In review |
-| [PB-069](#pb-069) | Compare large tables in batches | P2 | Staged roadmap | M | Proposed |
-| [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | Proposed |
-| [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Codebase audit and hardening | S | In review |
-| [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | Proposed |
-| [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | Proposed |
-| [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Proposed |
+| [PB-002](#pb-002) | Tenant smoke test of ten core flows | P0 | Master product (unassigned) | M | In progress |
+| [PB-003](#pb-003) | Prove OneLake leases and MERGE writes live | P1 | Enterprise readiness | S | In progress |
+| [PB-064](#pb-064) | Per-build release assets, pinning and rollback | P1 | Enterprise readiness | M | Accepted |
+| [PB-066](#pb-066) | Backup and restore of local state | P2 | Enterprise readiness | S | Accepted |
+| [PB-069](#pb-069) | Compare large tables in batches | P2 | Staged roadmap | M | Accepted |
+| [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | Accepted |
+| [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Codebase audit and hardening | S | Accepted |
+| [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | Accepted |
+| [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | In progress |
+| [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Accepted |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
 | [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
 
 ### PB-002
 
-**Tenant smoke test of ten core flows** · P0 (score 2.76) · M · confidence High · Proposed
+**Tenant smoke test of ten core flows** · P0 (score 2.76) · M · confidence High · In progress
 
 - **Problem:** Almost every Fabric-facing feature has only been tested with Fabric faked; the live test harness has never run.
 - **Proposed capability:** A scripted ten-flow smoke test on the maintainer's non-production workspace, plus one live-test harness run, with results recorded in the inventory.
-- **Current-state evidence:** livetest.py never run; docs/README.md lists features tried on the maintainer's tenant
+- **Current-state evidence:** livetest.py never run; docs/README.md lists features tried on the maintainer's tenant; The ten-flow smoke-test harness merged (#884) on main at 188d5a93; the live run waits on Chris's yes
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-AUTH-01](FEATURE_INVENTORY.md#feat-auth-01), [FEAT-AUTH-04](FEATURE_INVENTORY.md#feat-auth-04), [FEAT-FAB-01](FEATURE_INVENTORY.md#feat-fab-01), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06), [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05), [FEAT-META-14](FEATURE_INVENTORY.md#feat-meta-14), [FEAT-OPS-04](FEATURE_INVENTORY.md#feat-ops-04), [FEAT-PRV-01](FEATURE_INVENTORY.md#feat-prv-01)
 - **Dependencies:** Chris runs it on his non-production workspace, Overlaps HD-029 live harness run (Chris); HD-053 OneLake contract tests; HD-054 T-SQL harness and live job (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned) (FD-101, FD-140)
 - **Mandatory (blocker):** Launch to about 5,000 people needs evidence the core flows work on a real tenant.
 - **Merged duplicates:** Ten-flow smoke test (honest review, 2026-10-16); Running the FD-101 harness once (enterprise readiness)
+- **Pull requests:** [#884](https://github.com/KratosDataGod/KratosForge/pull/884)
+- **Story issues:** [#849](https://github.com/KratosDataGod/KratosForge/issues/849)
 - **Implementation package:** [pr-ready/PB-002.md](pr-ready/PB-002.md)
 - **Acceptance criteria:**
     - Ten flows pass or have recorded defects
@@ -1561,26 +1742,28 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-003
 
-**Prove OneLake leases and MERGE writes live** · P1 (score 2.08) · S · confidence Medium · Proposed
+**Prove OneLake leases and MERGE writes live** · P1 (score 2.08) · S · confidence Medium · In progress
 
 - **Problem:** Leases depend on OneLake honoring conditional requests, which has never been tried.
 - **Proposed capability:** The live test extended to leases, two writers and MERGE.
-- **Current-state evidence:** leases.py; livetest.py lacks lease and MERGE checks
+- **Current-state evidence:** leases.py; livetest.py lacks lease and MERGE checks; Live-test checks for a second writer refused by the lease and a Fabric-safe MERGE merged (#892) on main at 188d5a93; not run on a tenant
 - **Inventory features:** [FEAT-ORC-03](FEATURE_INVENTORY.md#feat-orc-03), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
 - **Dependencies:** [PB-002](#pb-002), Overlaps HD-016 cross-process leases; HD-029 live harness run (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-101)
 - **Mandatory (required):** If OneLake ignores conditional requests, concurrent writers can overwrite data.
+- **Pull requests:** [#892](https://github.com/KratosDataGod/KratosForge/pull/892)
+- **Story issues:** [#887](https://github.com/KratosDataGod/KratosForge/issues/887)
 - **Acceptance criteria:**
     - A second writer is refused while a lease is held on OneLake
     - A MERGE write on OneLake passes the profile check
 
 ### PB-064
 
-**Per-build release assets, pinning and rollback** · P1 (score 1.72) · M · confidence Medium · In review
+**Per-build release assets, pinning and rollback** · P1 (score 1.72) · M · confidence Medium · Accepted
 
 - **Problem:** Only the newest build per channel exists, so IT can't pin or roll back.
 - **Proposed capability:** Keep each build's assets and let policy pin a version.
-- **Current-state evidence:** ci.yml release job replaces assets; promote.yml
+- **Current-state evidence:** ci.yml release job replaces assets; promote.yml; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted with Documented Limitations (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); limitations: There's no policy setting to pin one build. IT turns off auto_update and installs the build it wants instead. The inventory's REL-01 limitations are out of date.
 - **Inventory features:** [FEAT-REL-01](FEATURE_INVENTORY.md#feat-rel-01), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-104)
@@ -1592,11 +1775,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-066
 
-**Backup and restore of local state** · P2 (score 1.84) · S · confidence High · In review
+**Backup and restore of local state** · P2 (score 1.84) · S · confidence High · Accepted
 
 - **Problem:** Settings, schedules, queue and receipts can't be backed up.
 - **Proposed capability:** Built in PR #91 (FD-126).
-- **Current-state evidence:** PR #91 merged; awaiting implementation review
+- **Current-state evidence:** PR #91 merged; awaiting implementation review; No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-ADM-03](FEATURE_INVENTORY.md#feat-adm-03)
 - **Dependencies:** Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-126)
@@ -1606,37 +1789,41 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-069
 
-**Compare large tables in batches** · P2 (score 1.99) · M · confidence Medium · Proposed
+**Compare large tables in batches** · P2 (score 1.99) · M · confidence Medium · Accepted
 
 - **Problem:** Environment compare reads whole tables.
 - **Proposed capability:** Batched or sampled compare.
-- **Current-state evidence:** meta/compare.py
+- **Current-state evidence:** meta/compare.py; Above 5,000,000 rows the compare streams counts, totals and a row checksum through DuckDB (#897) on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted with Documented Limitations (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b); limitations: Above 5,000,000 rows a compare says whether tables differ (counts, totals, a row checksum), not which rows.
 - **Inventory features:** [FEAT-META-08](FEATURE_INVENTORY.md#feat-meta-08)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-114)
+- **Pull requests:** [#897](https://github.com/KratosDataGod/KratosForge/pull/897)
+- **Story issues:** [#888](https://github.com/KratosDataGod/KratosForge/issues/888)
 - **Acceptance criteria:**
     - Compare of a table larger than memory finishes
 
 ### PB-070
 
-**UI tests for the notebook editor and command bar** · P2 (score 2.07) · M · confidence High · Proposed
+**UI tests for the notebook editor and command bar** · P2 (score 2.07) · M · confidence High · Accepted
 
 - **Problem:** UI tests check parsing, names and a few behaviors; the editor and keyboard flows have none.
 - **Proposed capability:** Behavior tests for the editor, command mode and command bar.
-- **Current-state evidence:** app/tests/ui.test.cjs has 23 tests
+- **Current-state evidence:** app/tests/ui.test.cjs has 23 tests; command-bar.test.cjs adds Ctrl+K browser tests; editor and command mode tests already existed on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-NB-01](FEATURE_INVENTORY.md#feat-nb-01), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
+- **Pull requests:** [#879](https://github.com/KratosDataGod/KratosForge/pull/879)
+- **Story issues:** [#860](https://github.com/KratosDataGod/KratosForge/issues/860)
 - **Acceptance criteria:**
     - Editor, command mode and Ctrl+K have tests that fail on regressions
 
 ### PB-071
 
-**Run the Rust tests in CI** · P1 (score 2.45) · S · confidence High · In review
+**Run the Rust tests in CI** · P1 (score 2.45) · S · confidence High · Accepted
 
 - **Problem:** The Rust shell has tests (watchdog, sign-in, integrity) that CI never runs.
 - **Proposed capability:** A Windows cargo test job.
-- **Current-state evidence:** ci.yml has cargo audit and cargo build, no cargo test; cargo test failed to build on Linux (gdk-3.0)
+- **Current-state evidence:** ci.yml has cargo audit and cargo build, no cargo test; cargo test failed to build on Linux (gdk-3.0); No implementation review; checked against product data and main in the acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): Accepted (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4)
 - **Inventory features:** [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09), [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05), [FEAT-REL-01](FEATURE_INVENTORY.md#feat-rel-01)
 - **Dependencies:** Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Codebase audit and hardening (HD-011)
@@ -1649,22 +1836,24 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-072
 
-**Long engine calls stop blocking the app** · P1 (score 1.48) · L · confidence Medium · Proposed
+**Long engine calls stop blocking the app** · P1 (score 1.48) · L · confidence Medium · Accepted
 
 - **Problem:** All engine calls share one pipe behind a mutex; anything off the watchdog's quick list has no time limit, so a slow Fabric call freezes every page.
 - **Proposed capability:** Concurrent or cancellable long calls with time limits.
-- **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list
+- **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list; The engine runs quick calls in their own lane (server.py, test_server_lanes.py, #508), so a slow Fabric call doesn't block them on main at b19b7456; #898 bounds four more calls (open); Acceptance changed 2026-10-28 from 'Every call has a limit': runs can take hours by design (watchdog.rs). Needs Chris's acceptance of the change; #898 bounds Monitor's status refresh (30 s), the drift card's read and the sign-in window (10 min) on main at 188d5a93. The changed acceptance (quick calls 60 s, long calls end with Stop) still needs Chris; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): changed criterion 2 (quick calls 60 s, long calls end with Stop) approved and Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03)
 - **Dependencies:** [PB-071](#pb-071), Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102), Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** A frozen app with no way out is the most visible reliability failure.
+- **Pull requests:** [#508](https://github.com/KratosDataGod/KratosForge/pull/508), [#898](https://github.com/KratosDataGod/KratosForge/pull/898)
+- **Story issues:** [#862](https://github.com/KratosDataGod/KratosForge/issues/862)
 - **Acceptance criteria:**
     - A slow Fabric call doesn't block a quick call (test)
-    - Every call has a limit
+    - Quick calls have a 60-second limit; long calls (runs, publishing, Fabric) have no limit and Stop ends them
 
 ### PB-073
 
-**Process kernel by default with limits** · P2 (score 1.86) · M · confidence Medium · Proposed
+**Process kernel by default with limits** · P2 (score 1.86) · M · confidence Medium · In progress
 
 - **Problem:** The in-engine kernel restarts the whole engine on Stop; the process kernel is opt-in with no limits.
 - **Proposed capability:** Process kernel default after a Windows trial, with time and memory limits.
@@ -1672,20 +1861,24 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-NB-03](FEATURE_INVENTORY.md#feat-nb-03)
 - **Dependencies:** Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Prove (FD-110)
+- **Pull requests:** [#996](https://github.com/KratosDataGod/KratosForge/pull/996), [#1084](https://github.com/KratosDataGod/KratosForge/pull/1084)
+- **Story issues:** [#896](https://github.com/KratosDataGod/KratosForge/issues/896)
 - **Acceptance criteria:**
     - As defined in FD-110
 
 ### PB-074
 
-**Release pipeline hardening** · P1 (score 2.2) · S · confidence High · Proposed
+**Release pipeline hardening** · P1 (score 2.2) · S · confidence High · Accepted
 
 - **Problem:** Release doesn't wait for the audit job; docs.yml and codex-review.yml use tag-pinned actions; zensical installs unpinned.
 - **Proposed capability:** Release depends on audit; all actions SHA-pinned; tool versions pinned.
-- **Current-state evidence:** ci.yml; docs.yml; codex-review.yml
+- **Current-state evidence:** ci.yml; docs.yml; codex-review.yml; Release needs the audit job, with dated exceptions in .github/audit-exceptions.txt (#867); actions are SHA-pinned on main at b19b7456; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03)
 - **Dependencies:** Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-103)
 - **Mandatory (required):** Supply-chain controls are only as strong as the weakest workflow.
+- **Pull requests:** [#867](https://github.com/KratosDataGod/KratosForge/pull/867)
+- **Story issues:** [#861](https://github.com/KratosDataGod/KratosForge/issues/861)
 - **Acceptance criteria:**
     - Release needs audit
     - No tag-pinned action remains
@@ -1715,7 +1908,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
 - **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
 - **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
-- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738), [#766](https://github.com/KratosDataGod/KratosForge/pull/766), [#775](https://github.com/KratosDataGod/KratosForge/pull/775), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#781](https://github.com/KratosDataGod/KratosForge/pull/781), [#784](https://github.com/KratosDataGod/KratosForge/pull/784)
+- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738), [#766](https://github.com/KratosDataGod/KratosForge/pull/766), [#775](https://github.com/KratosDataGod/KratosForge/pull/775), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#781](https://github.com/KratosDataGod/KratosForge/pull/781), [#784](https://github.com/KratosDataGod/KratosForge/pull/784), [#975](https://github.com/KratosDataGod/KratosForge/pull/975), [#981](https://github.com/KratosDataGod/KratosForge/pull/981), [#1012](https://github.com/KratosDataGod/KratosForge/pull/1012), [#1018](https://github.com/KratosDataGod/KratosForge/pull/1018), [#1021](https://github.com/KratosDataGod/KratosForge/pull/1021), [#1024](https://github.com/KratosDataGod/KratosForge/pull/1024), [#1025](https://github.com/KratosDataGod/KratosForge/pull/1025), [#1029](https://github.com/KratosDataGod/KratosForge/pull/1029), [#1075](https://github.com/KratosDataGod/KratosForge/pull/1075), [#1086](https://github.com/KratosDataGod/KratosForge/pull/1086), [#1093](https://github.com/KratosDataGod/KratosForge/pull/1093), [#1095](https://github.com/KratosDataGod/KratosForge/pull/1095), [#1097](https://github.com/KratosDataGod/KratosForge/pull/1097), [#1107](https://github.com/KratosDataGod/KratosForge/pull/1107)
 - **Acceptance criteria:**
     - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
     - Routed items follow the owner named in docs/quality/remediation.md

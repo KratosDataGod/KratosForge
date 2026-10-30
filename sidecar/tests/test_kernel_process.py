@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, shared_version, svc, wait  # noqa: F401
+from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
 from fabric_desktop import app_settings, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
@@ -192,19 +192,19 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     s = Service(root=tmp_path / "app")
-    assert call(s, "kernel_info") == {"process": False, "pid": os.getpid()}
+    assert s.kernel_info() == {"process": False, "pid": os.getpid()}
     assert call(s, "stop_kernel_process") == {"stopped": False, "in_engine": True}
     call(s, "save_app_settings", changes={"kernel_process": True})
     assert app_settings.value("kernel_process") is True
     try:
         call(s, "start_cell", code="import time\ntime.sleep(600)")
-        info = call(s, "kernel_info")
+        info = s.kernel_info()
         assert info["process"] is True and info["pid"] != os.getpid()
         out = handle(s, json.dumps({"id": 1, "method": "save_app_settings", "params": {"changes": {"kernel_process": False}}}))
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))
         assert call(s, "stop_kernel_process") == {"stopped": True}
         assert call(s, "poll_cell", version=-1)["status"] == "cancelled"
-        assert call(s, "run_cell", code="2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
+        assert run_cell(s, "2 * 21")["outputs"] == [{"type": "text", "text": "42"}]
     finally:
         s.kernel.close()
 
@@ -297,6 +297,34 @@ def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_li
     snap = until_done(kernel)
     assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
     assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
+@pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
+def test_the_memory_limit_counts_the_processes_a_cell_starts(kernel, quick_limits):
+    from fabric_desktop.kernel_proc import memory_used
+    kernel.run("kept = 1")
+    kernel.memory_limit = (memory_used(kernel.pid) or 0) + 200 * 1024 ** 2
+    child = "import time; block = b'x' * (400 * 1024 ** 2); time.sleep(60)"
+    kernel.start(f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])")
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
+    assert kernel.run("'kept' in dir()")["outputs"] == [{"type": "text", "text": "False"}]
+
+
+def test_the_memory_limit_reads_the_interpreter_the_process_reported(kernel, quick_limits, monkeypatch):
+    """From a Windows venv, Popen's pid is the venv launcher (a few MB) and the interpreter is its
+    child: the limit must read the pid the kernel reported, not proc.pid (#896's Windows trial)."""
+    from fabric_desktop import kernel_proc
+    kernel.run("kept = 1")
+    launcher = kernel._proc.pid
+    kernel.pid = interpreter = launcher + 100_000  # what a venv launcher's child would report
+    monkeypatch.setattr(kernel_proc, "memory_used", lambda pid: 10 * 1024 ** 3 if pid == interpreter else 5 * 1024 ** 2)
+    # The limit goes on once the cell is running: set before, the watcher could end the process before
+    # start, which would then run the cell in a fresh process under its real pid and never hit the limit.
+    kernel.start("import time\ntime.sleep(30)")
+    kernel.memory_limit = 1024 ** 3
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "the memory limit" in text(snap) and kernel.limit_hit == "memory"
 
 
 def test_the_limits_come_from_settings_or_policy(tmp_path, monkeypatch):
@@ -409,3 +437,29 @@ def test_a_stopped_or_restarted_kernel_isnt_measured_before_its_next_start(kerne
         assert meter.processes == 0 and meter.cpu == 0 and meter.result()["peak_memory_mb"] is None
     kernel.run("x = 2")
     assert kernel.live_pid == kernel.pid != pid
+
+
+def test_a_job_with_more_processes_than_the_list_holds_is_read_again_bigger(monkeypatch):
+    """QueryInformationJobObject fails with ERROR_MORE_DATA when the list is too small, but says how
+    many processes the job has: the list is read again that big rather than given up on."""
+    from fabric_desktop import kernel_proc
+    pids = list(range(1, kernel_proc.JOB_PIDS + 51))
+    calls = []
+
+    class Kernel32:
+        @staticmethod
+        def QueryInformationJobObject(job, kind, buffer, size, _returned):  # noqa: N802
+            listed = buffer._obj  # the JOBOBJECT_BASIC_PROCESS_ID_LIST passed by reference
+            room = len(listed.ProcessIdList)
+            calls.append(room)
+            listed.NumberOfAssignedProcesses = len(pids)
+            if room < len(pids):
+                return False  # ERROR_MORE_DATA
+            listed.NumberOfProcessIdsInList = len(pids)
+            for i, pid in enumerate(pids):
+                listed.ProcessIdList[i] = pid
+            return True
+
+    monkeypatch.setattr(kernel_proc, "_kernel32", lambda: Kernel32)
+    assert kernel_proc._job_pids(1) == pids
+    assert calls[0] == kernel_proc.JOB_PIDS and calls[1] >= len(pids)

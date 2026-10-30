@@ -22,7 +22,7 @@ before(async () => {
     return { columns: [{ name: "CustomerName", type: "varchar" }], rows: [["Contoso"], ["Fabrikam"]] };
   });
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);
@@ -110,7 +110,11 @@ test("history is capped and Clear history asks first", { skip }, async () => {
   const confirm = page().getByRole("dialog", { name: "Clear history" });
   assert.match(await confirm.textContent(), /Remove the 200 runs kept for WH_Gold on this PC/);
   await confirm.getByRole("button", { name: "Clear" }).click();
-  await aside().getByText("No runs yet").waitFor();
+  // Wait on each step's state, so a failure says which step didn't happen: the dialog closing, the
+  // runs leaving storage, or the History tab redrawing (it once waited 30 s for "No runs yet" in CI).
+  await confirm.waitFor({ state: "hidden" });
+  await page().waitForFunction(() => !localStorage.getItem("fabric-desktop.sqlhistory.warehouse.wh1"));
+  await page().waitForFunction(() => /No runs yet/.test(document.querySelector(".warehouse-page aside.explorer")?.textContent || ""));
   assert.deepStrictEqual(await history(), []);
 });
 

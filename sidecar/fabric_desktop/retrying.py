@@ -61,31 +61,39 @@ def _retry_after(headers: Mapping[str, Any] | None, default: float, cap: float,
     return max(0.0, min(wait, cap))
 
 
-def should_retry(method: str, status: int) -> bool:
+def should_retry(method: str, status: int, safe: bool | None = None) -> bool:
     """Whether a response is worth sending again. 429 means the server refused the request unread,
     so any method can be repeated. Other transient statuses only for reads: a write that got a 5xx
-    may have happened, and repeating it could create or change something twice."""
-    return status == 429 or (method.upper() in SAFE_METHODS and status in TRANSIENT_STATUS)
+    may have happened, and repeating it could create or change something twice. ``safe`` says a
+    request is safe to repeat whatever its method (a read sent as POST, or a write the server
+    makes once per call id); left out, the method decides."""
+    if safe is None:
+        safe = method.upper() in SAFE_METHODS
+    return status == 429 or (safe and status in TRANSIENT_STATUS)
 
 
 def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float], None] = time.sleep,
-                    attempts: int = 5, default_wait: float = 2.0) -> Any:
+                    attempts: int = 5, default_wait: float = 2.0, safe: bool | None = None) -> Any:
     """Call ``send`` (one HTTP request) until it gets a response not worth repeating, at most
     ``attempts`` times, waiting as the server's ``Retry-After`` says (capped). A read is also repeated
     after a dropped connection or timeout; a write never is, since it may have reached the server.
-    The last response is returned whatever its status; the caller decides what an error means."""
+    The last response is returned whatever its status; the caller decides what an error means.
+    ``safe`` is as for should_retry."""
     import requests
+
+    if safe is None:
+        safe = method.upper() in SAFE_METHODS
 
     for attempt in range(attempts):
         last = attempt == attempts - 1
         try:
             resp = send()
         except (requests.ConnectionError, requests.Timeout):
-            if last or method.upper() not in SAFE_METHODS:
+            if last or not safe:
                 raise
             sleep(min(default_wait * (2 ** attempt), RETRY_AFTER_CAP))
             continue
-        if last or not should_retry(method, resp.status_code):
+        if last or not should_retry(method, resp.status_code, safe):
             return resp
         sleep(retry_after(getattr(resp, "headers", None), default_wait))
         close = getattr(resp, "close", None)

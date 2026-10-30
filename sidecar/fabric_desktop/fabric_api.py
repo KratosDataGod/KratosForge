@@ -12,6 +12,7 @@ import requests
 from urllib3.util import parse_url
 
 from . import http_session
+from .paging import Pages, PagingError
 from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -41,21 +42,82 @@ def _notebook_definition(ipynb: bytes) -> dict[str, Any]:
 
 
 class FabricError(RuntimeError):
-    def __init__(self, message: str, code: str | None = None, status: int | None = None):
+    def __init__(self, message: str, code: str | None = None, status: int | None = None, request_id: str = ""):
         super().__init__(message)
         self.code = code
         self.status = status  # the HTTP status, when the error came from a response
+        self.request_id = request_id  # Fabric's request id, for support
+
+
+# What a person can do about the errors Fabric gives most often (by error code, then by status).
+_HINTS = {
+    "InsufficientPrivileges": "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access",
+    "ItemDisplayNameAlreadyInUse": "Pick a name that isn't used in this workspace yet",
+    "TooManyRequests": "Fabric is limiting requests. Try again in a few minutes",
+    "UnknownError": "Fabric had a problem on its side. Try again, and give the request id to support if it keeps happening",
+    401: "Fabric didn't accept your sign-in. Sign out and in again",
+    403: "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access",
+    429: "Fabric is limiting requests. Try again in a few minutes",
+    500: "Fabric had a problem on its side. Try again, and give the request id to support if it keeps happening",
+}
+
+
+def _error_body(resp: requests.Response) -> dict[str, Any]:
+    """Fabric's error fields, from its own shape ({"errorCode", "message", ...}) or Power BI's ({"error": {...}})."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return {}
+    if not isinstance(body, dict):
+        return {}
+    raw = body.get("error")
+    inner: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    return {"code": body.get("errorCode") or inner.get("code") or inner.get("errorCode"),
+            "message": body.get("message") or inner.get("message"),
+            "details": body.get("moreDetails") or inner.get("details") or [],
+            "request_id": body.get("requestId") or inner.get("requestId")}
 
 
 def _error(method: str, url: str, resp: requests.Response) -> FabricError:
-    try:
-        code = resp.json().get("errorCode")
-    except ValueError:
-        code = None
+    """A Fabric error a person can read: what was asked (the path, without its query), the status and
+    Fabric's code, Fabric's own message, what to do, and the request id. Never the raw body."""
+    fields = _error_body(resp)
+    code = str(fields.get("code") or "") or None
+    headers = getattr(resp, "headers", None) or {}
+    request_id = str(fields.get("request_id") or headers.get("x-ms-request-id") or headers.get("RequestId") or "")
+    status = resp.status_code
     if code == "CapacityNotActive":
         return FabricError("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
-                           "or use a workspace on an active capacity.", code, resp.status_code)
-    return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
+                           "or use a workspace on an active capacity.", code, status, request_id)
+    path = url.split("?", 1)[0].split("#", 1)[0]
+    path = path[len(API):] if path.startswith(API) else path
+    parts = [str(fields.get("message") or "").strip().rstrip(".")]
+    parts += [str(d.get("message")).strip().rstrip(".") for d in fields.get("details") or []
+              if isinstance(d, dict) and d.get("message")][:3]
+    hint = _HINTS.get(code or "") or _HINTS.get(status) or (_HINTS[500] if status >= 500 else "")
+    parts = [p for p in parts if p] + ([hint] if hint else [])
+    text = f"{method} {path} failed with {status}" + (f" {code}" if code else "")
+    text += (": " + ". ".join(parts) + "." if parts else ".") + (f" Request id {request_id}." if request_id else "")
+    return FabricError(text, code, status, request_id)
+
+
+def _operation_failed(operation: str, state: dict[str, Any]) -> FabricError:
+    """A failed long-running operation, in Fabric's words: its error code and message, never the raw body."""
+    raw = state.get("error")
+    error: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    code = str(error.get("errorCode") or "") or None
+    message = str(error.get("message") or "").strip().rstrip(".")
+    raw_more = error.get("moreDetails")
+    more: list[Any] = raw_more if isinstance(raw_more, list) else []
+    details = [str(d.get("message")).strip().rstrip(".") for d in more if isinstance(d, dict) and d.get("message")]
+    if code == "CapacityNotActive":
+        message = ("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
+                   "or use a workspace on an active capacity")
+    text = f"Fabric's operation {operation} {'failed' if state.get('status') == 'Failed' else 'ended in an unknown state'}"
+    text += f": {message}" if message else " and gave no reason"
+    text += "".join(f". {d}" for d in details[:3]) + (f" ({code})" if code else "")
+    request_id = str(error.get("requestId") or "")
+    return FabricError(text + (f". Request id {request_id}." if request_id else "."), code)
 
 
 # Hosts a URL Fabric hands back (continuationUri, an operation's Location) may name before the
@@ -147,31 +209,53 @@ class FabricClient:
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         url = url if url.startswith("http") else f"{API}{url}"
+        pages = Pages(url.split("?", 1)[0][len(API):] or "Fabric", start=url)
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt else ""
+            try:
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""  # some APIs send the text "null"
+            except PagingError as exc:  # a FabricError, so callers that report Fabric errors report this one
+                raise FabricError(str(exc), "PagingStopped") from None
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:
-        """Follow a 202 long-running operation to its result."""
+        """Follow a 202 long-running operation to its result. Once it has succeeded, the state's
+        ``Location`` names the result; an operation that has none (Fabric says some just finish)
+        returns {}. A failure raises with Fabric's own code and message, not the raw response."""
         if resp.status_code != 202:
             return resp.json() if resp.content else {}
         came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
         location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
+        operation = resp.headers.get("x-ms-operation-id") or location.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
         deadline = time.monotonic() + self._poll_timeout
         while True:
             self._sleep(retry_after(resp.headers, 2))
             resp = self._request("GET", location)
-            status = resp.json().get("status")
+            state = resp.json() if resp.content else {}
+            status = state.get("status")
             if status == "Succeeded":
-                result = self._request("GET", f"{location.rstrip('/')}/result")
-                return result.json() if result.content else {}
+                return self._operation_result(location, resp.headers.get("Location"))
             if status in ("Failed", "Undefined"):
-                raise FabricError(f"Operation failed: {resp.text}")
+                raise _operation_failed(operation, state)
             if time.monotonic() > deadline:
-                raise FabricError(f"Operation timed out: {location}")
+                raise FabricError(f"Fabric's operation {operation} didn't finish within {self._poll_timeout:g} seconds "
+                                  f"(last status: {status or 'none'}). It may still finish in Fabric.", "OperationTimedOut")
+
+    def _operation_result(self, location: str, result_location: str | None) -> dict[str, Any]:
+        if result_location:
+            url = followable_url(result_location, location)
+            if url.rstrip("/") != location.rstrip("/"):
+                result = self._request("GET", url)
+                return result.json() if result.content else {}
+        try:  # no result link: build it from the operation, as Fabric's docs allow
+            result = self._request("GET", f"{location.rstrip('/')}/result")
+        except FabricError as exc:
+            if exc.status in (400, 404):
+                return {}  # it succeeded and has no result
+            raise
+        return result.json() if result.content else {}
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self._paged("/workspaces")
@@ -215,14 +299,41 @@ class FabricClient:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
-        """Create a schema-enabled lakehouse."""
+        """Create a schema-enabled lakehouse. Always returns it with its ``id``: when the operation gives
+        no result, the lakehouse is looked up by name."""
         problem = lakehouse_name_problem(name)
         if problem:
             raise ValueError(problem)
         body = {"displayName": name, "creationPayload": {"enableSchemas": True}}
         if description:
             body["description"] = description
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        made = self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+        if made.get("id"):
+            return made
+        found = self.find_lakehouse(workspace_id, name)
+        if found and found.get("id"):
+            return found
+        raise FabricError(f"Fabric said it created the lakehouse {name}, but it isn't in the workspace yet. "
+                          "Refresh the workspace in a minute, then try again.", "LakehouseNotFoundAfterCreate")
+
+    def environment_libraries(self, workspace_id: str, environment_id: str, staged: bool = False) -> list[dict[str, Any]]:
+        """The libraries published to an Environment item (or, with ``staged``, the ones saved but not
+        yet published): [{"name", "libraryType": External|Custom, "version"}]. Read only (``beta=False``
+        is the GA contract; the preview one has another shape). An empty list answers 404
+        EnvironmentLibrariesNotFound, which is an empty list, not an error."""
+        where = "staging/libraries" if staged else "libraries"
+        try:
+            return self._paged(f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False", key="libraries")
+        except FabricError as exc:
+            if exc.code == "EnvironmentLibrariesNotFound":
+                return []
+            raise
+
+    def environment_spark_compute(self, workspace_id: str, environment_id: str, staged: bool = False) -> dict[str, Any]:
+        """The Environment item's published (or, with ``staged``, unpublished) Spark settings, with
+        ``runtimeVersion``. Read only."""
+        where = "staging/sparkcompute" if staged else "sparkcompute"
+        return self._request("GET", f"/workspaces/{workspace_id}/environments/{environment_id}/{where}?beta=False").json()
 
     def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
@@ -267,7 +378,11 @@ class FabricClient:
     def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
         """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
         query = f"?format={fmt}" if fmt else ""
-        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        got = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+        if not isinstance(got.get("definition"), dict):
+            raise FabricError("Fabric didn't send the item's definition. Try again; if it keeps happening, "
+                              "open the item in Fabric to check it still loads.", "NoDefinition")
+        return got
 
     def list_notebooks(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/notebooks")
@@ -541,13 +656,17 @@ class FabricClient:
         url = f"{API}/workspaces/{workspace_id}/items/{item_id}/dataAccessRoles"
         items: list[dict[str, Any]] = []
         etag = None
+        pages = Pages(f"the data access roles of item {item_id}", start=url)
         while url:
             resp = self._request("GET", url)
             etag = etag or resp.headers.get("ETag")
             body = resp.json()
             items.extend(body.get("value", []))
             nxt = body.get("continuationUri")
-            url = followable_url(nxt, url) if nxt and nxt != "null" else ""  # HD-058, as _paged; some APIs send the text "null"
+            try:  # HD-058, as _paged; some APIs send the text "null"
+                url = pages.follow(followable_url(nxt, url)) if nxt and nxt != "null" else ""
+            except PagingError as exc:
+                raise FabricError(str(exc), "PagingStopped") from None
         return items, etag
 
     def put_data_access_roles(self, workspace_id: str, item_id: str, roles: list[dict[str, Any]],

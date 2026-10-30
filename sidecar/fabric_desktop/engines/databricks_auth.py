@@ -21,7 +21,6 @@ from __future__ import annotations
 import configparser
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -30,11 +29,12 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .. import connprofiles, redact
+from .runtimes import DRIVE, trusted_cli
 
 CLI_TIMEOUT = 60
 # A token this close to expiring is fetched again, so a statement never starts with one about to lapse.
 REFRESH_SECONDS = 120
-_DRIVE = re.compile(r"[A-Za-z]:[\\/]")
+_DRIVE = DRIVE
 
 
 class DatabricksAuthError(RuntimeError):
@@ -136,20 +136,9 @@ def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
 
 
 def find_cli(environ: Mapping[str, str] | None = None) -> str | None:
-    """The Databricks CLI from PATH's absolute folders only. ``shutil.which`` also looks in the
-    current folder on Windows, where a planted databricks.exe would then get the person's sign-in.
-    On Windows only databricks.exe counts (the CLI ships as one), in folders that start with a drive
-    letter, so no batch file or network share stands in for it."""
-    env = os.environ if environ is None else environ
-    windows = sys.platform == "win32"
-    name = "databricks.exe" if windows else "databricks"
-    for folder in (env.get("PATH") or "").split(os.pathsep):
-        if not folder or not os.path.isabs(folder) or (windows and not _DRIVE.match(folder)):
-            continue
-        path = os.path.join(folder, name)
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-    return None
+    """The Databricks CLI from PATH's absolute folders only (runtimes.trusted_cli): on Windows only
+    databricks.exe in a folder that starts with a drive letter, never the current folder."""
+    return trusted_cli("databricks", environ)
 
 
 def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | None]:

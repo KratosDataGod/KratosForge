@@ -116,7 +116,7 @@ def test_quick_calls_match_the_shell_time_limit_list():
 def test_notebook_writes_stay_in_order_with_publish():
     # Publish saves the cells it was given before uploading; if a later autosave could overtake a
     # publish queued behind a long call, the publish would write the older cells over it.
-    writers = {"new_notebook", "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook"}
+    writers = {"new_notebook", "save_notebook", "rename_notebook", "notebook_delete", "publish_notebook"}
     assert writers <= server.METHODS and not writers & server.QUICK
 
 

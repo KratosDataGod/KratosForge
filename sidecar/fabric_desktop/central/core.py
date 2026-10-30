@@ -43,17 +43,22 @@ Tables (T-SQL schema.table; SQLite schema__table):
                          Purview, typed by the product's owner; nothing reads Purview (Preview)
     catalog.product_item a data product's semantic models and reports: the Fabric item's id, type, workspace id
                          and display name, picked by the product's owner; nothing in Fabric changes (Preview)
+    catalog.call         each change the app sent with a call id (call_once) and its answer, kept 7 days, so a
+                         change retried after a timeout is made once
     catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
-    platform admins      domains, key tables, source systems, landing zones, glossary, admins, shortcut rules,
-                         accepted shortcut risks, policy exceptions, endorsement scans, every product's
+    shortcut inventory   anyone records a new or a broken shortcut; a removal, a repoint or a healthy mark
+                         comes from a platform admin or a member of a project with a product in that lakehouse
+    platform admins      domains, key tables, copying keys in, source systems, landing zones, glossary, admins,
+                         shortcut rules, accepted shortcut risks, policy exceptions, endorsement scans, every product's
                          business terms, and every request
-    domain owners        glossary terms of their domain
+    domain owners        glossary terms of their domain, certifying catalog entries of their domain's projects
     product owners       access requests to their product, their product's business terms, and the semantic
                          models and reports grouped under it
-    everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
+    project members      their project's catalog text (descriptions, tags, terms, steward)
+    everyone             reading, issuing keys from existing key tables, products, links, requests
 """
 
 from __future__ import annotations
@@ -61,8 +66,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import time
 import uuid
-from typing import Any
+from typing import Any, Callable, cast
 from urllib.parse import urlsplit
 
 SCHEMA_VERSION = 5
@@ -231,6 +237,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "product_item": [("id", "key"), ("product_id", "text"), ("item_id", "text"), ("item_type", "text"),
                      ("workspace_id", "text"), ("workspace_name", "text"), ("item_name", "text"),
                      ("added_by", "text"), ("added_at", "text")],
+    # A change the app sent with a call id, and its answer as JSON (call_once).
+    "call": [("id", "key"), ("op", "text"), ("by_user", "text"), ("at", "text"), ("result", "long")],
 }
 
 
@@ -484,8 +492,9 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
 
     A business key already here must already have the same key; anything else is refused, so a
     migration never renumbers a key. The identity continues after the highest key. A key table
-    that isn't there yet is created, which only a platform admin may do."""
+    that isn't there yet is created. Copying keys in is a migration: only a platform admin may."""
     name = key_name(name)
+    require_admin(db, by, "copy keys in")
     _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
@@ -1184,11 +1193,22 @@ SCHEMA_HOOKS.append(ensure_contracts)
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:
     """Description, tags, classification, glossary terms, steward or certification of a table or
     column. ``target`` is "<project>:<entity>" or "<project>:<entity>#<column>". Only the fields
-    given change."""
+    given change, for a project the catalog has. Only the project's members (or a platform admin)
+    change the text; ``certified`` is changed only by the owners of the project's domain or an admin,
+    who need not be members to certify."""
     target = str(target or "").strip()
     if ":" not in target:
         raise PlatformError("target is <project>:<entity> or <project>:<entity>#<column>")
+    project = target.split(":", 1)[0].strip()
+    admin = is_admin(db, by)
+    if not project or (not admin and not _in_catalog(db, project)):
+        raise PlatformError(f"{project or 'That project'} isn't in the platform's catalog yet. Join the mesh first "
+                            "(Data mesh > Domains > This project), then its catalog text can be saved")
     current = _row(db, "enrichment", "target", target) or {"target": target}
+    if not admin and (not fields or any(f != "certified" for f in fields)):
+        require_member(db, project, by, "change its catalog text")
+    if "certified" in fields and str(fields["certified"] or "") != str(current.get("certified") or ""):
+        _require_certifier(db, project, by)
     if "classification" in fields and fields["classification"] not in ("", None, *CLASSIFICATIONS):
         raise PlatformError(f"classification must be one of {', '.join(CLASSIFICATIONS)}")
     row = dict(current)
@@ -1199,11 +1219,26 @@ def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -
         if f in fields:
             items = fields[f] if isinstance(fields[f], list) else [x.strip() for x in str(fields[f] or "").split(",")]
             row[f] = json.dumps(sorted({str(x).strip() for x in items if str(x).strip()}))
+    if all(str(row.get(f) or "") == str(current.get(f) or "") for f in fields):
+        return _enrichment_out(current)  # nothing changes: nothing is written or recorded
     row["updated_at"], row["updated_by"] = _now(), by
     _upsert(db, "catalog", "enrichment", "target", row)
     _audit(db, by, "enrich", target, {k: fields[k] for k in fields})
     db.commit()
     return _enrichment_out(row)
+
+
+def _require_certifier(db: Db, project: str, by: str) -> None:
+    """Certifying a table or column (or taking it back) is for the owners of the project's domain, or a
+    platform admin: a project's own members can't vouch for their own data."""
+    if is_admin(db, by):
+        return
+    row = _row(db, "project", "name", project) or {}
+    dom = row.get("domain_id") or ""
+    if dom and _who(by) in _domain_deciders(db, dom, row.get("subdomain_id") or ""):
+        return
+    raise PlatformError(f"Only the owners of {project}'s domain or a platform admin can change what's certified"
+                        + ("" if dom else f": {project} isn't in a domain yet, so a platform admin decides"))
 
 
 def _enrichment_out(row: dict[str, Any]) -> dict[str, Any]:
@@ -1283,6 +1318,11 @@ def _names(value: Any) -> set[str]:
     return {x.strip().lower() for x in re.split(r"[,;]", str(value or "")) if x.strip()}
 
 
+def is_sign_in_name(text: str) -> bool:
+    """Whether ``text`` can be a caller's sign-in name (UPN), the only thing an admin is matched by."""
+    return bool(_EMAIL.match(str(text or "")))
+
+
 def list_admins(db: Db) -> list[dict[str, Any]]:
     return sorted(db.rows(f"SELECT * FROM {db.t('catalog', 'admin')}"), key=lambda a: a["user_name"])
 
@@ -1324,8 +1364,9 @@ def claim_admin(db: Db, by: str = "") -> dict[str, Any]:
 def add_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
     require_admin(db, by, "add platform admins")
     who = _who(user)
-    if not who:
-        raise PlatformError("Give the new admin's sign-in name, like ana@contoso.com")
+    # Admins are matched by the sign-in name Fabric gives the function, so anything else never matches.
+    if not is_sign_in_name(who):
+        raise PlatformError("Give the new admin's sign-in name, like ana@contoso.com. Groups can't be platform admins.")
     _upsert(db, "catalog", "admin", "user_name", {"user_name": who, "added_at": _now(), "added_by": _who(by)})
     _audit(db, by, "add admin", who)
     db.commit()
@@ -1336,6 +1377,8 @@ def remove_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
     require_admin(db, by, "remove platform admins")
     who = _who(user)
     admins = list_admins(db)
+    if who not in [a["user_name"] for a in admins]:
+        raise PlatformError(f"{who or 'Nobody'} isn't a platform admin")
     if [a["user_name"] for a in admins] == [who]:
         raise PlatformError("A platform keeps at least one admin. Add another before removing this one.")
     db.run(f"DELETE FROM {db.t('catalog', 'admin')} WHERE user_name = ?", (who,))
@@ -2470,13 +2513,42 @@ def _definition(s: dict[str, Any]) -> dict[str, Any]:
             "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": s.get("target") or {}}
 
 
-def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[dict[str, Any]]) -> dict[str, Any]:
+def _shortcut_changer(db: Db, by: str) -> Callable[[Any], bool]:
+    """Who may change what the inventory says about a lakehouse's shortcuts in a way that could hide a
+    problem (a removal, a repoint, a healthy mark): a platform admin, or a member of a project with a
+    product port in that lakehouse. Anyone may report a new shortcut or a broken one."""
+    if is_admin(db, by):
+        return lambda lakehouse_id: True
+    who, seen = _who(by), {}
+
+    def may(lakehouse_id: Any) -> bool:
+        lakehouse_id = str(lakehouse_id or "")
+        if lakehouse_id not in seen:
+            projects = {r["project"] for r in db.rows(
+                f"SELECT DISTINCT p.project AS project FROM {db.t('catalog', 'port')} o JOIN {db.t('catalog', 'product')} p "
+                "ON p.id = o.product_id WHERE o.lakehouse_id = ?", (lakehouse_id,))} if lakehouse_id else set()
+            seen[lakehouse_id] = bool(who) and any(who in _stored_members(db, pr) for pr in projects)
+        return seen[lakehouse_id]
+    return may
+
+
+def _skipped(sid: str, kind: str) -> dict[str, Any]:
+    return {"kind": "skipped", "shortcut_id": sid, "change": kind,
+            "why": "only a platform admin, or a member of a project with a product in this lakehouse, can record it"}
+
+
+def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[dict[str, Any]],
+                     by: str = "") -> dict[str, Any]:
     """A scan of some lakehouses: ``lakehouses`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name}]
     were all read, ``shortcuts`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name, path, name,
     target}] is everything in them. Records what's new, gone or pointing somewhere else since the last
-    scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline."""
+    scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline.
+
+    A removal or a repoint changes the inventory only from someone who may change that lakehouse's
+    (_shortcut_changer); from anyone else a removal is skipped and a repoint is recorded as reported,
+    leaving the shortcut, its health and its accepted risks as they were. Both are listed in ``skipped``."""
     ensure_shortcut_risks(db)
-    now = _now()
+    now, may, skipped = _now(), _shortcut_changer(db, by), []
     scanned = {str(l["lakehouse_id"]): l for l in lakehouses if l.get("lakehouse_id")}
     seen = {}
     for s in shortcuts:
@@ -2500,34 +2572,58 @@ def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[d
         if before is None:
             row |= {"health": "not_checked", "health_detail": "", "checked_at": "", "first_seen": now}
             if str(s["lakehouse_id"]) not in first:
-                changes.append(_change(db, "added", sid, s, None, _definition(s), "", "scan"))
+                changes.append(_change(db, "added", sid, s, None, _definition(s), by, "scan"))
         elif _canon(json.loads(before.get("target") or "{}")) != row["target"]:
-            changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), "", "scan"))
+            if not may(s["lakehouse_id"]):
+                changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), by,
+                                       "scan", "reported: not applied to the inventory"))
+                skipped.append(_skipped(sid, "repointed"))
+                continue
+            changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), by, "scan"))
             row |= {"health": "not_checked", "health_detail": "", "checked_at": ""}
             row |= {col: str(s.get(col) or "") for col in _SHORTCUT_ADDED}
-            _end_risks(db, sid, "", "it was repointed (seen at scan)")
+            _end_risks(db, sid, by, "it was repointed (seen at scan)")
         _upsert(db, "catalog", "shortcut", "id", row)
     for sid, before in stored.items():
         if sid not in seen:
-            changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, "", "scan"))
+            if not may(before.get("lakehouse_id")):
+                skipped.append(_skipped(sid, "removed"))
+                continue
+            changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, by, "scan"))
             db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
-            _end_risks(db, sid, "", "it was removed (seen at scan)")
+            _end_risks(db, sid, by, "it was removed (seen at scan)")
     for lh in scanned:
         _upsert(db, "catalog", "shortcut_scope", "lakehouse_id",
                 {"lakehouse_id": lh, "first_scan": (_row(db, "shortcut_scope", "lakehouse_id", lh) or {}).get("first_scan") or now,
                  "last_scan": now})
+    _audit(db, by, "shortcut scan", ",".join(sorted(scanned)),
+           {"changes": len(changes), "skipped": len(skipped)} if changes or skipped else None)
     db.commit()
-    return {"changes": changes, "baseline": sorted(first)}
+    return {"changes": changes, "baseline": sorted(first), "skipped": skipped}
 
 
 def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dict[str, Any] | None = None,
                         after: dict[str, Any] | None = None, note: str = "", by: str = "") -> dict[str, Any]:
     """A change made from the app, recorded with who made it, and the inventory updated to match
-    so the next scan doesn't count it again."""
+    so the next scan doesn't count it again. A removal or a repoint changes the inventory only from
+    someone who may change that lakehouse's shortcuts (_shortcut_changer): anyone else's removal is
+    refused (the next scan by someone who may records it) and their repoint is recorded as reported."""
     if kind not in ("added", "removed", "repointed"):
         raise PlatformError("kind is added, removed or repointed")
     ensure_shortcut_risks(db)
     sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
+    if kind != "added" and not _shortcut_changer(db, by)(shortcut.get("lakehouse_id")):
+        if kind == "removed":
+            raise PlatformError("The shortcut is removed, but only a platform admin, or a member of a project with a "
+                                "product in this lakehouse, can record that; their next scan does")
+        # What it pointed at comes from the inventory, not the caller; a reported change can't be undone.
+        stored = _row(db, "shortcut", "id", sid)
+        before = _definition(_shortcut_out(stored)) if stored else None
+        out = _change(db, kind, sid, shortcut, before, after, by, "app",
+                      ("reported: not applied to the inventory" + (f"; {note}" if note else "")))
+        _audit(db, by, "shortcut repointed (reported)", sid, {"note": note} if note else None)
+        db.commit()
+        return out
     out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
     if kind == "removed":
         db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
@@ -2549,9 +2645,12 @@ def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dic
     return out
 
 
-def record_shortcut_health(db: Db, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change."""
-    now, changes = _now(), []
+def record_shortcut_health(db: Db, results: list[dict[str, Any]], by: str = "") -> list[dict[str, Any]]:
+    """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change. Anyone
+    may report a shortcut broken; any other result (even the same health again, which would freshen
+    the check's time and detail) is recorded only from someone who may change that lakehouse's
+    shortcuts (_shortcut_changer), and is otherwise listed as skipped."""
+    now, changes, may, done = _now(), [], _shortcut_changer(db, by), 0
     for r in results:
         if r.get("health") not in HEALTH:
             raise PlatformError(f"health is one of {', '.join(HEALTH)}")
@@ -2559,12 +2658,20 @@ def record_shortcut_health(db: Db, results: list[dict[str, Any]]) -> list[dict[s
         if row is None:
             continue
         was = row.get("health") or "not_checked"
+        if r["health"] != "broken" and not may(row.get("lakehouse_id")):
+            changes.append(_skipped(row["id"], r["health"]))
+            continue
         if r["health"] == "broken" and was != "broken":
-            changes.append(_change(db, "broke", row["id"], row, None, None, "", "check", r.get("detail", "")))
+            changes.append(_change(db, "broke", row["id"], row, None, None, by, "check", r.get("detail", "")))
         elif was == "broken" and r["health"] == "healthy":
-            changes.append(_change(db, "fixed", row["id"], row, None, None, "", "check"))
+            changes.append(_change(db, "fixed", row["id"], row, None, None, by, "check"))
         db.run(f"UPDATE {db.t('catalog', 'shortcut')} SET health = ?, health_detail = ?, checked_at = ? WHERE id = ?",
                (r["health"], str(r.get("detail") or ""), now, row["id"]))
+        done += 1
+    if changes or done:
+        _audit(db, by, "shortcut health", f"{done} checked",
+               {"changes": [c["kind"] for c in changes if c["kind"] != "skipped"],
+                "skipped": sum(c["kind"] == "skipped" for c in changes)})
     db.commit()
     return changes
 
@@ -2581,7 +2688,28 @@ def shortcut_changes(db: Db, days: int = 30, limit: int = 500, shortcut: str = "
         sql += " AND shortcut_id = ?"
         params.append(shortcut)
     rows = sorted(db.rows(sql, params), key=lambda r: r["at"], reverse=True)
-    return [_change_out(r) for r in rows[:int(limit)]]
+    changers: dict[str, Callable[[str], bool]] = {}
+    out = []
+    for r in rows[:int(limit)]:
+        c = _change_out(r)
+        c["undoable"] = _undoable(db, c, changers)
+        out.append(c)
+    return out
+
+
+def _undoable(db: Db, c: dict[str, Any], changers: dict[str, Callable[[str], bool]]) -> bool:
+    """Undo acts with the rights of whoever clicks it, on the definitions the change row holds. So it's
+    offered only for a change that was applied (not reported) and whose author may change shortcuts in
+    every lakehouse those definitions name, as they stand now (_shortcut_changer)."""
+    if c["kind"] not in ("added", "removed", "repointed") or str(c.get("note") or "").startswith("reported"):
+        return False
+    lakes = {str(d.get("lakehouse_id") or "") for d in (c.get("before"), c.get("after")) if isinstance(d, dict)}
+    if not lakes or "" in lakes:
+        return False
+    who = str(c.get("by_user") or "")
+    if who not in changers:
+        changers[who] = _shortcut_changer(db, who)
+    return all(changers[who](lh) for lh in lakes)
 
 
 def shortcut_rules(db: Db) -> dict[str, Any]:
@@ -2939,6 +3067,85 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
     return list_product_items(db, product["id"])
 
 
+# --------------------------------------------------------------------------- calls made once
+
+# Operations that only read. The app sends them again after a timeout, a dropped connection or a busy
+# platform as they are (tests/test_central_roles.py checks each one changes nothing).
+READ_OPERATIONS = frozenset({
+    "access_reviews", "audit", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
+    "keys_state", "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_follows",
+    "list_glossary", "list_grants", "list_key_tables", "list_landing_zones", "list_policies",
+    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_products",
+    "list_project_members", "list_projects", "list_requests", "list_seen_shortcuts", "list_shortcut_risks",
+    "list_sources", "lookup_key", "owner_coverage", "policies_ready", "policy_applicability", "policy_history",
+    "policy_options", "policy_snapshot", "policy_version", "product_followers", "product_history",
+    "product_trust", "resolve_policies", "resolve_port", "shortcut_changes", "shortcut_rules", "whoami",
+})
+# Writes whose second run changes nothing the first didn't: Finish or repair, and issuing keys (a
+# business key keeps the key it was given). Sent again as they are, like reads.
+REPEATABLE_OPERATIONS = frozenset({"ensure_schema", "ensure_policy_schema", "ensure_template_schema", "issue_keys"})
+CALL_DAYS = 7
+MAX_CALL_RESULT = 1_000_000
+CALL_WAITS = 10  # half seconds a second call waits for the first one's answer
+_NOT_KEPT = "-"  # the answer of a call made, too big to keep (not JSON, so never an answer)
+_CALL_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def call_once(db: Db, call_id: str, operation: str, args: dict[str, Any] | None = None,
+              by: str = "") -> dict[str, Any]:
+    """Run the change ``operation`` once for ``call_id``, which the app makes once per change and keeps
+    when it sends the change again after a timeout or a dropped connection: the platform may have made
+    it already. A call id seen before gets its first answer back and changes nothing. The operation
+    checks who may make the change as it always does. Answers: {"result": ..., "replayed": bool}."""
+    op = str(operation or "")
+    cid = str(call_id or "").strip().lower()
+    if not _CALL_ID.fullmatch(cid):
+        raise PlatformError("A call id is 32 hexadecimal characters")
+    if op not in OPERATIONS or op == "call_once" or op in READ_OPERATIONS or op in REPEATABLE_OPERATIONS:
+        raise PlatformError(f"{op!r} isn't a change made through call_once")
+    args = dict(args or {})
+    if "by" in args:
+        raise PlatformError("Who makes a change is the caller, never an argument")
+    fn = cast(Callable[..., Any], OPERATIONS[op])  # OPERATIONS is built below this function
+    takes_by = "by" in fn.__code__.co_varnames[:fn.__code__.co_argcount]
+    who = _who(by)
+    calls = db.t("catalog", "call")
+    cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=CALL_DAYS)).isoformat(timespec="seconds")
+    db.run(f"DELETE FROM {calls} WHERE at < ?", (cutoff,))
+    try:
+        # Kept uncommitted until the change commits, so the two go in together; a second call with the
+        # same id waits for this one, then finds its row.
+        db.run(f"INSERT INTO {calls} (id, op, by_user, at, result) VALUES (?, ?, ?, ?, NULL)", (cid, op, who, _now()))
+    except Exception:  # the id is taken: read what the first call left
+        db.conn.rollback()
+        row = _row(db, "call", "id", cid)
+        for _ in range(CALL_WAITS):  # the first call made the change and is still writing its answer
+            if row is None or row.get("result") is not None:
+                break
+            time.sleep(0.5)
+            row = _row(db, "call", "id", cid)
+        if row is None:
+            raise
+        if row["op"] != op or (row.get("by_user") or "") != who:
+            raise PlatformError("That call id belongs to another change") from None
+        if row.get("result") in (None, _NOT_KEPT):
+            raise PlatformError(f"This {op.replace('_', ' ')} was made, but its answer wasn't kept. "
+                                "Refresh to see it.") from None
+        return {"result": json.loads(row["result"]), "replayed": True}
+    try:
+        out = fn(db, **args, **({"by": by} if takes_by else {}))
+    except Exception:
+        # Refused or failed: the id is freed, so the same change can be sent again.
+        db.conn.rollback()
+        db.run(f"DELETE FROM {calls} WHERE id = ?", (cid,))
+        db.commit()
+        raise
+    text = json.dumps(out, default=str)
+    db.run(f"UPDATE {calls} SET result = ? WHERE id = ?", (text if len(text) <= MAX_CALL_RESULT else _NOT_KEPT, cid))
+    db.commit()
+    return {"result": out, "replayed": False}
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -2974,4 +3181,5 @@ OPERATIONS = {
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
     "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
+    "call_once": call_once,
 }

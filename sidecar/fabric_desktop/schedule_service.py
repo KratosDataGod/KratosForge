@@ -11,7 +11,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from . import app_settings, notebook_cells
@@ -161,7 +161,7 @@ class ScheduleMixin:
             if r.get("schedule_id") in ours or (r.get("schedule_id") not in meta and r.get("label") == name):
                 rows.append({"source": "pc", "started": r.get("started"), "ended": r.get("ended"),
                              "seconds": r.get("seconds"), "status": r.get("status", ""),
-                             "trigger": "manual" if r.get("trigger") == "manual" else "schedule",
+                             "trigger": r.get("trigger") if r.get("trigger") in ("manual", "home") else "schedule",
                              "message": r.get("message", ""), "alert_error": r.get("alert_error", ""),
                              "cells": r.get("cells"), "schedule_id": r.get("schedule_id")})
         mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=False))  # type: ignore[attr-defined]
@@ -269,7 +269,8 @@ class ScheduleMixin:
         schedules.log_run(row)
         return row
 
-    def _run_notebook_here(self, name: str) -> dict[str, Any]:
+    def _run_notebook_here(self, name: str, progress: Callable[[int, int], None] | None = None) -> dict[str, Any]:
+        """As Run all, here. ``progress(cell, cells)`` is told before each cell runs (Home's Run several)."""
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
         self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
@@ -283,6 +284,8 @@ class ScheduleMixin:
             code = [c for c in code if not is_step(c)]
             skipped += ", the Fabric step skipped"
         for i, cell in enumerate(code, 1):
+            if progress:
+                progress(i, len(code))
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
                 err = next((o for o in res["outputs"] if o.get("type") == "error"), {})

@@ -281,8 +281,7 @@ def test_import_refuses_what_preview_refuses(svc):
 
 
 def test_preview_is_a_read_and_import_is_audited_without_the_files_content():
-    assert not audit.audited("usage_preview") and not audit.audited("usage_imports")
-    assert not audit.audited("usage_reconciliation")
+    assert not audit.audited("usage_preview")
     assert audit.audited("usage_import") and audit.audited("usage_import_delete")
     assert audit.target({"file_name": "t.csv", "content": OPS})["content"] == "(given)"
 

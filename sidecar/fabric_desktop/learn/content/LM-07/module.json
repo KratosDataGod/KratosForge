@@ -1,0 +1,52 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-07",
+  "kind": "module",
+  "title": "OneLake and Delta tables: files and a log",
+  "path": "microsoft-fabric",
+  "level": "beginner",
+  "minutes": 15,
+  "objectives": [
+    "Say how OneLake, workspaces, lakehouses and shortcuts fit together",
+    "Read a Delta table's log: which files make up each version",
+    "Explain what OPTIMIZE and VACUUM change, and why VACUUM keeps 7 days"
+  ],
+  "prerequisites": ["LM-06"],
+  "platforms": ["DuckDB", "Fabric Lakehouse (Spark SQL)"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "files-at-version",
+      "prompt": "List the files that make up version 2 of the table: path and num_records, by path.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-files.sql",
+      "solution": "solution-files.sql",
+      "hints": [
+        "A file belongs to version 2 if it was added at version 2 or before, and not removed at version 2 or before.",
+        "Start from the add rows with version <= 2, then leave out every path that has a remove row with version <= 2 (NOT EXISTS)."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    },
+    {
+      "id": "rows-by-version",
+      "prompt": "Show how many rows the table had at each version: version and row_count, oldest first.",
+      "engine": "duckdb",
+      "starter": "starter-rows.sql",
+      "solution": "solution-rows.sql",
+      "hints": [
+        "Take every version once (SELECT DISTINCT version FROM delta_log) and, for each, the files that were live then.",
+        "Join each version v to the add rows with version <= v, leave out paths removed at or before v, and sum num_records."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": ["NB020"],
+  "docs": ["https://learn.microsoft.com/fabric/onelake/onelake-overview",
+           "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-30"
+}

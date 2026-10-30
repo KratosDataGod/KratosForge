@@ -197,11 +197,17 @@ def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, spar
 
     ``spark`` True lets Spark cells run: on this PC ``spark`` (spark_local) reads tables through
     lakehouse.open_table and writes them through lakehouse.write_table, which the proof runtime pins
-    and redirects like any other cell's. proof.check blocks Spark for a proof's Fabric side only."""
+    and redirects like any other cell's. With ``spark`` False (local pipeline steps) Spark cells stop the run."""
     pr = proof.check(cells, lakehouse)
     step = notebook_cells.step_cell(cells)  # a clean run skips it
-    blockers = [b for b in pr["blockers"] if b.get("cell") and b["cell"] != step and _escapes(b["text"])
-                and not (spark and b["text"].startswith("uses Spark"))]
+    blockers = [b for b in pr["blockers"] if b.get("cell") and b["cell"] != step and _escapes(b["text"])]
+    if not spark:
+        first = next((n for n, c in enumerate(cells, 1) if n != step and c.get("type") != "markdown"
+                      and uses_spark([c])), None)
+        if first is not None:
+            blockers.insert(0, {"cell": first, "cell_id": cells[first - 1].get("cell_id"),
+                                "text": "uses Spark, which this run doesn't take yet. Use the lakehouse module "
+                                        "(read_table, write_table, sql)."})
     uncontained = [{"cell": w["cell"], "cell_id": w.get("cell_id"), "line": w.get("line"), "text": _effect(w["text"])[1]}
                    for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith("uses the clock")]
     return {"ok": not blockers, "blockers": blockers, "uncontained": uncontained,

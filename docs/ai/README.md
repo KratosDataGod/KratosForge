@@ -7,6 +7,7 @@ KratosForge is **AI-ready, not AI-dependent**. It has no AI of its own: no chat,
 | This page | Connecting a tool, step by step, with the setup for each one |
 | [Workflows](workflows.md) | Step-by-step workflows your tool can follow (also served as MCP prompts) |
 | [Instructions for your AI tool](agent-instructions.md) | Text to paste into `AGENTS.md`, `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` |
+| [Use with Microsoft's Fabric skills](microsoft-fabric-skills.md) | The KratosForge skill for Claude Code and GitHub Copilot CLI, and how it works beside Microsoft's Fabric skills |
 | [Architecture](../architecture/ai-integration.md), [security](../product/ai-integration-security.md), [compatibility](../product/ai-integration-compatibility.md) | Developers and IT |
 
 ## Which tools have been tried
@@ -127,6 +128,8 @@ OpenAPI: http://127.0.0.1:47615/api/v1/openapi.json
 MCP (Streamable HTTP): http://127.0.0.1:47615/mcp
 Header: Authorization: Bearer <the token shown once>
 ```
+
+Use `127.0.0.1` in the address, not `localhost`: on Windows, `localhost` tries the IPv6 address `::1` first, which the API doesn't listen on, so on a PC other people also sign in to, another account's program could answer there. On Windows the API answers only programs running as your own Windows account. Run the tool the way KratosForge runs, not as administrator: Windows may not say who runs an elevated program, and the API then refuses it.
 
 ## What a connected tool can and can't do
 

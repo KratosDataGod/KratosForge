@@ -27,7 +27,7 @@ EXAMPLE = HERE.parent.parent / "docs" / "orchestration" / "examples" / "orders-d
 
 # Fingerprint of every entry. A change to an entry changes it: bump REGISTRY_VERSION, add a line to
 # the changelog in docs/orchestration/activity-registry.md, then record the new fingerprint here.
-FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271", "3": "d5a083b3b021", "4": "d008b0f371dc", "5": "9e1f0c6f7840", "6": "907754475559", "7": "e6891e3c38f8"}
+FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271", "3": "d5a083b3b021", "4": "d008b0f371dc", "5": "9e1f0c6f7840", "6": "907754475559", "7": "e6891e3c38f8", "8": "0d25c3ae34ce"}
 
 
 @pytest.fixture(autouse=True)
@@ -316,8 +316,9 @@ def test_registry_lookup():
 
 
 def test_methods_are_allowlisted_and_read_only():
-    for name in ("pipeline_compatibility", "pipeline_activity_registry"):
-        assert name in server.METHODS and name in audit.READ_ONLY
+    assert "pipeline_compatibility" in server.METHODS and "pipeline_compatibility" in audit.READ_ONLY
+    # The registry is read in-process by the MCP tool only (HD-050 slice 4).
+    assert "pipeline_activity_registry" not in server.METHODS
 
 
 def test_capabilities():

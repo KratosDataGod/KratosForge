@@ -36,6 +36,8 @@ _DATES = {"date", "datetime", "datetime2", "smalldatetime", "timestamp", "timest
 _TABLE_AFTER = {"FROM", "JOIN"}
 _CLAUSES = {"WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "ON", "GROUP", "ORDER", "HAVING",
             "UNION", "EXCEPT", "INTERSECT", "OPTION", "WITH"}
+_STARTS = {"WHERE", "AND", "OR", "ON", "HAVING", "NOT", "WHEN"}
+_WRITES = {"INTO", "INSERT", "UPDATE", "DELETE", "MERGE", "CREATE", "ALTER", "DROP", "TRUNCATE", "EXEC", "EXECUTE"}
 _ENDS = {"AND", "OR", "GROUP", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "OPTION", "WHERE", "ON"}
 _PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -104,6 +106,8 @@ def _sq002(s: Stmt, i: int, tables: list[tuple[str, str]], columns: dict[str, li
     toks = s.toks
     if toks[i].kw != "YEAR" or i + 1 >= len(toks) or toks[i + 1].type != TokenType.L_PAREN:
         return None
+    if i == 0 or not (toks[i - 1].kw in _STARTS or toks[i - 1].type == TokenType.L_PAREN):
+        return None   # 1 + YEAR(d) = 2027 and the like: the comparison isn't YEAR(d) = 2027 alone
     close = _close(s, i + 1)
     parts, after = _name_at(s, i + 2)
     if not parts or after != close or close + 2 >= len(toks):
@@ -206,6 +210,8 @@ def _reads(query: str, s: Stmt, fix: dict[str, Any]) -> dict[str, str] | None:
         start = toks[body + 1].start
     else:
         return None
+    if any(t.kw in _WRITES for t in toks if t.start >= start):
+        return None   # WITH ... DELETE, SELECT ... INTO: not a query that only reads
     end = toks[-1].end
     if toks[-1].type == TokenType.SEMICOLON:
         end = toks[-2].end if len(toks) > 1 else end

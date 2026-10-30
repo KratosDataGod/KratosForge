@@ -56,6 +56,8 @@ def test_year_on_a_date_column_becomes_a_range(sql, text):
     "SELECT 1 FROM (SELECT * FROM dbo.sales) x WHERE YEAR(order_date) = 2026",  # derived table
     "WITH c AS (SELECT * FROM dbo.sales) SELECT 1 FROM c WHERE YEAR(order_date) = 2026",  # a CTE
     "SELECT 1 FROM dbo.nowhere WHERE YEAR(order_date) = 2026",             # not in the catalog
+    "SELECT 1 FROM dbo.sales WHERE 1 + YEAR(order_date) = 2027",           # part of a sum
+    "SELECT 1 FROM dbo.sales WHERE 2 * YEAR(order_date) = 4052",           # part of a product
 ])
 def test_no_fix_where_the_result_could_change(sql):
     assert _texts(sql) == []
@@ -105,8 +107,10 @@ def test_compare_runs_the_select_or_the_view_query_and_nothing_else():
     for fix in _fixes(view)["fixes"]:
         assert fix["compare"]["before"] == "SELECT * FROM sales\nWHERE YEAR(order_date) = 2026"
         assert fix["compare"]["after"].startswith("SELECT * FROM ")
-    insert = "INSERT INTO dbo.t SELECT * FROM dbo.sales WHERE YEAR(order_date) = 2026"
-    assert [f.get("compare") for f in _fixes(insert)["fixes"]] == [None]
+    for writes in ("INSERT INTO dbo.t SELECT * FROM dbo.sales WHERE YEAR(order_date) = 2026",
+                   "SELECT * INTO dbo.t FROM dbo.sales WHERE YEAR(order_date) = 2026",
+                   "WITH c AS (SELECT 1 AS x) DELETE FROM dbo.sales WHERE YEAR(order_date) = 2026"):
+        assert [f.get("compare") for f in _fixes(writes)["fixes"] if f["rule_id"] == "SQ002"] == [None], writes
 
 
 # ---- the service

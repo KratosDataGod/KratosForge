@@ -283,6 +283,22 @@ def test_function_app_has_a_function_per_operation_and_compiles():
     assert "function_app.py" in json.dumps(parts)
 
 
+def test_the_definition_lists_every_function_or_fabric_refuses_it():
+    # Fabric answers "Functions is null or empty" to a definition that lists none (live run 2026-10-30)
+    parts = udf.definition("ws", "sql")
+    listed = [f["name"] for f in json.loads(parts["definition.json"])["functions"]]
+    described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
+    assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
+    assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    key_table = next(f for f in described if f["name"] == "ensure_key_table")
+    assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
+        ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
+    assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
+        {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
+    assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
+
+
 # --------------------------------------------------------------------------- the mesh in a project
 
 

@@ -562,6 +562,15 @@ def test_empty_chunks_that_never_end_stop_at_the_chunk_cap(monkeypatch):
     assert sum(1 for _, p, *_ in ws.calls if "/result/chunks/" in p) == 4
 
 
+@pytest.mark.parametrize("first", [-1_000_000_000, "x"])
+def test_the_first_chunk_index_from_the_warehouse_doesnt_steer_the_loop(first):
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    page = ws._page
+    ws._page = lambda n, limit: {**page(n, limit), "chunk_index": first} if n == 0 else page(n, limit)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "ok" and r.table.num_rows == 2
+
+
 def test_a_chunk_index_that_skips_ahead_stops_with_an_error():
     ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
     ws._page, page = (lambda n, limit: {**page(n, limit), "next_chunk_index": 7} if n == 0 else page(n, limit)), ws._page

@@ -428,7 +428,7 @@ class DatabricksSqlSession:
         statement = str(reply.get("statement_id") or "")
         data = reply.get("result") or {}
         rows: list[list[Any]] = []
-        size, index = 0, int(data.get("chunk_index") or 0)
+        size, index, read = 0, 0, 1   # the statement's own reply carries chunk 0
         while True:
             batch = data.get("data_array") or []
             size += len(json.dumps(batch))
@@ -446,9 +446,9 @@ class DatabricksSqlSession:
             # skips, repeats or never ends (empty chunks included) stops here.
             if isinstance(nxt, bool) or not isinstance(nxt, int) or nxt != index + 1:
                 raise DatabricksError("The warehouse sent result chunks out of order.")
-            if nxt >= MAX_CHUNKS:
+            if read >= MAX_CHUNKS:
                 raise DatabricksError(f"The result has more than {MAX_CHUNKS:,} chunks, so none of it was kept.")
-            index = nxt
+            index, read = nxt, read + 1
             data = self._client.chunk(statement, nxt)
 
     def _whole_result(self, manifest: dict[str, Any], rows: list[list[Any]], request: CellRequest,

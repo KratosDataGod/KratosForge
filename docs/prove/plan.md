@@ -314,5 +314,5 @@ Nothing below has run on a tenant. A minimal check for stages 1–3, about 20 mi
 
 - `RunNotebook` with a Python notebook and the `/lakehouse/default` mount are unverified (shared with Side by side).
 - Delta time travel to the pinned version fails if the table was vacuumed past it during the proof; this is detected and reported, not prevented.
-- Spark notebooks in Fabric use Fabric's own `spark`, which the proof runtime can't redirect; proofs support notebooks whose reads and writes go through the lakehouse module (Python notebooks). Spark support needs a Spark-side adapter (stage 6).
+- Spark notebooks in Fabric use Fabric's own `spark`. The Spark-side adapter (`proof_spark.py`, PB-015) points its table reads and changes at the proof; it hasn't run on a live tenant yet, and Spark code that reaches the lakehouse some way it doesn't patch isn't contained.
 - Notebook code runs with the user's own tokens; a proof contains what goes through supported APIs and reports what it can detect, but can't stop arbitrary code from writing elsewhere until kernels are isolated with scoped credentials (stage 4 and later).

@@ -86,7 +86,23 @@ Guidance shows only while **Show preview features** is on.
   is sent anywhere.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
-- **Dismiss** hides the finding in your own Best practices panels on this PC: **Not on this line**
+- **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It
+  is offered only when KratosForge can show the rewrite returns exactly what the SQL returned before.
+  Otherwise the button isn't there:
+    - **SQ002**: `YEAR(order_date) = 2026` becomes `(order_date >= '2026-01-01' AND order_date < '2027-01-01')`,
+      when `order_date` is a date or date-and-time column (not `datetimeoffset`) of the one table that
+      has it. It needs the column types: on a warehouse, load its objects in the explorer first.
+    - **SQ005**: `sales` becomes `dbo.sales`, when `dbo`, the default schema, is the only schema with
+      that name.
+
+  Nothing changes until **Apply**, which is one edit in the editor: **Ctrl+Z** undoes it. On a
+  warehouse or SQL analytics endpoint, **Compare before applying** runs the statement as written, then
+  as fixed. That works for a SELECT, or the query of CREATE or ALTER VIEW. It asks first each time:
+  both versions only read, and both use capacity. It then says whether the rows are the same (every
+  row compared, or a checksum above the comparison limit) and gives each run's measured time. The
+  fixed version runs second, so data the first run cached can favor it. A lakehouse tab's T-SQL
+  doesn't run on this PC, so it has no Compare. Each fix ends with the principle behind it.
+ in your own Best practices panels on this PC: **Not on this line**
   (that line, and any line in the same file that reads exactly the same, until it changes), **Not in
   this file** (this notebook or saved SQL file, by its folder and name; an unsaved SQL tab by its
   lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of the line is kept, never your code. The check still runs,

@@ -24,7 +24,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     engine: ["app_settings", "save_app_settings", "sql_format", "sql_analyze", "sql_practices", "governance_practice_settings",
-      "learn_catalog", "learn_rule_guides", "learn_dismissals", "learn_dismiss", "learn_undismiss"],
+      "learn_catalog", "learn_rule_guides", "learn_dismissals", "learn_dismiss", "learn_undismiss", "learn_fixes"],
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Weekly revenue", sql: "SELECT 1", dialect: "warehouse" }]) },
     mocks: {
       list_tables: () => ({ dbo: ["sales"] }),
@@ -199,4 +199,19 @@ test("with preview features hidden, nothing is added and nothing is hidden", { s
     return out;
   });
   assert.deepStrictEqual(shown, [null, 1]);
+});
+
+test("on a lakehouse tab Try the fix previews and applies, with no Compare: its T-SQL doesn't run here (GD-02)", { skip }, async () => {
+  await setDoc("SELECT order_date FROM sales;\n");
+  await openPanel();
+  const sq005 = panel().locator("[data-rule=SQ005]");
+  await sq005.getByRole("button", { name: "Try the fix" }).click();
+  await sq005.locator(".learn-fix").waitFor();
+  assert.strictEqual(await sq005.locator("pre.after").innerText(), "dbo.sales");
+  assert.strictEqual(await sq005.getByRole("button", { name: "Compare before applying" }).count(), 0);
+  assert.match(await sq005.locator(".learn-fix").innerText(), /Compare runs on a warehouse or SQL analytics endpoint's page/);
+  await sq005.getByRole("button", { name: "Apply", exact: true }).click();
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), "SELECT order_date FROM dbo.sales;\n");
+  await page().keyboard.press("Control+z");
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), "SELECT order_date FROM sales;\n");
 });

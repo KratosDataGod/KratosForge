@@ -27,6 +27,7 @@ from typing import Any
 
 from sqlglot.tokens import TokenType
 
+from . import guides
 from ..sqlcompat.analyzer import Stmt, _line_starts, split
 from ..sqlcompat.profiles import profile
 from ..sqlcompat.rules import _close, _is_name, _name_at
@@ -41,11 +42,7 @@ _WRITES = {"INTO", "INSERT", "UPDATE", "DELETE", "MERGE", "CREATE", "ALTER", "DR
 _ENDS = {"AND", "OR", "GROUP", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "OPTION", "WHERE", "ON"}
 _PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-PRINCIPLES = {
-    "SQ002": "Compare the column itself with a value or a range. Put any function on the value's side, so the "
-             "engine can skip the data it doesn't need.",
-    "SQ005": "Name the schema with every table, so the query means the same thing whoever runs it.",
-}
+PRINCIPLES = {rule_id: guides.load()[rule_id]["principle"] for rule_id in RULES}   # the docs' Principle: lines
 
 
 def propose(query: str, target: str, findings: list[dict[str, Any]], catalog: dict[str, Any] | None) -> dict[str, Any]:

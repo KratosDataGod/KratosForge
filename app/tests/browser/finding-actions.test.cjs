@@ -109,8 +109,9 @@ test("Guided opens Explain to start with, has Show example from the shipped guid
   await sq002().locator(".learn-detail").waitFor();
   assert.strictEqual(await sq002().locator(".learn-why").count(), 0, "the full explanation is open instead");
   const explain = await sq002().locator(".learn-detail").innerText();
-  assert.match(explain, /Why it matters[\s\S]*The engine skips files and row groups/);
-  assert.match(explain, /When it's fine[\s\S]*Small tables/);
+  assert.match(explain, /^Recommended\s+Why it matters[\s\S]*The engine skips files and row groups/);
+  assert.match(explain, /The principle\s+Compare the column itself[\s\S]*Impact\s+Performance\. Every row is read/);
+  assert.match(explain, /When it's fine[\s\S]*Small tables[\s\S]*How to check\s+Where Try the fix is offered, Compare/);
   assert.match(explain, /Nothing is sent anywhere/);
   await sq002().locator("button", { hasText: "Show example" }).click();
   await sq002().locator("pre.after").waitFor();

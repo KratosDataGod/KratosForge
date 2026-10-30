@@ -326,9 +326,15 @@ function learnFindingActions(f, ctx) {
   if (open === "fix" && f.fix && ctx.fix) return [why, row, learnFixPreview(f, ctx, key)];
   if (!guided || !guide || !open || open === "fix") return why ? [why, row] : row;
   const detail = open === "explain"
-    ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
+    ? h("div", { class: "learn-detail" },
+      // GD-03: how important the rule is, from the guide. A label only: the severity and policies decide.
+      guide.importance ? h("span", { class: `badge learn-importance ${guide.importance.toLowerCase()}` }, guide.importance) : null,
+      h("b", {}, "Why it matters"), markdown(guide.why),
+      guide.principle ? [h("b", {}, "The principle"), markdown(guide.principle)] : null,
+      guide.impact ? [h("b", {}, "Impact"), markdown(guide.impact)] : null,
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
       guide.instead ? [h("b", {}, "Do this instead"), markdown(guide.instead)] : null,
+      guide.check ? [h("b", {}, "How to check"), markdown(guide.check)] : null,
       h("span", { class: "muted-text small" }, "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
     : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
       h("b", {}, "After"), h("pre", { class: "learn-code after" }, guide.after),

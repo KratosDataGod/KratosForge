@@ -33,7 +33,7 @@
       "active": {
         "story": "PB-015",
         "issue": 848,
-        "note": "MERGE is PR #933 (needs Chris's go: it runs MERGE on this PC). UPDATE and DELETE come in a second PR."
+        "note": "MERGE merged (#933) and Prove covers MERGE, UPDATE and DELETE (#1157). What's left is the live Prove run (criterion 4): plan at /mnt/project-files/local-exec/pb-015-live-run-plan.md, waiting on Chris's yes."
       },
       "ready": [
         {
@@ -52,7 +52,7 @@
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
       "blockers": [
-        "#933 MERGE on this PC waits on Chris's go"
+        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
       "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
@@ -177,25 +177,19 @@
         "Run continuous product management"
       ],
       "active": {
-        "issue": 1171,
-        "title": "PB-096 Run the AI client checklist for each named tool",
-        "note": "PR #1185 at review; sign-in steps need Chris's PC."
+        "issue": 1197,
+        "title": "Browser and accessibility tests for Settings > Integrations",
+        "note": "Depends on #1187."
       },
-      "ready": [
-        {
-          "issue": 1197,
-          "title": "Browser and accessibility tests for Settings > Integrations",
-          "note": "Depends on #1187."
-        }
-      ],
+      "ready": [],
       "backlog": [
         "PB-087",
         "PB-034"
       ],
       "dependencies": [],
       "blockers": [],
-      "last_completed": "#876 PB-077 docs match the code (merged); #879 PB-070, #885, #901, #917 PB-010 PASS",
-      "next_action": "Run the AI client checklist for each named tool (PB-096); then PB-027."
+      "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
+      "next_action": "#1197 Settings > Integrations browser and accessibility tests; lead files the next ready story."
     },
     {
       "key": "platform",

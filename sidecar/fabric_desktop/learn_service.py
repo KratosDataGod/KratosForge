@@ -12,13 +12,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .learn import content, labs
+from .learn import content, dismissals, guides, labs
 from .redact import describe
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
-           "learn_lab_check", "learn_lab_hint", "learn_lab_reset"}
+           "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "learn_rule_guides", "learn_dismissals",
+           "learn_dismiss", "learn_undismiss"}
 
 _SUMMARY = ("id", "kind", "title", "path", "level", "minutes", "objectives", "prerequisites", "platforms", "engines",
             "rules", "docs", "version", "status")
@@ -83,3 +84,28 @@ class LearnMixin:
     def learn_lab_reset(self, module_id: str) -> dict[str, Any]:
         """Throw the lab away, answers included, and make it again."""
         return labs.reset(self.root, str(module_id))  # type: ignore[attr-defined]
+
+    # ---- beside a best-practice finding (LX-09): Explain, Show example and Dismiss
+
+    def learn_rule_guides(self) -> dict[str, Any]:
+        """Each notebook and SQL rule's Why, When it's fine and Before/After, from the docs that ship
+        with the app (learn/guides.py)."""
+        return guides.load()
+
+    def learn_dismissals(self) -> list[dict[str, Any]]:
+        """The findings this person dismissed on this PC (learn/dismissals.py)."""
+        return dismissals.load(self.root)  # type: ignore[attr-defined]
+
+    def learn_dismiss(self, rule_id: str, scope: str, where: str = "", line: str = "") -> list[dict[str, Any]]:
+        """Hide a finding in this person's panels. A rule a policy for the open project names can't be
+        dismissed: the organization checks it on purpose."""
+        rule_id = str(rule_id)
+        kind = "notebook" if rule_id.startswith("NB") else "sql"
+        named = self.governance_practice_settings(kind).get("settings") or {}  # type: ignore[attr-defined]
+        if (named.get(rule_id) or {}).get("enabled"):
+            raise ValueError(f"Your organization's policy checks {rule_id}, so it can't be dismissed")
+        return dismissals.add(self.root, rule_id, str(scope), str(where or ""), str(line or ""))  # type: ignore[attr-defined]
+
+    def learn_undismiss(self, dismissal_id: str | None = None) -> list[dict[str, Any]]:
+        """Show a dismissed finding again, or every one when no id is given."""
+        return dismissals.remove(self.root, None if dismissal_id is None else str(dismissal_id))  # type: ignore[attr-defined]

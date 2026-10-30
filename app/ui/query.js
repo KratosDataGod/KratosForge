@@ -242,7 +242,8 @@ function renderQuery() {
       const pol = await sqlPracticeSettings();
       try {
         const out = await rpc("sql_practices", { query: text, target: dialect, settings: pol.settings || {} });
-        return { ...out, policies: pol.policies || [], note: pol.note || "" };
+        await learnPrepareFindings(out.findings, (f) => text.split("\n")[f.line - 1]);  // learn.js: for Dismiss
+        return { ...out, settings: pol.settings || {}, policies: pol.policies || [], note: pol.note || "" };
       } catch (err) {
         return failed(err);
       }
@@ -666,13 +667,21 @@ function renderQuery() {
   const practicesChip = h("button", { class: "sql-practices-chip", "aria-controls": "sql-compat", "data-practices": true,
     title: "Best practices: what may be slow or fragile even when it runs. Read on this PC; nothing runs.",
     onclick: () => showPane("practices") });
+  // The findings to show (learn.js): dismissed ones leave the list and the counts; a rule a policy names stays.
+  function practiceSplit(r) {
+    const ctx = { where: tab.file?.name || tab.name, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat() };
+    const { shown, hidden } = learnSplitFindings(r?.findings, ctx.where, ctx.required);
+    const counts = Object.fromEntries(["Error", "Warning", "Info"].map((s) => [s, shown.filter((f) => f.severity === s).length]));
+    return { ctx, shown, hidden, counts };
+  }
   function drawPracticesChip() {
     const r = tab.practices;
     practicesChip.hidden = !SQL_PRACTICE_TARGETS.includes(tab.dialect) || !previewShown();  // Preview: hidden with the previews
-    const worst = r?.counts?.Error ? "error" : r?.counts?.Warning ? "warning" : "";
+    const { shown, counts } = practiceSplit(r);
+    const worst = counts.Error ? "error" : counts.Warning ? "warning" : "";
     practicesChip.className = `sql-practices-chip${worst ? ` ${worst}` : ""}`;
     practicesChip.setAttribute("aria-expanded", String(compatOpen() && tab.sqlPane === "practices"));
-    practicesChip.replaceChildren(r?.failed ? "Best practices: check failed" : sqlPracticeLabel(r), previewTag(), icon("chevronDown", 14));
+    practicesChip.replaceChildren(r?.failed ? "Best practices: check failed" : sqlPracticeLabel({ findings: shown }), previewTag(), icon("chevronDown", 14));
   }
   // The engine's outcome decides the chip, so SQL it couldn't verify or didn't check never reads as clean.
   const compatStatus = () => {
@@ -833,7 +842,8 @@ function renderQuery() {
       return;
     }
     const chip = (n, label, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${label}${n === 1 || label === "info" ? "" : "s"}`);
-    const list = r.findings.map((f) => h("div", { class: "sql-practice", "data-rule": f.rule_id },
+    const { ctx, shown, hidden, counts } = practiceSplit(r);
+    const list = shown.map((f) => h("div", { class: "sql-practice", "data-rule": f.rule_id },
       h("div", {}, h("b", { class: `sql-practice-sev ${f.severity.toLowerCase()}` }, f.severity), ` · ${f.rule}`),
       h("div", { class: "muted-text" }, f.description),
       h("div", {}, h("button", { class: "link-btn", onclick: () => {
@@ -842,11 +852,12 @@ function renderQuery() {
         const at = sqlPracticeOffset(text, f.line, f.col);
         editor.reveal(sqlUtf16Offset(text, at), sqlUtf16Offset(text, at + 1));
       } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}${f.url ? " · " : ""}`),
-      f.url ? docLink(f.url, `About ${f.rule_id}`) : null, learnFindingLink(f.rule_id))));
+      f.url ? docLink(f.url, `About ${f.rule_id}`) : null), learnFindingActions(f, ctx)));
     compatBody.replaceChildren(...[head, intro,
-      h("div", { class: "sql-chips" }, chip(r.counts.Error, "error", "error"), chip(r.counts.Warning, "warning", "warning"), chip(r.counts.Info, "info", "information")),
+      h("div", { class: "sql-chips" }, chip(counts.Error, "error", "error"), chip(counts.Warning, "warning", "warning"), chip(counts.Info, "info", "information")),
       r.note ? h("p", { class: "muted-text" }, r.note) : null,
       list.length ? h("div", { class: "sql-findings" }, list) : h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."),
+      learnDismissedBlock(hidden, ctx.where, ctx.redraw),
       h("p", { class: "muted-text sql-compat-note" }, r.policies.length
         ? `Tuned by ${r.policies.join(", ")}: a rule a policy turns off isn't shown.`
         : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by.")]

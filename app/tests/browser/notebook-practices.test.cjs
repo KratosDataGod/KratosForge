@@ -21,7 +21,8 @@ const pane = () => page().locator(".practicespane");
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ engine: ["notebook_practices", "governance_practice_settings"] });
+  app = await openApp({ engine: ["notebook_practices", "governance_practice_settings", "learn_rule_guides", "learn_dismissals",
+    "learn_dismiss", "learn_undismiss"] });
   await page().evaluate((cells) => {
     loadIntoState({ name: "Load orders", cells });
     state.ribbonTab = "view";
@@ -67,6 +68,17 @@ test("fixing the code clears its finding as you type, without saving", { skip },
   });
   await pane().locator("[data-rule=NB009]").waitFor({ state: "detached", timeout: 10000 });
   assert.strictEqual(await pane().locator("[data-rule]").count(), 2);
+});
+
+test("Dismiss Not in this file hides a finding in this notebook only, and Show all again brings it back (LX-09)", { skip }, async () => {
+  await pane().locator("[data-rule=NB003]").getByRole("button", { name: /Dismiss NB003/ }).click();
+  await pane().locator("[data-rule=NB003] .learn-dismiss-item", { hasText: "Not in this file" }).click();
+  await pane().locator("[data-rule=NB003]").waitFor({ state: "detached" });
+  assert.match(await page().locator("button[data-practices]").innerText(), /Best practices · 1/);
+  assert.deepStrictEqual(await page().evaluate(() => learnDismissed.map((d) => [d.rule_id, d.scope, d.where])), [["NB003", "file", "Load orders"]]);
+  await pane().locator(".learn-dismissed button", { hasText: "1 dismissed · Show" }).click();
+  await pane().locator(".learn-dismissed button", { hasText: "Show all again" }).click();
+  await pane().locator("[data-rule=NB003]").waitFor();
 });
 
 test("closing the panel stops it", { skip }, async () => {

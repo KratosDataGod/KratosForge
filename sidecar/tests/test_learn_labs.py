@@ -192,7 +192,7 @@ def test_no_starter_already_passes(tmp_path, module_id):
 def test_labs_import_nothing_that_reaches_fabric():
     allowed = {"__future__", "contextlib", "datetime", "decimal", "threading", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
-               "sqlcompat", "model_practices", "datasets", "checks", "content", ""}
+               "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", ""}
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

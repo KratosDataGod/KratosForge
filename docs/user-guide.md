@@ -686,7 +686,7 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Explanations.** **On request** (the default) keeps the help out of the way: each page's one-line explanation and its **How this works** panel, which says what the page reads, what it changes and where results go, open together as a drawer from the info button in the title bar. Escape or the button closes it. The button shows only on pages that have help. **Beside the page** puts the explanation under the title and the panel in a column on the right, as before. Confirms before a change always say what they change, whichever you pick.
 - **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
-- **Learning guidance** (Preview). **Focus** (the default), **Guided** or **Learning**: how much the best-practice panels and Learn suggest lessons. See [Learn](learn.md#guidance).
+- **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
 
 ### Motion and effects
 

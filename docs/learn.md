@@ -64,16 +64,19 @@ first. **Leave** goes back to Learn and keeps your answers.
 ## Guidance
 
 **Learning guidance**, at the top right of Learn and in **Settings > Appearance > Layout > Learning
-guidance**, sets how much the app suggests lessons. You can change it at any time; an organization
-policy can set it, and then it can't be changed here.
+guidance**, sets how much explanation shows beside your work. You can change it at any time; an
+organization policy can set it, and then it can't be changed here.
 
-| Mode | What it adds |
+| Level | What it adds |
 | --- | --- |
-| Focus (the default) | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
-| Guided | **Explain** and **Show example** under each notebook or SQL finding, and **Lesson: <title>** where a published lesson covers its rule. The lesson link opens that lesson. Draft lessons are linked only from Learn |
-| Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
+| Expert | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
+| Professional (the default) | A line on why the finding matters, from the rule's guide, with **Explain** and **Show example** under each notebook or SQL finding |
+| Guided | **Explain** open to start with, **Lesson: <title>** where a published lesson covers the rule, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order. Draft lessons are linked only from Learn |
 
-The checks themselves run the same in every mode; guidance only adds explanations and links.
+A level is a preference, not a permission: the checks run the same at every level, and a rule your
+organization requires is required at every level. Guidance only adds explanations and links.
+The first names of the levels still work in a settings or policy file: Focus reads as Expert and
+Learning as Guided.
 Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding
@@ -94,9 +97,9 @@ Guidance shows only while **Show preview features** is on.
   only changes a rule's severity doesn't stop you dismissing it.
 
 The first time you open Learn, a card at the top of Home asks **Would you like KratosForge to help you
-improve your development skills?** with the three modes and Focus picked. **Save** keeps the mode you
-picked; **Skip** keeps Focus. Either way it isn't asked again, and choosing another mode with
-**Learning guidance** answers it too. It isn't asked when an organization policy sets the mode.
+improve your development skills?** with the three levels and Professional picked. **Save** keeps the
+level you picked; **Skip** keeps Professional. Either way it isn't asked again, and choosing another
+level with **Learning guidance** answers it too. It isn't asked when an organization policy sets it.
 
 ## In your profile
 

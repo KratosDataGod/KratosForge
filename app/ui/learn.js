@@ -154,7 +154,7 @@ function learnAsk() {
   };
   const say = { expert: "Findings, their About link and Dismiss. No explanations unless you open About.",
     professional: "A line on why each finding matters, with Explain and an example when you want them.",
-    guided: "Explanations open beside each finding, the lesson that covers it, and a suggested next lesson on Learn." };
+    guided: "Explanations open beside each finding, plus the lesson that covers it and a suggested next lesson on Learn." };
   const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
     h("input", { type: "radio", name: "learn-ask", value, checked: value === "professional" ? true : null }),
     h("span", {}, h("b", {}, label), value === "professional" ? h("span", { class: "muted-text small" }, " · the default") : null,
@@ -197,8 +197,8 @@ function learnFindingLink(ruleId) {
 // app (learn/guides.py). Dismiss hides a finding in this person's own panels on this PC
 // (learn/dismissals.py); the check still runs. Expert shows only Dismiss. Professional adds the
 // guide's first sentence, Explain and Show example; Guided opens Explain to start with and adds the
-// Lesson link. A rule a policy for the project names can't be
-// dismissed. All of it is Preview.
+// Lesson link. A rule a governance policy for the project turns on can't be dismissed. All of it is
+// Preview.
 let learnGuidesLoad = null;
 function learnGuidesCached() {
   return (learnGuidesLoad ||= rpc("learn_rule_guides").catch(() => { learnGuidesLoad = null; return {}; }));
@@ -336,9 +336,11 @@ function learnFindingActions(f, ctx) {
 }
 
 // "Why: the engine skips... Wrapped in a function..." -> its first sentence, without Markdown marks.
+// A sentence ends at . ! or ? followed by a capital letter or the end, so "@...", "e.g." and
+// "dbo.sales" don't end it.
 function learnFirstSentence(text) {
   const plain = String(text).replace(/`([^`]*)`/g, "$1").replace(/\*\*?([^*]+)\*\*?/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  return (plain.match(/^.*?[.!?](?=\s|$)/) || [plain])[0];
+  return (plain.match(/^.*?(?<!\b(?:e\.g|i\.e|etc|vs))(?<!\.\.)[.!?](?=\s+[A-Z]|\s*$)/) || [plain])[0];
 }
 
 // "2 dismissed · Show", and when shown, each with Show again, and Show all again.

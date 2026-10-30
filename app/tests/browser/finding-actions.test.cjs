@@ -89,6 +89,17 @@ test("Professional, the default, adds a line on why, with Explain on request and
   assert.strictEqual(await sq002().locator("button", { hasText: "Explain" }).getAttribute("aria-expanded"), "true");
 });
 
+test("every shipped guide gives Professional a whole first sentence", { skip }, async () => {
+  const short = await page().evaluate(async () => {
+    const guides = await rpc("learn_rule_guides");
+    return Object.entries(guides).map(([id, g]) => [id, learnFirstSentence(g.why)])
+      .filter(([, line]) => line.length < 30 || !/[.!?]$/.test(line));
+  });
+  assert.deepStrictEqual(short, []);
+  assert.strictEqual(await page().evaluate(() => learnFirstSentence("Use a key, e.g. `dbo.sales.id`... or not. Then more.")),
+    "Use a key, e.g. dbo.sales.id... or not.");
+});
+
 test("Guided opens Explain to start with, has Show example from the shipped guide, and the Lesson link", { skip }, async () => {
   await setMode("guided");
   await setDoc(VIEW.replace("2026", "2024"));  // a line not opened before

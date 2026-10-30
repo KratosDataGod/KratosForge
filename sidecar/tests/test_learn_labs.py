@@ -179,10 +179,20 @@ def test_every_reference_solution_passes_its_own_checks(tmp_path, module_id):
         assert out["passed"], out["results"]
 
 
+@pytest.mark.parametrize("module_id", [m["id"] for m in content.modules() if "duckdb" in m["engines"]])
+def test_no_starter_already_passes(tmp_path, module_id):
+    module = content.get(module_id)
+    labs.start(tmp_path, module_id)
+    for ex in module["exercises"]:
+        if ex.get("starter"):
+            out = labs.check(tmp_path, module_id, ex["id"], content.file_text(module_id, ex["starter"]))
+            assert not out["passed"], f"{module_id}/{ex['id']}: the starter is already the answer"
+
+
 def test_labs_import_nothing_that_reaches_fabric():
     allowed = {"__future__", "contextlib", "datetime", "decimal", "threading", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
-               "sqlcompat", "model_practices", "datasets", "checks", "content", ""}
+               "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", ""}
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

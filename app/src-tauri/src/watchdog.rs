@@ -15,14 +15,14 @@ use std::time::Duration;
 /// out: they must stay in order with publish and delete, which save the notebook too, or a
 /// publish queued behind a long call would write older cells over a newer autosave.
 pub const QUICK: &[&str] = &[
-    "app_settings", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete",
-    "kernel_info", "kernel_variables",
+    "app_settings", "cached_schemas", "debug_cell", "editor_pending", "editor_status", "interrupt_cell", "kernel_complete",
+    "kernel_variables",
     "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
     "notebook_folders", "notebook_practices", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
-    "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
+    "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_practices", "sql_start", "sql_status",
     "wizard_preview", "wizard_templates",
     "engine_state", "engine_poll_cell", "engine_cancel",

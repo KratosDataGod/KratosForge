@@ -20,7 +20,7 @@ from .optimize.shared import Shared
 
 DEFAULT_NAME = "FabricDesktop_Central"
 CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
-METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
+METHODS = {"optimize_status", "optimize_discover", "optimize_create", "optimize_connect",
            "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
            "optimize_findings", "optimize_recommendations", "optimize_set_recommendation",
            "optimize_share_local_runs"}

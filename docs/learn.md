@@ -27,9 +27,18 @@ A lesson marked **Draft** is still being written and may change.
 | LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
 | LAB-01 | From raw data to a checked answer: find six planted problems, then a clean answer | Data Fundamentals | |
 | LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
+| LM-06 | Lakehouses and the medallion layers | Microsoft Fabric | |
+| LM-07 | OneLake and Delta tables: files and a log | Microsoft Fabric | NB020 |
+| LM-08 | Notebooks: let the engine do the work | Microsoft Fabric | NB003 |
+| LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
+| LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
+| LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
 
-More lessons and the other paths (Python, Fabric, Databricks, Snowflake, Enterprise Architecture)
-come in later updates.
+The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
+teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
+where a lesson uses DuckDB's own SQL, it says so.
+Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
+Snowflake, Enterprise Architecture) come in later updates.
 
 ## A lesson or lab
 
@@ -60,12 +69,34 @@ policy can set it, and then it can't be changed here.
 
 | Mode | What it adds |
 | --- | --- |
-| Focus (the default) | Nothing: a best-practice finding shows its rule and **About** link |
-| Guided | **Lesson: <title>** beside a notebook or SQL finding whose rule a published lesson covers. It opens that lesson. Draft lessons are linked only from Learn |
+| Focus (the default) | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
+| Guided | **Explain** and **Show example** under each notebook or SQL finding, and **Lesson: <title>** where a published lesson covers its rule. The lesson link opens that lesson. Draft lessons are linked only from Learn |
 | Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
 
-The checks themselves run the same in every mode; guidance only adds links. Guidance shows only
-while **Show preview features** is on.
+The checks themselves run the same in every mode; guidance only adds explanations and links.
+Guidance shows only while **Show preview features** is on.
+
+### Beside a finding
+
+- **Explain** shows why the rule matters, and when it's fine to leave, from the rule's section of the
+  notebook or SQL best-practices guide. That text ships with the app, so it works offline and nothing
+  is sent anywhere.
+- **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
+  isn't changed for you.
+- **Dismiss** hides the finding in your own Best practices panels on this PC: **Not on this line**
+  (that line, and any line in the same file that reads exactly the same, until it changes), **Not in
+  this file** (this notebook or saved SQL file, by its folder and name; an unsaved SQL tab by its
+  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of the line is kept, never your code. The check still runs,
+  and governance checks and everything else that reads findings still see it. The panel's
+  **N dismissed** list has **Show again** for each, and **Show all again**.
+- A rule a governance policy for the project turns on can't be dismissed: the finding says **Your
+  organization requires this rule**, and an earlier dismissal of it doesn't hide it. A policy that
+  only changes a rule's severity doesn't stop you dismissing it.
+
+The first time you open Learn, a card at the top of Home asks **Would you like KratosForge to help you
+improve your development skills?** with the three modes and Focus picked. **Save** keeps the mode you
+picked; **Skip** keeps Focus. Either way it isn't asked again, and choosing another mode with
+**Learning guidance** answers it too. It isn't asked when an organization policy sets the mode.
 
 ## In your profile
 

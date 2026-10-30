@@ -193,13 +193,15 @@ def uses_spark(cells: list[dict[str, Any]]) -> bool:
 
 
 def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-                 schemas_enabled: bool = True) -> dict[str, Any]:
+                 schemas_enabled: bool = True, sql_calls: bool = False) -> dict[str, Any]:
     """The notebook as it is published to Fabric.
 
     A notebook that uses Spark is published as a Spark notebook, where ``spark`` and ``%%sql``
-    are Fabric's own; one that uses only the lakehouse module becomes a Python notebook."""
+    are Fabric's own; one that uses only the lakehouse module becomes a Python notebook.
+    ``sql_calls`` makes every %%sql cell a ``spark.sql`` call, so a proof's Spark side sees it."""
     cells = fabric_sql_magics([magics.fabric_cell(c) for c in cells],
-                              spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells))
+                              spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells),
+                              every=sql_calls)
     if not lakehouse or not uses_local_module(cells):
         return to_ipynb(cells, lakehouse)
     if uses_spark(cells):
@@ -211,10 +213,11 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     return nb
 
 
-def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str, Any]]:
+def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool, every: bool = False) -> list[dict[str, Any]]:
     """Fabric has %%sql cells but neither ``df = %sql ...`` nor ``_sqldf`` (magics.py, the kernel's
     _run_sql): those become ``spark.sql`` calls (``lakehouse.sql`` in a Python notebook), and a
-    %%sql query whose ``_sqldf`` a later cell uses becomes ``_sqldf = spark.sql(...)``."""
+    %%sql query whose ``_sqldf`` a later cell uses becomes ``_sqldf = spark.sql(...)``. With
+    ``every``, each %%sql cell becomes a call."""
     call = "spark.sql" if spark else "lakehouse.sql"
     later = [bool(_USES_SQLDF.search(c.get("source", ""))) and c.get("type") != "markdown" for c in cells]
     out = []
@@ -224,8 +227,10 @@ def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str
             out.append(c)
         elif _is_sql(c):
             query = magics.cell(source).body.strip()
-            if any(later[i + 1:]) and magics.returns_rows(query):
+            if (every or any(later[i + 1:])) and magics.returns_rows(query):
                 c = {**c, "source": f"_sqldf = {call}({json.dumps(query)})\ndisplay(_sqldf)"}
+            elif every:
+                c = {**c, "source": f"{call}({json.dumps(query)})"}
             out.append(c)
         elif found := [m for m in magics.find(source) if m.name == "sql"]:
             lines = source.split("\n")

@@ -154,6 +154,8 @@ Databricks gives: its documented example, or one worked by hand where the refere
 test runs them again, so the table changes when an upgrade fixes or breaks one. A function not listed
 here or below hasn't been checked.
 
+Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
+
 Of 139 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
 
 | Function | Group | On this PC | What to know |

@@ -114,6 +114,12 @@ def test_learn_mode_defaults_to_focus_and_a_policy_can_set_it(dirs):
     assert app_settings.load()["learn_mode"] == {"value": "learning", "source": "policy"}
 
 
+def test_skipping_learns_first_use_question_stores_focus_so_it_isnt_asked_again(dirs):
+    # learn.js asks only while the source is "default"; Skip saves the default value as the person's own.
+    assert app_settings.save({"learn_mode": "focus"})["learn_mode"] == {"value": "focus", "source": "user"}
+    assert app_settings.save({"learn_mode": None})["learn_mode"]["source"] == "default"
+
+
 def test_forge_animations_off_still_means_motion_off(dirs):
     app_settings.save({"forge_animations": False})
     assert app_settings.load()["motion_level"] == {"value": 0, "source": "user"}

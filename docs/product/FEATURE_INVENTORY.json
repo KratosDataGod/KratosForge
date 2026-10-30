@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "188d5a93153f54df837fde8d8046ec01ef054fc1",
+    "commit": "02118fa41572b709dfdfbe9282a0221d777adaf4",
     "date": "2026-10-29",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -22,7 +22,8 @@
       "Product check 2026-10-28 11:42 at cdbb967: PRs #827 and #829 to #838 merged after #830; their rows were updated. Other rows were not re-read.",
       "Acceptance of the 2026-10-28 In review batch recorded (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); stale limitations on FEAT-REL-01, SQL-01, NB-07 and SQL-02 corrected from main's code.",
       "Product check 2026-10-28 23:42 at b19b7456f5cb50a4957ac6cb432706d96fffc3bd: PRs #828 to #972 merged after #839; their rows were updated, and backlog items link their story issues. Other rows were not re-read.",
-      "Product check 2026-10-29 11:42 at 188d5a93153f54df837fde8d8046ec01ef054fc1: PRs merged after b19b7456 (#973 to #1050) were linked to their rows and items, and the stories they finished moved to In review. Other rows were not re-read."
+      "Product check 2026-10-29 11:42 at 188d5a93153f54df837fde8d8046ec01ef054fc1: PRs merged after b19b7456 (#973 to #1050) were linked to their rows and items, and the stories they finished moved to In review. Other rows were not re-read.",
+      "Product check 2026-10-29 23:42 at 02118fa41572b709dfdfbe9282a0221d777adaf4: the 59 PRs merged after 188d5a93 were linked to their rows and items. The 2026-10-29 KUDP live run is recorded as report evidence on FEAT-AUTH-01, FAB-02 and EXT-05. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -124,7 +125,8 @@
       "prs": [
         930,
         1026,
-        1050
+        1050,
+        1089
       ]
     },
     {
@@ -235,7 +237,8 @@
         879,
         943,
         974,
-        987
+        987,
+        1131
       ]
     },
     {
@@ -546,7 +549,8 @@
         757,
         768,
         821,
-        977
+        977,
+        1091
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -664,6 +668,11 @@
           "kind": "doc",
           "ref": "docs/README.md",
           "note": "Not yet tried on a live tenant with Microsoft's app; the maintainer's tenant results used an own app registration"
+        },
+        {
+          "kind": "report",
+          "ref": "docs/platforms.md#live-runs",
+          "note": "2026-10-29 KUDP comparison on a Trial capacity test workspace: sign-in, workspace and lakehouse listing, 10 Spark SQL queries in one Fabric Spark session compared with DuckDB (8 match; 2 differ, one fixed by #1144)"
         }
       ],
       "source": [
@@ -687,7 +696,8 @@
       ],
       "prs": [
         42,
-        111
+        111,
+        1082
       ],
       "issues": [
         96
@@ -916,6 +926,11 @@
           "kind": "doc",
           "ref": "docs/README.md",
           "note": "used on the maintainer's tenant"
+        },
+        {
+          "kind": "report",
+          "ref": "docs/platforms.md#live-runs",
+          "note": "2026-10-29 KUDP comparison on a Trial capacity test workspace: sign-in, workspace and lakehouse listing, 10 Spark SQL queries in one Fabric Spark session compared with DuckDB (8 match; 2 differ, one fixed by #1144)"
         }
       ],
       "source": [
@@ -1083,7 +1098,10 @@
         "app/tests/browser/fabric-full-screen.test.cjs"
       ],
       "prs": [
-        823
+        823,
+        1126,
+        1134,
+        1135
       ]
     },
     {
@@ -2173,7 +2191,9 @@
         534,
         551,
         592,
-        596
+        596,
+        1028,
+        1054
       ]
     },
     {
@@ -2394,7 +2414,7 @@
     {
       "id": "FEAT-NB-08",
       "name": "Autocomplete and variables pane",
-      "description": "Completion from the live kernel plus table names; variables pane hides secret-looking values.",
+      "description": "Completion from the live kernel plus table names, and in %%sql cells the columns of an aliased table (cached for offline use); variables pane hides secret-looking values.",
       "pillar": "Local development",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -2419,11 +2439,14 @@
         "sidecar/fabric_desktop/notebook.py",
         "app/ui/notebook.js",
         "app/ui/debugging.js",
-        "sidecar/fabric_desktop/kernel_host.py"
+        "sidecar/fabric_desktop/kernel_host.py",
+        "sidecar/fabric_desktop/schema_cache.py"
       ],
       "tests": [
         "sidecar/tests/test_notebook_parity.py",
-        "sidecar/tests/test_debugging.py"
+        "sidecar/tests/test_debugging.py",
+        "app/tests/browser/notebook-sql-complete.test.cjs",
+        "sidecar/tests/test_schema_cache.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -2433,14 +2456,14 @@
         "preview": false
       },
       "limitations": [
-        "Completes only what the kernel has run",
+        "Python completes only what the kernel has run; %%sql cells complete columns from the lakehouse's Delta schemas",
         "No completion when Runs on is Fabric",
         "Variable history, watches and hidden-state warnings are Preview (PR #129)"
       ],
       "prs": [
         129
       ],
-      "next_action": "Column completion for attached tables (Prove backlog #12).",
+      "next_action": "Merge the %%sql column completion PR for PB-027, then verify it on a real lakehouse.",
       "backlog": [
         "PB-027"
       ]
@@ -2741,10 +2764,12 @@
         "sidecar/fabric_desktop/prove_service.py",
         "sidecar/fabric_desktop/proof.py",
         "sidecar/fabric_desktop/proof_runtime.py",
+        "sidecar/fabric_desktop/proof_spark.py",
         "app/ui/prove.js"
       ],
       "tests": [
-        "sidecar/tests/test_prove.py"
+        "sidecar/tests/test_prove.py",
+        "sidecar/tests/test_prove_spark.py"
       ],
       "docs": [
         "docs/prove/how-proofs-work.md",
@@ -2755,7 +2780,7 @@
         "preview": true
       },
       "limitations": [
-        "Spark notebooks blocked",
+        "Spark notebooks proven with a real Spark standing in for Fabric's, not yet on a live tenant",
         "One proof at a time",
         "TZ fixed only where time.tzset exists (not Windows)"
       ],
@@ -4323,7 +4348,13 @@
         1036,
         1038,
         1041,
-        1045
+        1045,
+        1062,
+        1072,
+        1074,
+        1081,
+        1100,
+        1112
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -4868,7 +4899,8 @@
       ],
       "prs": [
         64,
-        931
+        931,
+        1059
       ],
       "next_action": "Run once on a tenant; record the writer's identity.",
       "backlog": [
@@ -5216,7 +5248,9 @@
         630,
         884,
         892,
-        919
+        919,
+        1058,
+        1071
       ],
       "workstream": "Enterprise readiness (FD-101)",
       "next_action": "Chris runs it on a non-production workspace (PB-002); it now runs the notebook in Fabric only after it published as written.",
@@ -5869,7 +5903,8 @@
         767,
         779,
         982,
-        991
+        991,
+        1111
       ],
       "workstream": "Bring your own AI integration",
       "next_action": "Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
@@ -5998,7 +6033,8 @@
         "preview": false
       },
       "prs": [
-        120
+        120,
+        1118
       ],
       "workstream": "SQL development sprint (SQL-002)",
       "next_action": "Compare its verdicts with a Fabric Warehouse run on a tenant (HD-054)"
@@ -6192,7 +6228,9 @@
         "preview": true
       },
       "prs": [
-        350
+        350,
+        1053,
+        1146
       ],
       "workstream": "Notebook development program",
       "next_action": "Implementation review of PR #350; run on a tenant before the Preview tag comes off."
@@ -6933,7 +6971,13 @@
         "Databricks-backed secret scopes can't be read"
       ],
       "prs": [
-        371
+        371,
+        1053,
+        1104,
+        1106,
+        1144,
+        1145,
+        1146
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Implementation review of PR #371."
@@ -7064,7 +7108,8 @@
       "prs": [
         150,
         563,
-        568
+        568,
+        1120
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-002)",
       "next_action": "Registry v7 on main; review with ORC-08.",
@@ -7460,7 +7505,7 @@
       "description": "Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both.",
       "pillar": "Local development",
       "category": "Extensibility, APIs, CLI, and MCP",
-      "status": "Implemented but Not Exposed",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
         {
@@ -7477,6 +7522,11 @@
           "kind": "test",
           "ref": "sidecar/tests/test_databricks_sql.py",
           "note": "product check 2026-10-26 23:42 at 73c4ae4: test file named by the merged PR; CI on main runs it"
+        },
+        {
+          "kind": "report",
+          "ref": "docs/platforms.md#live-runs",
+          "note": "2026-10-29 KUDP comparison on a Trial capacity test workspace: sign-in, workspace and lakehouse listing, 10 Spark SQL queries in one Fabric Spark session compared with DuckDB (8 match; 2 differ, one fixed by #1144)"
         }
       ],
       "source": [
@@ -7486,13 +7536,18 @@
       "tests": [
         "sidecar/tests/test_engines.py",
         "sidecar/tests/test_connprofiles.py",
-        "sidecar/tests/test_databricks_sql.py"
+        "sidecar/tests/test_databricks_sql.py",
+        "sidecar/tests/test_engine_conformance.py",
+        "sidecar/tests/test_engine_compare.py",
+        "sidecar/tests/test_fabric_spark.py",
+        "app/tests/browser/engine-picker.test.cjs"
       ],
       "docs": [
-        "docs/engines.md"
+        "docs/engines.md",
+        "docs/platforms.md"
       ],
       "ui": {
-        "surface": "None: the engine underneath; no screen yet",
+        "surface": "Notebook > engine picker (Preview); Settings > Connection profiles",
         "preview": true
       },
       "prs": [
@@ -7500,12 +7555,21 @@
         690,
         764,
         780,
-        782
+        782,
+        891,
+        1056,
+        1078,
+        1096,
+        1115,
+        1124,
+        1125,
+        1133,
+        1142
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
       "limitations": [
-        "Databricks SQL warehouse and Databricks Connect engines tested against fakes only"
+        "Databricks SQL warehouse and Databricks Connect have a live test (#1058) but no recorded live run yet; Fabric Spark has one (2026-10-29)"
       ]
     },
     {
@@ -7707,7 +7771,9 @@
         790,
         798,
         800,
-        813
+        813,
+        1063,
+        1116
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
@@ -7857,6 +7923,80 @@
           "kind": "test",
           "ref": "sidecar/tests/test_editor_channel.py",
           "note": "product check 2026-10-27 at 6159e50: test file named by the merged PR; CI on main runs it"
+        }
+      ]
+    },
+    {
+      "id": "FEAT-DEV-04",
+      "name": "Learn",
+      "description": "Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance modes (Focus, Guided, Learning) and Learn evidence in Profile.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "source": [
+        "sidecar/fabric_desktop/learn_service.py",
+        "sidecar/fabric_desktop/learn/",
+        "app/ui/learn.js"
+      ],
+      "tests": [
+        "app/tests/browser/learn.test.cjs",
+        "sidecar/tests/test_learn_content.py",
+        "sidecar/tests/test_learn_labs.py",
+        "sidecar/tests/test_learn_service.py",
+        "sidecar/tests/test_profile_learn.py"
+      ],
+      "docs": [
+        "docs/learn.md",
+        "docs/learn/writing-lessons.md"
+      ],
+      "ui": {
+        "surface": "Learn (bottom of the left rail)",
+        "preview": true
+      },
+      "limitations": [
+        "Some lessons are drafts",
+        "A lab run or check stops after 30 seconds and a lab is capped at 1 GB of memory"
+      ],
+      "prs": [
+        1063,
+        1076,
+        1083,
+        1137,
+        1138,
+        1139,
+        1140
+      ],
+      "backlog": [
+        "PB-119"
+      ],
+      "workstream": "Learning experience (LX)",
+      "next_action": "Implementation review of LX-01 to LX-08.",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/browser/learn.test.cjs",
+          "note": "Passed at 02118fa4 in the 2026-10-29 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_learn_content.py",
+          "note": "Passed at 02118fa4 in the 2026-10-29 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_learn_labs.py",
+          "note": "Passed at 02118fa4 in the 2026-10-29 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_learn_service.py",
+          "note": "Passed at 02118fa4 in the 2026-10-29 23:42 product check"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_profile_learn.py",
+          "note": "Passed at 02118fa4 in the 2026-10-29 23:42 product check"
         }
       ]
     }

@@ -21,7 +21,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -535,8 +535,14 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def list_tables(self, workspace_id: str, lakehouse_id: str) -> dict[str, list[str]]:
         catalog = TableCatalog(self.auth.storage_token)
-        return {s: catalog.list_tables(workspace_id, lakehouse_id, s)
-                for s in catalog.list_schemas(workspace_id, lakehouse_id)}
+        tables = {s: catalog.list_tables(workspace_id, lakehouse_id, s)
+                  for s in catalog.list_schemas(workspace_id, lakehouse_id)}
+        schema_cache.record_tables(self.root, lakehouse_id, tables)
+        return tables
+
+    def cached_schemas(self, lakehouse_id: str) -> dict[str, Any]:
+        """The table and column names last read from this lakehouse, for completion while offline."""
+        return schema_cache.load(self.root, lakehouse_id)
 
     def preview_job(self, path: str, limit: int = 100) -> dict[str, Any]:
         data = run_local(Job.load(path))
@@ -976,8 +982,10 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)
         # Delta's own type names (string, long, timestamp), as Fabric shows them.
-        return [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
-                for f in lakehouse.open_table(table).schema().fields]
+        columns = [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
+                   for f in lakehouse.open_table(table).schema().fields]
+        schema_cache.record_columns(self.root, lakehouse_ref["lakehouse_id"], table, columns)
+        return columns
 
     def _schemas_enabled(self, workspace_id: str, lakehouse_id: str) -> bool:
         """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse.

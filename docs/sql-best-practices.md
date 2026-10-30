@@ -17,7 +17,9 @@ the Warehouse page, a **Best practices** chip sits beside **Compatibility**. Bot
 shortly after you stop typing. The chip shows how many findings there are, and is red or amber for the
 worst one. It opens the panel beside the editor on its own tab, listing each finding with what to do and
 **Line n**, which selects the place in the editor. **About SQ0nn** opens the rule's explanation in
-[Each rule explained](#each-rule-explained). Pressing the chip again closes the panel.
+[Each rule explained](#each-rule-explained). Pressing the chip again closes the panel. Under each
+finding, **Dismiss** hides it for you, and in Guided or Learning guidance **Explain** and **Show
+example** show its section of this page in the panel ([Learn](learn.md#beside-a-finding)).
 
 The governance policies in force for the open project tune the rules, read once each time you open
 the page (`governance_practice_settings`). A rule a policy turns off isn't shown, and a policy can change

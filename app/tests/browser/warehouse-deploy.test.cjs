@@ -44,7 +44,7 @@ before(async () => {
   const runs = sqlRunMocks(catalog);
   const states = new Map();
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", "git_init", "wh_projects_list", "wh_project_files",
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", "git_init", "wh_projects_list", "wh_project_files",
       "wh_project_read", "wh_project_compare", "wh_project_diff", "wh_project_deploy_plan", "meta_init", "meta_set_environment"],
     mocks: { ...runs, meta_project: () => ({ environments: { dev: { workspace_id: "ws1" }, prod: { workspace_id: "ws9" } } }),
       sql_start: (p) => {

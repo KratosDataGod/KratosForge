@@ -105,7 +105,7 @@ Running on this PC means reading OneLake data into the PC: previews, notebook Da
 | OneLake data access roles decide which folders and tables a person can read | Checked once, when the app reads with your token. A copy on the PC has no roles: anyone or any program that can read your files can read it |
 | Row-level and column-level security (RLS, OLS) on a SQL analytics endpoint, Warehouse or semantic model filter what a query returns | Not applied. Notebooks and SQL on this PC read the Delta files in OneLake directly, the way Spark does, so they see every row and column your OneLake access allows |
 | Sensitivity labels and Purview policies stay attached to the item | Not carried onto local files or exports |
-| Data stays in the tenant's region and under its retention rules | Cached copies (previews, staged tables, download cache) are deleted after the `local_retention_days` policy (default 30 days, [Azure setup](azure-setup.md)). Local tables, notebook outputs and exports stay until someone deletes them. The tenant's retention rules don't reach them |
+| Data stays in the tenant's region and under its retention rules | Cached copies (previews, staged tables, download cache, table and column names for completion) are deleted after the `local_retention_days` policy (default 30 days, [Azure setup](azure-setup.md)). Local tables, notebook outputs and exports stay until someone deletes them. The tenant's retention rules don't reach them |
 | OneLake diagnostics can log who read what | The read is logged there like any other. What happens to the copy afterward is in the app's own audit log at most |
 
 What this means in practice:

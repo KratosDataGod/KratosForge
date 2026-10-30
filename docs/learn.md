@@ -27,9 +27,18 @@ A lesson marked **Draft** is still being written and may change.
 | LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
 | LAB-01 | From raw data to a checked answer: find six planted problems, then a clean answer | Data Fundamentals | |
 | LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
+| LM-06 | Lakehouses and the medallion layers | Microsoft Fabric | |
+| LM-07 | OneLake and Delta tables: files and a log | Microsoft Fabric | NB020 |
+| LM-08 | Notebooks: let the engine do the work | Microsoft Fabric | NB003 |
+| LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
+| LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
+| LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
 
-More lessons and the other paths (Python, Fabric, Databricks, Snowflake, Enterprise Architecture)
-come in later updates.
+The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
+teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
+where a lesson uses DuckDB's own SQL, it says so.
+Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
+Snowflake, Enterprise Architecture) come in later updates.
 
 ## A lesson or lab
 

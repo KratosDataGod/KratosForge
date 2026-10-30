@@ -34,9 +34,11 @@ Keys:
     ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
                      with the tag kept on page titles
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
-    learn_mode       how much learning guidance shows beside your work (docs/learn.md): "focus"
-                     (default) findings and About only; "guided" adds the lesson that covers a
-                     finding; "learning" also suggests the next lesson on Learn's Home
+    learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
+                     findings, About and Dismiss; "professional" (default) adds a line on why and
+                     Explain and Show example on request; "guided" opens Explain, adds the lesson
+                     that covers a finding and suggests the next lesson on Learn's Home. The first
+                     names, "focus" and "learning", still read as "expert" and "guided"
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -207,10 +209,12 @@ DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "u
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
-CHOICES["learn_mode"] = ("focus", "guided", "learning")
-DEFAULTS["learn_mode"] = "focus"
+CHOICES["learn_mode"] = ("expert", "professional", "guided")
+DEFAULTS["learn_mode"] = "professional"
 TYPES["learn_mode"] = str
 USER_KEYS += ("learn_mode",)
+# A value saved, or set by policy, under a name a setting no longer has, read as its new name.
+RENAMED: dict[str, dict[str, str]] = {"learn_mode": {"focus": "expert", "learning": "guided"}}
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
@@ -379,7 +383,7 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
-        elif key in CHOICES and value not in CHOICES[key]:
+        elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
@@ -554,6 +558,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
+            candidate = RENAMED.get(key, {}).get(candidate, candidate) if isinstance(candidate, str) else candidate
             if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break

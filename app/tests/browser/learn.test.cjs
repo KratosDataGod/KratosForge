@@ -131,11 +131,11 @@ test("Reset lab asks first, and Leave goes back to Learn", { skip }, async () =>
   assert.match(await page().locator(".head-actions").textContent(), /Continue: Your first query on this PC/);
 });
 
-test("The first visit asks once how much guidance you'd like: Save keeps the choice, Skip keeps Focus, and policy hides it", { skip }, async () => {
+test("The first visit asks once how much guidance you'd like: Save keeps the choice, Skip keeps Professional, and policy hides it", { skip }, async () => {
   await page().evaluate(() => { learnPage.open = null; learnPage.tab = "home"; go("learn"); });
   await page().locator(".learn-ask").waitFor();
   assert.match(await page().locator(".learn-ask h2").textContent(), /Would you like KratosForge to help you improve your development skills\?/);
-  assert.strictEqual(await page().locator(".learn-ask input:checked").inputValue(), "focus", "Focus is picked to start with");
+  assert.strictEqual(await page().locator(".learn-ask input:checked").inputValue(), "professional", "Professional is picked to start with");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "learn-ask.png") });
   await page().locator(".learn-ask input[value=guided]").check();
   await page().locator(".learn-ask button", { hasText: "Save" }).click();
@@ -145,13 +145,13 @@ test("The first visit asks once how much guidance you'd like: Save keeps the cho
   await page().evaluate(() => saveSettings({ learn_mode: null }).then(() => render()));  // as if never asked
   await page().locator(".learn-ask").waitFor();
   await page().locator(".learn-ask button", { hasText: "Skip" }).click();
-  await page().waitForFunction(() => state.settings.learn_mode?.value === "focus" && state.settings.learn_mode.source === "user");
+  await page().waitForFunction(() => state.settings.learn_mode?.value === "professional" && state.settings.learn_mode.source === "user");
   await page().locator(".learn-ask").waitFor({ state: "detached" });
   const policy = await page().evaluate(() => {
     const keep = state.settings.learn_mode;
-    state.settings.learn_mode = { value: "focus", source: "policy" };
+    state.settings.learn_mode = { value: "expert", source: "policy" };
     const shown = learnAsk() !== null;
-    state.settings.learn_mode = { value: "focus", source: "default" };
+    state.settings.learn_mode = { value: "professional", source: "default" };
     state.settings.show_preview = { ...state.settings.show_preview, value: false };
     const hidden = learnAsk() !== null;
     state.settings.show_preview = { ...state.settings.show_preview, value: true };
@@ -161,10 +161,10 @@ test("The first visit asks once how much guidance you'd like: Save keeps the cho
   assert.deepStrictEqual(policy, { shown: false, hidden: false }, "not asked when policy sets it or preview features are hidden");
 });
 
-test("Guidance is Focus by default: no Lesson link beside a finding, no suggestion on Home (LX-06)", { skip }, async () => {
+test("Guidance is Professional by default: no Lesson link beside a finding, no suggestion on Home (LX-06)", { skip }, async () => {
   await page().evaluate(() => { learnPage.open = null; learnPage.tab = "home"; go("learn"); });
   await page().locator(".learn-continue").waitFor();
-  assert.strictEqual(await page().locator(".learn-guidance select").inputValue(), "focus");
+  assert.strictEqual(await page().locator(".learn-guidance select").inputValue(), "professional");
   assert.strictEqual(await page().evaluate(() => learnFindingLink("SQ002")), null);
   assert.strictEqual(await page().locator(".learn-suggest").count(), 0);
 });
@@ -189,9 +189,8 @@ test("Guided adds the lesson that covers a finding's rule, and it opens the less
   assert.strictEqual(draftOnly, "", "a draft lesson isn't linked beside a finding");
 });
 
-test("Learning also suggests the next lesson on Home, and a policy-set mode can't be changed here", { skip }, async () => {
+test("Guided also suggests the next lesson on Home, and a policy-set level can't be changed here", { skip }, async () => {
   await page().evaluate(() => { learnPage.open = null; go("learn"); });
-  await page().locator(".learn-guidance select").selectOption("learning");
   await page().locator(".learn-suggest").waitFor();
   assert.match(await page().locator(".learn-suggest").textContent(), /Suggested next[\s\S]*LM-02 · Data types, and why decimals beat floats for money/);
   await page().evaluate(() => { state.settings.learn_mode = { value: "guided", source: "policy" }; render(); });

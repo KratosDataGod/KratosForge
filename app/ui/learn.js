@@ -79,9 +79,9 @@ function learnHome(cat, byId, next, inOrder) {
       path ? btn("See the path", null, () => { learnPage.tab = "paths"; render(); }, "tool outline") : null))
     : emptyState({ icon: "beaker", title: "No lessons yet", text: "Lessons arrive with app updates." });
   const after = next ? inOrder.slice(inOrder.indexOf(next) + 1) : [];
-  const suggest = learnMode() === "learning" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
+  const suggest = learnMode() === "guided" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
   return [suggest ? h("div", { class: "learn-home-top" }, cont, h("section", { class: "card pad learn-suggest" },
-    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Learning mode: the next lesson you haven't started.")),
+    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Guided: the next lesson you haven't started.")),
     h("b", {}, `${suggest.id} · ${suggest.title}`),
     h("span", { class: "muted-text small" }, learnMeta(suggest)),
     h("div", { class: "row" }, btn("Open", null, () => learnOpen(suggest.id), "tool outline")))) : cont,
@@ -126,9 +126,10 @@ async function learnPractices(body) {
 
 // ---------- guidance (LX-06) ----------
 
-// Settings > Appearance > Learning guidance (app_settings learn_mode). Focus is the default and adds
-// nothing beside your work; with preview features hidden it's always Focus.
-const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "focus");
+// Settings > Appearance > Learning guidance (app_settings learn_mode): Expert, Professional (the
+// default) or Guided. A preference only: checks and policies are the same at every level. With preview
+// features hidden it's always Expert, which adds nothing but Dismiss, and that is Preview too.
+const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "expert");
 
 function learnGuidancePicker() {
   const key = "learn_mode";
@@ -141,7 +142,7 @@ function learnGuidancePicker() {
 
 // The first time Learn opens (from the approved mockup): would you like help improving your skills?
 // Asked once, only while the mode is still the default and nobody (policy or environment) set it.
-// Save or Skip both store a choice, so it's never asked again; Skip keeps Focus.
+// Save or Skip both store a choice, so it's never asked again; Skip keeps Professional, the default.
 function learnAsk() {
   const key = "learn_mode";
   if (!previewShown() || state.settings?.[key]?.source !== "default") return null;
@@ -151,20 +152,20 @@ function learnAsk() {
     render();  // Learn's head, with the picker, is built before the lessons are read
     document.querySelector(".learn-guidance select")?.focus();
   };
-  const say = { focus: "Findings, their About link and Dismiss. No suggestions.",
-    guided: "Each finding also offers Explain, an example and the lesson that covers it.",
-    learning: "Everything in Guided, plus a suggested next lesson on Learn." };
+  const say = { expert: "Findings, their About link and Dismiss. No explanations unless you open About.",
+    professional: "A line on why each finding matters, with Explain and an example when you want them.",
+    guided: "Explanations open beside each finding, the lesson that covers it, and a suggested next lesson on Learn." };
   const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
-    h("input", { type: "radio", name: "learn-ask", value, checked: value === "focus" ? true : null }),
-    h("span", {}, h("b", {}, label), value === "focus" ? h("span", { class: "muted-text small" }, " · the default") : null,
+    h("input", { type: "radio", name: "learn-ask", value, checked: value === "professional" ? true : null }),
+    h("span", {}, h("b", {}, label), value === "professional" ? h("span", { class: "muted-text small" }, " · the default") : null,
       h("span", { class: "muted-text small learn-ask-say" }, say[value]))));
   const card = h("section", { class: "card pad learn-ask", "aria-labelledby": "learn-ask-title" },
     h("h2", { id: "learn-ask-title" }, "Would you like KratosForge to help you improve your development skills?"),
     h("p", { class: "muted-text" }, "This only changes how much guidance you see beside your work. Checks run the same either way, and you can change it at any time with Learning guidance, above, or in Settings > Appearance > Layout."),
     h("fieldset", { class: "learn-ask-modes" }, h("legend", {}, "How much guidance would you like?"), options),
     h("div", { class: "row" },
-      btn("Save", null, () => choose(card.querySelector("input[name=learn-ask]:checked")?.value || "focus"), "tool primary"),
-      btn("Skip", null, () => choose("focus"), "tool outline")),
+      btn("Save", null, () => choose(card.querySelector("input[name=learn-ask]:checked")?.value || "professional"), "tool primary"),
+      btn("Skip", null, () => choose("professional"), "tool outline")),
     h("p", { class: "muted-text small" }, "Your organization can set this for everyone. Learning progress stays on this PC."));
   return card;
 }
@@ -175,11 +176,10 @@ function learnCatalogCached() {
   return (learnCatalogLoad ||= rpc("learn_catalog").catch(() => { learnCatalogLoad = null; return null; }));
 }
 
-// Guided and Learning: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers.
-// Focus shows nothing extra. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
+// Guided: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
 // lesson explains the rule.
 function learnFindingLink(ruleId) {
-  if (learnMode() === "focus") return null;
+  if (learnMode() !== "guided") return null;
   const slot = h("span", { class: "learn-finding" });
   learnCatalogCached().then((cat) => {
     const covering = (cat?.modules || []).filter((m) => m.status === "live" && (m.rules || []).includes(ruleId));
@@ -195,8 +195,9 @@ function learnFindingLink(ruleId) {
 
 // Explain and Show example read each rule's section of the best-practices guide, shipped with the
 // app (learn/guides.py). Dismiss hides a finding in this person's own panels on this PC
-// (learn/dismissals.py); the check still runs. In Focus only Dismiss shows; Guided and Learning add
-// Explain, Show example and the Lesson link. A rule a policy for the project names can't be
+// (learn/dismissals.py); the check still runs. Expert shows only Dismiss. Professional adds the
+// guide's first sentence, Explain and Show example; Guided opens Explain to start with and adds the
+// Lesson link. A rule a policy for the project names can't be
 // dismissed. All of it is Preview.
 let learnGuidesLoad = null;
 function learnGuidesCached() {
@@ -278,16 +279,20 @@ async function learnUndismiss(id, ctx, back = []) {
 // The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
 function learnFindingActions(f, ctx) {
   if (!previewShown()) return null;
-  const guided = learnMode() !== "focus";
+  const mode = learnMode();
+  const guided = mode !== "expert";
   const guide = learnGuides[f.rule_id];
   const key = `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}`;
-  const open = learnDetail.get(key);
+  // Guided starts with Explain open; closing it is remembered like any other press (null).
+  const open = learnDetail.has(key) ? learnDetail.get(key) : (mode === "guided" && guide ? "explain" : null);
   const toggle = (what) => {
-    if (open === what) learnDetail.delete(key); else learnDetail.set(key, what);
+    learnDetail.set(key, open === what ? null : what);
     learnRedraw(ctx, learnFocusKey(ctx, f, what));
   };
   const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
   const row = h("div", { class: "row learn-actions" });
+  // Professional: the guide's first sentence, so why it matters is there without a press.
+  const why = mode === "professional" && guide?.why ? h("p", { class: "learn-why muted-text small" }, learnFirstSentence(guide.why)) : null;
   if (guided && guide) {
     row.append(btn("Explain", null, () => toggle("explain"), `tool small outline${open === "explain" ? " toggled" : ""}`, pressed("explain")));
     if (guide.after) row.append(btn("Show example", null, () => toggle("example"), `tool small outline${open === "example" ? " toggled" : ""}`, pressed("example")));
@@ -316,7 +321,7 @@ function learnFindingActions(f, ctx) {
     wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
     row.append(wrap);
   }
-  if (!guided || !guide || !open) return row;
+  if (!guided || !guide || !open) return why ? [why, row] : row;
   const detail = open === "explain"
     ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
@@ -327,7 +332,13 @@ function learnFindingActions(f, ctx) {
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(guide.after)
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
-  return [row, detail];
+  return [why, row, detail];
+}
+
+// "Why: the engine skips... Wrapped in a function..." -> its first sentence, without Markdown marks.
+function learnFirstSentence(text) {
+  const plain = String(text).replace(/`([^`]*)`/g, "$1").replace(/\*\*?([^*]+)\*\*?/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  return (plain.match(/^.*?[.!?](?=\s|$)/) || [plain])[0];
 }
 
 // "2 dismissed · Show", and when shown, each with Show again, and Show all again.

@@ -18,7 +18,8 @@ const skip = !playwright && "Playwright is not installed";
 
 let app;
 let hold = false;  // the next runs stay running until stopped
-let compared = { result: "match", level: "complete", rows: { before: 4, after: 4 }, seconds: { before: 1.84, after: 0.21 }, limitations: [] };
+let compared = { result: "match", level: "complete", rows: { before: 4, after: 4 }, seconds: { before: 1.84, after: 0.21 }, limitations: [],
+  runs: { before: "run-a", after: "run-b" } };
 const page = () => app.page;
 const panel = () => page().locator(".sql-compat");
 const sq002 = () => panel().locator("[data-rule=SQ002]");
@@ -33,7 +34,7 @@ before(async () => {
     mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse", ...(hold ? { state: "running" } : {}) }),
       sql_status: (p) => ({ ...runs.sql_status(p), target: "warehouse", ...(hold ? { state: "running" } : {}) }),
       sql_cancel: ({ execution }) => ({ id: execution, state: "cancelling" }),
-      learn_fix_compare: () => compared },
+      learn_fix_compare: () => compared, learn_fix_checked: () => ({ recorded: true }) },
   });
   await page().waitForFunction(() => state.settings && "learn_mode" in state.settings);
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);
@@ -109,6 +110,10 @@ test("the preview has no serious axe findings", { skip: skip || (!axeSource && "
 test("Apply is one edit: the finding goes, and Ctrl+Z brings the SQL back", { skip }, async () => {
   await sq002().getByRole("button", { name: "Apply", exact: true }).click();
   assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), FIXED);
+  // GD-06: after a Compare that matched, Profile records the fix (the engine compares the two runs again).
+  await page().getByText("Profile records it as fixed and checked.", { exact: false }).waitFor();
+  assert.deepStrictEqual(app.calls.filter((c) => c.method === "learn_fix_checked").map((c) => c.params),
+    [{ before: "run-a", after: "run-b", rule_id: "SQ002" }]);
   await page().waitForFunction((t) => sqlPage.tabs[sqlPage.active].compatText === t && sqlPage.tabs[sqlPage.active].practices, FIXED, { timeout: 10000 });
   await sq002().waitFor({ state: "detached" });
   await page().keyboard.press("Control+z");
@@ -125,6 +130,18 @@ test("different rows say so, and say not to apply it yet", { skip }, async () =>
   assert.match(await sq002().locator(".learn-fix-result").innerText(), /Different rows[\s\S]*4 rows now, 3 rows with the fix\. Don't apply it before finding out why/);
   await sq002().getByRole("button", { name: "Cancel" }).click();
   await sq002().locator(".learn-fix").waitFor({ state: "detached" });
+});
+
+test("Apply without a matching Compare records nothing in Profile (GD-06)", { skip }, async () => {
+  const before = app.calls.filter((c) => c.method === "learn_fix_checked").length;
+  await sq002().getByRole("button", { name: "Try the fix" }).click();
+  await sq002().getByRole("button", { name: "Apply", exact: true }).click();   // no Compare this time
+  assert.strictEqual(await page().evaluate(() => sqlPage.editor.text()), FIXED);
+  await page().keyboard.press("Control+z");
+  await page().waitForFunction((t) => sqlPage.tabs[sqlPage.active].compatText === t && sqlPage.tabs[sqlPage.active].practices, SQL, { timeout: 10000 });
+  await sq002().getByRole("button", { name: "Try the fix" }).waitFor();
+  await page().waitForTimeout(300);  // the fixes arrive after the findings: let that redraw finish
+  assert.strictEqual(app.calls.filter((c) => c.method === "learn_fix_checked").length, before);
 });
 
 test("SQL changed since the check: Apply changes nothing", { skip }, async () => {

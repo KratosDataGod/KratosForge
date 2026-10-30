@@ -391,7 +391,18 @@ function learnFixPreview(f, ctx, key) {
     learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix"));
   };
   const running = cmp?.state === "running";
-  const apply = () => { if (ctx.fix.apply(f)) { learnDetail.delete(key); learnFixCompare.delete(key); } };
+  const apply = () => {
+    if (!ctx.fix.apply(f)) return;
+    learnDetail.delete(key); learnFixCompare.delete(key);
+    learnRedraw(ctx);  // Ctrl+Z can bring the same finding back: its buttons start closed, not from this preview
+    // GD-06: a fix applied after Compare found the same rows goes in Profile; the engine compares again first.
+    const runs = cmp?.state === "done" && cmp.result.result === "match" ? cmp.result.runs : null;
+    if (runs) {
+      rpc("learn_fix_checked", { before: runs.before, after: runs.after, rule_id: f.rule_id }).then((out) => {
+        if (out.recorded) toast(`Applied the fix for ${f.rule_id}. Ctrl+Z undoes it. Profile records it as fixed and checked.`);
+      }, () => {});  // Profile is a record, never a reason for Apply to fail
+    }
+  };
   const canCompare = ctx.fix.canCompare(f);
   const done = cmp?.state === "done";
   return h("div", { class: "learn-detail learn-fix" },

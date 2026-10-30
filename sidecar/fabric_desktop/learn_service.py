@@ -12,15 +12,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import verify
+from . import progress, verify
 from .learn import content, dismissals, fixes, guides, labs
 from .redact import describe
+from .sqlcompat import practices
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
            "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "learn_rule_guides", "learn_dismissals",
-           "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare"}
+           "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare", "learn_fix_checked"}
 
 _SUMMARY = ("id", "kind", "title", "path", "level", "minutes", "objectives", "prerequisites", "platforms", "engines",
             "rules", "docs", "version", "status")
@@ -125,7 +126,22 @@ class LearnMixin:
                 "after": out["fabric"]["rows"]}, "limitations": out["limitations"],
                 "columns": {"only_before": out["columns"]["only_pc"], "only_after": out["columns"]["only_fabric"],
                             "types": out["columns"]["types"]},
-                "seconds": {"before": a.get("seconds"), "after": b.get("seconds")}, "target": a.get("target")}
+                "seconds": {"before": a.get("seconds"), "after": b.get("seconds")}, "target": a.get("target"),
+                "warehouse": a.get("warehouse") or "", "runs": {"before": str(before), "after": str(after)}}
+
+    def learn_fix_checked(self, before: str, after: str, rule_id: str) -> dict[str, Any]:
+        """Apply after a matching Compare (GD-06): compares the two runs again here, and records the fix
+        in Profile only when their rows are the same. A checked fix earns no XP or achievement (rules v3).
+        Returns {recorded}: whether Profile has it."""
+        if rule_id not in fixes.RULES:
+            raise ValueError(f"{rule_id} has no fix to record.")
+        compared = self.learn_fix_compare(before, after)
+        area = next((r.category for r in practices.RULES if r.id == rule_id), "")
+        row = progress.from_fix(rule_id, area, compared, compared["runs"], compared["warehouse"])
+        if row is None:
+            return {"recorded": False}
+        self._progress_record(row)  # type: ignore[attr-defined]
+        return {"recorded": any(r["id"] == row["id"] for r in progress.load(self._profile_path())["evidence"])}  # type: ignore[attr-defined]
 
     def learn_undismiss(self, dismissal_id: str | None = None) -> list[dict[str, Any]]:
         """Show a dismissed finding again, or every one when no id is given."""

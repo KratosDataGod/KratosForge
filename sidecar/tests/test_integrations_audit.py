@@ -236,6 +236,24 @@ def test_an_audit_problem_never_fails_the_call(store, capsys):
     assert "could not record ext_sql" in capsys.readouterr().err
 
 
+def test_an_approved_call_that_cant_be_recorded_does_not_run(store, capsys):
+    reg = registry(store, wait=10)
+    ran = []
+    reg.register(Capability("ext_mark", "Mark", "Runs code.", schema({"code": {"type": "string"}}), schema(extra=True),
+                            "EXECUTE_LOCAL_CODE", lambda s, c, **a: ran.append(1) or {"ok": True}, read_only=False,
+                            approval="always", needs_service=False))
+    client, _ = store.add_client("Codex", grants=["EXECUTE_LOCAL_CODE"])
+
+    def broken(*a, **k):
+        raise OSError("disk full")
+    reg.audit = broken
+    approve_first(store)
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(None, "ext_mark", {"code": "x"}, ctx(client["id"]))
+    assert err.value.code == "internal" and "didn't run" in err.value.message and ran == []
+    assert "could not record ext_mark" in capsys.readouterr().err
+
+
 def test_arguments_keep_ids_and_drop_content():
     out = arguments({"name": "nb_sales", "max_rows": 20, "rules": {"tolerance": 0.1, "keys": ["id"]},
                      "note": f"token={JWT}", "long": "x" * 500, "client_secret": "s", "cells": ["a"], "blob": object()})

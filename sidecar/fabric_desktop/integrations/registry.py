@@ -342,8 +342,11 @@ class Registry:
                 self.audit(ctx, cap_id, *line, stage=stage)
             else:
                 self.audit(ctx, cap_id, *line)
-        except Exception as exc:  # noqa: BLE001 - a full disk mustn't fail the call; say so on stderr
+        except Exception as exc:  # noqa: BLE001 - a full disk mustn't fail a finished call; say so on stderr
             print(f"audit: could not record {cap_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            if stage == "started":  # approved work never runs without its line
+                raise IntegrationError("internal", "KratosForge couldn't record the call, so it didn't run. "
+                                       "Check there is free space for its data folder, then try again.") from exc
 
     def _invoke(self, service: Any, cap: Capability | None, cap_id: str, arguments: dict[str, Any] | None,
                 ctx: CallContext) -> Any:

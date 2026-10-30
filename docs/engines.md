@@ -150,7 +150,9 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   resent, so it can't run twice. An error after the last try says how many times it was tried.
 - **If the connection stays down mid-cell:** the statement is cancelled on the warehouse, so it doesn't
   keep the warehouse busy with no one watching. If the cancel can't get through either, the error
-  says the statement may still be running; stop it in Databricks' query history.
+  says the statement may still be running; stop it in Databricks' query history. The two-hour limit
+  and a **Cancel** pressed while the statement is being sent report the same way: "stopped" only
+  when the warehouse accepted the cancel.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
@@ -253,7 +255,8 @@ connection, within 30 seconds of waiting. **Cancel** cancels the running stateme
 - **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
   features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
   per cell. A cell still running after two hours is cancelled. If the connection stays down mid-cell,
-  the cell is cancelled in Fabric; if that can't get through either, the error says it may still be
+  the cell is cancelled in Fabric. If that cancel, the two-hour limit's cancel, or a **Cancel**
+  pressed while the cell is being sent can't get through, the error says the cell may still be
   running, so stop it from the Monitor hub or close the session.
 
 ## Switching engines

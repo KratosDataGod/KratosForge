@@ -708,3 +708,41 @@ def test_a_normal_cell_still_shows_the_first_chunk_only():
 def test_the_result_capability_says_the_rows_are_copied_onto_this_pc():
     note = registry.get("databricks-sql").capability("result")
     assert note.available and "copied onto this PC" in note.note
+
+# ---------------------------------------------------------------- truthful cancels (KF-REMOTE-LIMIT, #1198)
+
+
+def _limited(ws):
+    now = [0.0]
+    return dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws, sleep=lambda s: None), "wh1",
+                                      sleep=lambda sec: now.__setitem__(0, now[0] + 60), clock=lambda: now[0],
+                                      max_seconds=300)
+
+
+def test_the_time_limit_says_the_statement_was_stopped_only_when_it_was():
+    ws = FakeWorkspace(polls=1000)
+    r = _limited(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert "after 5 minutes. The statement was stopped on Shared." in r.outputs[0]["evalue"]
+    ws = FakeWorkspace(polls=1000)
+    s = _limited(ws)
+    _flaky(ws, [403], lambda m, p: p.endswith("/cancel"))
+    evalue = s.execute(CellRequest("SELECT 1", "sql")).outputs[0]["evalue"]
+    assert "may still be running on Shared" in evalue and "query history" in evalue
+    assert "cancelled" not in evalue and "stopped on" not in evalue and PAT not in evalue
+
+
+def test_a_cancel_pressed_while_sending_that_is_refused_says_the_statement_may_still_run():
+    ws = FakeWorkspace(polls=3)
+    s = open_session(ws)
+    real = ws.request
+
+    def press_cancel_during_submit(method, url, **kw):
+        if method == "POST" and url.endswith("/api/2.0/sql/statements"):
+            assert s.cancel() is True  # no statement id yet: execute cancels it once submit returns
+        return real(method, url, **kw)
+    ws.request = press_cancel_during_submit
+    _flaky(ws, [403, 403], lambda m, p: p.endswith("/cancel"))
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "cancelled" and evalue.startswith("Cancelled. The statement may still be running on Shared")
+    assert "HTTP 403" not in evalue and PAT not in json.dumps(r.as_dict())

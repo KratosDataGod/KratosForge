@@ -2414,7 +2414,7 @@
     {
       "id": "FEAT-NB-08",
       "name": "Autocomplete and variables pane",
-      "description": "Completion from the live kernel plus table names; variables pane hides secret-looking values.",
+      "description": "Completion from the live kernel plus table names, and in %%sql cells the columns of an aliased table (cached for offline use); variables pane hides secret-looking values.",
       "pillar": "Local development",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -2439,11 +2439,14 @@
         "sidecar/fabric_desktop/notebook.py",
         "app/ui/notebook.js",
         "app/ui/debugging.js",
-        "sidecar/fabric_desktop/kernel_host.py"
+        "sidecar/fabric_desktop/kernel_host.py",
+        "sidecar/fabric_desktop/schema_cache.py"
       ],
       "tests": [
         "sidecar/tests/test_notebook_parity.py",
-        "sidecar/tests/test_debugging.py"
+        "sidecar/tests/test_debugging.py",
+        "app/tests/browser/notebook-sql-complete.test.cjs",
+        "sidecar/tests/test_schema_cache.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -2453,14 +2456,14 @@
         "preview": false
       },
       "limitations": [
-        "Completes only what the kernel has run",
+        "Python completes only what the kernel has run; %%sql cells complete columns from the lakehouse's Delta schemas",
         "No completion when Runs on is Fabric",
         "Variable history, watches and hidden-state warnings are Preview (PR #129)"
       ],
       "prs": [
         129
       ],
-      "next_action": "Column completion for attached tables (Prove backlog #12).",
+      "next_action": "Merge the %%sql column completion PR for PB-027, then verify it on a real lakehouse.",
       "backlog": [
         "PB-027"
       ]

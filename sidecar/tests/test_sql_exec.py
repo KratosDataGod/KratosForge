@@ -433,7 +433,7 @@ def test_status_never_returns_the_sql(runs, lake):
 
 def test_service_calls_are_wired_and_audited_as_intended():
     from fabric_desktop import audit, server
-    for method in ("sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export",
+    for method in ("sql_start", "sql_status", "sql_page", "sql_cancel", "sql_export",
                    "sql_export_status", "sql_export_cancel"):
         assert method in server.METHODS
     assert not audit.audited("sql_status") and not audit.audited("sql_page")

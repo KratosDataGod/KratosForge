@@ -64,7 +64,7 @@ const results = [];
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["app_settings", "sql_dialects"],
+    engine: ["app_settings"],
     mocks: {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],

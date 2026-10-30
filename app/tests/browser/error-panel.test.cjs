@@ -16,7 +16,7 @@ before(async () => {
   if (skip) return;
   const runs = sqlRunMocks(() => ({ columns: [{ name: "n", type: "int64" }], rows: [[1], [2]] }));
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze"],
+    engine: ["sql_format", "sql_analyze"],
     mocks: {
       list_tables: () => ({ dbo: ["sales"] }), table_columns: () => [],
       ...runs,

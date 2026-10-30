@@ -1036,10 +1036,10 @@ on quality.
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook ribbon > Prove (Preview)
 - **Evidence:** test: sidecar/tests/test_prove.py::test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tables (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_prove.py::test_a_write_to_an_input_during_the_proof_makes_it_inconclusive
-- **Source:** `sidecar/fabric_desktop/prove_service.py`, `sidecar/fabric_desktop/proof.py`, `sidecar/fabric_desktop/proof_runtime.py`, `app/ui/prove.js`
-- **Tests:** `sidecar/tests/test_prove.py`
+- **Source:** `sidecar/fabric_desktop/prove_service.py`, `sidecar/fabric_desktop/proof.py`, `sidecar/fabric_desktop/proof_runtime.py`, `sidecar/fabric_desktop/proof_spark.py`, `app/ui/prove.js`
+- **Tests:** `sidecar/tests/test_prove.py`, `sidecar/tests/test_prove_spark.py`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md), [docs/prove/plan.md](../prove/plan.md)
-- **Known limitations:** Spark notebooks blocked. One proof at a time. TZ fixed only where time.tzset exists (not Windows).
+- **Known limitations:** Spark notebooks proven with a real Spark standing in for Fabric's, not yet on a live tenant. One proof at a time. TZ fixed only where time.tzset exists (not Windows).
 - **Pull requests and issues:** [#59](https://github.com/KratosDataGod/KratosForge/pull/59), [#62](https://github.com/KratosDataGod/KratosForge/pull/62), [#65](https://github.com/KratosDataGod/KratosForge/pull/65), [#683](https://github.com/KratosDataGod/KratosForge/pull/683), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#771](https://github.com/KratosDataGod/KratosForge/pull/771), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#1035](https://github.com/KratosDataGod/KratosForge/pull/1035)
 - **Owning workstream:** Prove
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002)

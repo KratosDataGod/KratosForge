@@ -167,6 +167,7 @@ class PermissionAuthorizer:
             state = current["state"]
             if state == "approved":
                 if self.store.consume(current["id"], client["id"], digest):
+                    ctx.approval_id = current["id"]
                     return
                 state = "used"
             if state == "denied":

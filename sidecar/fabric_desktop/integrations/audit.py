@@ -1,7 +1,8 @@
 """The audit trail for external AI tools (PR-AI-010): one line for every call an external tool makes.
 
 Every call through ``Registry.invoke`` (MCP over stdio or HTTP, and the REST API) adds a line,
-whatever happened to it: refused, waiting for approval, denied, failed or done. Each line holds
+whatever happened to it: refused, waiting for approval, denied, failed or done. An approved call
+adds a second line before it runs. Each line holds
 
     at, seconds         when the call arrived (UTC) and how long it took, approval wait included
     channel             mcp-stdio, mcp-http or api
@@ -9,7 +10,9 @@ whatever happened to it: refused, waiting for approval, denied, failed or done. 
     capability, permission
     decision            allowed, approved (by the person), denied (permissions or policy),
                         approval_denied, approval_pending (nobody answered in time), invalid
-    outcome             ok, or the error code (timeout, not_found, ...)
+    outcome             ok, or the error code (timeout, not_found, ...); "started" on the line an
+                        approved call writes before it runs, so a call killed part way still shows
+    approval_id         on both lines of an approved call
     execution_id        for calls that start or read an execution
     arguments           ids, names and numbers; code, SQL and long text show as "(given)", and
                         anything credential-shaped is removed
@@ -89,17 +92,22 @@ class IntegrationAudit:
 
     def record(self, ctx: CallContext, capability: str, permission: str, args: dict[str, Any] | None,
                started_at: float, seconds: float, error: IntegrationError | None = None,
-               execution_id: str = "") -> dict[str, Any]:
+               execution_id: str = "", stage: str = "") -> dict[str, Any]:
+        """One line for a call. ``stage="started"`` is the line an approved call writes before it runs
+        (outcome ``started``); its outcome line follows when it finishes, with the same approval_id."""
         client = self.store.client(ctx.caller.client_id) if ctx.caller.client_id else None
         entry: dict[str, Any] = {
             "schema": SCHEMA,
             "at": datetime.fromtimestamp(started_at, timezone.utc).isoformat(timespec="milliseconds"),
             "seconds": round(seconds, 3), "channel": ctx.caller.channel, "client_id": ctx.caller.client_id,
             "client": (client or {}).get("name") or ctx.caller.name or "", "capability": capability,
-            "permission": permission, "decision": decision_for(error, ctx), "outcome": error.code if error else "ok",
+            "permission": permission, "decision": decision_for(error, ctx),
+            "outcome": "started" if stage == "started" else error.code if error else "ok",
             "execution_id": execution_id, "arguments": arguments(args), "host": self.host, "os_user": self.os_user,
             "version": __version__,
         }
+        if ctx.approval_id:
+            entry["approval_id"] = ctx.approval_id
         if error is not None:
             entry["error"] = redact_secrets(error.message)[:500]
         with self.store._tx() as db, audit_chain.locked(self.folder):  # one writer at a time across every process
@@ -118,6 +126,15 @@ class IntegrationAudit:
             sql, params = sql + " where client_id = ?", [client_id]
         rows = self.store._db().execute(sql + " order by seq desc limit ?", [*params, max(1, min(limit, 1000))])
         return [json.loads(r["line"]) for r in rows]
+
+    def approvals_recorded(self, approval_ids: list[str]) -> set[str]:
+        """Which of these approvals have any line in the store (started or outcome)."""
+        if not approval_ids:
+            return set()
+        rows = self.store._db().execute("select distinct json_extract(line, '$.approval_id') as id from audit "
+                                        f"where json_extract(line, '$.approval_id') in ({','.join('?' * len(approval_ids))})",
+                                        approval_ids)
+        return {r["id"] for r in rows}
 
     def verify(self) -> dict[str, Any]:
         """Walks the chain in the files: every line must match its hash and the line before it."""

@@ -173,6 +173,9 @@ class ProofSpark:
             raise ValueError("spark.sql runs one statement at a time.")
         tree = trees[0]
         kind = type(tree).__name__
+        if kind == "Copy":
+            raise ProofRefused(f"{_REFUSED}; COPY INTO loads files into a table some other way. Read the files and "
+                               "write with INSERT INTO or saveAsTable.")
         if kind == "Command":
             word = str(tree.this or "").split()[0].upper() if str(tree.this or "").split() else ""
             if word in _SAFE_COMMANDS:
@@ -204,6 +207,9 @@ class ProofSpark:
                     raise ProofRefused(f"{_REFUSED}; a lasting view would be made in the lakehouse. Use a TEMP VIEW.")
                 self.views.add(target_.name.lower())
             elif what == "TABLE":
+                if any(type(p).__name__ == "LocationProperty"
+                       for p in (tree.args.get("properties") or exp.Properties()).expressions):
+                    raise ProofRefused(f"{_REFUSED}; a table with its own LOCATION would be written there.")
                 target, mode, seed = target_, "overwrite", False
             else:
                 raise ProofRefused(f"{_REFUSED}; it doesn't create {what.lower() or 'that'} objects.")
@@ -327,12 +333,32 @@ class ProofSpark:
             return o["mode"](self_, saveMode)
         DataFrameWriter.mode = mode
 
+        def no_path(options):
+            if any(str(k).lower() == "path" for k in options):
+                raise ProofRefused(f"{_REFUSED}; it doesn't take a write's path as an option. Pass the path to "
+                                   "save(), or write the table by name.")
+        o["option"], o["options"] = DataFrameWriter.option, DataFrameWriter.options
+
+        def writer_option(self_, key, value):
+            no_path({key: value})
+            return o["option"](self_, key, value)
+
+        def writer_options(self_, **options):
+            no_path(options)
+            return o["options"](self_, **options)
+        DataFrameWriter.option = writer_option
+        DataFrameWriter.options = writer_options
+
         def save_as_table(self_, name, format=None, mode=None, partitionBy=None, **options):  # noqa: A002, N803
+            no_path(options)
             return me.write_table(self_, *me.split(name), format, mode, partitionBy, options)
         DataFrameWriter.saveAsTable = save_as_table
 
         def save(self_, path=None, format=None, mode=None, partitionBy=None, **options):  # noqa: A002, N803
-            where = me.lakehouse_path(path) if path is not None else None
+            no_path(options)
+            if path is None:
+                raise ProofRefused(f"{_REFUSED}; pass the path to save(), so the proof can see where it writes.")
+            where = me.lakehouse_path(path)
             if where and where[0] == "table":
                 return me.write_table(self_, where[1], where[2], format, mode, partitionBy, options)
             if where and where[0] in ("files", "onelake"):
@@ -359,6 +385,9 @@ class ProofSpark:
         DataFrame.writeTo = refuse("writeTo isn't supported in a proof. Use saveAsTable.")
         Catalog.createTable = refuse("spark.catalog.createTable isn't supported in a proof. Use saveAsTable.")
         Catalog.createExternalTable = refuse("spark.catalog.createExternalTable isn't supported in a proof.")
+        from pyspark.sql.streaming import DataStreamWriter
+        DataStreamWriter.start = refuse("a stream's writes can't be pinned or compared in a proof.")
+        DataStreamWriter.toTable = refuse("a stream's writes can't be pinned or compared in a proof.")
 
         def table_exists(self_, tableName, dbName=None):  # noqa: N803
             names = [dbName, tableName] if dbName else [p.strip("`") for p in re.findall(r"`(?:[^`]|``)+`|[^.]+", tableName)]

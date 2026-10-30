@@ -63,9 +63,17 @@ _SPARK_BLOCKERS = [
     (re.compile(r"\bcatalog\.create(External)?Table\b"), "creates a table with spark.catalog, which a proof doesn't support; use saveAsTable"),
 ]
 _SPARK_SQL_UNCONTAINED = re.compile(r"\b(DROP\s+TABLE|TRUNCATE\s+TABLE|ALTER\s+TABLE|OPTIMIZE|VACUUM|RESTORE\s+TABLE|"
-                                    r"CREATE\s+(OR\s+REPLACE\s+)?VIEW|USE)\b", re.I)
-_SPARK_SQL_TEXT = ("is SQL that drops, truncates, alters, optimizes or restores a table, makes a lasting view or switches "
-                   "the database; a proof keeps changes in its own folder, so it can't run that")
+                                    r"CREATE\s+(OR\s+REPLACE\s+)?VIEW|COPY\s+INTO)\b|\bLOCATION\s+''|(?:^|;)\s*USE\b", re.I)
+# Comments, string literals and quoted names, so words in them (SELECT 'use') aren't read as SQL.
+_SQL_QUOTED = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|`(?:[^`]|``)*`", re.S)
+
+
+def _sql_uncontained(sql: str) -> re.Match[str] | None:
+    """Where ``sql`` does something a Spark proof can't keep in its folder, outside comments and literals."""
+    return _SPARK_SQL_UNCONTAINED.search(_SQL_QUOTED.sub(lambda m: "''" if m[0][0] in "'\"" else " ", sql))
+_SPARK_SQL_TEXT = ("is SQL that drops, truncates, alters, optimizes or restores a table, loads one with COPY INTO, gives "
+                   "one its own LOCATION, makes a lasting view or switches the database; a proof keeps changes in its "
+                   "own folder, so it can't run that")
 _CREDENTIALS = re.compile(r"\b(notebookutils|mssparkutils)\.credentials\.(getToken|getSecret)\b"
                           r"|\bdbutils\.secrets\.(get|getBytes)\b")
 
@@ -111,8 +119,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
             continue
         language = magics.cell(source).language
         if language == "sql":
-            if spark and (m := _SPARK_SQL_UNCONTAINED.search(source)):
-                add(blockers, n, c, _SPARK_SQL_TEXT, source, m.start())
+            if spark and _sql_uncontained(magics.cell(source).body):
+                add(blockers, n, c, _SPARK_SQL_TEXT)
             elif not spark and (m := _SQL_CHANGE.search(source)):
                 add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
                     source, m.start())
@@ -125,7 +133,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
             if m := rx.search(source):
                 add(blockers, n, c, text, source, m.start())
         for magic in magics.find(source):
-            if magic.name == "sql" and (_SPARK_SQL_UNCONTAINED if spark else _SQL_CHANGE).search(magic.rest):
+            if magic.name == "sql" and (_sql_uncontained(magic.rest) if spark else _SQL_CHANGE.search(magic.rest)):
                 add(blockers, n, c, _SPARK_SQL_TEXT if spark else
                     "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
                     source, sum(len(ln) + 1 for ln in source.split("\n")[:magic.line - 1]))
@@ -134,7 +142,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
                 if m := rx.search(source):
                     add(blockers, n, c, text, source, m.start())
             for m in _SPARK_SQL_LITERAL.finditer(source):
-                if _SPARK_SQL_UNCONTAINED.search(_literal_sql(m)) and not _in_comment(source, m.start()):
+                if _sql_uncontained(_literal_sql(m)) and not _in_comment(source, m.start()):
                     add(blockers, n, c, _SPARK_SQL_TEXT, source, m.start())
                     break
         for rx, text in _WARNINGS:
@@ -147,8 +155,13 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
             add(notes, n, c, "uses your credentials; the proof runs as you on both sides", source, m.start())
     limits = ["This check reads the code; it can't see calls built at run time."]
     if spark:
-        limits.append("In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
-                      "aren't, so a change to them between the runs isn't found.")
+        limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
+                   "aren't, so a change to them between the runs isn't found.",
+                   "In Fabric, a Spark read whose path is given as an option (option(\"path\", ...).load()) or as a "
+                   "file:/lakehouse/default/... path isn't pinned.",
+                   "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
+                   "stopped or compared.",
+                   "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]
     return {"ok": not blockers, "blockers": blockers, "warnings": warnings, "notes": notes,
             "engine": "spark" if spark else "python", "limits": limits}
 
@@ -187,16 +200,13 @@ def fabric_cells(config: dict[str, Any], modules: list[str],
     if spark is None:
         source += "_fd_sys.modules['fabric_desktop.lakehouse']._bind_proof(_fd_proof)\n"
     else:
-        import sqlglot
         root = f"abfss://{spark['workspace_id']}@onelake.dfs.fabric.microsoft.com/{spark['lakehouse_id']}"
         source += (
             "try:\n"
-            "    import sqlglot as _fd_sqlglot\n"
-            "except ImportError:  # the version this PC reads SQL with\n"
-            "    import subprocess as _fd_subprocess\n"
-            f"    _fd_subprocess.check_call([_fd_sys.executable, '-m', 'pip', 'install', '-q', 'sqlglot=={sqlglot.__version__}'])\n"
-            "    import importlib as _fd_importlib\n"
-            "    _fd_importlib.invalidate_caches()\n"
+            "    import sqlglot as _fd_sqlglot  # nothing is installed here: a proof brings no code from outside\n"
+            "except ImportError:\n"
+            "    raise RuntimeError('A Spark proof reads the notebook SQL with sqlglot, which this Fabric runtime '\n"
+            "                       'doesn\\'t have. Add sqlglot to the notebook\\'s environment and prove it again.') from None\n"
             f"_fd_spark_where = ({root!r}, '/lakehouse/default')\n"
             "if 'fabric_desktop.lakehouse' in _fd_sys.modules:  # the notebook also uses the lakehouse module\n"
             "    _fd_sys.modules['fabric_desktop.lakehouse']._bind_proof(_fd_proof)\n"

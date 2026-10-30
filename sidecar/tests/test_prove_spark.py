@@ -6,6 +6,8 @@ and Delta standing in for Fabric's, is in test_prove.py (opt-in: FD_SPARK_PYTHON
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from fabric_desktop import proof
@@ -214,3 +216,89 @@ def test_the_published_copy_binds_spark_first_and_makes_sql_cells_calls():
     assert codes[3] == '_sqldf = spark.sql("SELECT * FROM dbo.orders")\ndisplay(_sqldf)'
     assert codes[-1].splitlines()[1:] == ["_fd_spark.finish()", "_fd_proof.save(['pyspark'])"]
     assert nb["metadata"].get("microsoft", {}).get("language_group") != "jupyter_python"  # a Spark notebook
+
+
+def test_sql_words_in_literals_and_comments_dont_stop_a_spark_proof():
+    lh = {"workspace_id": "ws", "lakehouse_id": "lh", "name": "LH_Proof"}
+    check = lambda src: proof.check([{"type": "code", "source": "df = spark.table('dbo.t')"},  # noqa: E731
+                                     {"type": "code", "source": src}], lh)
+    assert check("%%sql\nSELECT 'use' AS x, `optimize` FROM t -- then DROP TABLE t")["ok"]
+    assert check("spark.sql(\"SELECT 'truncate table' AS x\")")["ok"]
+    for src in ("%%sql\nUSE other", "%%sql\nSELECT 1;\nUSE other", "spark.sql(\"COPY INTO dbo.t FROM 'Files/x'\")",
+                "%%sql\nCREATE TABLE t LOCATION 'abfss://x' AS SELECT 1"):
+        assert not check(src)["ok"], src
+
+
+@pytest.mark.parametrize("sql, says", [
+    ("COPY INTO dbo.orders FROM 'Files/raw' FILEFORMAT = CSV", "COPY INTO"),
+    ("CREATE TABLE dbo.t2 LOCATION 'abfss://x@y.dfs.core.windows.net/t' AS SELECT 1 AS a", "LOCATION"),
+])
+def test_loads_and_locations_are_refused(sql, says):
+    ps, _ = spark_proof()
+    with pytest.raises(ProofRefused, match=says):
+        ps.rewrite(sql)
+
+
+ESCAPES = '''
+import json, os, sys, types
+from pathlib import Path
+import pyspark
+from delta import configure_spark_with_delta_pip
+from pyspark.sql.utils import AnalysisException
+root = Path(sys.argv[1])
+b = (pyspark.sql.SparkSession.builder.master("local[1]").config("spark.ui.enabled", "false")
+     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+spark = configure_spark_with_delta_pip(b).getOrCreate()
+spark.range(3).write.format("delta").save(str(root / "Tables/dbo/orders"))
+mods = {}
+for name in ("proof_runtime", "proof_spark"):
+    mods[name] = types.ModuleType(name)
+    exec(compile(Path(sys.argv[2], name + ".py").read_text(), name, "exec"), mods[name].__dict__)
+rt = mods["proof_runtime"].ProofRuntime({"id": "p1", "pins": {"dbo.orders": 0}}, "fabric").bind(str(root), None, str(root))
+ps = mods["proof_spark"].bind(rt, spark, "LH", True)
+df = spark.range(2)
+shared = str(root / "Tables/dbo/orders")
+attempts = {
+    "save_option_path": lambda: df.write.format("delta").mode("overwrite").option("path", shared).save(),
+    "save_options_path": lambda: df.write.format("delta").mode("overwrite").options(path=shared).save(),
+    "save_no_path": lambda: df.write.format("delta").mode("overwrite").save(),
+    "table_with_path_option": lambda: df.write.option("path", shared).mode("overwrite").saveAsTable("dbo.x"),
+    "insert_into": lambda: df.write.insertInto("dbo.orders"),
+    "stream_start": lambda: spark.readStream.format("rate").load().writeStream.format("delta").start(shared),
+    "stream_table": lambda: spark.readStream.format("rate").load().writeStream.toTable("dbo.orders"),
+    "files_write": lambda: df.write.parquet(str(root / "Files/out")),
+    "drop": lambda: spark.sql("DROP TABLE dbo.orders"),
+}
+out = {}
+for name, attempt in attempts.items():
+    try:
+        attempt()
+        out[name] = "ran"
+    except mods["proof_spark"].ProofRefused:
+        out[name] = "refused"
+    except Exception as exc:
+        out[name] = type(exc).__name__
+from delta.tables import DeltaTable
+out["_shared_version"] = DeltaTable.forPath(spark, shared).history(1).collect()[0]["version"]
+out["_files"] = (root / "Files/out").exists()
+print("RESULT " + json.dumps(out))
+'''
+
+
+@pytest.mark.skipif(not os.environ.get("FD_SPARK_PYTHON"), reason="set FD_SPARK_PYTHON to a Python with pyspark and delta-spark")
+def test_on_a_real_spark_the_ways_around_the_proof_are_refused(tmp_path):
+    import json
+    import subprocess
+    from pathlib import Path
+    script = tmp_path / "escapes.py"
+    script.write_text(ESCAPES, encoding="utf-8")
+    here = Path(proof.__file__).parent
+    python = os.environ["FD_SPARK_PYTHON"]
+    ran = subprocess.run([python, str(script), str(tmp_path / "lh"), str(here)], capture_output=True, text=True,
+                         timeout=900, env=dict(os.environ, PYSPARK_PYTHON=python), cwd=tmp_path)
+    line = next((ln for ln in ran.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, ran.stderr[-3000:]
+    out = json.loads(line[7:])
+    assert out.pop("_shared_version") == 0 and out.pop("_files") is False
+    assert out == {name: "refused" for name in out}, out

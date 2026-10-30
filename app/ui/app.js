@@ -873,7 +873,8 @@ async function renderHome() {
     const hasProject = !!project?.path;
     // Environments mean nothing before there's a metadata project; Getting started says where to begin.
     if (!hasProject) envSection.remove();
-    notebooksDone.then(() => onHome() && started.mark(project, notebookCount));
+    // A notebook list that failed to draw (allSettled below) still ticks what it can, with no stray rejection.
+    notebooksDone.catch(() => {}).then(() => onHome() && started.mark(project, notebookCount));
 
     // The latest run of each table in each environment says how that table stands now.
     const latest = new Map();

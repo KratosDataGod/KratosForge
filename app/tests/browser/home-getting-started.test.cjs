@@ -54,3 +54,9 @@ test("ticks a notebook and an opened lakehouse, and each tile opens its place", 
   await p.click('.get-started .gs-tile:has-text("Explore OneLake") button');
   await p.waitForFunction(() => state.view === "onelake");
 });
+
+test("a notebook with no modified time still ticks, with no errors", { skip }, async () => {
+  const p = await home({}, [{ name: "Transform orders" }]);
+  await p.waitForSelector('.get-started .gs-tile.done:has-text("Run a notebook on this PC")');
+  assert.deepStrictEqual(app.errors, []);
+});

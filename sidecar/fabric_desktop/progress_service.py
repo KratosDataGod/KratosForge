@@ -1,6 +1,7 @@
 """Profile (progress.py has the rules): what the app calls, and the one place evidence comes in.
 
-``_progress_observe`` runs when a validation finishes (validate_service). It records a row unless
+``_progress_observe`` runs when a validation finishes (validate_service), ``_progress_observe_proof``
+when a proof does, and ``_progress_observe_lab`` when a Learn exercise passes. Each records a row unless
 the signed-in person has turned off Record my accomplishments (on by default) or preview features
 are hidden (Profile is one), and it never changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
 """
@@ -12,6 +13,7 @@ import logging
 import re
 import shutil
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +60,14 @@ class ProgressMixin:
         """Record a finished proof whose tables all matched. Returns achievements it earned."""
         return self._progress_record(progress.from_proof(record, record.get("receipt_id")))
 
-    def _progress_record(self, row: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def _progress_observe_lab(self, result: dict[str, Any], module: dict[str, Any]) -> list[dict[str, Any]]:
+        """Record a Learn exercise whose checks all passed, and the lesson finished when it was its last
+        exercise. Returns achievements they earned."""
+        return self._progress_record(progress.from_lab(result, module), then=lambda p: progress.module_complete(p, module))
+
+    def _progress_record(self, row: dict[str, Any] | None,
+                         then: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None) -> list[dict[str, Any]]:
+        """Add ``row``, then the row ``then`` makes from the profile with it (if any), in one write."""
         if row is None or not app_settings.value("show_preview"):
             return []  # Profile is a Preview feature: nothing is recorded while it's hidden
         path = self._profile_path()
@@ -69,6 +78,9 @@ class ProgressMixin:
             before = {a["id"] for a in progress.progression(profile)["achievements"]}
             if not progress.add(profile, row):
                 return []  # the same code verified again: nothing new
+            follow = then(profile) if then else None
+            if follow:
+                progress.add(profile, follow)
             progress.save(path, profile)
         p = progress.progression(profile)
         if not profile["settings"]["progression"] or not profile["settings"]["notifications"]:

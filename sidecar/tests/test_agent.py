@@ -475,11 +475,17 @@ def test_agent_refuses_environments_it_was_not_given(setup):
         Runtime(setup).run_environment("prod")
 
 
-def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup):
+def test_a_busy_table_is_retried_for_just_the_tables_that_did_not_run(setup, monkeypatch):
     import dataclasses
+    from fabric_desktop import meta_service
     Leases(LocalBackend(setup.project / ".local" / "dev" / "_leases"), "someone-else", ttl=3600) \
         .try_acquire("LH_Gold/dbo.fact_sales")
-    agent = Agent(dataclasses.replace(setup, table_lease_seconds=0.2))  # wait 0.2 s for a busy table
+    # Wait 0.2 s for a busy table, but keep each lease a minute long: a 0.2 s lease must be renewed
+    # every 0.07 s, which a busy runner misses, and the tables that aren't busy then fail with LeaseLost.
+    # (The agent's table_lease_seconds is 15 s or more, so only a test makes a lease this short.)
+    real = meta_service.Leases
+    monkeypatch.setattr(meta_service, "Leases", lambda backend, owner, ttl, wait: real(backend, owner, ttl=60, wait=wait))
+    agent = Agent(dataclasses.replace(setup, table_lease_seconds=0.2))
     job = agent.enqueue("dev")
     agent.step()
     finish(agent)

@@ -11,6 +11,11 @@ const BADGE_GLYPHS = {
   check: "M3 11.5l4.5 4.5L17 6l-1.6-1.6L7.5 12.8 4.6 9.9z",
   proof: "M3 4h9l5 5v9H3zM11 4v5h6",
   lock: "M6 9V7a4 4 0 0 1 8 0v2h1v10H5V9zm2 0h4V7a2 2 0 0 0-4 0z",
+  spark: "M10 1l2 6 6 1-5 4 2 7-5-4-5 4 2-7-5-4 6-1z",
+  anvil: "M2 5h12l4 3h-5v3l3 5H4l3-5V8H2z",
+  bolt: "M11 1L4 11h5l-1 8 8-11h-5z",
+  eye: "M10 4c5 0 8 6 8 6s-3 6-8 6-8-6-8-6 3-6 8-6zm0 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  shield: "M10 1l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V4z",
 };
 
 async function loadProfile() {
@@ -107,9 +112,26 @@ function profileOverview(p) {
   return h("div", { class: "profile-grid" }, left, right);
 }
 
+// A Learn row (rules v2): an exercise passed, or a lesson or lab finished, on this PC.
+function profileLearnRow(r) {
+  const d = r.detail || {};
+  const m = r.measurement || {};
+  const what = r.artifact.kind === "lab" ? "lab" : "lesson";
+  const title = `${r.artifact.name}${r.artifact.title ? ` · ${r.artifact.title}` : ""}`;
+  const done = r.type === "module.complete";
+  const n = d.exercises || 0;
+  const text = done
+    ? (n === 1 ? "Its exercise passed on this PC." : `All ${n} exercises of the ${what} passed on this PC.`)
+    : `Every check passed on this PC: ${(d.checks || []).map((k) => LEARN_CHECKS[k] || k).join(", ")}.${typeof m.speedup === "number"
+      ? ` Measured ${m.speedup}× faster than the starting query on this PC (${m.seconds} s against ${m.baseline_seconds} s).` : ""}`;
+  return [done ? `Finished ${what} ${title}` : `Passed exercise ${r.artifact.number || r.artifact.exercise} in ${title}`, text,
+    `Learn ${r.ref.id} · ${what} version ${String(r.ref.revision).replace(/^v/, "")}`];
+}
+
 function profileRow(r) {
   const d = r.detail || {};
   const proved = r.type === "prove.match";
+  const learned = r.ref?.source === "learn" ? profileLearnRow(r) : null;
   const m = r.measurement || {};
   const times = [["this PC", m.pc_seconds], ["Fabric", m.fabric_seconds]].filter(([, v]) => typeof v === "number")
     .map(([where, v]) => `${where} ${v} s`).join(", ");
@@ -119,11 +141,12 @@ function profileRow(r) {
   const ref = proved ? `Run receipt ${String(r.ref.id).slice(0, 12)}` : `Validate ${r.ref.id}`;
   return h("div", { class: `profile-row${r.excluded ? " excluded" : ""}` },
     h("div", { class: "grow" },
-      h("div", { class: "row wrap" }, h("b", {}, `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
+      h("div", { class: "row wrap" }, h("b", {}, learned ? learned[0] : `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
         r.excluded ? h("span", { class: "pill-s neu" }, "Excluded") : h("span", { class: "pill-s pass" }, "Verified"),
         r.origin === "backfill" ? h("span", { class: "pill-s neu" }, "Added from history") : null),
-      h("div", {}, text),
-      h("div", { class: "muted-text small mono" }, `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${new Date(r.at).toLocaleString()}`),
+      h("div", {}, learned ? learned[1] : text),
+      h("div", { class: "muted-text small mono" }, learned ? `${learned[2]} · ${dateTimeText(r.at)}`
+        : `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${dateTimeText(r.at)}`),
       h("div", { class: "muted-text small" }, `Skills: ${r.dimensions.join(", ")}${profilePage.data.settings.progression && r.xp ? ` · +${r.xp} XP` : ""}`)),
     btn(r.excluded ? "Include" : "Exclude", null, async () => {
       const out = await attempt(() => rpc("profile_exclude", { id: r.id, excluded: !r.excluded }), "Could not change the accomplishment");
@@ -150,7 +173,7 @@ function profileAchievementsCard(pr) {
     h("h2", {}, "Achievements"),
     pr.achievements.length ? pr.achievements.map((a) => h("div", { class: "profile-badge-row" },
       h("div", { class: "profile-badge", "aria-hidden": "true" }, profileGlyph(a.badge, true)),
-      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${new Date(a.at).toLocaleDateString()} · +${a.xp} XP`))))
+      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${dateText(a.at)} · +${a.xp} XP`))))
       : h("p", { class: "muted-text" }, "None yet."),
     pr.next.length ? h("div", { class: "profile-next" }, h("div", { class: "muted-text small" }, "Next"),
       pr.next.map((n) => h("div", { class: "profile-skill" }, h("span", {}, n.name), h("span", { class: "muted-text small" }, n.progress)))) : null);
@@ -173,7 +196,7 @@ function profileJourney(p) {
   const span = pr.next_level_xp - pr.level_xp;
   const into = pr.xp - pr.level_xp;
   const got = new Set(pr.achievements.map((a) => a.id));
-  const when = (at) => (at ? new Date(at).toLocaleDateString() : "");
+  const when = (at) => dateText(at);
   const ring = h("div", { class: "profile-ring", style: `--profile-ring:${Math.round((100 * into) / span)}%`, "aria-hidden": "true" },
     h("img", { src: "wolf-forge-emblem.png", alt: "", width: 96, height: 96 }));
   const level = h("section", { class: "card pad profile-journey-level" }, ring,
@@ -216,7 +239,7 @@ function profileAchievements(p) {
         h("div", { class: `profile-shield${earned ? "" : " locked"}` }, profileGlyph(a.badge, Boolean(earned))),
         h("div", { class: "grow" },
           h("div", { class: "row wrap" }, h("b", {}, a.name), h("span", { class: `pill-s ${earned ? "pass" : "neu"}` },
-            earned ? `Earned ${new Date(earned.at).toLocaleDateString()}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
+            earned ? `Earned ${dateText(earned.at)}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
           h("div", {}, a.description),
           h("div", { class: "muted-text small" }, `How to earn it: ${a.criteria}`),
           h("div", { class: "muted-text small" }, `Evidence: ${a.evidence}`))));

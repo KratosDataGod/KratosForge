@@ -10,7 +10,7 @@ it never loads in the engine (ADR-004). Instead:
   anything starts: databricks-connect's major.minor must equal the runtime's, and the runtime's
   Python must be the engine's (3.12), which Databricks requires for UDFs and pandas UDFs. So
   Databricks Runtime 16 and later are supported here; 13.3 to 15.4 need another Python.
-- Each session is a process of its own (dbconnect_worker.py) in that folder. The cell's Python runs
+- Each session is a process of its own (runtime_worker.py) in that folder. The cell's Python runs
   on this PC; ``spark`` work runs on the cluster. Closing the session ends the process; the cluster
   keeps running until its own auto-termination.
 
@@ -22,36 +22,34 @@ Sign-in goes to the process as DATABRICKS_* variables for the Databricks SDK ins
 databricks-connect: the CLI profile's name, or the host with the CLI's own sign-in, or a service
 principal's ID and the secret read from its reference. No token is passed or written by KratosForge,
 and any DATABRICKS_* variable already set on this PC is left out so it can't pick another workspace.
+
+The install, the worker process and its environment rules are shared with any engine that needs a
+runtime of its own (runtimes.py); this module says what is Databricks' about them.
 """
 
 from __future__ import annotations
 
-import contextlib
-import importlib.metadata
-import json
-import os
-import queue
 import re
 import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import pyarrow as pa
 
+from . import runtimes
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
-from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from .contract import CellRequest, SessionConfig, Unsupported
 from .databricks_auth import DatabricksAuthError, check_host, find_cli, resolve_secret
 
 _T = "unit_tests"
-INSTALL_SECONDS = 20 * 60
+KIND = "databricks-connect"      # the worker's start for this engine (runtime_worker.STARTS)
+INSTALL_SECONDS = runtimes.INSTALL_SECONDS
 START_SECONDS = 15 * 60          # connecting can wait for a terminated cluster to start
-CELL_SECONDS = 2 * 60 * 60       # as the SQL warehouse engine's statement limit; then the cell is cancelled
-STOP_SECONDS = 10                # after a cancel, before the process is ended
-WORKER = Path(__file__).with_name("dbconnect_worker.py")
+CELL_SECONDS = runtimes.CELL_SECONDS
+STOP_SECONDS = runtimes.STOP_SECONDS
+WORKER = runtimes.WORKER
 # The Python each Databricks Runtime line runs (Databricks' release notes); a client must use the same.
 RUNTIME_PYTHON = {13: "3.10", 14: "3.10", 15: "3.11", 16: "3.12", 17: "3.12", 18: "3.12", 19: "3.12"}
 _RUNTIME = re.compile(r"^(\d+)\.(\d+)\.")
@@ -130,80 +128,28 @@ def check(spark_version: str, client: str | None, python: str = "%d.%d" % sys.ve
 
 
 LOCKS = Path(__file__).with_name("dbconnect_locks")
-# What pip may see of this PC: enough to find a temp folder and a proxy, nothing that changes what it
-# installs (PIP_*, PYTHON*, a config file) or that it could pass on.
-_PIP_ENV = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+_PIP_ENV = runtimes.PIP_ENV
 
 
 def supported_lines() -> list[str]:
     """Runtime lines this version can install: each has a hash-pinned requirements file."""
-    return sorted(p.stem for p in LOCKS.glob("*.txt") if re.fullmatch(r"\d{1,2}\.\d{1,2}", p.stem))
+    return runtimes.lock_lines(LOCKS)
 
 
-class Runtimes:
-    """databricks-connect, one folder per runtime line, under ``<data>/runtimes``.
-
-    Installs are hash-pinned: every package and dependency in ``dbconnect_locks/<line>.txt`` with its
-    sha256, wheels only, no dependency resolution, pip isolated from this PC's pip settings and
-    environment. A changed or substituted file on the index fails the install instead of landing in a
-    folder whose code later runs with the person's Databricks sign-in. A line without a pinned file
-    isn't installable in this version. IT can point installs at an internal mirror
-    (``dbconnect_index_url``; the hashes still apply) or turn them off (``allow_dbconnect_install``)."""
+class Runtimes(runtimes.LockedRuntimes):
+    """databricks-connect, one folder per runtime line, under ``<data>/runtimes``: installed only
+    from ``dbconnect_locks/<line>.txt`` (runtimes.LockedRuntimes). IT can point installs at an
+    internal mirror (``dbconnect_index_url``; the hashes still apply) or turn them off
+    (``allow_dbconnect_install``)."""
 
     def __init__(self, root: Path, python: str | None = None, run: Callable[..., Any] = subprocess.run):
-        self.root = Path(root) / "runtimes"
-        self.python = python or sys.executable
-        self._run = run
+        super().__init__(root, name="dbconnect", locks=LOCKS, distribution="databricks-connect",
+                         label="Databricks Connect", line_label="Databricks Runtime", allow_key="allow_dbconnect_install",
+                         index_key="dbconnect_index_url", python=python, run=run)
 
-    def folder(self, line: str) -> Path:
-        if not re.fullmatch(r"\d{1,2}\.\d{1,2}", line or ""):
-            raise ValueError(f"{line!r} isn't a runtime line like 16.4.")
-        return self.root / f"dbconnect-{line}" / "site-packages"
-
-    def installed(self, line: str) -> str | None:
-        folder = self.folder(line)
-        if not folder.is_dir():
-            return None
-        for dist in importlib.metadata.distributions(path=[str(folder)]):
-            if (dist.metadata.get("Name") or "").lower() == "databricks-connect":
-                return dist.version
-        return None
-
-    def lock(self, line: str) -> Path:
-        self.folder(line)
-        path = LOCKS / f"{line}.txt"
-        if not path.is_file():
-            raise Unsupported(f"Databricks Connect for Databricks Runtime {line} isn't supported in this version of "
-                              f"KratosForge. Supported: {', '.join(supported_lines())}.")
-        return path
-
-    def install_command(self, line: str, index_url: str = "") -> list[str]:
-        cmd = [self.python, "-I", "-m", "pip", "install", "--isolated", "--require-hashes", "--only-binary=:all:",
-               "--no-deps", "--upgrade", "--no-input", "--disable-pip-version-check",
-               "--target", str(self.folder(line)), "-r", str(self.lock(line))]
-        if index_url:
-            if not re.fullmatch(r"https://[^\s@]+", index_url):
-                raise ValueError("dbconnect_index_url must be an https address with no user name or password.")
-            cmd += ["--index-url", index_url]
-        return cmd
-
-    def install(self, line: str, base: Mapping[str, str] | None = None) -> dict[str, Any]:
-        """Download databricks-connect for ``line``, hash-checked. Takes minutes."""
-        from .. import app_settings
-        if app_settings.value("allow_dbconnect_install") is False:
-            raise PermissionError("Your organization doesn't allow installing Databricks Connect from KratosForge.")
-        command = self.install_command(line, str(app_settings.value("dbconnect_index_url") or ""))
-        folder = self.folder(line)
-        folder.mkdir(parents=True, exist_ok=True)
-        env = {k: v for k, v in (os.environ if base is None else base).items() if k.upper() in _PIP_ENV}
-        try:
-            done = self._run(command, capture_output=True, text=True, timeout=INSTALL_SECONDS, env=env, cwd=str(folder),
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "log": f"pip didn't finish within {INSTALL_SECONDS // 60} minutes, so it was stopped."}
-        from .. import redact
-        return {"ok": done.returncode == 0, "version": self.installed(line),
-                "log": redact.secrets(((done.stdout or "") + (done.stderr or ""))[-20000:])}
+    @property
+    def locks(self) -> Path:
+        return LOCKS
 
 
 def _uses_cli(cred: dict[str, Any], cfg_path: Path | None = None) -> bool:
@@ -223,8 +169,7 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
     """The process's environment: this PC's, minus any DATABRICKS_* or PYTHON* variable, plus the
     connection's sign-in and the cluster. A service principal's secret is read from its reference here."""
     # SPARK_REMOTE and SPARK_CONNECT_* too: databricks-connect reads them before the SDK's settings.
-    env = {k: v for k, v in (os.environ if base is None else base).items()
-           if not k.upper().startswith(("DATABRICKS_", "PYTHON", "SPARK_REMOTE", "SPARK_CONNECT_"))}
+    env = runtimes.scrub_env(base, ("DATABRICKS_", "SPARK_REMOTE", "SPARK_CONNECT_"))
     host = check_host(connection.get("host") or "")
     cred = connection.get("credential") or {}
     method = cred.get("method") or "oauth-u2m"
@@ -248,11 +193,7 @@ def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, s
             raise DatabricksAuthError("OAuth machine-to-machine needs client_id and a secret reference.")
         env |= {"DATABRICKS_AUTH_TYPE": "oauth-m2m", "DATABRICKS_CLIENT_ID": str(cred["client_id"]),
                 "DATABRICKS_CLIENT_SECRET": resolve_secret(str(cred["secret"]), environ)}
-        # The variable the reference names would otherwise reach the cells, where the worker can't
-        # know to remove it.
-        kind, _, name = str(cred["secret"]).partition(":")
-        if kind == "env":
-            env = {k: v for k, v in env.items() if k.upper() != name.upper()}
+        env = runtimes.drop_ref_variable(env, str(cred["secret"]))
     else:
         raise DatabricksAuthError(f"Unknown Databricks sign-in method {method!r}.")
     return env
@@ -273,109 +214,24 @@ def _frame_output(out: dict[str, Any]) -> dict[str, Any]:
     return shown
 
 
-class DatabricksConnectSession:
+class DatabricksConnectSession(runtimes.WorkerSession):
     engine = DATABRICKS_CONNECT.id
+    label = "Databricks Connect"
 
     def __init__(self, config: SessionConfig, command: list[str], env: dict[str, str],
                  start_seconds: float = START_SECONDS, cwd: str | None = None, cell_seconds: float = CELL_SECONDS):
-        self.notebook = config.notebook
-        self._cell_seconds = cell_seconds
-        self._closed = False
-        self._lock = threading.Lock()
-        self._running = False
-        self._lines: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        self._n = 0
-        self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     text=True, encoding="utf-8", env=env, cwd=cwd,
-                                     start_new_session=sys.platform != "win32",
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        threading.Thread(target=self._read, daemon=True, name=f"dbconnect-{config.notebook}").start()
-        self._send({"op": "start"})
-        reply = self._wait(lambda m: m.get("op") in ("started", "error"), start_seconds)
-        if reply.get("op") != "started":
-            self.close()
-            raise RuntimeError(f"Databricks Connect couldn't start: {reply.get('evalue') or 'the process ended'}")
-        self.client = reply.get("client", "")
+        super().__init__(config, command, env, start_seconds, cwd, cell_seconds)
 
-    def _read(self) -> None:
-        assert self.proc.stdout is not None
-        for line in self.proc.stdout:
-            with contextlib.suppress(ValueError):  # silent-ok: a stray line from a library isn't a message
-                self._lines.put(json.loads(line))
-        self._lines.put(None)
+    def stop_seconds(self) -> float:
+        return STOP_SECONDS
 
-    def _send(self, message: dict[str, Any]) -> None:
-        assert self.proc.stdin is not None
-        try:
-            self.proc.stdin.write(json.dumps(message) + "\n")
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError, ValueError):
-            raise SessionClosed("The Databricks Connect process has ended. Start the engine again.") from None
-
-    def _wait(self, wanted: Callable[[dict[str, Any]], bool], seconds: float | None) -> dict[str, Any]:
-        deadline = None if seconds is None else time.monotonic() + seconds
-        while True:
-            left = None if deadline is None else max(0.0, deadline - time.monotonic())
-            if left == 0.0:
-                return {"op": "error", "evalue": f"no answer within {seconds / 60:.0f} minutes"}
-            try:
-                msg = self._lines.get(timeout=left)
-            except queue.Empty:
-                continue
-            if msg is None:
-                return {"op": "error", "evalue": "the process ended"}
-            if wanted(msg):
-                return msg
-
-    @property
-    def closed(self) -> bool:
-        return self._closed
-
-    def execute(self, request: CellRequest, on_output: OutputSink | None = None) -> CellResult:
-        if self._closed:
-            raise SessionClosed("This Databricks Connect session was closed. Start the engine again to run cells.")
+    def check_language(self, request: CellRequest) -> None:
         if request.language not in ("python", "pyspark"):
             raise Unsupported("Databricks Connect runs Python and PySpark cells. Use spark.sql() for SQL here, "
                               "or the Databricks SQL warehouse engine.")
-        if not self._lock.acquire(blocking=False):
-            raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
-        started = time.perf_counter()
-        try:
-            self._running = True
-            self._n += 1
-            cid = self._n
-            self._send({"op": "exec", "id": cid, "code": request.code, "preview_rows": request.preview_rows})
-            def mine(m: dict[str, Any]) -> bool:
-                return m.get("op") in ("result", "error") and m.get("id", cid) == cid
-            reply = self._wait(mine, self._cell_seconds)
-            if reply.get("op") == "error" and "no answer" in str(reply.get("evalue")):
-                # Too long: cancel its Spark jobs, give it a moment to stop, then end the process.
-                with contextlib.suppress(SessionClosed):  # silent-ok: close() below ends it either way
-                    self._send({"op": "interrupt"})
-                reply = self._wait(mine, STOP_SECONDS)
-                if reply.get("op") != "result":
-                    self.close()
-                    raise SessionClosed(f"The cell was still running after {self._cell_seconds / 60:.0f} minutes, "
-                                        "so it was cancelled and the session ended. Start the engine again.")
-        finally:
-            self._running = False
-            self._lock.release()
-        if reply.get("op") != "result":
-            self._closed = True
-            raise SessionClosed("The Databricks Connect process ended while the cell ran. Start the engine again.")
-        raw = reply.get("outputs") or []
-        outputs = [_frame_output(o) if o.get("type") == "frame" else o for o in raw]
-        if on_output:
-            for o in outputs:
-                on_output(o)
-        rows = next((len(o["rows"]) for o in reversed(raw) if o.get("type") == "frame"), None)
-        return CellResult(reply.get("status", "error"), outputs, time.perf_counter() - started, rows, self.engine)
 
-    def cancel(self) -> bool:
-        if self._closed or not self._running:
-            return False
-        self._send({"op": "interrupt"})
-        return True
+    def output(self, out: dict[str, Any]) -> dict[str, Any]:
+        return _frame_output(out) if out.get("type") == "frame" else out
 
     def variables(self) -> list[dict[str, Any]]:
         raise Unsupported(DATABRICKS_CONNECT.capability("variables").note)
@@ -385,18 +241,6 @@ class DatabricksConnectSession:
 
     def catalog(self) -> list[dict[str, Any]]:
         raise Unsupported(DATABRICKS_CONNECT.capability("catalog").note)
-
-    def close(self) -> None:
-        if self._closed and self.proc.poll() is not None:
-            return
-        self._closed = True
-        with contextlib.suppress(SessionClosed):  # silent-ok: the process has already gone
-            self._send({"op": "quit"})
-        try:
-            self.proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            from ..shell import end
-            end(self.proc)
 
 
 class DatabricksConnectAdapter:
@@ -432,7 +276,7 @@ class DatabricksConnectAdapter:
         if problems:
             raise Unsupported(" ".join(problems))
         folder = self.runtimes.folder(line)
-        command = [self._python, "-I", str(WORKER), str(folder)]
+        command = runtimes.worker_command(self._python, folder, KIND)
         # Run in the runtime's folder, not wherever the app was started from.
         return DatabricksConnectSession(config, command, worker_env(conn, cluster), cwd=str(folder),
                                         cell_seconds=self.cell_seconds)

@@ -33,9 +33,10 @@ print(df.count())
 %sql SELECT max(amount) AS largest FROM dbo.sales
 ```
 
-`MERGE`, `UPDATE` and `DELETE` change rows in place, which runs in Fabric only, so `%sql` stops
-with an error for them and **Runs on** lists the cell as Fabric only. Put them in a `%%sql` cell to
-run them once the notebook is published.
+`MERGE INTO`, `UPDATE` and `DELETE` of a table in the attached lakehouse run on this PC (Preview),
+as they do in a `%%sql` cell. A change to another lakehouse, or any of them with Preview features
+off, runs in Fabric only, so `%sql` stops with an error for it and **Runs on** lists the cell as
+Fabric only. Put such a change in a `%%sql` cell to run it once the notebook is published.
 
 **In Fabric.** Fabric notebooks have `%%sql` cells but neither `%sql` lines nor `_sqldf`. When
 you publish, KratosForge writes those as calls Fabric has: `df = %sql ...` becomes

@@ -83,8 +83,7 @@ function whHistory(ref, actions) {
     value: sqlPage.whHistoryFilter || "", oninput: (e) => { sqlPage.whHistoryFilter = e.target.value; draw(); } });
   const when = (at) => {
     const d = new Date(at);
-    return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      : d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return d.toDateString() === new Date().toDateString() ? timeText(d) : dateText(d);
   };
   function draw() {
     const term = (sqlPage.whHistoryFilter || "").trim().toLowerCase();

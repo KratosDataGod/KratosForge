@@ -25,9 +25,18 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 | Channel | Release tag | Moves when | Who moves it |
 | --- | --- | --- | --- |
 | **Preview** | `latest` (prerelease) | Every merge to `main` whose CI is green and is still `main`'s newest commit when the release job runs | Automatic (`ci.yml` `release` job) |
-| **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest`, or from a named build | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
+| **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine, `version.json` and both SBOMs from `latest`, or from a named build | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
 
 The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). `version.json` carries `published`, the Unix time CI or Promote wrote it. The app installs whatever build the channel names, older or newer than the one running, but refuses a `version.json` published before the newest one it has already accepted from that channel, and one without the exe's checksum (HD-022). So anything that republishes a channel by hand must write a new `published` stamp, or PCs that saw the newer one will refuse it. Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
+
+### When a new advisory lands
+
+The CI `release` job waits for the `audit` job (pip-audit on `sidecar/constraints.txt`, cargo audit on `app/src-tauri/Cargo.lock`). So when a new advisory names something the app ships, `audit` turns red on every pull request and on `main`, and Preview stops publishing. PCs on Preview keep the last build that passed, and Stable doesn't move. The failed job names each advisory, the package and its fixed version, and the exact line that would let it through. Two ways unblock it:
+
+1. **Move the package** in its own pull request (CONTRIBUTING). This is the normal path.
+2. **Record an exception** in `.github/audit-exceptions.txt`, in a pull request that gets a security read: the advisory id, a lapse date at most 90 days ahead (`until=YYYY-MM-DD`) and why it's accepted, for example the code isn't reachable from the app or no fixed release exists yet. On the lapse date the audit fails again until someone moves the package or decides again. A line with no date or reason, or with the suggested `<why it is accepted>` left in, fails the audit too (`.github/scripts/audit_exceptions.py`).
+
+Security details of an advisory that isn't public yet never go in the exception's reason or in a public issue.
 
 ### Per-build releases
 
@@ -68,6 +77,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
    - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
+   A pull request's CI runs only the slower jobs its changed paths need (the `changes` job in ci.yml): a job it doesn't need ends as skipped, not failed. A docs-only PR skips the Windows jobs and the browser tests, and a PR that changes only the shell or UI skips the Linux engine tests. A skipped job is proven only by the run on `main`, which always runs every job.
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.
 7. **Ask for the merge round.** One question to Chris naming the PRs, the order and the evidence. Nothing merges without his go for that round.
 8. **Merge** in order, waiting for each merge's `main` CI where the next PR conflicts with it. Watch the Preview publish of `main`'s newest commit.
@@ -110,7 +120,7 @@ A Stable promotion is the production release. Before asking Chris for it:
 2. **Check the evidence.** `main` CI green on that commit; Preview assets match their checksums (step 9 above); the [readiness checklist](../hardening/readiness-checklist.md) gates that apply to a Stable release are no worse than at the last promotion; `FABRIC_CLIENT_ID` is still unset (the engine's `engine.json` `client_id` must be empty, so sign-in uses Microsoft's Fabric CLI client).
 3. **Write the notes** for people, not developers: one line per change they will notice, from the PR titles and "Release notes" sections since the last Stable commit (`git log --first-parent --format=%s <last stable>..<candidate>`). Untested-on-a-tenant features say Preview.
 4. **Ask Chris** with the candidate commit, the PR list, the evidence and the notes.
-5. **On his go,** run **Actions > Promote to stable** with the notes, and put the candidate commit in **build**. Promote then copies that build's own release, not whatever Preview is at that moment. Left empty, it copies `latest` as before. Either way it checks the exe and engine against the SHA-256 in that build's `version.json` and stops without changing Stable if they differ.
+5. **On his go,** run **Actions > Promote to stable** with the notes, and put the candidate commit in **build**. Promote then copies that build's own release, not whatever Preview is at that moment. Left empty, it copies `latest` as before. Either way it checks the exe and engine against the SHA-256 in that build's `version.json` and stops without changing Stable if they differ. The job then waits for a reviewer on the `stable` environment to approve it (Settings > Environments > stable > Required reviewers; until reviewers are set there, it runs without waiting). Once signing is set up (`TRUSTED_SIGNING_ACCOUNT`), it also refuses a build whose `version.json` doesn't say `"signed": true`, which includes every build from before signing. A build published before SBOMs is promoted without them, with a notice in the job log, and an earlier build's SBOM is removed from Stable (the job warns if it can't be). `version.json` carries no SHA-256 for the SBOMs: they describe the build, and the app never downloads them.
 6. **Verify Stable:** `stable` `version.json` names the candidate and its checksums match the `stable` asset digests.
 7. **Record it** in [release history](release-history.md).
 
@@ -125,7 +135,7 @@ A rollback is a promotion of an earlier build.
 In order of preference:
 
 1. **Fix forward.** Revert the offending PR on `main` (a revert PR, merged by Chris), let Preview publish, then promote. This is the normal path.
-2. **Promote an earlier build to Stable.** Find the previous Stable commit in [release history](release-history.md). Run **Actions > Promote to stable** with **build** set to that commit (or its `build-*` tag) and notes that say what was rolled back and why. Promote checks the files against that build's `version.json` before it copies them. Self-updating Stable PCs move to it at their next start. This replaces production files and needs Chris's explicit go.
+2. **Promote an earlier build to Stable.** Find the previous Stable commit in [release history](release-history.md). Run **Actions > Promote to stable** with **build** set to that commit (or its `build-*` tag) and notes that say what was rolled back and why. Promote checks the files against that build's `version.json` before it copies them. Once signing is set up, only a signed build can be rolled back to, and signed apps install only updates signed by the same publisher, so an unsigned build can't be used as a rollback target. Self-updating Stable PCs move to it at their next start. This replaces production files and needs Chris's explicit go.
 3. **Organizations on managed updates** deploy the earlier build's exe themselves (see pinning below).
 
 Two limits today:

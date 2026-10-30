@@ -361,10 +361,10 @@ const sqlHighlight = CM.HighlightStyle.define([
 
 const sqlTheme = CM.EditorView.theme({
   "&": { height: "100%", fontSize: "13.5px" },
-  "&.cm-focused": { outline: "none" },
+  "&.cm-focused": { outline: "none" },  // styles.css draws the focus ring, at once on focus
   ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "22px", overflow: "auto" },
   ".cm-content": { padding: "8px 0" },
-  ".cm-gutters": { background: "#fafafa", borderRight: "1px solid var(--border-soft)", color: "#a19f9d" },
+  ".cm-gutters": { background: "#fafafa", borderRight: "1px solid var(--border-soft)", color: "var(--muted)" },  // 4.5:1 or more (#945)
   ".cm-activeLine": { background: "rgba(27, 54, 100, 0.04)" },
   ".cm-activeLineGutter": { background: "rgba(27, 54, 100, 0.06)" },
   ".cm-tooltip-autocomplete": { fontFamily: "var(--mono)", fontSize: "12.5px" },

@@ -33,13 +33,6 @@ function platformCall(method, params = {}, title) {
   return metaCall(method, params, title);
 }
 
-function bytes(n) {
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
-  return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
 function adminOnly(node) {
   return platformPage.me?.admin ? node : null;
 }
@@ -91,8 +84,8 @@ function platformGroup() {
 
 function platformTabBar() {
   const [here] = platformGroup();
-  return h("div", { class: "subtabs" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
-    h("button", { class: `tab${here === id ? " active" : ""}`, "aria-current": here === id ? "page" : null,
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Platform" }, PLATFORM_TAB_BAR.map(([id, text, items]) =>
+    h("button", { class: `tab${here === id ? " active" : ""}`, role: "tab", "aria-selected": String(here === id),
       onclick: () => platformOpen(items ? items[0] : id) }, text)));
 }
 
@@ -433,7 +426,7 @@ function sourceDetail(s, l, rerender) {
   platformCall("platform_landing_files", { env: l.env, source: s.name, limit: 8 }).then((fs) => {
     if (!fs) return;
     files.replaceChildren(fs.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["File", "Size", "Landed"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, bytes(f.size)), h("td", {}, when(f.modified))))))
+      h("tbody", {}, fs.map((f) => h("tr", {}, h("td", { class: "mono" }, f.path), h("td", {}, sizeText(f.size)), h("td", {}, when(f.modified))))))
       : h("p", { class: "muted-text" }, "No files yet."));
   });
   const zone = l.central ? l.zones.find((z) => z.id === (s.zone || "shared")) : null;
@@ -450,7 +443,7 @@ function sourceDetail(s, l, rerender) {
     s.copy_job ? copyJobLine(s) : null,
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, bytes(e.size)), h("td", {}, when(e.newest))))))
+      h("tbody", {}, s.entities.map((e) => h("tr", {}, h("td", { class: "mono" }, e.name || "(top)"), h("td", {}, e.files), h("td", {}, sizeText(e.size)), h("td", {}, when(e.newest))))))
       : h("p", { class: "muted-text" }, "Nothing landed yet."),
     h("b", {}, "Newest files"), files,
     h("b", {}, "Read by"),
@@ -828,6 +821,30 @@ function newRequestDialog(done, start = "workspace", prefill = {}) {
   if (shown) pick(start);
 }
 
+// The role a workspace access request's person or group has today, read as the approver and never
+// stored (#1108): null when it wasn't read (not theirs to decide) or Fabric didn't answer.
+function accessToday(r) {
+  const t = r.today;
+  if (!t || t.checked === false) return null;
+  const d = r.detail || {};
+  const p = d.principal || {};
+  const role = t.role || "";
+  const keeps = !!role && WORKSPACE_ROLES.indexOf(role) >= WORKSPACE_ROLES.indexOf(d.role);
+  return { who: p.type === "Group" ? p.name : p.email || p.name, role, keeps };
+}
+
+// The muted line under a workspace access request that says what approving changes.
+function accessTodayLine(r) {
+  if (!r.today) return null;
+  const d = r.detail || {};
+  const t = accessToday(r);
+  const text = !t ? "Couldn't check today's role: Fabric didn't answer. Approving never lowers a role either way."
+    : t.keeps ? `${t.who} has ${t.role} in ${r.target} today, so approving keeps ${t.role}.`
+    : t.role ? `${t.who} has ${t.role} in ${r.target} today; approving raises it to ${d.role}.`
+    : `${t.who} has no role of its own in ${r.target} today. A role through another group isn't counted.`;
+  return h("div", { class: "muted-text small" }, text);
+}
+
 // One line on what a request is for, beyond its target.
 function requestDetail(r) {
   const d = r.detail || {};
@@ -893,8 +910,13 @@ async function confirmApproval(r) {
   }
   if (r.kind === "workspace_access") {
     const p = d.principal || {};
-    const ok = await confirmDialog(`Approve ${d.role} on ${r.target}?`,
-      `As you, KratosForge gives ${p.type === "Group" ? `the group ${p.name}` : p.email} the ${d.role} role in ${r.target}. ${after}`, "Add and approve");
+    const group = p.type === "Group" ? `the group ${p.name}` : p.email;
+    const t = accessToday(r);
+    const text = t?.keeps
+      ? `${t.who} already has ${t.role} in ${r.target}, which is ${t.role === d.role ? "the role asked for" : `higher than ${d.role}`}. Approving keeps ${t.role} and marks the request approved. Nothing changes in Fabric.`
+      : t?.role ? `As you, KratosForge raises ${group} from ${t.role} to ${d.role} in ${r.target}.`
+      : `As you, KratosForge gives ${group} the ${d.role} role in ${r.target}.${t ? "" : " If they already have a higher role, they keep it."}`;
+    const ok = await confirmDialog(`Approve ${d.role} on ${r.target}?`, `${text} ${after}`, t?.keeps ? "Approve" : "Add and approve");
     return ok ? {} : null;
   }
   if (r.kind === "domain") {
@@ -987,6 +1009,7 @@ function requestTable(rows, rerender, compact = false) {
       h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind] || r.kind)),
       h("td", {}, requestDetail(r), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
         r.reason ? h("div", { class: "muted-text small" }, r.reason) : null,
+        r.kind === "workspace_access" ? accessTodayLine(r) : null,
         r.note ? h("div", { class: "muted-text small" }, `Note: ${r.note}`) : null),
       h("td", {}, r.requested_by || h("span", { class: "muted-text" }, "someone"), h("div", { class: "muted-text small" }, when(r.requested_at))),
       compact ? h("td", {}) : h("td", {}, h("span", { class: `pill-s ${r.status === "approved" ? "pass" : r.status === "waiting" ? "wrn" : "neu"}` }, REQUEST_STATUS[r.status]),
@@ -1001,7 +1024,7 @@ function requestTable(rows, rerender, compact = false) {
 
 // What Requests reads and writes, on Data mesh > Requests (mesh-requests.js).
 const REQUESTS_HOW = {
-  reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
+  reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. For each waiting workspace access request you can decide, the role that person or group has in the workspace today (its role assignments in Fabric, read as you once per workspace, never stored). New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
   changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog; a project's domain set in the catalog when it asked to join one. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
   results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on Platform > Govern > Audit.",
   more: [["Who decides", "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product and decide which projects join their domain. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."]],

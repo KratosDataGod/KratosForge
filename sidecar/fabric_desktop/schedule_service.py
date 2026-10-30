@@ -11,17 +11,18 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from . import notebook_cells
 from .fabric_api import FabricClient
-from .fabric_run import TERMINAL, describe_schedule
+from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
 from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
 from .redact import describe
+from .time_zones import time_zones
 from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
@@ -121,6 +122,14 @@ class ScheduleMixin:
     def set_pc_schedule_enabled(self, schedule_id: str, enabled: bool) -> dict[str, Any]:
         return self.pc_schedules.set_enabled(schedule_id, enabled)
 
+    def update_pc_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
+        """Change when one of this PC's schedules runs (PB-048)."""
+        return self.pc_schedules.update(schedule_id, schedule)
+
+    def time_zones(self) -> dict[str, Any]:
+        """Every Windows time zone and this PC's, for the Fabric schedule form (PB-048)."""
+        return time_zones()
+
     def run_pc_schedule_now(self, schedule_id: str) -> dict[str, Any]:
         """Start the run in its own process, as Task Scheduler would, so the app stays free."""
         self.pc_schedules.get(schedule_id)
@@ -146,7 +155,7 @@ class ScheduleMixin:
             if r.get("schedule_id") in ours or (r.get("schedule_id") not in meta and r.get("label") == name):
                 rows.append({"source": "pc", "started": r.get("started"), "ended": r.get("ended"),
                              "seconds": r.get("seconds"), "status": r.get("status", ""),
-                             "trigger": "manual" if r.get("trigger") == "manual" else "schedule",
+                             "trigger": r.get("trigger") if r.get("trigger") in ("manual", "home") else "schedule",
                              "message": r.get("message", ""), "alert_error": r.get("alert_error", ""),
                              "cells": r.get("cells"), "schedule_id": r.get("schedule_id")})
         mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=False))  # type: ignore[attr-defined]
@@ -244,7 +253,8 @@ class ScheduleMixin:
         schedules.log_run(row)
         return row
 
-    def _run_notebook_here(self, name: str) -> dict[str, Any]:
+    def _run_notebook_here(self, name: str, progress: Callable[[int, int], None] | None = None) -> dict[str, Any]:
+        """As Run all, here. ``progress(cell, cells)`` is told before each cell runs (Home's Run several)."""
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
         self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
@@ -258,6 +268,8 @@ class ScheduleMixin:
             code = [c for c in code if not is_step(c)]
             skipped += ", the Fabric step skipped"
         for i, cell in enumerate(code, 1):
+            if progress:
+                progress(i, len(code))
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
                 err = next((o for o in res["outputs"] if o.get("type") == "error"), {})
@@ -465,6 +477,22 @@ class ScheduleMixin:
         out = self.fabric_jobs.update_schedule(workspace_id, item_id, job_type, schedule_id,  # type: ignore[attr-defined]
                                                enabled, configuration)
         self._forget_fabric_schedule(schedule_id, enabled=enabled)
+        return out
+
+    def update_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
+                               schedule: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+        """Change when a Fabric schedule runs, in place (Update Item Schedule): it keeps its id and whether
+        it is on (PB-048)."""
+        config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
+                                        schedule.get("every_minutes"), schedule.get("weekdays"),
+                                        schedule.get("time_zone") or "UTC")
+        out = self.fabric_jobs.update_schedule(workspace_id, item_id, job_type, schedule_id,  # type: ignore[attr-defined]
+                                               enabled, config)
+        with self._fabric_schedules_lock:
+            for r in (self._fabric_schedules or {}).get("items", []):
+                if r["id"] == schedule_id:
+                    r["configuration"] = config
+                    r["text"] = describe_schedule({"configuration": config})
         return out
 
     def delete_fabric_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str) -> dict[str, Any]:

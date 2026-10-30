@@ -68,20 +68,41 @@ def test_every_registered_engine_lists_every_capability():
     assert cat["version"] == registry.REGISTRY_VERSION
     ids = [e["id"] for e in cat["engines"]]
     assert ids == ["local-python", "local-duckdb", "local-sqlite", "local-polars", "local-spark",
-                   "fabric-spark", "databricks-connect", "databricks-sql"]
+                   "fabric-spark", "databricks-connect", "databricks-sql", "snowflake-sql", "snowpark-local",
+                   "snowpark-connect"]
     for e in cat["engines"]:
         assert set(e["capabilities"]) == set(CAPABILITIES)
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark"):
+    for eid in ("local-spark",):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
         assert check_cell(d, "python")["ok"] is False
-    assert registry.get("fabric-spark").billing == "fabric_capacity"
+
+
+def test_snowflake_engines_are_planned_and_claim_nothing():
+    local = {d.family for d in registry.ENGINES.values() if d.platform != "snowflake"}
+    for eid in ("snowflake-sql", "snowpark-local", "snowpark-connect"):
+        d = registry.get(eid)
+        assert d.platform == "snowflake" and not d.adapter and d.planned
+        assert all(not d.capability(c).available for c in CAPABILITIES)
+        assert not any(s.available for s in (*d.languages.values(), *d.dialects.values()))
+        with pytest.raises(ValueError, match="can't run cells"):
+            registry.adapter(eid)
+        # A Snowflake session can't carry variables to or from another engine.
+        assert d.family not in local
+    for eid in ("snowflake-sql", "snowpark-connect"):
+        d = registry.get(eid)
+        assert d.remote and d.preview and d.billing == "snowflake_credits" and "credits" in d.planned
+    local_snowpark = registry.get("snowpark-local")
+    assert not local_snowpark.remote and local_snowpark.billing == "none"
+    assert "Simulated" in local_snowpark.planned and "Preview" in local_snowpark.planned
+    with pytest.raises(ValueError, match="say how they are billed"):
+        EngineDescriptor("x", "X", "remote", "snowflake", "none", adapter=False)
 
 
 def test_pyspark_on_this_pc_is_simulated_and_spark_sql_on_duckdb_is_translated():
@@ -191,6 +212,24 @@ def test_duckdb_runs_spark_sql_translated():
         with pytest.raises(Unsupported):
             s._sql("SELECT 1", "warehouse")
         assert "warehouse" in s.execute(sql("SELECT 1", "warehouse")).outputs[0]["evalue"]
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("dialect", ["spark", "databricks"])
+def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialect):
+    # Found by the live DuckDB vs Fabric Spark comparison: on a PC in America/Chicago the hour came
+    # back shifted by the PC's offset, where Fabric Spark (session time zone UTC) gives 02:00.
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        s._con.execute("SET TimeZone = 'America/Chicago'")
+        r = s.execute(sql("SELECT CAST(date_trunc('HOUR', TIMESTAMP'2024-03-10 02:45:10') AS STRING) AS h", dialect))
+        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00+00"]]
+        # DuckDB SQL cells keep the session's own zone.
+        assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
+        failed = s.execute(sql("SELECT * FROM no_such_table", dialect))
+        assert failed.status == "error"
+        assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
     finally:
         s.close()
 
@@ -459,6 +498,20 @@ def test_usage_never_mixes_units_or_kinds():
     assert {(r["kind"], r["unit"]): r["amount"] for r in rows} == {
         ("billed", "databricks_dbu"): 0.4, ("billed", "fabric_cu_seconds"): 120,
         ("estimated", "databricks_dbu"): 0.5, ("measured", "seconds"): 5.0}
+
+
+def test_snowflake_credits_stay_apart_from_capacity_units_and_dbu():
+    cu = UsageRecord("fabric-spark", "fabric_cu_seconds", 120, "billed", "Capacity Metrics")
+    dbu = UsageRecord("databricks-sql", "databricks_dbu", 0.4, "billed", "system.billing.usage")
+    credits = UsageRecord("snowflake-sql", "snowflake_credits", 0.25, "billed", "WAREHOUSE_METERING_HISTORY")
+    more = UsageRecord("snowflake-sql", "snowflake_credits", 0.5, "billed", "WAREHOUSE_METERING_HISTORY")
+    for other in (cu, dbu):
+        with pytest.raises(ValueError, match="never combined"):
+            credits.add(other)
+    rows = totals([cu, credits, dbu, more])
+    assert {r["unit"]: r["amount"] for r in rows} == {"fabric_cu_seconds": 120, "databricks_dbu": 0.4,
+                                                      "snowflake_credits": 0.75}
+    assert len(rows) == 3
 
 
 def test_estimates_say_what_they_assume_and_bills_say_where_they_came_from():

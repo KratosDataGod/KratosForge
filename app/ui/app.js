@@ -60,6 +60,25 @@ function btn(label, iconName, onClick, cls = "tool", attrs = {}) {
   return h("button", { class: cls, onclick: onClick, ...attrs }, iconName ? icon(iconName, 16) : null, label);
 }
 
+// A folder box with Browse… beside it (#971): the Windows folder dialog (pick_folder in the shell)
+// fills the box, which stays editable for pasting. A box policy locks gets no button. `name` says
+// which folder, for a page with more than one box. The box needs its own aria-label: inside a
+// <label>, its name would otherwise take in the button's.
+function folderField(input, name = "a folder") {
+  if (input.readOnly || !window.__TAURI__?.core) return input;
+  const browse = btn("Browse…", "folderOpen", async () => {
+    browse.disabled = true; // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: input.value.trim() || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { browse.disabled = false; });
+    if (!chosen) return;
+    input.value = chosen;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  }, "tool outline", { type: "button", "aria-label": `Browse for ${name}` });
+  return h("div", { class: "folder-field" }, input, browse);
+}
+
 function hydrateIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((el) => {
     el.replaceWith(icon(el.dataset.icon, Number(el.dataset.size || 20)));
@@ -335,10 +354,23 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
+  const list = el.closest("[role=tablist]")?.getAttribute("aria-label");
   tab.click();
-  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
-  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
-  (now || (tab.isConnected ? tab : null))?.focus();
+  // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
+  // of the selected tab, in the same tablist when it's named (a count in the label may have changed),
+  // for up to a second, while focus is still nowhere else (#961).
+  const selected = () => (list
+    ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
+    : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
+  const refocus = (tries) => {
+    const found = selected();
+    const now = found === el ? null : found;  // a page that redraws later still shows the old selection
+    const lost = [document.body, el, tab].includes(document.activeElement) || !document.activeElement?.isConnected;
+    if (now && lost) now.focus();
+    else if (!now && tab.isConnected && lost) tab.focus();
+    if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);
+  };
+  refocus(20);
 });
 
 // ---------- account and data ----------
@@ -758,6 +790,7 @@ async function renderHome() {
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
     // start something; then readiness, problems and what is running.
     start,
+    homePinnedCard(),
     recent,
     ready,
     ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
@@ -789,13 +822,11 @@ async function renderHome() {
     const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
     if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
-    list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
-      h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
-        h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
-        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
-        h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
+    // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
+    const recentList = shown.length ? homeRecentList(shown) : null;
+    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    return recentList?.done;
   });
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
@@ -1007,8 +1038,8 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
-    h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "fabric"
     ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
@@ -1100,22 +1131,23 @@ async function renderMonitor() {
       open: () => showRun(r.run_id, r.env),
     })),
     ...(cloud || []).map((r) => ({
-      at: r.started_at, status: fabricStatus(r.status), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
+      at: r.started_at, status: fabricStatus(r.status), pill: fabricPill(r), activity: r.name, kind: r.kind, env: r.env || "", where: "fabric",
       seconds: r.finished_at ? (new Date(r.finished_at) - new Date(r.started_at)) / 1000 : "", rows: "",
       note: r.workspace_name || "", reason: r.status === "Failed" ? r.message || "" : "",
       open: r.url ? () => openInFabric(r.url) : null,
+      cancel: cancelFabricRunShown() && !FABRIC_DONE.has(r.status) && !r.cancel_requested && r.workspace_id && r.item_id ? r.job_id : null,
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
-      kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
+      kind: r.trigger === "home" ? "Run from Home" : r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
       rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
-      open: () => { monitorPage.panel = "schedules"; render(); },
+      open: r.trigger === "home" ? () => openNotebook(r.label) : () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
     ...(writes || []).map((r) => ({
-      at: r.finished_at, status: "ok", activity: r.job, kind: "Notebook write", env: "", where: "local",
+      at: r.finished_at, status: "ok", activity: r.job, kind: historyKind(r), env: "", where: "local",
       seconds: r.seconds, rows: r.rows, note: `${r.table_uri.split("/Tables/")[1] || r.table_uri} (${r.mode}, v${r.delta_version})`, reason: "",
     })),
   ].filter((r) => (monitorPage.env === "all" || r.env === monitorPage.env)
@@ -1136,7 +1168,11 @@ async function renderMonitor() {
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
       h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, r.tookText ?? took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
-      h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
+      h("td", { class: "n" }, r.cancel ? btn("Cancel", null, async (e) => {
+        e.stopPropagation();
+        if (await cancelFabricJob(r.cancel)) { monitorPage.refreshing = true; render(); }
+      }, "tool small outline danger") : null,
+      r.open ? h("span", { class: "link-text" }, r.openLabel || "Details") : r.pipelineRun ? pipelineRunDetails(r) : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook.");
   local.replaceWith(list);
@@ -1154,18 +1190,31 @@ function monitorHubButtons() {
     btn("Open in browser", "publish", () => action("browser"), "tool outline")];
 }
 
+// This PC's write history holds two kinds of record: a notebook's table writes (named "Notebook
+// write to <lakehouse>") and runs of a job file (`fabric-desktop run JOB`, named after the job).
+function historyKind(r) {
+  return String(r.job || "").startsWith("Notebook write to ") ? "Notebook write" : "Job run";
+}
+
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
   const why = r.envWhy || (r.where === "fabric"
     ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
-    : "Notebook writes and this PC's schedules aren't tied to an environment");
+    : "Notebook writes, job runs and this PC's schedules aren't tied to an environment");
   return h("span", { class: "muted-text", title: why }, "No environment");
 }
 
 // Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
+}
+
+// Runs > Status for a Fabric job: Cancelled and Cancelling say so; the rest use the shared pills.
+function fabricPill(r) {
+  if (r.status === "Cancelled") return h("span", { class: "pill-s neu" }, "Cancelled");
+  if (r.cancel_requested && !FABRIC_DONE.has(r.status)) return h("span", { class: "pill-s wrn" }, "Cancelling…");
+  return null;
 }
 
 // Fabric's own pages (Monitoring hub, OneLake catalog) are one second webview the shell lays
@@ -1228,7 +1277,8 @@ async function renderWorkspaces() {
     }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
-    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
+    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] })),
+    PREVIEW_FEATURES.itemPins && previewShown() ? itemPinsLoaded() : null]);
   if (state.view !== "workspaces") return;
   wp.marks = marks;
   const here = () => state.view === "workspaces";
@@ -1270,6 +1320,8 @@ async function renderWorkspaces() {
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
             : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
+        PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
+          name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
@@ -1539,12 +1591,13 @@ const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) =
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
 function onelakeTabs() {
-  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
-    onclick: () => { catalogPage.tab = id; render(); } }, label);
-  return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
-    // Data products moved to Data mesh > Products; this tab takes you there.
-    preview("mesh", h("button", { class: "tab", onclick: () => openProducts() }, "Data products")),
-    preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
+  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
+  // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
+  // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
+    tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
+    preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
 
@@ -1952,7 +2005,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
-      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
+      icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, item.size ? sizeText(item.size) : "")));
     }
   }
   return rows;
@@ -1964,12 +2017,19 @@ function readSnippet(path) {
   return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
-function formatSize(bytes) {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB"];
+// File and data sizes, the same on every page (#929): 1024-based, with one decimal below 100
+// (17 B, 2.0 KB, 99.5 MB, 212 MB, 1.1 GB). Nothing for a missing or negative size.
+function sizeText(n) {
+  if (n == null || n === "") return "";
+  n = Number(n);
+  if (!Number.isFinite(n) || n < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  if (!i) return `${Math.round(n)} B`;
+  let v = +n.toFixed(n >= 100 ? 0 : 1);
+  if (v >= 1024 && i < units.length - 1) { v = +(v / 1024).toFixed(1); i++; }  // 1023.97 KB reads 1.0 MB
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
 // ---------- Notebook files ----------
@@ -2420,6 +2480,13 @@ const TIME_ZONES = {
   "Asia/Kolkata": "India Standard Time", "Asia/Singapore": "Singapore Standard Time",
   "Australia/Sydney": "AUS Eastern Standard Time",
 };
+// Every Windows time zone and this PC's, read once from the registry (PB-048). Off Windows, or when the
+// engine can't read them, the short list above stays; a failed read is tried again next time.
+let windowsTimeZones = null;
+function loadTimeZones() {
+  windowsTimeZones ||= rpc("time_zones").catch(() => { windowsTimeZones = null; return { zones: [], here: null }; });
+  return windowsTimeZones;
+}
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // The repeat, times, days and time zone fields of a Fabric schedule, shared by notebooks and metadata runs.
@@ -2430,12 +2497,40 @@ function scheduleForm() {
   const minutes = h("input", { type: "number", min: "1", value: "60" });
   const days = WEEKDAYS.map((d, i) => h("label", { class: "check" }, h("input", { type: "checkbox", value: d, checked: i < 5 ? true : null }), d.slice(0, 3)));
   const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = h("select", {}, Object.entries(TIME_ZONES).map(([iana, win]) =>
-    h("option", { value: win, selected: iana === here ? true : null }, `${win}${iana === "UTC" ? "" : ` (${iana})`}`)));
+  const zone = h("select", { size: 8, "aria-label": "Time zone" });
+  const search = h("input", { type: "search", placeholder: "Search time zones", "aria-label": "Search time zones" });
+  let chosen = null;  // a zone set by set() or picked; until then the PC's own zone
+  // Rebuild the options from [{id, name}], the PC's zone first, keeping the chosen zone even when the list lacks it.
+  const fill = (zones, pcZone) => {
+    const pick = chosen || pcZone || zone.value;
+    const label = (z) => (z.name === z.id ? z.id : `${z.name} · ${z.id}`);
+    const pc = zones.find((z) => z.id === pcZone);
+    const other = chosen && !zones.some((z) => z.id === chosen) ? [{ id: chosen, name: chosen }] : [];
+    zone.replaceChildren(
+      pc ? h("optgroup", { label: "On this PC" }, h("option", { value: pc.id }, label(pc))) : null,
+      h("optgroup", { label: "All time zones" }, [...other, ...zones.filter((z) => z !== pc)].map((z) => h("option", { value: z.id }, label(z)))));
+    zone.value = pick;
+    if (!zone.value && zone.options.length) zone.selectedIndex = 0;
+    filter();
+  };
+  // Show the zones matching every word typed; if the chosen one is filtered out, pick the first match.
+  const filter = () => {
+    const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const o of zone.options) o.hidden = !words.every((w) => o.textContent.toLowerCase().includes(w));
+    for (const g of zone.querySelectorAll("optgroup")) g.hidden = ![...g.children].some((o) => !o.hidden);
+    if (zone.selectedOptions[0]?.hidden) {
+      const first = [...zone.options].find((o) => !o.hidden);
+      if (first) { zone.value = first.value; chosen = first.value; zone.dispatchEvent(new Event("change", { bubbles: true })); }
+    }
+  };
+  search.addEventListener("input", filter);
+  zone.addEventListener("change", () => { chosen = zone.value; });
+  fill(Object.entries(TIME_ZONES).map(([iana, win]) => ({ id: win, name: iana === "UTC" ? win : `${win} (${iana})` })), TIME_ZONES[here]);
+  loadTimeZones().then((r) => { if (r?.zones?.length) fill(r.zones, r.here); });
   const timesField = h("label", { class: "field" }, "Times of day (24-hour, comma between)", times);
   const minutesField = h("label", { class: "field", hidden: true }, "Minutes between runs", minutes);
   const daysField = h("div", { class: "field", hidden: true }, "Days", h("div", { class: "row wrap" }, days));
-  const zoneField = h("label", { class: "field" }, "Time zone", zone);
+  const zoneField = h("div", { class: "field zone-field" }, h("span", {}, "Time zone"), search, zone);
   const sync = () => {
     minutesField.hidden = kind.value !== "cron";
     timesField.hidden = zoneField.hidden = kind.value === "cron";
@@ -2447,6 +2542,19 @@ function scheduleForm() {
     sync,
     value: () => ({ kind: kind.value, times: times.value.split(","), every_minutes: Number(minutes.value),
       weekdays: days.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value), time_zone: zone.value }),
+    // Fill the form with a stored schedule (scheduleValues), to edit it (PB-048).
+    set: (v) => {
+      kind.value = v.kind;
+      times.value = v.times.length ? v.times.join(", ") : "06:00";
+      minutes.value = String(v.every_minutes || 60);
+      days.forEach((l) => { l.firstChild.checked = v.weekdays.includes(l.firstChild.value); });
+      if (v.time_zone) {
+        chosen = v.time_zone;
+        if (![...zone.options].some((o) => o.value === v.time_zone)) zone.lastChild.prepend(h("option", { value: v.time_zone }, v.time_zone));
+        zone.value = v.time_zone;
+      }
+      sync();
+    },
   };
 }
 
@@ -2904,7 +3012,8 @@ async function checkComponents(afterInstall = false) {
       const result = await invoke("update_sidecar");
       if (result?.engine) {
         // Check again with the new engine: it may be a newer build than this exe, and
-        // it may be blocked from loading.
+        // it may be blocked from loading. Its first start is slow (Windows scans each new file).
+        set("sidecar", "busy", "Starting the new engine for the first time…");
         return checkComponents(true);
       }
       set("sidecar", "ok", `Updated to build ${short(app.commit)}`);

@@ -31,6 +31,7 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from .. import redact
+from ..paging import Pages, PagingError
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -134,6 +135,40 @@ def _checked_id(value: str, what: str) -> str:
     return value
 
 
+# What to check when an API refuses, by the API that refused: (path prefix, {status: hint}). The
+# first prefix that matches wins; anything else gets _ANY_HINTS.
+_HINTS: tuple[tuple[str, dict[int, str]], ...] = (
+    ("/api/2.0/sql/statements", {403: "Ask for CAN USE on the SQL warehouse and the Unity Catalog privileges on the data.",
+                                 404: "The statement is no longer on the warehouse; run the cell again."}),
+    ("/api/2.0/sql/warehouses", {403: "Ask for CAN USE on the SQL warehouse.",
+                                 404: "Check the SQL warehouse ID and the workspace."}),
+    ("/api/2.1/clusters", {403: "Ask for CAN ATTACH TO on the cluster, or for access to clusters in this workspace.",
+                           404: "Check the cluster ID and the workspace."}),
+    ("/api/2.1/unity-catalog/metastore_summary", {
+        403: "Ask for access to the workspace's Unity Catalog metastore.",
+        404: "This workspace has no Unity Catalog metastore assigned; an account admin assigns one."}),
+    ("/api/2.1/unity-catalog", {403: "Ask for USE CATALOG and USE SCHEMA in Unity Catalog, and SELECT on the tables.",
+                                404: "Check the catalog and schema names."}),
+    ("/api/2.0/preview/scim", {403: "Your sign-in can't read its own user details in this workspace; ask a workspace admin.",
+                               404: "Check the workspace URL."}),
+)
+_ANY_HINTS = {401: "Sign in again.", 403: "Ask a workspace admin for access.", 404: "Check the workspace URL.",
+              429: "The workspace is busy; try again shortly."}
+
+
+def refusal_hint(status: int, path: str, error_code: str = "") -> str:
+    """What to check after ``status`` from the API at ``path``. Sign-in and throttling read the same
+    everywhere; a missing metastore is named whichever Unity Catalog call found it."""
+    if error_code == "METASTORE_DOES_NOT_EXIST":
+        return dict(_HINTS)["/api/2.1/unity-catalog/metastore_summary"][404]
+    if status in (401, 429):
+        return _ANY_HINTS[status]
+    for prefix, hints in _HINTS:
+        if path.startswith(prefix):
+            return hints.get(status, "")
+    return _ANY_HINTS.get(status, "")
+
+
 class Client:
     """The few REST calls the session makes, with the token on each; errors never quote a token."""
 
@@ -152,7 +187,7 @@ class Client:
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
             raise DatabricksError(f"Couldn't reach {self.host}: {type(exc).__name__}.") from None
         if resp.status_code >= 400:
-            raise DatabricksError(self._refusal(resp))
+            raise DatabricksError(self._refusal(resp, path))
         try:
             return resp.json() if resp.content else {}
         except ValueError:
@@ -160,16 +195,19 @@ class Client:
                 from None
 
     @staticmethod
-    def _refusal(resp: Any) -> str:
+    def _refusal(resp: Any, path: str = "") -> str:
         try:
             body = resp.json()
         except ValueError:
             body = {}
         message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
-        hint = {401: "Sign in again.", 403: "Ask for CAN USE on the warehouse or the Unity Catalog privilege.",
-                404: "Check the warehouse ID and the workspace.", 429: "The workspace is busy; try again shortly."}
+        code = str(body.get("error_code") or "") if isinstance(body, dict) else ""
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
-            (f"{message} " if message else "") + hint.get(resp.status_code, "")
+            (f"{message} " if message else "") + refusal_hint(resp.status_code, path, code)
+
+    def get(self, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+        """A read (GET) of a documented API path; reading never starts compute."""
+        return self._call("GET", path, params=params or {})
 
     def warehouse(self, warehouse_id: str) -> dict[str, Any]:
         return self._call("GET", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}")
@@ -177,6 +215,14 @@ class Client:
     def cluster(self, cluster_id: str) -> dict[str, Any]:
         """A cluster's spark_version and state (Clusters API). Reading never starts it."""
         return self._call("GET", "/api/2.1/clusters/get", params={"cluster_id": _checked_id(cluster_id, "cluster")})
+
+    def stop_warehouse(self, warehouse_id: str) -> None:
+        """Ask the warehouse to stop (SQL Warehouses API). Only the live test calls it."""
+        self._call("POST", f"/api/2.0/sql/warehouses/{_checked_id(warehouse_id, 'SQL warehouse')}/stop")
+
+    def terminate_cluster(self, cluster_id: str) -> None:
+        """Terminate the cluster, keeping its definition (Clusters API ``delete``). Only the live test calls it."""
+        self._call("POST", "/api/2.1/clusters/delete", json={"cluster_id": _checked_id(cluster_id, "cluster")})
 
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/api/2.0/sql/statements", json=body)
@@ -190,12 +236,17 @@ class Client:
     def list(self, path: str, key: str, params: dict[str, str]) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         token = ""
+        pages = Pages(f"{self.host}{path}")  # empty pages with a next token would otherwise never reach the limit
         while len(items) < CATALOG_LIMIT:
             page = self._call("GET", path, params=params | ({"page_token": token} if token else {}))
             items += page.get(key) or []
             token = page.get("next_page_token") or ""
             if not token:
                 break
+            try:
+                pages.follow(token)
+            except PagingError as exc:
+                raise DatabricksError(str(exc)) from None
         return items[:CATALOG_LIMIT]
 
 

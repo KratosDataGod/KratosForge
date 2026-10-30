@@ -42,7 +42,11 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 
 Every shortcut is checked when the page opens. To stop that, untick **Check every shortcut when this page opens** on the Health view.
 
-Results are saved to the [platform](platform.md), so everyone sees the same health. A shortcut that breaks, or works again, shows on **Changes**.
+Results are saved to the [platform](platform.md), so everyone sees the same health. A shortcut that breaks, or works again, shows on **Changes**, and is posted to the platform's Teams routes when one takes `shortcut.broken` or `shortcut.fixed` ([governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)).
+
+### On a schedule (Preview)
+
+So that a break is found without anyone opening this page, turn on `[shortcut_health]` in a [headless agent](agent.md#shortcut-health). Every `shortcut_health.minutes` (60 by default) it checks the shortcuts in its environments' workspaces the same way, with its own identity, and posts each new break to its Teams channel once: a shortcut that stays broken isn't posted again, a fix is posted once, and a later break is posted again. It only reads (it lists lakehouses, shortcuts and one entry of each folder), runs no Fabric job, and writes nothing to Fabric or the platform; what it posted is kept on the agent's machine. When several agents check one environment, one of them posts. The agent's results don't show on this page: check here to see them. It's a setting in the agent's `agent.toml`, not a screen, so Settings > Preview features doesn't hide it.
 
 The Health view also lists shortcuts that work but are **worth a look**:
 
@@ -123,9 +127,11 @@ New shortcut and Repoint check the rules as you fill in the dialog. When a rule 
 
 A change made in KratosForge says who made it, and why when it came from a request. Fabric doesn't record who changes a shortcut, so KratosForge compares what it sees with what it saw last time each time it reads the shortcuts. Changes made in Fabric, or by other tools, show as **Seen at scan**. The first time a lakehouse is read sets the starting point, so shortcuts already there aren't listed as added.
 
+Anyone's scan adds new shortcuts, and anyone's health check can mark one broken. A change that could hide a problem (a shortcut removed or repointed, or one no longer broken) changes the inventory only when a platform admin or a member of a project with a data product in that lakehouse sees it. From anyone else, a repoint (seen at scan or made in KratosForge) is listed as *reported* and the shortcut, its health and its accepted risks stay as they were, a removal waits, a health check records only a break, and the page says what wasn't recorded. A lakehouse no project has a product in is a platform admin's to update. Each scan and check is recorded with who made it on **Platform > Govern > Audit**.
+
 Every change keeps the shortcut's full definition:
 
-- **Undo** on a repointed shortcut points it back; on an added one, removes it.
+- **Undo** on a repointed shortcut points it back; on an added one, removes it. It first checks the shortcut in Fabric is still as that change left it (pointing at the same target, or for a removed one, nothing in its place). If it has changed again since, Undo says so and changes nothing. Undo and Recreate show only on a change that was applied and made by a platform admin or a member of a project with a product in that lakehouse; a reported change, or one logged by someone else, has neither.
 - **Recreate** on a removed shortcut makes it again, with the same name, place and target.
 
 Both ask first, follow the shortcut rules, and never touch the data the shortcut points at. The history is kept by the platform, so the whole team shares one history.
@@ -142,6 +148,7 @@ Shortcut requests are the [platform's requests](platform.md#requests), next to k
 
 - A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
 - **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.
+- If an approval stopped after Fabric made the shortcut (a timeout, or the platform couldn't be reached), approving again finds it. If it points exactly where the request asks, the request is approved and the shortcut is recorded once. If a shortcut there points anywhere else, the request stays waiting and the error names its target.
 - The person who sent it can withdraw it while it waits.
 
 **Shortcut needs** lists shortcuts that need changing:
@@ -156,7 +163,7 @@ Nothing new. The command center uses what the Shortcuts and Access tabs already 
 
 ## What isn't there yet
 
-- Health is checked when the page opens or when you ask. There is no scheduled check, and no Teams alert when a shortcut breaks.
+- The desktop app checks only when the page opens or when you ask; the scheduled check runs in the [agent](agent.md#shortcut-health), and its results aren't saved to the platform or shown on Health.
 - An approved request makes the shortcut in one lakehouse, not in each environment.
 - Only a crossed environment can be accepted, not a duplicate. Finding a lakehouse that moved compares names only, and looks at five lakehouses with that name at most.
 - Not tried on a live Fabric tenant yet. In particular, the error codes OneLake returns for a broken target or a refused connection haven't been seen on a real tenant, so a broken shortcut may show the wrong cause.

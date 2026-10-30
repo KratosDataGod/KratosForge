@@ -245,20 +245,34 @@ function learnSplitFindings(rows, where, required) {
 }
 
 const LEARN_SCOPE_SAID = { line: "Not on this line", file: "Not in this file", never: "Never shown" };
+const LEARN_SCOPE_TOAST = { line: "on this line", file: "in this file", never: "everywhere" };
 
-async function learnDismiss(f, scope, where, redraw) {
-  const rows = await attempt(() => rpc("learn_dismiss", { rule_id: f.rule_id, scope, where, line: f.line_hash || "" }), "Not dismissed");
-  if (!rows) return;
-  learnDismissed = rows;
-  toast(`${LEARN_SCOPE_SAID[scope]}: ${f.rule_id} is hidden. Bring it back from "dismissed" in this panel.`);
-  redraw();
+// Every press redraws the whole panel, so keyboard focus goes back to the control that was pressed
+// (data-learn-focus), or, when that control went away, to the first of `fallbacks` still there.
+function learnRedraw(ctx, ...keys) {
+  ctx.redraw();
+  const all = [...document.querySelectorAll("[data-learn-focus]")];
+  for (const key of keys) {
+    const el = all.find((e) => e.dataset.learnFocus === key);
+    if (el) { el.focus(); return; }
+  }
 }
 
-async function learnUndismiss(id, redraw) {
+const learnFocusKey = (ctx, f, what) => `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}|${what}`;
+
+async function learnDismiss(f, scope, ctx) {
+  const rows = await attempt(() => rpc("learn_dismiss", { rule_id: f.rule_id, scope, where: ctx.where, line: f.line_hash || "" }), "Not dismissed");
+  if (!rows) return;
+  learnDismissed = rows;
+  toast(`${f.rule_id} hidden ${LEARN_SCOPE_TOAST[scope]}. Show it again from Dismissed below.`);
+  learnRedraw(ctx, `${ctx.where}|dismissed`);
+}
+
+async function learnUndismiss(id, ctx, back = []) {
   const rows = await attempt(() => rpc("learn_undismiss", id ? { dismissal_id: id } : {}), "Not shown again");
   if (!rows) return;
   learnDismissed = rows;
-  redraw();
+  learnRedraw(ctx, ...back, `${ctx.where}|dismissed`);
 }
 
 // The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
@@ -268,8 +282,11 @@ function learnFindingActions(f, ctx) {
   const guide = learnGuides[f.rule_id];
   const key = `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}`;
   const open = learnDetail.get(key);
-  const toggle = (what) => { if (open === what) learnDetail.delete(key); else learnDetail.set(key, what); ctx.redraw(); };
-  const pressed = (what) => ({ "aria-expanded": String(open === what) });
+  const toggle = (what) => {
+    if (open === what) learnDetail.delete(key); else learnDetail.set(key, what);
+    learnRedraw(ctx, learnFocusKey(ctx, f, what));
+  };
+  const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
   const row = h("div", { class: "row learn-actions" });
   if (guided && guide) {
     row.append(btn("Explain", null, () => toggle("explain"), `tool small outline${open === "explain" ? " toggled" : ""}`, pressed("explain")));
@@ -281,18 +298,23 @@ function learnFindingActions(f, ctx) {
     row.append(h("span", { class: "muted-text small" }, "Your organization requires this rule."));
   } else {
     const menu = h("div", { class: "learn-dismiss-menu", hidden: true },
-      [["line", "Not on this line", `Hides ${f.rule_id} here until the line changes`],
+      [["line", "Not on this line", `Hides ${f.rule_id} on this line, and any identical line here, until it changes`],
         ["file", "Not in this file", "This notebook or query only"],
         ["never", `Never show ${f.rule_id}`, "Everywhere, for you on this PC"]].map(([scope, label, say]) =>
-        h("button", { class: "learn-dismiss-item", onclick: () => learnDismiss(f, scope, ctx.where, ctx.redraw) },
+        h("button", { class: "learn-dismiss-item", onclick: () => learnDismiss(f, scope, ctx) },
           h("span", {}, label), h("span", { class: "muted-text small" }, say))));
     const opener = btn("Dismiss ▾", null, (e) => {
       menu.hidden = !menu.hidden;
       e.currentTarget.setAttribute("aria-expanded", String(!menu.hidden));
       if (!menu.hidden) menu.querySelector("button")?.focus();
-    }, "tool small outline", { "aria-expanded": "false", "aria-label": `Dismiss ${f.rule_id}: choose where` });
-    menu.addEventListener("keydown", (e) => { if (e.key === "Escape") { menu.hidden = true; opener.setAttribute("aria-expanded", "false"); opener.focus(); } });
-    row.append(h("span", { class: "learn-dismiss" }, opener, menu));
+    }, "tool small outline", { "aria-expanded": "false", "aria-label": `Dismiss ${f.rule_id}: choose where`,
+      "data-learn-focus": learnFocusKey(ctx, f, "dismiss") });
+    const close = (refocus) => { menu.hidden = true; opener.setAttribute("aria-expanded", "false"); if (refocus) opener.focus(); };
+    const wrap = h("span", { class: "learn-dismiss" }, opener, menu);
+    menu.addEventListener("keydown", (e) => { if (e.key === "Escape") close(true); });
+    // One menu at a time: it closes when focus or a click goes anywhere else.
+    wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
+    row.append(wrap);
   }
   if (!guided || !guide || !open) return row;
   const detail = open === "explain"
@@ -302,24 +324,26 @@ function learnFindingActions(f, ctx) {
       h("span", { class: "muted-text small" }, "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
     : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
       h("b", {}, "After"), h("pre", { class: "learn-code after" }, guide.after),
-      h("div", { class: "row" }, btn("Copy the After", null, () => navigator.clipboard.writeText(guide.after)
-        .then(() => toast("Copied the After."), () => toast("Couldn't copy it.", true)), "tool small"),
+      h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(guide.after)
+        .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
   return [row, detail];
 }
 
 // "2 dismissed · Show", and when shown, each with Show again, and Show all again.
-function learnDismissedBlock(hidden, where, redraw) {
+function learnDismissedBlock(hidden, ctx) {
   if (!hidden.length) return null;
+  const where = ctx.where;
   const on = learnShowHidden.has(where);
-  const flip = () => { if (on) learnShowHidden.delete(where); else learnShowHidden.add(where); redraw(); };
+  const flip = () => { if (on) learnShowHidden.delete(where); else learnShowHidden.add(where); learnRedraw(ctx, `${where}|dismissed`); };
   return h("div", { class: "learn-dismissed" },
-    btn(`${hidden.length} dismissed · ${on ? "Hide" : "Show"}`, null, flip, "link-btn", { "aria-expanded": String(on) }),
+    btn(`${hidden.length} dismissed · ${on ? "Hide" : "Show"}`, null, flip, "link-btn", { "aria-expanded": String(on), "data-learn-focus": `${where}|dismissed` }),
     on ? h("ul", { class: "learn-dismissed-list" }, hidden.map(([f, d]) => h("li", {},
       h("span", {}, h("b", {}, `${f.rule_id} · ${f.rule}`), h("span", { class: "muted-text small" },
         ` ${LEARN_SCOPE_SAID[d.scope]}${d.scope === "line" ? ` · line ${f.line}` : d.scope === "never" ? " · everywhere" : ""}`)),
-      btn("Show again", null, () => learnUndismiss(d.id, redraw), "tool small")))) : null,
-    on ? btn("Show all again", null, () => learnUndismiss(null, redraw), "link-btn") : null);
+      // The finding comes back with its Dismiss button: focus goes there.
+      btn("Show again", null, () => learnUndismiss(d.id, ctx, [learnFocusKey(ctx, f, "dismiss")]), "tool small")))) : null,
+    on ? btn("Show all again", null, () => learnUndismiss(null, ctx, hidden.map(([f]) => learnFocusKey(ctx, f, "dismiss"))), "link-btn") : null);
 }
 
 // ---------- one module or lab ----------

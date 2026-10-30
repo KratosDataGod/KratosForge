@@ -669,7 +669,7 @@ function renderQuery() {
     onclick: () => showPane("practices") });
   // The findings to show (learn.js): dismissed ones leave the list and the counts; a rule a policy names stays.
   function practiceSplit(r) {
-    const ctx = { where: tab.file?.name || tab.name, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat() };
+    const ctx = { where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat() };
     const { shown, hidden } = learnSplitFindings(r?.findings, ctx.where, ctx.required);
     const counts = Object.fromEntries(["Error", "Warning", "Info"].map((s) => [s, shown.filter((f) => f.severity === s).length]));
     return { ctx, shown, hidden, counts };
@@ -857,7 +857,7 @@ function renderQuery() {
       h("div", { class: "sql-chips" }, chip(counts.Error, "error", "error"), chip(counts.Warning, "warning", "warning"), chip(counts.Info, "info", "information")),
       r.note ? h("p", { class: "muted-text" }, r.note) : null,
       list.length ? h("div", { class: "sql-findings" }, list) : h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."),
-      learnDismissedBlock(hidden, ctx.where, ctx.redraw),
+      learnDismissedBlock(hidden, ctx),
       h("p", { class: "muted-text sql-compat-note" }, r.policies.length
         ? `Tuned by ${r.policies.join(", ")}: a rule a policy turns off isn't shown.`
         : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by.")]

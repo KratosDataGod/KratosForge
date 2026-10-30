@@ -73,6 +73,7 @@ test("Guided adds Explain and Show example from the shipped guide, and the Lesso
   await setDoc(`${VIEW}\n`);
   await sq002().locator("button", { hasText: "Explain" }).click();
   await sq002().locator(".learn-detail").waitFor();
+  assert.strictEqual(await page().evaluate(() => document.activeElement?.textContent), "Explain", "focus stays on Explain after the panel redraws");
   const explain = await sq002().locator(".learn-detail").innerText();
   assert.match(explain, /Why it matters[\s\S]*The engine skips files and row groups/);
   assert.match(explain, /When it's fine[\s\S]*Small tables/);
@@ -96,12 +97,16 @@ test("the open finding has no serious axe findings", { skip: skip || (!axeSource
   assert.deepStrictEqual(found, []);
   await page().keyboard.press("Escape");
   assert.strictEqual(await sq002().locator(".learn-dismiss-menu").isHidden(), true);
+  await sq002().getByRole("button", { name: /Dismiss SQ002/ }).click();
+  await sq002().locator("button", { hasText: "Explain" }).focus();  // focus leaving the menu closes it
+  assert.strictEqual(await sq002().locator(".learn-dismiss-menu").isHidden(), true);
 });
 
 test("Not on this line hides the finding until the line changes, and Show again brings it back", { skip }, async () => {
   await sq002().getByRole("button", { name: /Dismiss SQ002/ }).click();
   await sq002().locator(".learn-dismiss-item", { hasText: "Not on this line" }).click();
   await sq002().waitFor({ state: "detached" });
+  assert.ok(await page().evaluate(() => document.activeElement?.dataset.learnFocus?.endsWith("|dismissed")), "focus moves to the dismissed list");
   assert.match(await chip().innerText(), /Best practices · 2/);
   const kept = await page().evaluate(() => learnDismissed);
   assert.strictEqual(kept.length, 1);
@@ -115,6 +120,7 @@ test("Not on this line hides the finding until the line changes, and Show again 
   assert.match(await panel().locator(".learn-dismissed-list").innerText(), /SQ002 · Function on a column in WHERE[\s\S]*Not on this line · line 4/);
   await panel().locator(".learn-dismissed-list button", { hasText: "Show again" }).click();
   await sq002().waitFor();
+  assert.ok(await page().evaluate(() => /\|SQ002\|.*\|dismiss$/.test(document.activeElement?.dataset.learnFocus || "")), "focus goes to the finding that came back");
   assert.match(await chip().innerText(), /Best practices · 3/);
 });
 
@@ -144,7 +150,7 @@ test("a rule a policy names says so, can't be dismissed, and ignores earlier dis
   await panel().locator("[data-rule=SQ005]").waitFor();
   assert.match(await panel().locator("[data-rule=SQ005]").innerText(), /Your organization requires this rule/);
   assert.strictEqual(await panel().locator("[data-rule=SQ005] .learn-dismiss").count(), 0);
-  await page().evaluate(() => { sqlPracticePolicies = null; return learnUndismiss(null, () => {}); });
+  await page().evaluate(() => { sqlPracticePolicies = null; return learnUndismiss(null, { where: "x", redraw: () => {} }); });
 });
 
 test("with preview features hidden, nothing is added and nothing is hidden", { skip }, async () => {

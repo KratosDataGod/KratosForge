@@ -75,7 +75,7 @@ test("Dismiss Not in this file hides a finding in this notebook only, and Show a
   await pane().locator("[data-rule=NB003] .learn-dismiss-item", { hasText: "Not in this file" }).click();
   await pane().locator("[data-rule=NB003]").waitFor({ state: "detached" });
   assert.match(await page().locator("button[data-practices]").innerText(), /Best practices · 1/);
-  assert.deepStrictEqual(await page().evaluate(() => learnDismissed.map((d) => [d.rule_id, d.scope, d.where])), [["NB003", "file", "Load orders"]]);
+  assert.deepStrictEqual(await page().evaluate(() => learnDismissed.map((d) => [d.rule_id, d.scope, d.where])), [["NB003", "file", "notebooks/Load orders"]]);
   await pane().locator(".learn-dismissed button", { hasText: "1 dismissed · Show" }).click();
   await pane().locator(".learn-dismissed button", { hasText: "Show all again" }).click();
   await pane().locator("[data-rule=NB003]").waitFor();

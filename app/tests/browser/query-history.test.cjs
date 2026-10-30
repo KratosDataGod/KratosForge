@@ -22,7 +22,7 @@ before(async () => {
     return { columns: [{ name: "CustomerName", type: "varchar" }], rows: [["Contoso"], ["Fabrikam"]] };
   });
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list"],
     mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);

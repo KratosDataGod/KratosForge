@@ -9,7 +9,7 @@ const { playwright, openApp } = require("./harness.cjs");
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["app_settings", "save_app_settings", "start_cell", "poll_cell", "kernel_sessions",
-  "stop_kernel_process", "kernel_variables", "kernel_info", "new_notebook", "open_notebook"];
+  "stop_kernel_process", "kernel_variables", "new_notebook", "open_notebook"];
 
 let app;
 let opened;  // the engine names the new notebook

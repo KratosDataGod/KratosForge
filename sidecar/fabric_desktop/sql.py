@@ -104,13 +104,58 @@ _ANON_TEMPLATES = {
                       "OR LIST_POSITION({1}, NULL) IS NOT NULL) THEN NULL ELSE FALSE END",
     "ARRAY_UNION": "CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER(LIST_CONCAT({0}, {1}), "
                    "(kf_v, kf_i) -> LIST_POSITION(LIST_CONCAT({0}, {1}), kf_v) = kf_i) END",
+    # Half-even rounding (bround with one argument rounds to 0 places; see _spark_functions). DuckDB
+    # returns a DOUBLE where Databricks keeps a decimal input decimal; the value is the same.
+    "BROUND": "ROUND_EVEN({0}, {1})",
+    # conv(num, from, to), as Spark's NumberConverter: the digits up to the first invalid one, read
+    # as an unsigned 64-bit number (more saturates to all ones); a negative number with a positive
+    # target base is its two's complement, and a negative target base prints a signed number.
+    "CONV": "(LIST_TRANSFORM([{{'s': CAST({0} AS VARCHAR), 'f': CAST({1} AS INTEGER), 't': CAST({2} AS INTEGER)}}], "
+            "kf_a -> CASE WHEN kf_a.s IS NULL OR kf_a.f IS NULL OR kf_a.t IS NULL OR kf_a.s = '' "
+            "OR kf_a.f NOT BETWEEN 2 AND 36 OR ABS(kf_a.t) NOT BETWEEN 2 AND 36 THEN NULL ELSE "
+            "(LIST_TRANSFORM([{{'neg': LEFT(kf_a.s, 1) = '-', 't': kf_a.t, 'u': LEAST(LIST_REDUCE("
+            "(LIST_TRANSFORM([LIST_TRANSFORM(STRING_SPLIT(UPPER(CASE WHEN LEFT(kf_a.s, 1) = '-' THEN SUBSTR(kf_a.s, 2) "
+            "ELSE kf_a.s END), ''), kf_c -> INSTR('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', kf_c) - 1)], "
+            "kf_d -> kf_d[1:COALESCE(LIST_POSITION(LIST_TRANSFORM(kf_d, kf_x -> kf_x < 0 OR kf_x >= kf_a.f), TRUE), "
+            "LEN(kf_d) + 1) - 1]))[1], (kf_n, kf_x) -> LEAST(kf_n * kf_a.f + kf_x, 18446744073709551616), "
+            "0::HUGEINT), 18446744073709551615)}}], "
+            "kf_b -> (LIST_TRANSFORM([CASE WHEN kf_b.t > 0 THEN {{'minus': FALSE, 'v': CASE WHEN NOT kf_b.neg THEN kf_b.u "
+            "WHEN kf_b.u >= 9223372036854775808 THEN 18446744073709551615 "
+            "ELSE (18446744073709551616 - kf_b.u) % 18446744073709551616 END}} "
+            "ELSE {{'minus': kf_b.neg OR kf_b.u >= 9223372036854775808, 'v': CASE WHEN kf_b.u >= 9223372036854775808 "
+            "THEN 18446744073709551616 - kf_b.u ELSE kf_b.u END}} END], "
+            "kf_r -> CASE WHEN kf_r.minus THEN '-' ELSE '' END || CASE WHEN kf_r.v < 9223372036854775808 "
+            "THEN TO_BASE(kf_r.v::BIGINT, ABS(kf_b.t)) ELSE TO_BASE((kf_r.v // ABS(kf_b.t))::BIGINT, ABS(kf_b.t)) || "
+            "SUBSTR('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', (kf_r.v % ABS(kf_b.t))::INTEGER + 1, 1) END))[1]))[1] END))[1]",
+    # Spark's American Soundex: the first letter, then up to three codes, skipping vowels, H and W
+    # (which don't break a run), and repeats; a non-letter breaks a run. Text that doesn't start
+    # with a letter comes back as it is.
+    "SOUNDEX": "(LIST_TRANSFORM([CAST({0} AS VARCHAR)], kf_s -> CASE WHEN kf_s IS NULL THEN NULL WHEN kf_s = '' THEN '' "
+               "WHEN NOT REGEXP_MATCHES(LEFT(kf_s, 1), '^[A-Za-z]$') THEN kf_s ELSE UPPER(LEFT(kf_s, 1)) || "
+               "(LIST_TRANSFORM([STRING_SPLIT(TRANSLATE(UPPER(LEFT(kf_s, 1)), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', "
+               "'01230127022455012623017202') || REGEXP_REPLACE(REPLACE(TRANSLATE(UPPER(SUBSTR(kf_s, 2)), "
+               "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '01230127022455012623017202'), '7', ''), '[^0-9]', '0', 'g'), '')], "
+               "kf_c -> RPAD(LEFT(ARRAY_TO_STRING(LIST_FILTER(kf_c[2:], (kf_v, kf_i) -> kf_v <> '0' AND kf_v <> kf_c[kf_i]), "
+               "''), 3), 3, '0')))[1] END))[1]",
 }
+# format_number(x, d) with a whole number of places: decimals round half-even first, as Spark's
+# BigDecimal does; doubles are formatted as they are, as Java's DecimalFormat does.
+_FORMAT_NUMBER = ("CASE WHEN TYPEOF({0}) LIKE 'DECIMAL%' THEN FORMAT('{{:,.{1}f}}', CAST(ROUND_EVEN({0}, {1}) AS DOUBLE)) "
+                  "ELSE FORMAT('{{:,.{1}f}}', CAST({0} AS DOUBLE)) END")
+# exists(array, x -> ...): true if any is true, else NULL if any is NULL, else false (Spark's
+# three-valued exists).
+_EXISTS = ("(LIST_TRANSFORM([LIST_TRANSFORM({0}, {1})], kf_t -> CASE WHEN kf_t IS NULL THEN NULL "
+           "WHEN LIST_BOOL_OR(kf_t) THEN TRUE WHEN LIST_POSITION(kf_t, NULL) IS NOT NULL THEN NULL ELSE FALSE END))[1]")
 _DISTINCT = "LIST_FILTER({0}, (kf_v, kf_i) -> LIST_POSITION({0}, kf_v) = kf_i)"
 # array_intersect and array_except: first-seen order of the first array, each value once, NULL included.
 _INTERSECT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
               "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NOT NULL) END")
 _EXCEPT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER({0}, (kf_v, kf_i) -> "
            "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NULL) END")
+
+
+def _arity(template: str) -> int:
+    return len(set(re.findall(r"(?<!\{)\{(\d)\}", template)))
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
@@ -122,10 +167,12 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     dayofweek counts Sunday as 1, sort_array puts NULL first ascending and last descending,
     array_sort puts NULL last, percentile interpolates, array_distinct, array_union, array_intersect
     and array_except keep first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
-    next_day take text, and pmod moves a negative remainder by the divisor. Deepest first, so a rewritten argument is
+    next_day take text, pmod moves a negative remainder by the divisor, and bround, conv, soundex,
+    format_number and exists (with a lambda) are written in DuckDB SQL (#1168). Deepest first, so a rewritten argument is
     written out already rewritten."""
     found = list(statement.find_all(exp.DayOfWeek, exp.SortArray, exp.ArraySort, exp.Quantile, exp.ArrayDistinct,
-                                    exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Anonymous))
+                                    exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
+                                    exp.Anonymous))
     for node in reversed(found):
         if isinstance(node, exp.DayOfWeek):
             node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
@@ -150,8 +197,22 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
             node.replace(_from_template(_EXCEPT, [node.this, node.expression]))
         elif isinstance(node, (exp.LastDay, exp.NextDay)):
             node.set("this", exp.cast(node.this, exp.DataType.Type.DATE))
-        elif isinstance(node, exp.Anonymous) and str(node.this).upper() in _ANON_TEMPLATES and len(node.expressions) == 2:
-            node.replace(_from_template(_ANON_TEMPLATES[str(node.this).upper()], list(node.expressions)))
+        elif isinstance(node, exp.Soundex):
+            node.replace(_from_template(_ANON_TEMPLATES["SOUNDEX"], [node.this]))
+        elif isinstance(node, exp.Exists) and isinstance(node.expression, exp.Lambda):
+            node.replace(_from_template(_EXISTS, [node.this, node.expression]))
+        elif isinstance(node, exp.Anonymous):
+            name, args = str(node.this).upper(), list(node.expressions)
+            if name == "BROUND" and len(args) == 1:
+                args.append(exp.Literal.number(0))
+            if name == "FORMAT_NUMBER" and len(args) == 2:
+                places = args[1]
+                if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
+                    node.replace(exp.Null())
+                elif places.is_int:
+                    node.replace(_from_template(_FORMAT_NUMBER.replace("{1}", str(int(places.name))), [args[0]]))
+            elif name in _ANON_TEMPLATES and len(args) == _arity(_ANON_TEMPLATES[name]):
+                node.replace(_from_template(_ANON_TEMPLATES[name], args))
     return statement
 
 

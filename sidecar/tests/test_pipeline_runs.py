@@ -528,6 +528,36 @@ def test_store_marks_runs_left_going_as_interrupted(tmp_path):
     assert [a["state"] for a in record["activities"]] == ["interrupted", "succeeded"]
 
 
+def test_a_save_or_read_refused_for_a_moment_is_tried_again(tmp_path, monkeypatch):
+    """Windows: while a reader has the record open, swapping the new copy in fails with WinError 5,
+    and opening it just as a save swaps it fails the same way. Neither may lose the record."""
+    import os
+    from pathlib import Path as P
+    store = RunStore(tmp_path)
+    store.save({"run_id": "aaaa", "state": "running"})
+    real_replace, real_read = os.replace, P.read_text
+    refused = {"replace": 2, "read": 2}
+
+    def replace(src, dst):
+        if refused["replace"]:
+            refused["replace"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    def read_text(self, *a, **kw):
+        if self.suffix == ".json" and refused["read"]:
+            refused["read"] -= 1
+            raise PermissionError(5, "Access is denied")
+        return real_read(self, *a, **kw)
+
+    monkeypatch.setattr(os, "replace", replace)
+    store.save({"run_id": "aaaa", "state": "succeeded"})
+    monkeypatch.setattr(P, "read_text", read_text)
+    assert store.get("aaaa")["state"] == "succeeded"
+    assert refused == {"replace": 0, "read": 0}
+    assert [p.name for p in tmp_path.iterdir()] == ["aaaa.json"]  # no temporary file left
+
+
 class Svc(PipelineMixin, PipelineRunMixin):
     def __init__(self, root):
         self.root = root

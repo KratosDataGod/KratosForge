@@ -19,17 +19,6 @@ from fabric_desktop.git_service import GitMixin
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 
 
-@pytest.fixture(autouse=True)
-def git_home(tmp_path, monkeypatch):
-    """A Git configuration of its own, so the person's settings never leak into a test."""
-    cfg = tmp_path / "gitconfig"
-    cfg.write_text("[user]\n\tname = Test Person\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"
-                   "[core]\n\tautocrlf = false\n[protocol \"file\"]\n\tallow = always\n", encoding="utf-8")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    return cfg
-
-
 def raw(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, check=True, text=True).stdout
 
@@ -41,13 +30,41 @@ def write(root: Path, rel: str, text: str) -> Path:
     return p
 
 
+def _config(folder: Path) -> Path:
+    cfg = folder / "gitconfig"
+    cfg.write_text("[user]\n\tname = Test Person\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"
+                   "[core]\n\tautocrlf = false\n[protocol \"file\"]\n\tallow = always\n", encoding="utf-8")
+    return cfg
+
+
+@pytest.fixture(autouse=True)
+def git_home(tmp_path, monkeypatch):
+    """A Git configuration of its own, so the person's settings never leak into a test."""
+    cfg = _config(tmp_path)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    return cfg
+
+
+@pytest.fixture(scope="module")
+def first_commit(tmp_path_factory) -> Path:
+    """One repository with its first commit, made once per module and copied for each test: a slow
+    runner once took over 60 s (Git's time limit) for one test's own git init."""
+    folder = tmp_path_factory.mktemp("template")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("GIT_CONFIG_GLOBAL", str(_config(folder)))
+        mp.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        r = init(folder / "project")
+        write(r.root, "entities/orders.toml", "[load]\nmode = \"scd1\"\nkeys = [\"order_id\"]\n")
+        r.stage_all()
+        r.commit("First commit")
+    return r.root
+
+
 @pytest.fixture
-def repo(tmp_path) -> Repository:
-    r = init(tmp_path / "project")
-    write(r.root, "entities/orders.toml", "[load]\nmode = \"scd1\"\nkeys = [\"order_id\"]\n")
-    r.stage_all()
-    r.commit("First commit")
-    return r
+def repo(tmp_path, first_commit) -> Repository:
+    shutil.copytree(first_commit, tmp_path / "project")
+    return Repository(tmp_path / "project")
 
 
 @pytest.fixture

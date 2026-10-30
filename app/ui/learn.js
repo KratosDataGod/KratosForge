@@ -145,10 +145,15 @@ function learnGuidancePicker() {
 function learnAsk() {
   const key = "learn_mode";
   if (!previewShown() || state.settings?.[key]?.source !== "default") return null;
-  const choose = async (value) => { if (await saveSettings({ [key]: value })) render(); };
-  const say = { focus: "Findings and their About link, as today. No suggestions.",
+  // The card goes when the page renders again, so keyboard focus moves on to the guidance picker.
+  const choose = async (value) => {
+    if (!(await saveSettings({ [key]: value }))) return;
+    render();  // Learn's head, with the picker, is built before the lessons are read
+    document.querySelector(".learn-guidance select")?.focus();
+  };
+  const say = { focus: "Findings and their About link. No suggestions.",
     guided: "Each finding also links the Learn lesson that covers it.",
-    learning: "Guided, plus a suggested next lesson here on Learn." };
+    learning: "Everything in Guided, plus a suggested next lesson on Learn." };
   const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
     h("input", { type: "radio", name: "learn-ask", value, checked: value === "focus" ? true : null }),
     h("span", {}, h("b", {}, label), value === "focus" ? h("span", { class: "muted-text small" }, " · the default") : null,

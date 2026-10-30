@@ -69,8 +69,8 @@ while **Show preview features** is on.
 
 The first time you open Learn, a card at the top of Home asks **Would you like KratosForge to help you
 improve your development skills?** with the three modes and Focus picked. **Save** keeps the mode you
-picked; **Skip** keeps Focus. Either way it isn't asked again, and choosing a mode with **Learning
-guidance** answers it too. It isn't asked when an organization policy sets the mode.
+picked; **Skip** keeps Focus. Either way it isn't asked again, and choosing another mode with
+**Learning guidance** answers it too. It isn't asked when an organization policy sets the mode.
 
 ## In your profile
 

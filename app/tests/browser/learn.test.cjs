@@ -141,6 +141,7 @@ test("The first visit asks once how much guidance you'd like: Save keeps the cho
   await page().locator(".learn-ask button", { hasText: "Save" }).click();
   await page().waitForFunction(() => state.settings.learn_mode?.value === "guided" && state.settings.learn_mode.source === "user");
   await page().locator(".learn-ask").waitFor({ state: "detached" });
+  assert.ok(await page().evaluate(() => document.activeElement?.matches(".learn-guidance select")), "keyboard focus moves to the picker");
   await page().evaluate(() => saveSettings({ learn_mode: null }).then(() => render()));  // as if never asked
   await page().locator(".learn-ask").waitFor();
   await page().locator(".learn-ask button", { hasText: "Skip" }).click();

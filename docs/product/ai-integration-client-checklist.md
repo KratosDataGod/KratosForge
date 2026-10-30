@@ -27,14 +27,14 @@ What the automated tests already cover is listed at the end; this checklist cove
 | 10 | Ask it to review a notebook, using the `review_notebook` prompt if the tool shows prompts | It calls `fabric_desktop_validate_notebook`. Note whether the tool shows MCP prompts and how |
 | 11 | Ask it to read the resource `fabric-desktop://capabilities`, if the tool shows resources | The capability list comes back. Note whether the tool shows resources |
 | 12 | Ask it to start a long query, then cancel it in the tool | The execution shows **cancelled** in Recent activity |
-| 13 | **Revoke** the tool in Settings, then ask anything | It is refused at once |
+| 13 | **Revoke** the tool in Settings, then ask anything | It is refused at once: only `fabric_desktop_list_capabilities` still answers, and it says the tool isn't connected |
 | 14 | Settings > Integrations > Recent activity, then **Check the trail** | Every request above is listed with the right decision, and the trail check passes |
 
 For the **local HTTP API** (scripts and tools that call HTTP), do steps 2 to 9 and 13 with `curl` or the tool, using the token shown when you added it, and check that a request without the token gets 401.
 
 ## Record the result
 
-Add or change the tool's row in [compatibility](ai-integration-compatibility.md): status **Tested** (or **Partly works** with what failed), transport, the tool's version, the KratosForge build, the date, and the step numbers that failed, if any. Open an issue for each failure with what the tool did.
+Add or change the tool's row in [compatibility](ai-integration-compatibility.md): status **Tested** (or **Partly works** with what failed, or **Partly tested** with the steps not run yet and why), transport, the tool's version, the KratosForge build, the date, and the step numbers that failed, if any. Add the run, step by step, under [checklist runs](ai-integration-compatibility.md#checklist-runs). Open an issue for each failure with what the tool did.
 
 ## What the automated tests cover
 

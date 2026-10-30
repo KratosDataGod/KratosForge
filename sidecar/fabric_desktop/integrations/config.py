@@ -51,12 +51,21 @@ def write_cli_launcher(root: Path) -> Path:
     return _write_script(cli_launcher_path(root), "")
 
 
+def _script_text(path: Path, command: str, windows: bool = os.name == "nt") -> str:
+    if windows:
+        # Some AI tools start a server with only a short list of environment variables (Codex CLI
+        # does), and without LOCALAPPDATA the engine would look for its data, the tool's id and the
+        # sign-in somewhere else (service.data_dir, auth). The launcher sits in <data>\\bin, so when
+        # the variable is missing it puts back the folder above <data>. A path cmd would expand is left out.
+        base = str(path.parent.parent.parent)
+        restore = "" if any(c in base for c in '%"!^') else f'if not defined LOCALAPPDATA set "LOCALAPPDATA={base}"\r\n'
+        return f'@echo off\r\n{restore}"{sys.executable}" -m fabric_desktop.cli {command}%*\r\n'
+    return f'#!/bin/sh\nexec "{sys.executable}" -m fabric_desktop.cli {command}"$@"\n'
+
+
 def _write_script(path: Path, command: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if os.name == "nt":
-        text = f'@echo off\r\n"{sys.executable}" -m fabric_desktop.cli {command}%*\r\n'
-    else:
-        text = f'#!/bin/sh\nexec "{sys.executable}" -m fabric_desktop.cli {command}"$@"\n'
+    text = _script_text(path, command)
     if not path.exists() or path.read_text(encoding="utf-8", errors="replace") != text:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(text, encoding="utf-8", newline="")

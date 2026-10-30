@@ -256,8 +256,9 @@ class Authenticator:
                                          and int(fresh.get("expires_in") or min_seconds) < min_seconds)
                     result = fresh
         if not result and not self.interactive:
-            raise RuntimeError("Your Fabric sign-in has expired. Open KratosForge and sign in, "
-                               "and scheduled runs will work again.")
+            # Said to scheduled runs and to AI tools alike (both are headless): never signed in, or expired.
+            raise RuntimeError("KratosForge isn't signed in to Fabric, or the sign-in has expired. Open KratosForge "
+                               "and sign in, then try again.")
         if not result:
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle())

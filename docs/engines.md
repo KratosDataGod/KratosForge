@@ -41,7 +41,7 @@ APIs and clients, and stay Preview until they have.
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
 | Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
-| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
@@ -146,6 +146,13 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
+- **Whole results, to compare engines.** When a comparison asks for the whole result, the cell's last
+  statement runs with a row limit one above the rows asked for, and every result chunk is read in
+  order. Values are typed from the warehouse's schema: numbers, decimals, booleans, strings, dates
+  and timestamps (read as UTC, kept without a zone, as the Fabric Spark engine keeps them). Arrays,
+  maps, structs, binary and intervals come back as text, and the output names those columns. More
+  rows than asked for is an error, never a cut table. The rows are copied onto this PC, so a
+  comparison asks for them only after its own confirm.
 
 ### Databricks SQL functions on this PC
 

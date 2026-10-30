@@ -622,7 +622,7 @@ class ProveMixin:
             "check": check, "rules": rules,
             "parameters": parameters, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
-            "fabric": {"status": "pending", "engine": "python"},
+            "fabric": {"status": "pending", "engine": check.get("engine", "python")},
             "inputs": {}, "shared": {}, "tables": [], "verdict": None, "scorecard": None, "receipt_id": None,
             "_cancel": False, "_suffixes": suffixes}
         self._proof_state()[record["id"]] = record
@@ -802,10 +802,14 @@ class ProveMixin:
         """Publish the proof copy (its own item), run it on the workspace's capacity, read its log."""
         f = record["fabric"]
         f["status"] = "publishing"
-        first, last = proof.fabric_cells(config, modules)
-        started = time.monotonic()
         schemas = not config["flat"]
-        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
+        spark = proof.runs_spark(cells)
+        first, last = proof.fabric_cells(config, modules, {
+            "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+            "name": lakehouse_ref.get("name", ""), "schemas": schemas} if spark else None)
+        f["engine"] = "spark" if spark else "python"
+        started = time.monotonic()
+        ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas, sql_calls=spark)).encode()
         item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
@@ -819,7 +823,7 @@ class ProveMixin:
         f.update(status="running", job_id=job_id, item_id=item["id"], item_name=item_name,
                  workspace_id=ws["workspace_id"], url=url, submitted_at=_now())
         self._log_fabric_run({"kind": "Notebook run", "name": item_name, "workspace_id": ws["workspace_id"],  # type: ignore[attr-defined]
-                              "workspace_name": ws["workspace_name"], "engine": "python", "item_id": item["id"],
+                              "workspace_name": ws["workspace_name"], "engine": f["engine"], "item_id": item["id"],
                               "job_id": job_id, "url": url, "proof": record["id"]})
         job: dict[str, Any] = {}
         while time.monotonic() - started < MAX_FABRIC_SECONDS:

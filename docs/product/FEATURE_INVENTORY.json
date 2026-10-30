@@ -2761,10 +2761,12 @@
         "sidecar/fabric_desktop/prove_service.py",
         "sidecar/fabric_desktop/proof.py",
         "sidecar/fabric_desktop/proof_runtime.py",
+        "sidecar/fabric_desktop/proof_spark.py",
         "app/ui/prove.js"
       ],
       "tests": [
-        "sidecar/tests/test_prove.py"
+        "sidecar/tests/test_prove.py",
+        "sidecar/tests/test_prove_spark.py"
       ],
       "docs": [
         "docs/prove/how-proofs-work.md",
@@ -2775,7 +2777,7 @@
         "preview": true
       },
       "limitations": [
-        "Spark notebooks blocked",
+        "Spark notebooks proven with a real Spark standing in for Fabric's, not yet on a live tenant",
         "One proof at a time",
         "TZ fixed only where time.tzset exists (not Windows)"
       ],

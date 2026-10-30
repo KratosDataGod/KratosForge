@@ -291,6 +291,8 @@ function learnFindingActions(f, ctx) {
   };
   const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
   const row = h("div", { class: "row learn-actions" });
+  // Try the fix (GD-02), at every level: only a finding the engine found a safe rewrite for has one.
+  if (f.fix && ctx.fix) row.append(btn("Try the fix", null, () => toggle("fix"), `tool small outline${open === "fix" ? " toggled" : ""}`, pressed("fix")));
   // Professional: the guide's first sentence, so why it matters is there without a press.
   const why = mode === "professional" && guide?.why ? h("p", { class: "learn-why muted-text small" }, learnFirstSentence(guide.why)) : null;
   if (guided && guide) {
@@ -321,7 +323,8 @@ function learnFindingActions(f, ctx) {
     wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
     row.append(wrap);
   }
-  if (!guided || !guide || !open) return why ? [why, row] : row;
+  if (open === "fix" && f.fix && ctx.fix) return [why, row, learnFixPreview(f, ctx, key)];
+  if (!guided || !guide || !open || open === "fix") return why ? [why, row] : row;
   const detail = open === "explain"
     ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
@@ -333,6 +336,100 @@ function learnFindingActions(f, ctx) {
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
   return [why, row, detail];
+}
+
+// ---------- Try the fix (GD-02, from the approved mockup) ----------
+
+// The engine offers a rewrite only where it keeps the result (learn/fixes.py), for the rules below.
+// Nothing changes until Apply, which is one edit in the editor, undone with Ctrl+Z. Compare runs the
+// statement as written and as fixed, read-only, where the page runs SQL, and compares the rows on this
+// PC (learn_fix_compare): the page's ctx.fix says whether it can (a warehouse or SQL analytics endpoint).
+const LEARN_FIX_RULES = ["SQ002", "SQ005"];
+const learnFixCompare = new Map();  // finding key -> {state: "running"|"done"|"failed", result, error}
+
+// Gives each finding the engine found a safe fix for its .fix. provider: the editor's completion
+// provider (tables(), cachedColumns(t), columns(t)), so the engine sees the catalog the page has.
+async function learnPrepareFixes(rows, text, target, provider) {
+  if (!previewShown() || !provider || !(rows || []).some((f) => LEARN_FIX_RULES.includes(f.rule_id))) return rows;
+  const catalog = () => {
+    const tables = provider.tables() || [];
+    const columns = {};
+    tables.forEach((t) => { const c = provider.cachedColumns(t); if (c?.length) columns[`${t.schema}.${t.name}`] = c; });
+    return { tables, columns };
+  };
+  const ask = () => rpc("learn_fixes", { query: text, target, catalog: catalog(),
+    findings: rows.map((f) => ({ rule_id: f.rule_id, line: f.line, col: f.col })) });
+  try {
+    let out = await ask();
+    if (out.needs?.length) {  // column types the page hasn't read yet: read them as autocomplete does, then ask again
+      await Promise.all(out.needs.map((t) => provider.columns(t).catch(() => [])));
+      out = await ask();
+    }
+    (out.fixes || []).forEach((fx) => { if (rows[fx.index]) rows[fx.index].fix = fx; });
+  } catch { /* no fixes: the findings show as they are */ }
+  return rows;
+}
+
+function learnFixPreview(f, ctx, key) {
+  const fx = f.fix;
+  const cmp = learnFixCompare.get(key);
+  const focusKey = (what) => learnFocusKey(ctx, f, what);
+  const compare = async () => {
+    learnFixCompare.set(key, { state: "running" });
+    learnRedraw(ctx, focusKey("compare"));
+    try {
+      const result = await ctx.fix.compare(f);
+      if (result) learnFixCompare.set(key, { state: "done", result });
+      else learnFixCompare.delete(key);  // the person said no to running it, or pressed Stop
+    } catch (err) {
+      learnFixCompare.set(key, { state: "failed", error: friendlyError(err).text });
+    }
+    learnRedraw(ctx, focusKey("apply"));
+  };
+  const close = () => {
+    if (cmp?.state === "running") ctx.fix.stop();
+    learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix"));
+  };
+  const running = cmp?.state === "running";
+  const apply = () => { if (ctx.fix.apply(f)) { learnDetail.delete(key); learnFixCompare.delete(key); } };
+  const canCompare = ctx.fix.canCompare(f);
+  const done = cmp?.state === "done";
+  return h("div", { class: "learn-detail learn-fix" },
+    h("b", {}, "Preview · nothing has changed yet"),
+    h("span", { class: "muted-text small" }, "Now"), h("pre", { class: "learn-code before" }, fx.before),
+    h("span", { class: "muted-text small" }, "With the fix"), h("pre", { class: "learn-code after" }, fx.text),
+    h("span", {}, fx.why_safe),
+    cmp ? learnFixResult(cmp, ctx) : null,
+    h("div", { class: "row" },
+      canCompare && !done && !running ? btn("Compare before applying", null, compare, "tool small primary", { "data-learn-focus": focusKey("compare") }) : null,
+      running ? btn("Stop", null, () => ctx.fix.stop(), "tool small outline", { "data-learn-focus": focusKey("compare") }) : null,
+      btn("Apply", null, apply, `tool small${canCompare && !done ? " outline" : " primary"}`, { disabled: running ? true : null, "data-learn-focus": focusKey("apply") }),
+      btn("Cancel", null, close, "tool small outline")),
+    h("span", { class: "muted-text small" }, canCompare
+      ? "Apply is one edit you can undo with Ctrl+Z. Compare runs both versions, read-only, and changes nothing."
+      : `Apply is one edit you can undo with Ctrl+Z. ${ctx.fix.whyNoCompare(f)}`),
+    h("div", { class: "learn-principle" }, h("b", {}, "The principle"), h("span", {}, fx.principle)));
+}
+
+// What Compare found: the same rows or not, each run's measured time, and what the comparison covered.
+function learnFixResult(cmp, ctx) {
+  if (cmp.state === "running") return h("p", { class: "muted-text small", role: "status" }, `Running both versions ${ctx.fix.where}...`);
+  if (cmp.state === "failed") return h("p", { class: "output error", role: "status" }, `Couldn't compare: ${cmp.error}`);
+  const r = cmp.result;
+  const same = r.result === "match";
+  const secs = (v) => (typeof v === "number" ? `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} s` : "not available");
+  const rows = (n) => `${n.toLocaleString()} row${n === 1 ? "" : "s"}`;
+  return h("div", { class: "learn-fix-result", role: "status" },
+    h("b", {}, `Compared ${ctx.fix.where} · read-only`),
+    h("div", { class: "row" }, h("span", { class: `pill-s ${same ? "pass" : "fail"}` }, same ? "Same rows" : "Different rows"),
+      h("span", {}, same
+        ? `${rows(r.rows.after)}, ${r.level === "complete" ? "every row compared" : "counts and a checksum of every row compared"}`
+        : `${rows(r.rows.before)} now, ${rows(r.rows.after)} with the fix. Don't apply it before finding out why.`)),
+    h("table", { class: "learn-fix-times" },
+      h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "Now"), h("th", {}, "With the fix"))),
+      h("tbody", {}, h("tr", {}, h("th", { scope: "row" }, "Time · measured"), h("td", {}, secs(r.seconds.before)), h("td", {}, secs(r.seconds.after))))),
+    h("span", { class: "muted-text small" }, "One run each, the fixed one second, so data cached by the first can favor it. Times vary between runs."),
+    (r.limitations || []).map((l) => h("span", { class: "muted-text small" }, l)));
 }
 
 // "Why: the engine skips... Wrapped in a function..." -> its first sentence, without Markdown marks.

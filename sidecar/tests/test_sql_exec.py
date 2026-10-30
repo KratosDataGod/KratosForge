@@ -179,6 +179,15 @@ def test_lakehouse_tables_page_with_nulls_types_and_repeated_names(runs, lake):
     assert not page["has_next"] and not page["has_previous"]
 
 
+def test_table_gives_the_whole_result_with_unique_names_for_compare(runs, lake):
+    status = wait(runs, runs.start("SELECT id, country, amount, id FROM sales ORDER BY id", lake)["id"])
+    st, table = runs.table(status["id"])
+    assert st["state"] == "completed" and table.num_rows == 3 and len(set(table.column_names)) == 4
+    failed = wait(runs, runs.start("SELECT * FROM nowhere", lake)["id"])
+    with pytest.raises(ValueError, match="no rows to compare"):
+        runs.table(failed["id"])
+
+
 def test_pages_move_forward_and_back_without_counting(runs, lake):
     run = wait(runs, runs.start("SELECT range AS n FROM range(2500)", lake)["id"])
     first = runs.page(run["id"])

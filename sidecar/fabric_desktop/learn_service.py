@@ -12,14 +12,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .learn import content, dismissals, guides, labs
+from . import verify
+from .learn import content, dismissals, fixes, guides, labs
 from .redact import describe
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
            "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "learn_rule_guides", "learn_dismissals",
-           "learn_dismiss", "learn_undismiss"}
+           "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare"}
 
 _SUMMARY = ("id", "kind", "title", "path", "level", "minutes", "objectives", "prerequisites", "platforms", "engines",
             "rules", "docs", "version", "status")
@@ -105,6 +106,26 @@ class LearnMixin:
         if (named.get(rule_id) or {}).get("enabled"):
             raise ValueError(f"Your organization's policy checks {rule_id}, so it can't be dismissed")
         return dismissals.add(self.root, rule_id, str(scope), str(where or ""), str(line or ""))  # type: ignore[attr-defined]
+
+    def learn_fixes(self, query: str, target: str = "warehouse", findings: list[dict[str, Any]] | None = None,
+                    catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Try the fix (GD-02): the rewrites that keep ``query``'s result, for the findings that have one
+        (learn/fixes.py). Reads the SQL and the catalog the page sent; nothing runs or changes."""
+        return fixes.propose(query, str(target), findings or [], catalog)
+
+    def learn_fix_compare(self, before: str, after: str) -> dict[str, Any]:
+        """Compare (GD-02): the rows of two runs that only read, the SQL as written and as fixed, with
+        verify.py, and each run's own time. Both runs already happened; this reads their results on
+        this PC and runs nothing."""
+        (a, ta), (b, tb) = self.sql_runs.table(str(before)), self.sql_runs.table(str(after))  # type: ignore[attr-defined]
+        if a.get("change") or b.get("change") or a.get("plan") or b.get("plan"):
+            raise ValueError("Compare reads the results of two queries that only read.")
+        out = verify.compare(ta, tb)
+        return {"result": out["result"], "level": out.get("level", "complete"), "rows": {"before": out["pc"]["rows"],
+                "after": out["fabric"]["rows"]}, "limitations": out["limitations"],
+                "columns": {"only_before": out["columns"]["only_pc"], "only_after": out["columns"]["only_fabric"],
+                            "types": out["columns"]["types"]},
+                "seconds": {"before": a.get("seconds"), "after": b.get("seconds")}, "target": a.get("target")}
 
     def learn_undismiss(self, dismissal_id: str | None = None) -> list[dict[str, Any]]:
         """Show a dismissed finding again, or every one when no id is given."""

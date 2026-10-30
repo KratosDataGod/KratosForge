@@ -691,6 +691,18 @@ class SqlExecutions:
                 "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < run.rows}
 
+    def table(self, run_id: str) -> tuple[dict[str, Any], pa.Table]:
+        """A completed run's status and its whole result, from its snapshot (Compare, GD-02). Columns
+        with the same name get the export's unique names."""
+        run = self._get(run_id)
+        if run.state != "completed":
+            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
+        if not run.snapshot.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
+        with pa.memory_map(str(run.snapshot)) as source:
+            table = pa.ipc.open_file(source).read_all()
+        return run.status(), table.rename_columns(_unique_names(table.schema).names)
+
     # ---- export
 
     def export(self, run_id: str, fmt: str = "csv", name: str = "") -> dict[str, Any]:

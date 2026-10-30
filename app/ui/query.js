@@ -208,10 +208,11 @@ function renderQuery() {
 
   const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
   p.editor?.destroy();
+  const provider = wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); });
   const editor = p.editor = createSqlEditor({
     doc: tab.sql,
     dialect: tab.dialect,
-    provider: wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
+    provider,
     on: {
       change: setSql,
       run: () => run(),
@@ -243,6 +244,7 @@ function renderQuery() {
       try {
         const out = await rpc("sql_practices", { query: text, target: dialect, settings: pol.settings || {} });
         await learnPrepareFindings(out.findings, (f) => text.split("\n")[f.line - 1]);  // learn.js: for Dismiss
+        await learnPrepareFixes(out.findings, text, dialect, provider);  // learn.js: Try the fix
         return { ...out, settings: pol.settings || {}, policies: pol.policies || [], note: pol.note || "" };
       } catch (err) {
         return failed(err);
@@ -669,11 +671,69 @@ function renderQuery() {
     onclick: () => showPane("practices") });
   // The findings to show (learn.js): dismissed ones leave the list and the counts; a rule a policy names stays.
   function practiceSplit(r) {
-    const ctx = { where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat() };
+    const ctx = { where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat(), fix: fixActions };
     const { shown, hidden } = learnSplitFindings(r?.findings, ctx.where, ctx.required);
     const counts = Object.fromEntries(["Error", "Warning", "Info"].map((s) => [s, shown.filter((f) => f.severity === s).length]));
     return { ctx, shown, hidden, counts };
   }
+  // Try the fix (learn.js, GD-02). Apply is one edit in the editor, undone with Ctrl+Z. Compare runs
+  // the statement as written and as fixed on the warehouse or SQL analytics endpoint, one after the
+  // other, after a confirm each time: both only read, and both use capacity. A lakehouse tab's T-SQL
+  // doesn't run on this PC, so it has no Compare.
+  const fixActions = {
+    where: "in Fabric",
+    apply(f) {
+      const text = editor.text();
+      if (text !== tab.compatText) { toast("The SQL changed since this check. The findings update in a moment."); return false; }
+      editor.view.dispatch({ changes: { from: sqlUtf16Offset(text, f.fix.start), to: sqlUtf16Offset(text, f.fix.end), insert: f.fix.text } });
+      editor.view.focus();
+      toast(`Applied the fix for ${f.rule_id}. Ctrl+Z undoes it.`);
+      return true;
+    },
+    canCompare: (f) => wh && !!f.fix.compare,
+    whyNoCompare: (f) => (!wh ? "Compare runs on a warehouse or SQL analytics endpoint's page; T-SQL doesn't run on this PC."
+      : "Compare needs a statement that only reads, such as a SELECT or a view's query."),
+    async compare(f) {
+      const text = editor.text();
+      if (text !== tab.compatText) throw new Error("The SQL changed since this check. Try the fix again once the findings update.");
+      const ok = await confirmDialog(`Run both versions in Fabric on ${ref.name}?`,
+        `Compare runs the query as written, then as fixed, on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"}. ` +
+        "Both only read, and both use capacity. Nothing in the editor changes until you Apply.", "Run both");
+      if (!ok) return null;
+      const job = fixActions.job = { id: null, stopped: false };
+      // Stop, or leaving this tab, ends the run in Fabric (both use capacity) and polls no more.
+      const one = async (query) => {
+        let st = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql",
+          warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } });
+        job.id = st.id;
+        let wait = 150;
+        while (["queued", "running", "cancelling"].includes(st.state)) {
+          if (!job.stopped && !here()) fixActions.stop();
+          if (job.stopped) { rpc("sql_cancel", { execution: st.id }).catch(() => {}); return null; }
+          await new Promise((r) => setTimeout(r, wait));
+          wait = Math.min(1000, wait * 1.5);
+          st = await rpc("sql_status", { execution: st.id });
+        }
+        if (job.stopped) return null;
+        if (st.state !== "completed") throw new Error(st.error || `The query ${SQL_STATE[st.state]?.[1].toLowerCase() || st.state}.`);
+        return st;
+      };
+      try {
+        const before = await one(f.fix.compare.before);
+        const after = before && await one(f.fix.compare.after);
+        return after ? await rpc("learn_fix_compare", { before: before.id, after: after.id }) : null;
+      } finally {
+        if (fixActions.job === job) fixActions.job = null;
+      }
+    },
+    stop() {
+      const job = fixActions.job;
+      if (!job || job.stopped) return;
+      job.stopped = true;
+      if (job.id) rpc("sql_cancel", { execution: job.id }).catch(() => {});
+    },
+    job: null,
+  };
   function drawPracticesChip() {
     const r = tab.practices;
     practicesChip.hidden = !SQL_PRACTICE_TARGETS.includes(tab.dialect) || !previewShown();  // Preview: hidden with the previews
@@ -877,7 +937,11 @@ function renderQuery() {
   };
   // WH-02: the object explorer, from the warehouse's catalog. It lists by itself once runs on this
   // warehouse are confirmed this session; before that it waits for List objects.
-  const loadCatalog = () => whLoadCatalog(ref, () => { if (state.view === "query" && p.ref === ref) p.whRedraw?.(); });
+  // Once the catalog is in, check again: Try the fix needs column types (learnPrepareFixes).
+  const loadCatalog = () => whLoadCatalog(ref, () => {
+    if (state.view === "query" && p.ref === ref) p.whRedraw?.();
+    if (here() && p.catalog?.state === "done") editor.recheck();
+  });
   const whTree = wh ? whExplorer(ref, {
     load: async () => { if (await warehouseRunOk(ref)) loadCatalog(); },
     query: (name) => queryTable(name),
@@ -1002,7 +1066,7 @@ function renderQuery() {
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
       .then((t) => { p.tables = t; })
       .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); } });
+      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) { editor.refresh(); editor.recheck(); } } });
   }
   editor.focus();
 }

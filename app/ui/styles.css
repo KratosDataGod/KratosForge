@@ -2643,3 +2643,11 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
 .learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }
 .learn-why { margin: 4px 0 0; }
+.learn-fix .learn-code { padding-left: 8px; border-left: 3px solid var(--border); }
+.learn-fix .learn-code.before { border-left-color: var(--danger); }
+.learn-fix .learn-code.after { border-left-color: var(--success, #107c10); }
+.learn-fix-result { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.learn-fix-times { border-collapse: collapse; font-size: 13px; }
+.learn-fix-times th, .learn-fix-times td { padding: 2px 16px 2px 0; text-align: left; }
+.learn-fix-times td { font-variant-numeric: tabular-nums; }
+.learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }

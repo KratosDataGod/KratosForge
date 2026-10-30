@@ -8,6 +8,7 @@ A cache that can't be written never fails the call that read the names; a missin
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -44,7 +45,7 @@ def _update(root: Path, lakehouse_id: str, change) -> None:
         try:
             data = load(root, lakehouse_id)
             change(data)
-            jsonfile.write_json(path, data, indent=None)
+            jsonfile.write_text(path, json.dumps(data))  # compact: one line per lakehouse
         except OSError as exc:  # a full or read-only disk: completion just has nothing cached next time
             _log.warning("Couldn't save the table names for completion: %s", exc)
 

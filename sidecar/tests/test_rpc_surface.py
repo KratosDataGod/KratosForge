@@ -121,7 +121,7 @@ REMOVED = ("export_sql_csv", "integrations_approvals", "all_shortcuts", "git_pat
            # methods stay for tests and engine code; a screen that needs one adds it back with its caller.
            "audit_log", "delete_notebook", "git_ops", "git_scan", "meta_diff", "meta_preview", "notebook_diff",
            "workload_actions", "governance_version", "meta_git_status", "usage_reconciliation",
-           # Slice 6: no screen, MCP tool or other caller used these by RPC name; the
+           # Slice 6 (#1153): no screen, MCP tool or other caller used these by RPC name; the
            # tests call the Service methods in-process.
            "optimize_inspect", "risk_acknowledgements", "usage_imports")
 

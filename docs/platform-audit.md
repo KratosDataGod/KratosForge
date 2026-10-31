@@ -75,5 +75,5 @@ To find a request's id, look it up in `catalog.request` by `target`, `requested_
 ## Limits
 
 - Rows written before this release keep their older shape: a sent row without `request`, and a revoke without the grant's fields. Join those on `target` and time.
-- The platform's trail has no hash chain, unlike the app's per-PC log. Its integrity rests on who can write to `SQL_Platform`.
+- The platform's trail is append-only through its functions but isn't tamper-evident (no hash chain, unlike the app's per-PC log): its integrity rests on who can write to `SQL_Platform`, so keep write access to the Platform workspace for the central team.
 - Reading the platform writes no rows, and neither does a refused change.

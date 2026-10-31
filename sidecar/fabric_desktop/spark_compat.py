@@ -263,10 +263,12 @@ def format_number(col: Any, d: int) -> Column:
         return _sql(f"printf('%,.{max(d, 0)}f', {x})")
     exact = f"CAST(printf('%.20f', CAST({x} AS DOUBLE)) AS DECIMAL(38, 20))"
     # Beyond the exact decimals (a double from 1e17, any other number from 1e20) DuckDB's own rounding
-    # prints it, as before.
+    # prints it, as before. NaN and infinity print as DecimalFormat prints them.
     big = f"printf('%,.{d}f', round_even({x}, {d}))"
-    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE WHEN abs({x}) < 1e17 THEN "
-                f"{_half_even(exact, d)} ELSE {big} END) WHEN abs({x}) < 1e20 THEN "
+    special = (f"WHEN isnan(CAST({x} AS DOUBLE)) THEN 'NaN' WHEN isinf(CAST({x} AS DOUBLE)) THEN "
+               f"CASE WHEN {x} < 0 THEN '-∞' ELSE '∞' END")
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE {special} WHEN abs({x}) < 1e17 THEN "
+                f"{_half_even(exact, d)} ELSE {big} END) WHEN abs(CAST({x} AS DOUBLE)) < 1e20 THEN "
                 f"{_half_even(f'CAST({x} AS DECIMAL(38, 18))', d)} ELSE {big} END")
 
 
@@ -277,8 +279,13 @@ def _half_even(v: str, d: int) -> str:
     r = f"round({v}, {d})"  # half away from zero, exact on a decimal
     tie_to_odd = f"abs({v} - {r}) * 2 = {unit} AND CAST({r} * CAST('1e{d}' AS DECIMAL(38, 0)) AS HUGEINT) % 2 <> 0"
     rounded = f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
-    # A negative value that rounds to zero keeps its sign, as DecimalFormat prints it (-0.25 -> -0).
-    return f"CASE WHEN {v} < 0 AND {rounded} = 0 THEN '-' ELSE '' END || printf('%,.{d}f', {rounded})"
+    # Printed from its digits, not through a double, so all of them are exact (BIGINT's largest is
+    # 9,223,372,036,854,775,807). A negative value that rounds to zero keeps its sign, as DecimalFormat
+    # prints it (-0.25 -> -0).
+    whole = f"trunc(abs({rounded}))"
+    places = "" if d == 0 else (f" || '.' || lpad(CAST(CAST((abs({rounded}) - {whole}) * CAST('1e{d}' AS "
+                                f"DECIMAL(38, 0)) AS HUGEINT) AS VARCHAR), {d}, '0')")
+    return (f"CASE WHEN {v} < 0 THEN '-' ELSE '' END || format('{{:,}}', CAST({whole} AS HUGEINT)){places}")
 
 
 def to_json(col: Any, options: Any = None) -> Column:

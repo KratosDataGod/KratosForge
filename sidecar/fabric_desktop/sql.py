@@ -17,6 +17,7 @@ import duckdb
 import pyarrow as pa
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
@@ -539,12 +540,26 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
+class KfDuckDB(DuckDB):
+    """DuckDB's dialect, with every lambda written as ``LAMBDA x : body``. DuckDB 2.0 refuses the old
+    ``x -> body`` ("Deprecated lambda arrow"); DuckDB 1.3 and later read both. sqlglot before 30.25
+    writes the arrow, including in lambdas it makes itself (initcap), unless a lambda is marked
+    ``colon`` (#1341)."""
+
+    class Generator(DuckDB.Generator):  # type: ignore[misc,valid-type]  # sqlglot sets Generator per dialect at run time
+        def lambda_sql(self, expression: exp.Lambda, arrow_sep: str = "->", wrap: bool = True) -> str:
+            if not expression.args.get("colon"):
+                expression = expression.copy()
+                expression.set("colon", True)
+            return super().lambda_sql(expression, arrow_sep=arrow_sep, wrap=wrap)
+
+
 def duckdb_sql(statement: exp.Expr) -> str:
     """``statement`` as DuckDB SQL. sqlglot leaves out what DuckDB has no way to say (such as
     array_sort's comparator) and only logs it, so the query would answer differently from Fabric;
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
-        return statement.sql("duckdb", unsupported_level=sqlglot.ErrorLevel.RAISE)
+        return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "

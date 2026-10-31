@@ -22,6 +22,7 @@ import hashlib
 from typing import Any
 
 import duckdb
+from ..duckdb_rows import first_row, one_row
 
 SIZES = {"S": 1_000, "M": 100_000, "L": 2_000_000}   # orders; the other tables scale with them
 DEFECT_KINDS = ("duplicate_customer", "missing_email", "negative_amount", "future_date", "orphan_store",
@@ -85,7 +86,7 @@ def generate(con: duckdb.DuckDBPyConnection, name: str = "shop", size: str = "S"
     if defects:
         found = _add_defects(con, seed, n_orders, n_customers)
     return {"dataset": name, "size": size, "seed": seed,
-            "tables": {t: con.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in TABLES},  # type: ignore[index]
+            "tables": {t: one_row(con.execute(f"SELECT count(*) FROM {t}"))[0] for t in TABLES},  # type: ignore[index]
             "defects": found}
 
 
@@ -122,8 +123,8 @@ def fingerprint(con: duckdb.DuckDBPyConnection, tables: tuple[str, ...] = TABLES
     """One SHA-256 over every table's rows in key order: equal fingerprints, equal data."""
     digest = hashlib.sha256()
     for t in tables:
-        key = con.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{t}' "
-                          "ORDER BY ordinal_position LIMIT 1").fetchone()
+        key = first_row(con.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{t}' "
+                          "ORDER BY ordinal_position LIMIT 1"))
         rows = con.execute(f"SELECT * FROM {t} ORDER BY ALL").fetchall()  # noqa: S608 - fixed table names
         digest.update(f"{t}:{key}:{len(rows)}:".encode())
         for r in rows:

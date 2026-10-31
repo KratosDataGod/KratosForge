@@ -24,7 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, UnsupportedError
 
-RULES_VERSION = "2026.10.4"
+RULES_VERSION = "2026.10.5"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -124,10 +124,11 @@ SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
                  "Add ORDER BY INDEX where order matters.", f"{_DOCS}/functions/flatten")
 
 SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
-              "DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC of a value whose type "
-              "isn't known here, keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
-              "midnight. The date is the same. Raised when the value is or may be a DATE (a column's type "
-              "isn't known here), not on a TIMESTAMP cast or function.",
+              "DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type "
+              "isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
+              "midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't "
+              "known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to "
+              "DATE instead, and a TIMESTAMP cast or function raises nothing.",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF names DuckDB's types",
@@ -248,7 +249,8 @@ class _Untranslatable(Exception):
 
 
 def _duck(node: exp.Expression) -> str:
-    return node.sql(dialect="duckdb", unsupported_level=sqlglot.ErrorLevel.RAISE)
+    from .sql import KfDuckDB  # DuckDB 2.0 refuses "x -> body" lambdas (#1341)
+    return node.sql(dialect=KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
 def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool] | None:
@@ -345,20 +347,28 @@ def _strftime(model: str) -> str | None:
     return "".join(out)
 
 
+def _plainly_a_date(value: exp.Expression | None) -> bool:
+    return value is not None and (value.is_type(exp.DataType.Type.DATE) or isinstance(value, exp.CurrentDate))
+
+
 def _date_trunc_of_a_date(node: exp.Expr) -> bool:
-    return (isinstance(node, exp.DateTrunc) and node.this.is_type(exp.DataType.Type.DATE)
+    """DATE_TRUNC, DATEADD or TIMESTAMPADD by a unit of a day or longer on a value that is plainly a DATE:
+    Snowflake gives a DATE back."""
+    return (isinstance(node, (exp.DateTrunc, exp.DateAdd)) and _plainly_a_date(node.this)
             and str(getattr(node.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS)
 
 
 def _rewrite_date_trunc(statement: exp.Expression) -> None:
-    """DATE_TRUNC of a DATE stays a DATE, as in Snowflake. sqlglot 30.25 does this itself; before
-    it, the result was a TIMESTAMP at midnight. Here every version gives the same (#1252)."""
-    for node in [n for n in statement.find_all(exp.DateTrunc) if _date_trunc_of_a_date(n)]:
+    """DATE_TRUNC and DATEADD of a DATE by a date unit stay a DATE, as in Snowflake (DuckDB gives a
+    TIMESTAMP at midnight for DATE + INTERVAL; sqlglot 30.25 keeps DATE_TRUNC a DATE itself, earlier
+    versions don't). Here every version gives a DATE (#1252, #1319)."""
+    for node in [n for n in statement.find_all(exp.DateTrunc, exp.DateAdd) if _date_trunc_of_a_date(n)]:
         if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.DATE):
             continue
-        trunc = node.copy()
-        trunc.set("input_type_preserved", None)
-        node.replace(exp.cast(trunc, exp.DataType.Type.DATE))
+        kept = node.copy()
+        if isinstance(kept, exp.DateTrunc):
+            kept.set("input_type_preserved", None)
+        node.replace(exp.cast(kept, exp.DataType.Type.DATE))
 
 
 def _rewrite_to_char(statement: exp.Expression) -> None:
@@ -539,7 +549,8 @@ CATALOG = (
                 "case."),
     ("SFX-007", "Rewritten", "RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's "
                 "sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't "
-                "change the result."),
+                "change the result. x is worked out twice, which matters only when it isn't deterministic "
+                "(RANDOM(), for example)."),
     ("SFX-008", "Rewritten", "HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius "
                 "6,371 km."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),

@@ -74,10 +74,10 @@ def test_a_process_kernel_with_cores_runs_its_cells_on_them():
     k.cores = 1
     try:
         res = k.run("import os, duckdb, polars\nfrom fabric_desktop import cpu_cap\n"
-                    "threads = lambda con: con.execute(\"select current_setting('threads')\").fetchone()[0]\n"
+                    "threads = lambda con: con.execute(\"select current_setting('threads')\").fetchall()[0][0]\n"
                     "print(cpu_cap.allowed(), os.cpu_count(), polars.thread_pool_size(),\n"
                     "      threads(duckdb.connect()), threads(duckdb.connect(':memory:', config={'threads': 3})),\n"
-                    "      duckdb.sql(\"select current_setting('threads')\").fetchone()[0])")
+                    "      duckdb.sql(\"select current_setting('threads')\").fetchall()[0][0])")
         assert res["status"] == "ok", res
         # DuckDB too, with a connection's own number kept.
         assert res["outputs"][0]["text"].split() == ["1", "1", "1", "1", "3", "1"]

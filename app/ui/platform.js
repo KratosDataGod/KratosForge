@@ -981,10 +981,15 @@ function leftInFabric(r) {
   if (r.kind === "workspace" && made.workspace_id) {
     return [`The workspace ${d.name || r.target || made.workspace_id}, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted`];
   }
-  if (r.kind === "workspace_access" && made.assigned) {
+  if (r.kind === "workspace_access" && made.assigned && made.change !== "kept") {
     const who = d.principal || {};
     const label = who.name || who.email || who.id || "They";
-    return [`${who.type === "Group" ? `The group ${label}` : label} keeps the ${d.role || "role"} role (or the higher one they had) in ${d.workspace_name || d.workspace_id || "the workspace"} from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted`];
+    const whom = who.type === "Group" ? `The group ${label}` : label;
+    const role = d.role || "role", ws = d.workspace_name || d.workspace_id || "the workspace";
+    if (made.change === "gave") return [`${whom} keeps the ${role} role in ${ws} that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted`];
+    if (made.change === "raised" && made.from) return [`${whom} keeps the ${role} role in ${ws} that approving this request raised from ${made.from}: set it back in the workspace's Manage access in Fabric if it isn't wanted`];
+    // The same role was there, or a request recorded before #1207: say both, so no one removes access they had before.
+    return [`${whom} has the ${role} role${made.change === "same" ? "" : " or a higher one"} in ${ws}: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric`];
   }
   if (r.kind === "source" && made.copy_job_id) {
     return [`The Copy job ${made.copy_job_name || made.copy_job_id}, made by this request, is still in the landing workspace${made.schedule_id ? " and its daily schedule still runs it" : ""}: delete it there if it isn't wanted`];

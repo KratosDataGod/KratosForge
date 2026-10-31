@@ -128,11 +128,24 @@ def _cfg_section(profile: str, path: Path | None) -> dict[str, str]:
     except FileNotFoundError:
         raise DatabricksAuthError(f"There's no Databricks CLI configuration at {path}. "
                                   "Sign in with: databricks auth login --host <workspace address>") from None
-    except (OSError, UnicodeDecodeError, configparser.Error) as exc:
-        raise DatabricksAuthError(f"{path} couldn't be read: {redact.secrets(str(exc))}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DatabricksAuthError(f"{path} couldn't be read ({type(exc).__name__}).") from None
+    except configparser.Error as exc:
+        # configparser quotes the line it can't read, and that line may hold a token or a client
+        # secret in a form redaction doesn't know: say where, never what.
+        raise DatabricksAuthError(f"{path} isn't a valid Databricks CLI configuration{_where(exc)}. "
+                                  "Fix it, or sign in again with: databricks auth login --host <workspace address>"
+                                  ) from None
     if not parser.has_section(profile):
         raise DatabricksAuthError(f"{path} has no profile named {profile!r}.")
     return {k: v.strip() for k, v in parser.items(profile)}
+
+
+def _where(exc: configparser.Error) -> str:
+    """The line numbers a configparser error is about, without the text of those lines."""
+    lines = [n for n, _line in getattr(exc, "errors", [])] or [getattr(exc, "lineno", None)]
+    lines = [n for n in lines if isinstance(n, int)]
+    return (" (line " + ", ".join(map(str, lines)) + ")") if lines else ""
 
 
 def find_cli(environ: Mapping[str, str] | None = None) -> str | None:
@@ -187,9 +200,14 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     if resp.status_code != 200:
         raise DatabricksAuthError(f"The workspace refused the service principal's sign-in (HTTP {resp.status_code}). "
                                   "Check the client ID, the secret and that the principal is in the workspace.")
-    data = resp.json()
-    lifetime = data.get("expires_in")
-    return str(data.get("access_token") or ""), (clock() + float(lifetime)) if lifetime else None
+    try:
+        data = resp.json()
+        lifetime = data.get("expires_in")
+        expires = (clock() + float(lifetime)) if lifetime else None
+    except (ValueError, TypeError, AttributeError):
+        raise DatabricksAuthError("The workspace's token endpoint didn't answer with the OAuth token it documents. "
+                                  "Check the workspace address.") from None
+    return str(data.get("access_token") or ""), expires
 
 
 def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subprocess.run, http: Any = None,

@@ -107,14 +107,24 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
         name = d.get("name") or req.get("target") or made["workspace_id"]
         out.append(f"The workspace {name}, made by this request, is still in Fabric on its capacity: "
                    "delete it there if it isn't wanted")
-    elif kind == "workspace_access" and made.get("assigned"):
+    elif kind == "workspace_access" and made.get("assigned") and made.get("change") != "kept":
         who = d.get("principal") or {}
         label = who.get("name") or who.get("email") or who.get("id") or "They"
         whom = f"The group {label}" if who.get("type") == "Group" else label
         ws = d.get("workspace_name") or d.get("workspace_id") or "the workspace"
-        # Approving may have kept a role they already had, so this says where things stand.
-        out.append(f"{whom} keeps the {d.get('role') or 'role'} role (or the higher one they had) in {ws} from "
-                   "approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted")
+        role = d.get("role") or "role"
+        if made.get("change") == "gave":
+            out.append(f"{whom} keeps the {role} role in {ws} that approving this request gave: remove it in the "
+                       "workspace's Manage access in Fabric if it isn't wanted")
+        elif made.get("change") == "raised" and made.get("from"):
+            out.append(f"{whom} keeps the {role} role in {ws} that approving this request raised from "
+                       f"{made['from']}: set it back in the workspace's Manage access in Fabric if it isn't wanted")
+        else:
+            # The same role was there (they had it, or a retry found what this approval gave), or a request
+            # recorded before #1207: say both, so no one removes access a person had before asking.
+            higher = " or a higher one" if made.get("change") != "same" else ""
+            out.append(f"{whom} has the {role} role{higher} in {ws}: they had it before this request, or approving it "
+                       "gave it. Check which before removing it in the workspace's Manage access in Fabric")
     elif kind == "source" and made.get("copy_job_id"):
         name = made.get("copy_job_name") or made["copy_job_id"]
         runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
@@ -345,21 +355,28 @@ class RequestsMixin:
         who, role, wid = d["principal"], d["role"], d["workspace_id"]
         label = who.get("name") or who.get("email") or who.get("id")
 
-        def give() -> str:
-            """The role they already had and kept, or "" when this gave or raised it."""
+        def give() -> tuple[str, str]:
+            """What approving did (gave, raised, kept a higher role, or found the same one) and the role before."""
             current = _assigned(api.list_role_assignments(wid), who)
             if current is None:
                 self._rq_add(api, wid, who, role)
-                return ""
+                return "gave", ""
             have = str(current.get("role") or "")
             # A request asks for access, so approving one never lowers a role: a higher one is kept.
-            if have in core.WORKSPACE_ROLES and _rank(have) >= _rank(role):
-                return have
+            if have == role:
+                return "same", have
+            if have in core.WORKSPACE_ROLES and _rank(have) > _rank(role):
+                return "kept", have
             api.update_role_assignment(wid, current["id"], role)
-            return ""
+            return "raised", have
 
-        kept = self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
-        self._rq_progress(req, {"assigned": True})
+        change, before = self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
+        earlier = (d.get("made") or {}).get("change")
+        # A retry finds the role this approval already gave or raised: what it recorded then still holds.
+        record = ({"change": earlier, "from": (d.get("made") or {}).get("from", "")} if earlier in ("gave", "raised")
+                  else {"change": change, "from": before})
+        self._rq_progress(req, {"assigned": True} | record)
+        kept = before if change in ("kept", "same") else ""
         if not kept:
             return {"assigned": True}
         whom = f"the group {label}" if who.get("type") == "Group" else label

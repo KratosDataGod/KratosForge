@@ -73,6 +73,8 @@ class ProofSpark:
         """What a path is to the proof: ("table", schema, table), ("files", rel), ("sandbox", None),
         ("onelake", None) for another lakehouse, or None for a path outside OneLake."""
         p = str(path).replace("\\", "/").rstrip("/")
+        if p.lower().startswith("file:"):  # file:/lakehouse/default/... is the mount by another name
+            p = "/" + p[5:].lstrip("/")
         root, mount = self.proof.root.rstrip("/"), (self.proof.mount or "/lakehouse/default").rstrip("/")
         rel = None
         for base in (root, mount):
@@ -305,12 +307,30 @@ class ProofSpark:
             return me.frame(*me.split(tableName))
         DataFrameReader.table = reader_table
 
+        o["reader_option"], o["reader_options"] = DataFrameReader.option, DataFrameReader.options
+
+        def reader_option(self_, key, value):
+            if str(key).lower() == "path":
+                self_._fd_path = value
+            return o["reader_option"](self_, key, value)
+
+        def reader_options(self_, **options):
+            for k, v in options.items():
+                if str(k).lower() == "path":
+                    self_._fd_path = v
+            return o["reader_options"](self_, **options)
+        DataFrameReader.option = reader_option
+        DataFrameReader.options = reader_options
+
         def load(self_, path=None, format=None, schema=None, **options):  # noqa: A002
-            if path is not None and not isinstance(path, (list, tuple)):
-                where = me.lakehouse_path(path)
+            # A path given as an option (option("path", ...), or path= here) is read like one passed to load().
+            seen = path if path is not None else next(
+                (v for k, v in options.items() if str(k).lower() == "path"), None) or getattr(self_, "_fd_path", None)
+            if seen is not None and not isinstance(seen, (list, tuple)):
+                where = me.lakehouse_path(seen)
                 if where and where[0] == "table":
                     return me.frame(where[1], where[2])
-                me.file_read(path)
+                me.file_read(seen)
             return o["load"](self_, path, format, schema, **options)
         DataFrameReader.load = load
 

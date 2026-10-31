@@ -12,6 +12,9 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1332 49012d01 | Notebook wizard browser test and three wizard.js fixes | PASS carry | RM merge of main (#1334) on c19a5a15. The three-dot patch-id 193af83b matches c19a5a15's. |
+| 2026-10-31 | #1336 6da37a32 | Incident action browser tests, and friendlyError drops 'Conflict:' | PASS carry | RM merge of main (#1334) on a39d42f5. The three-dot patch-id fee0e7dd matches a39d42f5's. |
+
 | 2026-10-31 | #1332 c19a5a15 | Notebook wizard browser test and three wizard.js fixes | PASS 9.2 | The delta is test only. toReview() now marks the old .field-error before clicking. That holds because wizardToReview() only redraws after wizard_preview returns, so any unmarked error is new. Merge result: notebook-wizard.test.cjs 10/10 in 8 of 8 runs, each with two ui.test processes running for load. |
 
 | 2026-10-31 | #1332 d9012dc1 | Notebook wizard browser test and three wizard.js fixes | CONDITIONAL 8.7 | Merges clean, ui 313/0, and the three wizard.js fixes are sound. notebook-wizard.test.cjs failed 1 of 6 runs under load: test 2 read '2. Inputs and output' where it expected '3. Review'. toReview() resolves on any visible .field-error, so after the answers are fixed it can read the previous step's error before the new preview returns. Test 3 then timed out on a dialog left open. Fix: wait for that preview's answer, not for an error that may be stale. |

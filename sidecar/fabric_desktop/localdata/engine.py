@@ -43,6 +43,7 @@ from .. import delta_dml, delta_profile, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
+from ..duckdb_rows import first_row, one_row
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -375,12 +376,12 @@ class LocalEngine:
         return True
 
     def _exists(self, schema: str, table: str) -> bool:
-        row = self._con.execute(  # type: ignore[union-attr]
+        row = one_row(self._con.execute(  # type: ignore[union-attr]
             "SELECT count(*) FROM duckdb_tables() WHERE lower(schema_name) = lower(?) AND lower(table_name) = lower(?) "
-            "AND database_name = current_database()", [schema, table]).fetchone()
-        views = self._con.execute(  # type: ignore[union-attr]
+            "AND database_name = current_database()", [schema, table]))
+        views = one_row(self._con.execute(  # type: ignore[union-attr]
             "SELECT count(*) FROM duckdb_views() WHERE lower(schema_name) = lower(?) AND lower(view_name) = lower(?) "
-            "AND NOT internal AND database_name = current_database()", [schema, table]).fetchone()
+            "AND NOT internal AND database_name = current_database()", [schema, table]))
         return bool(row[0] or views[0])
 
     def remove_source(self, path: str) -> None:
@@ -851,7 +852,7 @@ class LocalEngine:
         _only_reads(con, w.query)
         con.execute(f"CREATE SCHEMA IF NOT EXISTS {q(schema)}")
         con.execute(f"CREATE OR REPLACE TABLE {q(schema)}.{q(w.table)} AS {w.query}", _bound(con, w.query, params))
-        rows = con.execute(f"SELECT count(*) FROM {q(schema)}.{q(w.table)}").fetchone()[0]
+        rows = one_row(con.execute(f"SELECT count(*) FROM {q(schema)}.{q(w.table)}"))[0]
         return {"table": name, "mode": "table", "rows": int(rows), "version": None}
 
     def _write(self, con: duckdb.DuckDBPyConnection, w: "delta.Write", state: dict[str, Any], query_id: str,
@@ -1051,10 +1052,10 @@ class LocalEngine:
             # Spark refuses a MERGE in which one row of the table matches two source rows: which
             # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
             group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
-            duplicate = con.execute(
+            duplicate = first_row(con.execute(
                 f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
                 f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {delta._duckdb(c.on)}) "
-                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1").fetchone()
+                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1"))
             if duplicate is not None:
                 raise ValueError(f"More than one source row matches the same row of {name} (source key "
                                  f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "

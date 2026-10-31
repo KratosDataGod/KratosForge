@@ -77,18 +77,42 @@ def request_waiting(req: dict[str, Any], products: list[dict[str, Any]]) -> dict
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
 
 
+def _left(req: dict[str, Any]) -> str:
+    """What a declined or withdrawn request's approval already made and left in Fabric, by kind only, so
+    whoever can remove it hears of it (#1261). The app's decline says it in full (left_in_fabric in
+    central/requests_service.py); a notice carries no names beyond the request's own target."""
+    if req.get("status") not in ("declined", "withdrawn"):
+        return ""
+    made, kind = (req.get("detail") or {}).get("made") or {}, req.get("kind")
+    if kind == "workspace" and made.get("workspace_id"):
+        return "; the workspace it made is still in Fabric"
+    if kind == "workspace_access" and made.get("assigned") and made.get("change") != "kept":
+        if made.get("change") in ("gave", "raised"):
+            return f"; the role it {made['change']} stays in the workspace"
+        return "; the role may be from it: check before removing"
+    if kind == "source" and made.get("copy_job_id"):
+        return "; its Copy job is still in the landing workspace" + (", on its schedule" if made.get("schedule_id") else "")
+    if kind == "domain" and made.get("domain_id"):
+        return "; the domain it made is still there"
+    if kind == "shortcut" and made.get("shortcut_id"):
+        return "; the shortcut may be from it: check before removing" if made.get("found") \
+            else "; the shortcut it made is still in OneLake"
+    return ""
+
+
 def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """A decided or withdrawn request, for whoever asked (decided) or decides (withdrawn)."""
+    """A decided or withdrawn request, for whoever asked (decided) or decides (withdrawn). One whose
+    approval failed partway says, in its title, that what it made is still there."""
     status = req.get("status")
     product = _product(req, products)
     base = {"id": req["id"], "at": req.get("decided_at") or _now(), "domain": _domain(req, product),
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
     if status in _DECIDED:
         asker = _upns(req.get("requested_by"))
-        return base | {"kind": "request.decided", "title": f"{_title(req)} ({_DECIDED[status]})",
+        return base | {"kind": "request.decided", "title": f"{_title(req)} ({_DECIDED[status]}){_left(req)}",
                        "to": {"people": asker, "roles": [] if asker else ["requester"]}}
     if status == "withdrawn":
-        return base | {"kind": "request.withdrawn", "title": _title(req),
+        return base | {"kind": "request.withdrawn", "title": f"{_title(req)}{_left(req)}",
                        "to": {"people": _deciders(req, product), "roles": ["platform_admin"]}}
     return None
 

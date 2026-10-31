@@ -72,7 +72,7 @@
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
+      "next_action": "Keep PB-015 moving; land the ORCH-H pipeline hardening (#1224, #1227, #1229), then #1226 and #1249."
     },
     {
       "key": "fabric",
@@ -217,7 +217,7 @@
         "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
       "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "#1206, then #1207."
+      "next_action": "Land #1241, #1243 and #1244; then #1236, #1260 and #1261."
     },
     {
       "key": "devex",

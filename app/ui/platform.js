@@ -995,7 +995,9 @@ function leftInFabric(r) {
     return [`The Copy job ${made.copy_job_name || made.copy_job_id}, made by this request, is still in the landing workspace${made.schedule_id ? " and its daily schedule still runs it" : ""}: delete it there if it isn't wanted`];
   }
   if (r.kind === "shortcut" && made.shortcut_id) {
-    return [`The shortcut ${d.name || r.target} in ${d.lakehouse_name || "its lakehouse"}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`];
+    const sc = `The shortcut ${d.name || r.target} in ${d.lakehouse_name || "its lakehouse"}`;
+    return [made.found ? `${sc} is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts`
+      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`];
   }
   if (r.kind === "domain" && made.domain_id) {
     const name = d.name || r.target || made.domain_id;

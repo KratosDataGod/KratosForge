@@ -5677,5 +5677,7 @@ test("declining a shortcut request whose shortcut was made says it is still in O
   // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
   assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
     ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
+    ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
   assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
 });

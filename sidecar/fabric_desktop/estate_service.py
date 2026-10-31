@@ -16,6 +16,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from urllib.parse import quote
 
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
@@ -44,7 +45,17 @@ from .retrying import send_with_retry
 _log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
-_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# An email as Microsoft Entra takes it: one "@", a dotted domain, and no spaces or slashes. A guest's sign-in name
+# has "#EXT#" before the "@"; quote() escapes it in a URL.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+'#-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
+
+
+def _guid(value: Any, what: str) -> str:
+    """An id that goes into a Fabric or Power BI URL: a GUID and nothing else, or ValueError."""
+    if not isinstance(value, str) or not _GUID.fullmatch(value):
+        raise ValueError(f"That isn't a {what} id KratosForge can use.")
+    return value
 
 
 def _who(service: Any) -> str:
@@ -365,6 +376,10 @@ class EstateMixin:
         given by email: Power BI's workspace API takes one, so no directory permission is needed."""
         if role and role not in access_mod.ROLES:
             raise ValueError(f"role must be one of {', '.join(access_mod.ROLES)}")
+        _guid(workspace_id, "workspace")
+        for value, what in ((assignment_id, "role assignment"), (principal_id, "person, group or app")):
+            if value:
+                _guid(value, what)
         fabric = self.fabric  # type: ignore[attr-defined]
         if assignment_id and role:
             fabric.update_role_assignment(workspace_id, assignment_id, role)
@@ -379,6 +394,7 @@ class EstateMixin:
         return {"ok": True}
 
     def _add_user_by_email(self, workspace_id: str, email: str, role: str) -> None:
+        _guid(workspace_id, "workspace")
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
@@ -397,11 +413,12 @@ class EstateMixin:
         (Fabric lists them with their IDs), and only then in the directory (Microsoft Graph),
         which needs a permission Microsoft's sign-in app may not have."""
         text = (text or "").strip()
-        if _GUID.match(text):
+        if _GUID.fullmatch(text):
             return {"id": text, "name": text, "email": "", "type": "Group"}
-        if "@" not in text:
+        if not _EMAIL.fullmatch(text):
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         if workspace_id:
+            _guid(workspace_id, "workspace")
             try:
                 assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001 - e.g. a Viewer can't list roles; try the directory
@@ -418,13 +435,13 @@ class EstateMixin:
                               "(Microsoft Entra admin center > Users).") from exc
         headers = {"Authorization": f"Bearer {token}"}
         http = http_session.session()
-        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{quote(text, safe='@')}",
                                                  params={"$select": "id,displayName,userPrincipalName,mail"},
                                                  headers=headers, timeout=30), "GET")
         if r.status_code == 404:
             r = send_with_retry(lambda: http.get(
                 "https://graph.microsoft.com/v1.0/users",
-                params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
+                params={"$filter": f"mail eq '{text.replace(chr(39), chr(39) * 2)}'",
                         "$select": "id,displayName,userPrincipalName,mail"},
                 headers=headers, timeout=30), "GET")
             found = (r.json().get("value") or []) if r.ok else []
@@ -435,6 +452,9 @@ class EstateMixin:
             raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {r.text[:200]}")
         else:
             user = r.json()
+        # Only the person whose email was typed gets the role, never a near match the directory returned.
+        if text.lower() not in {(user.get("mail") or "").lower(), (user.get("userPrincipalName") or "").lower()}:
+            raise LookupError(f"No one with the email {text} in your organization.")
         return {"id": user["id"], "name": user.get("displayName") or text,
                 "email": user.get("userPrincipalName") or user.get("mail") or text, "type": "User"}
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -2201,7 +2201,8 @@
       "evidence": [
         "docs/platform.md lists the unverified points",
         "central/setup.py setup() and join() have no tests",
-        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93"
+        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
+        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2245,7 +2246,8 @@
         1036,
         1038,
         1041,
-        1045
+        1045,
+        1200
       ],
       "issues": [
         909
@@ -5365,7 +5367,8 @@
       "state": "In review",
       "prs": [
         993,
-        995
+        995,
+        1202
       ],
       "category": "Local Development and Execution",
       "effort": "M",
@@ -5377,7 +5380,8 @@
       "evidence": [
         "No Snowflake code or docs on main",
         "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
-        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview"
+        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview",
+        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -5537,7 +5541,9 @@
         1142,
         1180,
         1183,
-        1191
+        1191,
+        1201,
+        1202
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",

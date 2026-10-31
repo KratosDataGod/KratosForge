@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "0c96c9ce6a6a84651d879288fe3caf7552a250d9",
-    "date": "2026-10-30",
+    "commit": "f3750b9d6564608f0f15d931800990b65b3047a9",
+    "date": "2026-10-31",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -25,7 +25,8 @@
       "Product check 2026-10-29 11:42 at 188d5a93153f54df837fde8d8046ec01ef054fc1: PRs merged after b19b7456 (#973 to #1050) were linked to their rows and items, and the stories they finished moved to In review. Other rows were not re-read.",
       "Product check 2026-10-29 23:42 at 02118fa41572b709dfdfbe9282a0221d777adaf4: the 59 PRs merged after 188d5a93 were linked to their rows and items. The 2026-10-29 KUDP live run is recorded as report evidence on FEAT-AUTH-01, FAB-02 and EXT-05. Other rows were not re-read.",
       "Acceptance batch 2 recorded (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b).",
-      "Product check 2026-10-30 23:42 at 0c96c9ce6a6a84651d879288fe3caf7552a250d9: the 23 PRs merged after 02118fa4 (other than the product data PRs) were linked to their rows and items. Other rows were not re-read."
+      "Product check 2026-10-30 23:42 at 0c96c9ce6a6a84651d879288fe3caf7552a250d9: the 23 PRs merged after 02118fa4 (other than the product data PRs) were linked to their rows and items. Other rows were not re-read.",
+      "Product check 2026-10-31 11:42 at f3750b9d6564608f0f15d931800990b65b3047a9: #1200 to #1202 linked to their rows and items. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -4365,7 +4366,8 @@
         1074,
         1081,
         1100,
-        1112
+        1112,
+        1200
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -7585,7 +7587,9 @@
         1133,
         1142,
         1183,
-        1191
+        1191,
+        1201,
+        1202
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",

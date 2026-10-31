@@ -272,11 +272,11 @@ def _databricks(code: str) -> list[Any]:
     import sqlglot
     from sqlglot.errors import ParseError
 
-    from .. import sql
+    from .. import sql, sql_dialects
     try:
         statements = [s for s in sqlglot.parse(code, read="databricks") if s is not None]
     except ParseError as exc:
-        raise ValueError(f"Could not read the query: {exc}") from None
+        raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
     if not statements:
         raise ValueError("The query is empty.")
     return [sql.spark_fixes(s) for s in statements]

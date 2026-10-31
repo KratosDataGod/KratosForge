@@ -18,6 +18,7 @@ the job starts no run. Copy jobs made here are Preview until a tenant run has ch
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..fabric_api import FabricError
@@ -31,6 +32,9 @@ _log = logging.getLogger(__name__)
 
 COPY_JOB_TYPE = "CopyJob"
 SCHEDULE_JOB_TYPE = "Execute"  # the job type a Copy job runs as (workloads/inventory.py); unverified on a tenant
+
+
+_GUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 
 
 def _gone(exc: FabricError) -> bool:
@@ -210,12 +214,16 @@ class LandingCopyMixin:
         out, seen = [], set()
         for r in self._catalog().call("list_requests"):  # type: ignore[attr-defined]
             m = (r.get("detail") or {}).get("made") or {}
-            jid = str(m.get("copy_job_id") or "")
-            if r.get("kind") != "source" or core.key_name(str(r.get("target") or "")) != source or not jid \
-                    or not m.get("workspace_id") or jid in seen:
+            jid, ws = str(m.get("copy_job_id") or ""), str(m.get("workspace_id") or "")
+            if r.get("kind") != "source" or str(r.get("target") or "").strip().lower() != source or not jid or jid in seen:
+                continue
+            if not (_GUID.fullmatch(jid) and _GUID.fullmatch(ws)):
+                # Ids that aren't Fabric's can't name a Copy job, and never go into a Fabric call.
+                _log.warning("Request %s for %s recorded a Copy job id KratosForge can't read; skipped",
+                             r.get("id"), source)
                 continue
             seen.add(jid)
-            out.append({"id": jid, "workspace_id": str(m["workspace_id"]),
+            out.append({"id": jid, "workspace_id": ws,
                         "name": str(m.get("copy_job_name") or copyjob_build.job_name(source))})
         return out
 

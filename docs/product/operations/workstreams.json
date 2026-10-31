@@ -37,8 +37,28 @@
       },
       "ready": [
         {
-          "issue": 1110,
-          "title": "FS-05 (local engine): cross-check local table maintenance thresholds against skills-for-fabric"
+          "issue": 1224,
+          "title": "[ORCH-H1] Local pipeline runs: activity errors have Fabric's full shape",
+          "note": "Built as #1250, in quality."
+        },
+        {
+          "issue": 1227,
+          "title": "[ORCH-H2] Local pipeline runs: warn about Data Factory's ForEach limits",
+          "note": "Built as #1251, in quality."
+        },
+        {
+          "issue": 1229,
+          "title": "[ORCH-H3] Local pipeline runs: parity tests against recorded Fabric behaviour",
+          "note": "Built as #1256, in quality."
+        },
+        {
+          "issue": 1226,
+          "title": "Hardening: the compute check says Unknown for %run and notebook.run, and reads names inside f-strings and other Spark session names",
+          "note": "Follow-up to PB-014 (#1190)."
+        },
+        {
+          "issue": 1249,
+          "title": "Hardening: a Spark proof pins a table read by option(\"path\") or a file:/lakehouse/default path"
         }
       ],
       "backlog": [
@@ -49,11 +69,10 @@
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
       "blockers": [
-        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)",
-        "PB-014 compatibility analyzer (#1190) waits on Chris's go"
+        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
+      "next_action": "Keep PB-015 moving; land the ORCH-H pipeline hardening (#1224, #1227, #1229), then #1226 and #1249."
     },
     {
       "key": "fabric",
@@ -82,11 +101,6 @@
         {
           "issue": 1221,
           "title": "Teams alerts use the shared HTTP session and wait out Teams throttling"
-        },
-        {
-          "issue": 1109,
-          "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric",
-          "note": "Docs page #1176 merging on Chris's go."
         }
       ],
       "backlog": [
@@ -117,12 +131,24 @@
       ],
       "active": {
         "issue": 1217,
-        "title": "Snowflake SOUNDEX runs on this PC, and the DATE note fires only where it can apply (SF-FIDELITY-2)"
+        "title": "Snowflake SOUNDEX runs on this PC, and the DATE note fires only where it can apply (SF-FIDELITY-2)",
+        "note": "Built as #1225, PASS, with Release management."
       },
       "ready": [
         {
           "issue": 1218,
-          "title": "Notebook conversion keeps every cell through Databricks, Fabric and Jupyter round trips (KF-NB-ROUNDTRIP)"
+          "title": "Notebook conversion keeps every cell through Databricks, Fabric and Jupyter round trips (KF-NB-ROUNDTRIP)",
+          "note": "Built as #1242, PASS, with Release management."
+        },
+        {
+          "issue": 1235,
+          "title": "[KF-DBX-PREFLIGHT] The Databricks live test checks this PC first and says exactly what's missing",
+          "note": "Built as #1238, PASS, with Release management."
+        },
+        {
+          "issue": 1247,
+          "title": "[SF-FIDELITY-3] Snowflake RATIO_TO_REPORT and HAVERSINE run on this PC",
+          "note": "Built as #1248, in quality."
         }
       ],
       "backlog": [],
@@ -149,12 +175,33 @@
       ],
       "active": {
         "issue": 1206,
-        "title": "A domain request records what its approval made, so a retry, decline or withdraw knows"
+        "title": "A domain request records what its approval made, so a retry, decline or withdraw knows",
+        "note": "Built as #1241, with Release management."
       },
       "ready": [
         {
           "issue": 1207,
-          "title": "Workspace access approval records whether it gave, raised or kept the role"
+          "title": "Workspace access approval records whether it gave, raised or kept the role",
+          "note": "Built as #1243 (stacked on #1241), with Release management."
+        },
+        {
+          "issue": 1237,
+          "title": "[HD] Taking away access a project doesn't have says so, and leaves no audit row",
+          "note": "Built as #1244, with Release management."
+        },
+        {
+          "issue": 1236,
+          "title": "[HD] Changes anyone may make are on the audit trail, or listed with the reason they aren't",
+          "note": "Built as #1259, in review."
+        },
+        {
+          "issue": 1260,
+          "title": "[HD] A shortcut request records the shortcut its approval made, so a decline says it is still in OneLake",
+          "note": "Built as #1265, in review."
+        },
+        {
+          "issue": 1261,
+          "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric"
         }
       ],
       "backlog": [
@@ -167,10 +214,10 @@
       "blockers": [
         "PB-052 tenant verification needs Chris's yes",
         "Workload pipelines mockup waits on Chris",
-        "PB-062 support bundle (#1177) waits on Chris's go; its Settings button waits on the mockup"
+        "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
       "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "#1206, then #1207."
+      "next_action": "Land #1241, #1243 and #1244; then #1236, #1260 and #1261."
     },
     {
       "key": "devex",
@@ -186,9 +233,15 @@
       "active": {
         "issue": 1197,
         "title": "Browser and accessibility tests for Settings > Integrations",
-        "note": "Depends on #1187."
+        "note": "Built as #1230, PASS, with Release management."
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1257,
+          "title": "Browser and accessibility test for Report a problem",
+          "note": "Built as #1258, in quality."
+        }
+      ],
       "backlog": [
         "PB-087",
         "PB-034"
@@ -210,8 +263,20 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {},
-      "ready": [],
+      "active": {
+        "issue": 1252,
+        "title": "[Platform] Every sqlglot version pyproject allows passes the engine tests"
+      },
+      "ready": [
+        {
+          "issue": 1253,
+          "title": "[Platform] Spark SQL that can't be translated exactly is refused, not answered differently"
+        },
+        {
+          "issue": 1264,
+          "title": "[Platform] Query profile reads DuckDB 2.0's profiler output"
+        }
+      ],
       "backlog": [
         "PB-061"
       ],
@@ -228,41 +293,6 @@
   ],
   "new_stories": {},
   "side_programs": [
-    {
-      "key": "learn",
-      "name": "Learning and developer excellence",
-      "workstream": "devex",
-      "thread": "Build learning and developer excellence",
-      "review_cap": 2,
-      "stories": [
-        {
-          "issue": 1064,
-          "title": "[LX-01] Every best-practice rule explained, with About on each finding",
-          "status": "review"
-        },
-        {
-          "issue": 1067,
-          "title": "[LX-04] Learn mockup on the design canvas",
-          "status": "active"
-        },
-        {
-          "issue": 1065,
-          "title": "[LX-02] Learning content format, loader and CI checks",
-          "status": "ready"
-        },
-        {
-          "issue": 1066,
-          "title": "[LX-03] Local lab runner: seeded datasets, checks, reset, publish guard",
-          "status": "ready"
-        },
-        {
-          "issue": 1068,
-          "title": "[LX-05..08] Learn page, learning modes, lab evidence in the profile, first content",
-          "status": "blocked",
-          "note": "Waits on the LX-04 mockup and Chris's go"
-        }
-      ]
-    },
     {
       "key": "pbe",
       "name": "Power BI Embed Studio",

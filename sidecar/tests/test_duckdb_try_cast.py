@@ -11,6 +11,7 @@ import pytest
 
 from fabric_desktop import spark_local, sql
 from fabric_desktop.duckdb_rows import keep_try_cast
+from fabric_desktop.jobs import Job, Target, run_local
 from fabric_desktop.localdata import LocalData
 
 
@@ -48,3 +49,8 @@ def test_a_local_data_project_keeps_try_cast(tmp_path, csv):
         assert rows == [[1, 2.5], [2, None]]
     finally:
         local.close_all()
+
+
+def test_a_local_duckdb_job_keeps_try_cast(tmp_path, csv):
+    job = Job(name="casts", engine="duckdb", base_dir=tmp_path, target=Target("ws", "lh", "casts"), sql=query(csv))
+    assert run_local(job).to_pylist() == [{"id": 1, "amount": 2.5}, {"id": 2, "amount": None}]

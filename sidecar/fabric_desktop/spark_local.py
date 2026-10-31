@@ -1164,6 +1164,7 @@ def query_profile(df: Any) -> dict[str, Any]:
             if len(steps) < PROFILE_NODES:
                 details = {k: str(v) for k, v in (node.get("extra_info") or {}).items() if v not in ("", None)}
                 steps.append({"depth": depth, "name": name, "rows": int(node.get("operator_cardinality") or 0),
+                              "rows_scanned": int(node.get("operator_rows_scanned") or 0),
                               "seconds": round(seconds, 6), "details": details})
             else:
                 steps.append({})  # counted, not listed

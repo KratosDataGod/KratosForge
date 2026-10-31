@@ -32,7 +32,7 @@ def _literal(node: ast.expr) -> bool:
 
 def test_array_sort_with_a_comparator_is_refused_not_sorted_ascending():
     with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric, so nothing ran: "
-                                         "DuckDB's ARRAY_SORT does not support a comparator"):
+                                         "DuckDB's (ARRAY|LIST)_SORT does not support a comparator"):
         sql.run(COMPARATOR)
 
 

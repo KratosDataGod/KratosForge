@@ -325,7 +325,11 @@ class RequestsMixin:
                 _log.info("Couldn't read Fabric's domains to tell who made %s: %s", name, describe(exc))
                 ours = False
         else:
-            me = str(self._catalog().call("whoami").get("user") or "").lower()  # type: ignore[attr-defined]
+            try:
+                me = str(self._catalog().call("whoami").get("user") or "").lower()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - unread is recorded as found, as for Fabric above
+                _log.info("Couldn't tell who is approving %s: %s", name, describe(exc))
+                me = ""
             ours = bool(me) and str(have.get("updated_by") or "").lower() == me \
                 and str(have.get("updated_at") or "") >= str(req.get("requested_at") or "")
         self._rq_progress(req, {"domain_id": req["target"], **({"fabric_domain_id": fid} if fid else {}),

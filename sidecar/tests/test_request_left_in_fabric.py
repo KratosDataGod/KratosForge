@@ -5,8 +5,10 @@ records it. Fabric and the platform are faked, as in test_request_retries; no te
 import json
 
 import pytest
+import requests
 
 from fabric_desktop.central import requests_service
+from fabric_desktop.central.client import LocalPlatform
 from fabric_desktop.central.requests_service import left_in_fabric
 from fabric_desktop.service import Service
 from test_request_retries import FabricDomains, fail_once, fail_platform_once
@@ -268,3 +270,39 @@ def test_a_platform_only_domain_the_approver_saved_after_the_request_is_theirs(s
     svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
     out = svc.platform_decide(req["id"], True)
     assert out["detail"]["made"] == {"domain_id": "field"}
+
+
+def _set_domain_updated_at(svc, did, at):
+    """Backdates a saved domain, as if it had been saved long before the request."""
+    with svc._catalog()._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'domain')} SET updated_at = ? WHERE id = ?", (at, did))
+        db.conn.commit()
+
+
+def test_a_platform_only_domain_saved_before_the_request_was_sent_is_recorded_as_found(svc, who):
+    """Saved by the approver, but before the request: not this request's work, so a decline says to check."""
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
+    _set_domain_updated_at(svc, "field", "2000-01-01T00:00:00+00:00")
+    out = svc.platform_decide(req["id"], True)
+    assert out["detail"]["made"] == {"domain_id": "field", "found": True}
+
+
+def test_a_retry_that_cannot_tell_who_is_approving_records_the_domain_as_found(svc, who, monkeypatch):
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
+    real = LocalPlatform.call
+
+    def call(self, name, **kwargs):
+        if name == "whoami":
+            raise requests.Timeout("whoami timed out")
+        return real(self, name, **kwargs)
+    monkeypatch.setattr(LocalPlatform, "call", call)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and out["detail"]["made"] == {"domain_id": "field", "found": True}

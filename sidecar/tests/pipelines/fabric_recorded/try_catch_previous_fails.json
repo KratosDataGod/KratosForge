@@ -1,0 +1,49 @@
+{
+  "case": "try_catch_previous_fails",
+  "source": {
+    "kind": "documented",
+    "url": "https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling",
+    "updated": "2025-07-25",
+    "quote": "This approach renders pipeline succeeds, if Upon Failure path succeeds."
+  },
+  "pipeline": {
+    "name": "try_catch",
+    "properties": {
+      "activities": [
+        {
+          "name": "Previous",
+          "type": "Fail",
+          "typeProperties": {
+            "message": "boom",
+            "errorCode": "E1"
+          },
+          "dependsOn": []
+        },
+        {
+          "name": "Catch",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "Previous",
+              "dependencyConditions": [
+                "Failed"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "parameters": {},
+  "mocks": {},
+  "expected": {
+    "status": "Succeeded",
+    "activities": {
+      "Previous": "Failed",
+      "Catch": "Succeeded"
+    }
+  }
+}

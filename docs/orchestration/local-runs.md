@@ -111,6 +111,15 @@ Known differences, or things not yet compared with Fabric:
 - `equals` compares exactly, including case. `startsWith`, `endsWith` and `indexOf` ignore case.
 - Library variables, global parameters and `pipeline().DataFactory` aren't available.
 
+## Compared with Fabric
+
+`sidecar/tests/test_pipeline_fabric_parity.py` runs each case in `sidecar/tests/pipelines/fabric_recorded/` on this PC and compares it with the outcome Fabric gives. A case is one JSON file: the pipeline, its parameters and mocks, the expected pipeline status (or `null` when the source doesn't state it), each activity's expected status (or fields such as its `error`), and its `source`.
+
+- `documented` cases quote Microsoft's documentation, with its URL and date. Today these are the outcomes in [pipeline failure and error handling](https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling): Try-Catch, Do-If-Else, Do-If-Skip-Else, generic error handling and Upon Completion. All of them match.
+- `recorded` cases come from a run in a Fabric tenant, with its run id and date. To record one, run the pipeline in a test workspace, copy each activity's status and the fields that matter from the Monitoring hub, and add the file. A run in Fabric uses capacity, so none is recorded without Chris's yes.
+
+The activity registry's evidence stays `unit_tests` until a recorded case backs an activity.
+
 ## Run records
 
 Each run is saved as one file under `pipeline_runs` in the app's data folder (`%LOCALAPPDATA%\FabricDesktop` on Windows), written as the run goes, and the last 200 are kept. A record has the run's state, parameters (secure ones hidden), options, every activity run (state, status, how it ran, timings, attempts, output, error, the branch an If Condition or Switch took, ForEach and Until iteration counts, and a child pipeline's whole run), the final variables and the pipeline return value.

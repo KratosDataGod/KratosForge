@@ -21,11 +21,13 @@ network or a tenant. The contracts:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import requests
 
 from fabric_desktop import readiness
-from fabric_desktop.onelake import DFS_HOST, FileStore
+from fabric_desktop.onelake import DFS_HOST, FileStore, TableCatalog
 from fake_http import MUTATING, Reply, session
 
 WS = "11111111-1111-1111-1111-111111111111"
@@ -405,3 +407,38 @@ def test_notebookutils_rm_cant_climb_out_of_files(path, tmp_path, monkeypatch):
     finally:
         lakehouse.attach(None)
     assert [s for s in t.sent if s.method in MUTATING] == []
+
+
+# ---- refused reads (#1313): one line, what wasn't read, the status and OneLake's code, no URL
+
+
+def test_a_refused_list_says_what_and_why_without_the_url():
+    fs, _ = store([Reply(403, {"error": {"code": "AuthorizationPermissionMismatch", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == "OneLake didn't list Files/in (403: AuthorizationPermissionMismatch)."
+    assert err.value.response.status_code == 403
+
+
+def test_refused_reads_of_a_file_say_which_file():
+    fs, _ = store([Reply(403, headers={"x-ms-error-code": "AuthorizationFailure"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(403: AuthorizationFailure\)\.$"):
+        fs.read_bytes(WS, LH, "Files/a.csv")
+
+    fs, _ = store([Reply(401)])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(401\)\.$") as err:
+        fs.download(WS, LH, "Files/a.csv", Path("unused"))
+    assert err.value.response.status_code == 401
+
+
+def test_a_missing_file_is_still_none():
+    fs, _ = store([Reply(404, {"error": {"code": "PathNotFound"}})])
+    assert fs.read_bytes(WS, LH, "Files/gone.csv") is None
+
+
+def test_a_refused_table_listing_gives_the_table_apis_code():
+    s, _ = session([Reply(403, {"error_code": "PERMISSION_DENIED", "message": "no"})])
+    with pytest.raises(requests.HTTPError) as err:
+        TableCatalog(lambda: "tok", session=s).list_tables(WS, LH, "dbo")
+    assert str(err.value) == "OneLake didn't list the tables in dbo (403: PERMISSION_DENIED)."
+    assert "https://" not in str(err.value)

@@ -199,13 +199,18 @@ function animationsDone(page) {
     .every((a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity));
 }
 
-// The serious and critical axe findings in `scope` (a CSS selector), as "rule @ targets" lines.
-// Dialogs and panels fade in (motion.js), and axe judges contrast on the colors as drawn, so a check
-// taken mid-way sees text that is still faded (#1297, #1337). So motion is off and every animation
-// that ends has ended before axe looks.
-async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } = {}) {
+// Before axe looks: no motion, and every animation that ends has ended. Dialogs and panels fade in
+// (motion.js), and axe measures contrast on the colors as drawn, so mid-way it sees faded text
+// (#1297, #1334, #1337).
+async function settleForAxe(page) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await animationsDone(page);
+}
+
+// The serious and critical axe findings in `scope` (a CSS selector), as "rule @ targets" lines.
+// It settles the page first (settleForAxe).
+async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } = {}) {
+  await settleForAxe(page);
   if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.addScriptTag({ content: axeSource });
   return page.evaluate(async ([scope, tags]) => {
     const r = await window.axe.run(document.querySelector(scope), { runOnly: tags });
@@ -213,4 +218,4 @@ async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a"
   }, [scope, tags]);
 }
 
-module.exports = { playwright, openApp, sqlRunMocks, startupReads, axeSource, axeFindings, animationsDone };
+module.exports = { playwright, openApp, sqlRunMocks, startupReads, axeSource, axeFindings, animationsDone, settleForAxe };

@@ -7,14 +7,15 @@ import pytest
 
 from fabric_desktop import cli, smoketest
 from fabric_desktop.fabric_api import FabricClient
+from tests.fabric_refusals import check_token
 
 WS = "11111111-1111-1111-1111-111111111111"
 TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
 
 
 class Credential:
-    def __init__(self, kusto=True):
-        self.kusto = kusto
+    def __init__(self, kusto=True, microsofts_client=True):
+        self.kusto, self.microsofts_client = kusto, microsofts_client
 
     def fabric_token(self):
         return TOKEN
@@ -23,11 +24,13 @@ class Credential:
         return TOKEN
 
     def warehouse_token(self):
+        check_token("https://database.windows.net", self.microsofts_client)  # as Windows sign-in answered live
         return TOKEN
 
     def kusto_token(self):
         if not self.kusto:
             raise RuntimeError(f"AADSTS65001: consent needed, Bearer {TOKEN}")
+        check_token("https://kusto.kusto.windows.net", self.microsofts_client)
         return TOKEN
 
     def signed_in_user(self):

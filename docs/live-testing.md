@@ -97,6 +97,17 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
+## Fakes follow what live runs refused
+
+The tests that stand in for Fabric use fakes. A fake that accepts what Fabric refuses lets a broken request pass every test and fail on the first live run, so each refusal seen on a live run becomes a rule the fakes share (`sidecar/tests/fabric_refusals.py`):
+
+| Refusal | Seen on | What the fakes do |
+| --- | --- | --- |
+| A User Data Functions item whose definition lists no functions: `NullOrEmptyArgument` | Live run 2, 2026-10-30 (#1165) | Refuse the create or update with the same 400 |
+| Windows sign-in with Microsoft's Fabric CLI client gets no token for Azure SQL or Kusto: `AADSTS65002` | Live run 2, 2026-10-30 (#1079) | Refuse the token with the same message |
+
+When a live run finds a new refusal, add it there with the run it came from, and add a row here.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).

@@ -66,7 +66,10 @@ def health_from_probe(s: dict[str, Any], host_status: int | None, status: int | 
         return {"health": "not_checked", "detail": f"The check didn't reach OneLake: {message}".strip(": ")}
     if 200 <= status < 300:
         return {"health": "healthy", "detail": ""}
-    if status == 429 or status >= 500:  # OneLake was busy or failed: that says nothing about the shortcut
+    # OneLake was busy (429, 503), or failed on a OneLake target: that says nothing about the shortcut.
+    # For an external target (ADLS, S3, GCS) OneLake passes on the storage's own failure as a 500, 502
+    # or 504, which can be a real break, so those stay broken and the watch still posts them.
+    if status in (429, 503) or (onelake and status >= 500):
         return {"health": "not_checked", "detail": f"OneLake was busy (it answered {status}), so this wasn't checked. "
                                                    "It's checked again next time"}
     if status == 404:

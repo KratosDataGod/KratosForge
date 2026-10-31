@@ -222,6 +222,10 @@ def test_probe_results_mean_what_they_say():
         assert center.health_from_probe(one, 200, busy, "ServerBusy") == {
             "health": "not_checked",
             "detail": f"OneLake was busy (it answered {busy}), so this wasn't checked. It's checked again next time"}
+    for busy in (429, 503):  # busy whatever the target
+        assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, busy)["health"] == "not_checked"
+    for failed in (500, 502, 504):  # an external target's storage failing can be a real break
+        assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, failed, "BadGateway")["health"] == "broken"
     assert center.health_from_probe(one, 200, 404)["health"] == "broken"
     assert center.health_from_probe(one, 200, 409)["health"] == "broken"
 

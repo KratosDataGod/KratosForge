@@ -103,6 +103,8 @@ Expressions are evaluated by a fixed list of functions written for this purpose,
 - Dates (UTC): `utcNow`, `formatDateTime`, `addDays`, `addHours`, `addMinutes`, `addSeconds`, `startOfDay`.
 - Pipeline: `pipeline()` (`parameters`, `RunId`, `Pipeline`, `TriggerTime`, `TriggerType`, `TriggerId`, `TriggerName`, `GroupId`), `variables()`, `activity()` (`output`, `status`, `error`, `activityRunId`), `item()`.
 
+A Failed activity's `error` has the fields Fabric gives it: `errorCode`, `message`, `failureType`, `target` (the activity's name) and `details` (empty). `failureType` is `UserError`, except `SystemError` when the local engine itself fails (`LocalAdapterError`); a mock can set its own `failureType`. So a catch branch can read `activity('Load').error.failureType` here as in Fabric. The error codes of local failures start with `Local` and differ from Fabric's numeric codes.
+
 `@@` escapes a literal `@`, `@{...}` interpolates into text, and `?.` reads a property that may be missing. Property names are matched without regard to case.
 
 Known differences, or things not yet compared with Fabric:

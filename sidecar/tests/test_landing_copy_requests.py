@@ -14,7 +14,8 @@ from fabric_desktop.service import Service
 
 ADMIN, DEV = "ana@contoso.com", "dev@contoso.com"
 CONN = "0f0e0d0c-0b0a-0908-0706-050403020100"
-WS, LH = "ws-landing-prod", "lh-landing-prod"
+WS, LH = "1a2b3c4d-0000-4000-8000-00000000a001", "1a2b3c4d-0000-4000-8000-00000000a002"
+CJ1 = "00000000-0000-4000-8000-000000000001"  # the first Copy job the fake makes
 COPY = {"connection_id": CONN.upper(), "connection_name": "SQL Server: erp-sql01 / ERP",
         "tables": [{"table": "dbo.Customer", "mode": "incremental", "column": "ModifiedAt"},
                    {"table": "dbo.Region"}],
@@ -37,7 +38,7 @@ class FakeFabric:
 
     def save_item(self, workspace_id, item_type, name, parts=None, description=""):
         self._maybe_fail("save_item")
-        item = {"id": f"cj-{len(self.items) + 1}", "type": item_type, "displayName": name, "description": description,
+        item = {"id": f"00000000-0000-4000-8000-{len(self.items) + 1:012d}", "type": item_type, "displayName": name, "description": description,
                 "workspaceId": workspace_id, "parts": parts}
         self.items.append(item)
         self.calls.append(("save_item", self.me(), workspace_id, name))
@@ -152,15 +153,15 @@ def test_approving_makes_the_copy_job_and_its_schedule_as_the_approver(svc, who,
     req = ask(svc, who)
     out = svc.platform_decide(req["id"], True, "ok")
     assert out["status"] == "approved"
-    assert out["made"] == {"copy_job_id": "cj-1", "workspace_id": WS, "copy_job_name": "CJ_Landing_erp",
-                           "schedule_id": "s-cj-1"}
+    assert out["made"] == {"copy_job_id": CJ1, "workspace_id": WS, "copy_job_name": "CJ_Landing_erp",
+                           "schedule_id": f"s-{CJ1}"}
     assert [c[:2] for c in api.calls] == [("save_item", ADMIN), ("create_schedule", ADMIN)]
     item = api.items[0]
     assert item["type"] == "CopyJob" and item["workspaceId"] == WS
     assert f"(KratosForge request {req['id']})" in item["description"]
     job = json.loads(item["parts"][copyjob.CONTENT])
     assert job["properties"]["destination"]["connectionSettings"]["typeProperties"]["artifactId"] == LH
-    sched = api.schedules["cj-1"][0]
+    sched = api.schedules[CJ1][0]
     assert sched["jobType"] == "Execute" and sched["configuration"]["type"] == "Daily"
     assert sched["configuration"]["times"] == ["02:00"] and sched["configuration"]["localTimeZoneId"] == "UTC"
     src = next(s for s in svc.platform_sources() if s["name"] == "erp")
@@ -173,7 +174,7 @@ def test_a_failed_step_leaves_it_waiting_and_approving_again_carries_on(svc, who
     with pytest.raises(StepError, match="Schedule CJ_Landing_erp daily at 02:00 UTC failed"):
         svc.platform_decide(req["id"], True)
     waiting = next(r for r in svc.platform_requests("waiting") if r["id"] == req["id"])
-    assert waiting["detail"]["made"]["copy_job_id"] == "cj-1"
+    assert waiting["detail"]["made"]["copy_job_id"] == CJ1
     assert svc.platform_decide(req["id"], True)["status"] == "approved"
     assert [c[0] for c in api.calls] == ["save_item", "create_schedule"]  # one Copy job, not two
     assert len(api.items) == 1
@@ -216,7 +217,7 @@ def test_a_source_request_without_a_copy_job_is_approved_as_before(svc, who, api
 def test_the_landing_zone_names_the_copy_job_that_lands_a_source(svc, who):
     svc.platform_decide(ask(svc, who)["id"], True)
     erp = next(s for s in svc.platform_landing("dev")["sources"] if s["name"] == "erp")
-    assert erp["copy_job"] | {"request_id": ""} == {"id": "cj-1", "workspace_id": WS, "name": "CJ_Landing_erp",
+    assert erp["copy_job"] | {"request_id": ""} == {"id": CJ1, "workspace_id": WS, "name": "CJ_Landing_erp",
                                                     "tables": 2, "times": ["02:00"], "request_id": ""}
 
 
@@ -279,7 +280,7 @@ def test_a_source_whose_copy_job_is_still_in_fabric_is_not_deleted(svc, who, api
                               "delete it in Fabric first, then delete the source")
     assert any(s["name"] == "erp" for s in svc.platform_sources())
     assert [c[0] for c in api.calls] == ["save_item", "create_schedule"]  # nothing changed in Fabric
-    assert "cj-1" in {i["id"] for i in api.items}
+    assert CJ1 in {i["id"] for i in api.items}
 
 
 def test_once_the_copy_job_is_deleted_in_fabric_the_source_deletes(svc, who, api):
@@ -388,3 +389,41 @@ def test_no_access_to_the_landing_workspace_keeps_the_source(svc, who, api, monk
     with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job"):
         svc.platform_delete_source("erp")
     assert any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+def _corrupt(svc, field, value):
+    req = svc.platform_requests("approved")[0]
+    detail = dict(req["detail"], made=dict(req["detail"]["made"], **{field: value}))
+    with svc._catalog()._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", (json.dumps(detail), req["id"]))
+        db.conn.commit()
+
+
+def test_a_real_copy_job_in_a_workspace_that_cant_be_read_keeps_the_source(svc, who, api, monkeypatch):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, "workspace_id", "../admin/workspaces")
+    called = []
+    monkeypatch.setattr(api, "list_items", lambda workspace_id: called.append(workspace_id) or [])
+    with pytest.raises(core.PlatformError, match=f"recorded the Copy job {CJ1} in a landing workspace KratosForge"):
+        svc.platform_delete_source("erp")
+    assert called == [] and any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+@pytest.mark.parametrize("field, value", [("copy_job_id", "cj-1?x=1")])
+def test_a_recorded_id_that_isnt_fabrics_never_reaches_fabric_and_doesnt_hold_the_source(svc, who, api, monkeypatch,
+                                                                                          field, value):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, field, value)
+    called = []
+    monkeypatch.setattr(api, "list_items", lambda workspace_id: called.append(workspace_id) or [])
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+    assert called == []
+
+
+def test_someone_who_isnt_an_admin_never_hears_of_a_record_kratosforge_cant_read(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, "workspace_id", "../admin/workspaces")
+    who["user"] = DEV
+    with pytest.raises(Exception) as err:
+        svc.platform_delete_source("erp")
+    assert CJ1 not in str(err.value) and "Copy job" not in str(err.value) and "admin" in str(err.value).lower()

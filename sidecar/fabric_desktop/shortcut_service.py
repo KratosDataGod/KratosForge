@@ -564,11 +564,19 @@ class ShortcutMixin:
                     if exc.status != 409 and "AlreadyExists" not in str(exc.code or ""):
                         raise
                     self._sc_made_before(req, why, exc)
+                    self._sc_progress(req)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
                     return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
                                            "asks, so it was kept"]}
+                self._sc_progress(req)
         return super().platform_decide(id, approve, note)  # type: ignore[misc]
+
+    def _sc_progress(self, req: dict[str, Any]) -> None:
+        """Record the shortcut on the request, so declining it after a later step fails says it's in OneLake."""
+        d = req["detail"]
+        sid = core.shortcut_id(d["item_id"], f"{shortcuts_mod.location(d['where'])}/{d['name']}")
+        self._rq_progress(req, {"shortcut_id": sid})  # type: ignore[attr-defined]
 
     def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> None:
         """Fabric refused a shortcut request's shortcut because one is there already. It counts as made only

@@ -353,6 +353,8 @@ A note above the cells tells you when a notebook can't run where it is set to, a
 
 The note has a button to switch when the other place would work.
 
+The check reads each Python cell's code, not only its text, so it finds `notebookutils` by any name an import or assignment gives it (`import notebookutils as nu`, `from notebookutils import fs`, `fs = nu.fs`), and reads `spark.sql`'s SQL when it's kept in a variable, an f-string, `+` or `.format`. Where it can't tell, the result for that place is **Unknown**, never "runs here": code built at run time (`exec`, `eval`, a module imported by a name in a variable), SQL whose text or table is known only at run time (`spark.sql(query)` with `query` passed in, `f"MERGE INTO {target} ..."`), a notebookutils function looked up by a name in a variable, or a cell Python can't read. Unknown doesn't stop a run, a proof or a side-by-side run; Prove is how to find out. **Validate**, Prove's check, the advice and the risk check list the Unknown cells as warnings. The note above the cells doesn't show Unknown yet.
+
 ## Run in Fabric and schedules (Preview)
 
 **Run in Fabric** publishes the notebook, then starts it on the workspace's Fabric capacity with Fabric's job scheduler. The status bar, the bell and **Monitor** follow it until it finishes. Attach a lakehouse first; the notebook runs in that lakehouse's workspace (or the workspace you publish to).

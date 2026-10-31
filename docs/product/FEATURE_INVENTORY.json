@@ -2365,7 +2365,7 @@
     {
       "id": "FEAT-NB-07",
       "name": "Where a notebook can run (compute check)",
-      "description": "A saved This PC / Fabric choice per notebook and a static check naming the cells that block each side.",
+      "description": "A saved This PC / Fabric choice per notebook and a check that reads each cell's Python (aliased and from-imports, SQL in variables) and names the cells that block each side, or that it can't read (Unknown, never taken as runs here).",
       "pillar": "Local development",
       "category": "Local Development and Execution",
       "status": "Implemented",
@@ -2388,6 +2388,11 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY lists notebookutils.variableLibrary, which notebookutils_local implements"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_compute_check_ast.py",
+          "note": "30 tests (aliases, Unknown, Prove/validate/advice/risk read the same result); passed on the PB-014 branch, fail on main"
         }
       ],
       "source": [
@@ -2396,7 +2401,8 @@
       ],
       "tests": [
         "sidecar/tests/test_notebook.py",
-        "sidecar/tests/test_fabric_compute.py"
+        "sidecar/tests/test_fabric_compute.py",
+        "sidecar/tests/test_compute_check_ast.py"
       ],
       "docs": [
         "docs/notebooks.md"

@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1230 d80c0e20 | Browser and accessibility tests for Settings > Integrations | PASS 9.2 | openTab() now waits until the tab has finished loading with rows in it, and the rows are counted and read in one waitForFunction (exactly 8). Merge result: integrations-tab.test.cjs passed 4/4 in 8 of 8 runs, the first from a cold start, each with two ui.test processes running alongside for load. ui 310/0. |
+
 | 2026-10-31 | #1230 d43e1950 | Browser and accessibility tests for Settings > Integrations | CONDITIONAL 8.7 | Test only, merges clean, ui 310/0. integrations-tab.test.cjs passed 4/4 in 8 of 12 runs here. Under load (ui.test running in parallel), test 1 failed 2 of 8 times with rows.count() 0 !== 8: it counts the rows as soon as the Recent activity heading appears, before the rows have loaded. The first cold run failed tests 3 and 4; I didn't capture why and couldn't reproduce it. Fix: wait for the rows (e.g. rows.nth(7).waitFor()) before counting. |
 
 | 2026-10-30 | #1187 7d4d7ae7 | Recent activity shows approved AI tool calls when they start | PASS 9.2 | Merges clean. Merge result: integrations + mcp + silent_except 366 pass and 1 skipped, ruff clean, mypy ratchet exit 0, ui 309/0. The approval_uses table is additive. Recent activity drops a started line once its outcome line exists, and unfinished rows come from approval_uses, minus approvals that have a line anywhere in the store, with arguments shown in their redacted form. |

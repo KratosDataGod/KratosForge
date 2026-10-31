@@ -5681,3 +5681,14 @@ test("declining a shortcut request whose shortcut was made says it is still in O
     ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
   assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
 });
+
+test("browser tests run axe through the harness, which waits for animations to end (#1337)", () => {
+  // axe judges contrast on the colors as drawn; a check taken while a dialog fades in fails on
+  // faded text (#1297). harness.cjs axeFindings turns motion off and waits; the audit has its own runner.
+  const dir = path.join(__dirname, "browser");
+  const own = new Set(["harness.cjs", "a11y-audit.test.cjs"]);
+  const direct = fs.readdirSync(dir).filter((f) => f.endsWith(".cjs") && !own.has(f))
+    .filter((f) => /axe\.run\(|addScriptTag\(\{ content: axeSource/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.deepStrictEqual(direct, []);
+  assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
+});

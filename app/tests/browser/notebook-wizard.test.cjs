@@ -18,10 +18,8 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings: harnessAxe } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const skip = !playwright && "Playwright is not installed";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -307,17 +305,8 @@ test("a name already taken is refused, and the first notebook is unchanged", { s
 
 const axeSkip = skip || (!axeSource && "axe-core is not installed");
 
-// Each step redraws the dialog, which fades in, and axe measures contrast on the colors as drawn:
-// so no motion, and no animation running when axe looks.
-async function axeFindings() {
-  await page().emulateMedia({ reducedMotion: "reduce" });
-  if (!(await page().evaluate(() => !!window.axe))) await page().addScriptTag({ content: axeSource });
-  await page().waitForFunction(() => document.getAnimations().length === 0);
-  return page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
-}
+// Each step redraws the dialog, which fades in; the harness waits for it before axe looks.
+const axeFindings = () => harnessAxe(page(), "#dialog-root .dialog");
 
 test("the templates and questions steps have no serious axe findings", { skip: axeSkip }, async () => {
   const d = await open();

@@ -3,12 +3,9 @@
 // an open lab.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, settleForAxe } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["app_settings", "save_app_settings", "learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
@@ -28,13 +25,7 @@ before(async () => {
 after(async () => { await app?.close(); });
 
 async function axe(scope) {
-  await settleForAxe(page());
-  await page().addScriptTag({ content: axeSource });
-  const res = await page().evaluate(async (scope) => {
-    const r = await window.axe.run(document.querySelector(scope), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  }, scope);
-  return res;
+  return axeFindings(page(), scope);
 }
 
 test("Learn sits at the bottom of the rail, before Source control and Settings, and keeps the main rail at 8", { skip }, async () => {

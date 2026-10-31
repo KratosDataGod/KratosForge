@@ -8,12 +8,10 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, settleForAxe } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 
 const ENGINE = ["start_cell", "poll_cell", "kernel_variables", "kernel_complete", "interrupt_cell", "notebook_dependencies"];
 
@@ -205,12 +203,7 @@ test("the Run stale cells dialog has no serious axe findings", { skip: skip || (
   const dialog = page().locator("#dialog-root .dialog");
   await dialog.waitFor();
   assert.match(await dialog.innerText(), /Run 3 stale cells\?/);
-  await settleForAxe(page());
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), "#dialog-root .dialog");
   assert.deepStrictEqual(found, []);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await dialog.waitFor({ state: "detached" });

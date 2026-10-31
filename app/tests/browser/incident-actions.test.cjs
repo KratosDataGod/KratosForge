@@ -8,10 +8,8 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
-const { playwright, openApp, startupReads } = require("./harness.cjs");
+const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -416,17 +414,8 @@ test("opening the list and an incident sends no write", { skip }, async () => {
 });
 
 test("axe finds nothing serious on the list, the incident page and an action dialog", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
-  // Reduced motion, and no animation running: axe judges contrast on the colors as drawn.
-  await page().emulateMedia({ reducedMotion: "reduce" });
-  await page().addScriptTag({ content: axeSource });
-  const check = async (where, selector) => {
-    await page().waitForFunction(() => document.getAnimations().length === 0);
-    const found = await page().evaluate(async (selector) => {
-      const r = await window.axe.run(document.querySelector(selector), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-      return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-    }, selector);
-    assert.deepStrictEqual(found, [], where);
-  };
+  // axeFindings settles the page first: axe judges contrast on the colors as drawn.
+  const check = async (where, selector) => assert.deepStrictEqual(await axeFindings(page(), selector), [], where);
   await listed("prod", "active", 2);
   await check("list", ".page.monitor");
   await listed("prod", "resolved", 1);

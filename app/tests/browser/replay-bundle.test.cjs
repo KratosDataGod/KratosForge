@@ -18,10 +18,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const skip = !playwright && "Playwright is not installed";
 
 const WS = "3f6c2a91-7d4e-4b8a-9c15-2e7f80d4a6b3";
@@ -192,12 +190,7 @@ test("when policy turns samples off, the box is disabled and says so", { skip },
 test("the dialog has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
   await page().emulateMedia({ reducedMotion: "reduce" });
   const d = await open();
-  await page().waitForFunction(() => document.getAnimations().length === 0);
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), "#dialog-root .dialog");
   assert.deepStrictEqual(found, []);
   await d.getByRole("button", { name: "Cancel" }).click();
   await d.waitFor({ state: "detached" });

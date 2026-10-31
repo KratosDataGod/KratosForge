@@ -253,39 +253,62 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    """#,###,###.## rounded half-even to d places, as Spark's DecimalFormat does: a double by its exact
-    binary value (2.345 is 2.34500000000000019... so 2.35; 2.675 is 2.67499999... so 2.67; 0.125 is a
-    tie, so 0.12), a decimal or an integer by its value. DuckDB's round_even doesn't do that on 1.x
-    (it rounds a decimal as a double) or 2.0 (a double by its shortest digits), so a double's exact
-    digits (printf prints them) are rounded as a decimal, half-even by hand."""
+    """#,###,###.## rounded half-even to d places, as Spark's DecimalFormat does. A decimal or an
+    integer is rounded by its value. A double is rounded from the digits Java prints for it, padded with
+    zeros past them: its shortest digits (2.345, not 2.34500000000000019...), but the exact whole number for
+    a whole double from 2**53 to 2**62 (Java prints those). When those digits fall on a tie at
+    the last place, the double's exact binary value decides (2.345 is a little above 2.345, so 2.35;
+    2.675 a little below, so 2.67; 0.125 is exactly a tie, so 0.12). DuckDB's round_even does none of
+    this the same on 1.x and 2.0, so it is done on exact decimals by hand and printed from their digits."""
     x, d = _col_sql(col), int(d)
     if not 0 <= d <= 18:
         return _sql(f"printf('%,.{max(d, 0)}f', {x})")
-    exact = f"CAST(printf('%.20f', CAST({x} AS DOUBLE)) AS DECIMAL(38, 20))"
-    # Beyond the exact decimals (a double from 1e17, any other number from 1e20) DuckDB's own rounding
-    # prints it, as before. NaN and infinity print as DecimalFormat prints them.
+    double = f"CAST({x} AS DOUBLE)"
+    negative = f"({x} < 0 OR ({x} = 0 AND CAST({double} AS VARCHAR) LIKE '-%'))"  # -0.0 prints -0, as in Java
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    # printf prints a double's exact digits; a VARCHAR, its shortest ones.
+    exact = f"CAST(printf('%.20f', {double}) AS DECIMAL(38, 20))"
+    shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 20))"
+    # Which side of its shortest digits the exact value lies (-1, 0, 1). Below 1, 37 places show it.
+    side = (f"CASE WHEN abs({double}) < 1 THEN sign(CAST(printf('%.37f', {double}) AS DECIMAL(38, 37)) - "
+            f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 37))) ELSE sign({exact} - {shortest}) END")
+    near = f"round({shortest}, {d})"  # half away from zero
+    tie = f"abs({shortest} - {near}) * 2 = {unit}"
+    from_shortest = (f"CASE WHEN NOT ({tie}) THEN {near} WHEN {side} * sign({double}) > 0 THEN {near} "
+                     f"WHEN {side} * sign({double}) < 0 THEN {near} - sign({double}) * {unit} "
+                     f"ELSE {_half_even(shortest, d)} END")
+    whole = f"CAST(printf('%.0f', {double}) AS DECIMAL(38, 0))"  # from 2**53 to 2**62 (a whole double), its exact digits
+    whole_shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 0))"  # from 2**62, its shortest digits
+    # Beyond the exact decimals DuckDB's own rounding prints it, as before. NaN and infinity print as
+    # DecimalFormat prints them.
     big = f"printf('%,.{d}f', round_even({x}, {d}))"
-    special = (f"WHEN isnan(CAST({x} AS DOUBLE)) THEN 'NaN' WHEN isinf(CAST({x} AS DOUBLE)) THEN "
+    special = (f"WHEN isnan({double}) THEN 'NaN' WHEN isinf({double}) THEN "
                f"CASE WHEN {x} < 0 THEN '-∞' ELSE '∞' END")
-    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE {special} WHEN abs({x}) < 1e17 THEN "
-                f"{_half_even(exact, d)} ELSE {big} END) WHEN abs(CAST({x} AS DOUBLE)) < 1e20 THEN "
-                f"{_half_even(f'CAST({x} AS DECIMAL(38, 18))', d)} ELSE {big} END")
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE {special} "
+                f"WHEN abs({x}) >= 9007199254740992 AND abs({x}) < 4611686018427387904 THEN {_printed(whole, d, negative)} "
+                f"WHEN abs({x}) < 1e17 THEN {_printed(from_shortest, d, negative)} "
+                f"WHEN abs({x}) < 1e37 THEN {_printed(whole_shortest, d, negative)} ELSE {big} END) "
+                f"WHEN abs({double}) < 1e20 THEN "
+                f"{_printed(_half_even(f'CAST({x} AS DECIMAL(38, 18))', d), d, negative)} ELSE {big} END")
 
 
 def _half_even(v: str, d: int) -> str:
-    """``v``, an exact decimal, rounded half-even to ``d`` places and printed with thousands separators.
-    A NULL stays NULL."""
+    """``v``, an exact decimal, rounded half-even to ``d`` places (a decimal). A NULL stays NULL."""
     unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
     r = f"round({v}, {d})"  # half away from zero, exact on a decimal
     tie_to_odd = f"abs({v} - {r}) * 2 = {unit} AND CAST({r} * CAST('1e{d}' AS DECIMAL(38, 0)) AS HUGEINT) % 2 <> 0"
-    rounded = f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
-    # Printed from its digits, not through a double, so all of them are exact (BIGINT's largest is
-    # 9,223,372,036,854,775,807). A negative value that rounds to zero keeps its sign, as DecimalFormat
-    # prints it (-0.25 -> -0).
+    return f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
+
+
+def _printed(rounded: str, d: int, negative: str) -> str:
+    """``rounded``, a decimal with no more than ``d`` places, with thousands separators and ``d``
+    places, from its digits rather than through a double, so all of them are exact (BIGINT's largest is
+    9,223,372,036,854,775,807). A negative value that rounds to zero keeps its sign, as DecimalFormat
+    prints it (-0.25 -> -0)."""
     whole = f"trunc(abs({rounded}))"
     places = "" if d == 0 else (f" || '.' || lpad(CAST(CAST((abs({rounded}) - {whole}) * CAST('1e{d}' AS "
                                 f"DECIMAL(38, 0)) AS HUGEINT) AS VARCHAR), {d}, '0')")
-    return (f"CASE WHEN {v} < 0 THEN '-' ELSE '' END || format('{{:,}}', CAST({whole} AS HUGEINT)){places}")
+    return f"CASE WHEN {negative} THEN '-' ELSE '' END || format('{{:,}}', CAST({whole} AS HUGEINT)){places}"
 
 
 def to_json(col: Any, options: Any = None) -> Column:

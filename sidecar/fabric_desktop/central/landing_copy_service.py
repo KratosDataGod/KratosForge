@@ -217,11 +217,16 @@ class LandingCopyMixin:
             jid, ws = str(m.get("copy_job_id") or ""), str(m.get("workspace_id") or "")
             if r.get("kind") != "source" or str(r.get("target") or "").strip().lower() != source or not jid or jid in seen:
                 continue
-            if not (_GUID.fullmatch(jid) and _GUID.fullmatch(ws)):
-                # Ids that aren't Fabric's can't name a Copy job, and never go into a Fabric call.
+            if not _GUID.fullmatch(jid):
+                # A job id that isn't Fabric's can't name a Copy job, and never goes into a Fabric call.
                 _log.warning("Request %s for %s recorded a Copy job id KratosForge can't read; skipped",
                              r.get("id"), source)
                 continue
+            if not _GUID.fullmatch(ws):
+                # The job may be real, but where it is can't be read: keep the source.
+                raise core.PlatformError(
+                    f"{source}'s request recorded the Copy job {jid} in a landing workspace KratosForge can't read, "
+                    "so the source is kept. Check that Copy job in Fabric, and delete it there if it isn't wanted")
             seen.add(jid)
             out.append({"id": jid, "workspace_id": ws,
                         "name": str(m.get("copy_job_name") or copyjob_build.job_name(source))})

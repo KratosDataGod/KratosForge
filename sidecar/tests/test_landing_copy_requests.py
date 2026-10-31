@@ -391,15 +391,29 @@ def test_no_access_to_the_landing_workspace_keeps_the_source(svc, who, api, monk
     assert any(s["name"] == "erp" for s in svc.platform_sources())
 
 
-@pytest.mark.parametrize("field, value", [("workspace_id", "../admin/workspaces"), ("copy_job_id", "cj-1?x=1")])
-def test_a_recorded_id_that_isnt_fabrics_never_reaches_fabric_and_doesnt_hold_the_source(svc, who, api, monkeypatch,
-                                                                                          field, value):
-    svc.platform_decide(ask(svc, who)["id"], True)
+def _corrupt(svc, field, value):
     req = svc.platform_requests("approved")[0]
     detail = dict(req["detail"], made=dict(req["detail"]["made"], **{field: value}))
     with svc._catalog()._db() as db:
         db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", (json.dumps(detail), req["id"]))
         db.conn.commit()
+
+
+def test_a_real_copy_job_in_a_workspace_that_cant_be_read_keeps_the_source(svc, who, api, monkeypatch):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, "workspace_id", "../admin/workspaces")
+    called = []
+    monkeypatch.setattr(api, "list_items", lambda workspace_id: called.append(workspace_id) or [])
+    with pytest.raises(core.PlatformError, match=f"recorded the Copy job {CJ1} in a landing workspace KratosForge"):
+        svc.platform_delete_source("erp")
+    assert called == [] and any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+@pytest.mark.parametrize("field, value", [("copy_job_id", "cj-1?x=1")])
+def test_a_recorded_id_that_isnt_fabrics_never_reaches_fabric_and_doesnt_hold_the_source(svc, who, api, monkeypatch,
+                                                                                          field, value):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, field, value)
     called = []
     monkeypatch.setattr(api, "list_items", lambda workspace_id: called.append(workspace_id) or [])
     assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))

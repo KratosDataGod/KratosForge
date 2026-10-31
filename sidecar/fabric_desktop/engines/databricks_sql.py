@@ -105,19 +105,24 @@ class DatabricksError(RuntimeError):
 
 def split_statements(code: str) -> list[str]:
     """``code``'s statements as written, split on top-level semicolons (sqlglot's tokenizer, so a
-    semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides."""
+    semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides.
+    A part that is only comments is left out: sending it would wake a stopped warehouse for nothing."""
     import sqlglot
     from sqlglot.tokens import TokenType
     try:
         tokens = sqlglot.tokenize(code, read="databricks")
     except Exception:  # noqa: BLE001 - the warehouse reports what's wrong with SQL sqlglot can't read
         return [code.strip()] if code.strip() else []
-    parts, start = [], 0
+    parts, start, has_sql = [], 0, False
     for tok in tokens:
         if tok.token_type == TokenType.SEMICOLON:
-            parts.append(code[start:tok.start])
-            start = tok.end + 1
-    parts.append(code[start:])
+            if has_sql:
+                parts.append(code[start:tok.start])
+            start, has_sql = tok.end + 1, False
+        else:
+            has_sql = True
+    if has_sql:
+        parts.append(code[start:])
     return [p.strip() for p in parts if p.strip()]
 
 

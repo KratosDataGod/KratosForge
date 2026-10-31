@@ -31,7 +31,7 @@ before(async () => {
       rows: [["Contoso", 1250.5], ["Fabrikam", 980]] };
   });
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze"],
+    engine: ["sql_format", "sql_analyze"],
     mocks: { ...runs, sql_start: (p) => ({ ...runs.sql_start(p), target: "warehouse" }) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);

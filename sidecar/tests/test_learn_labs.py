@@ -146,7 +146,7 @@ def test_start_check_hint_and_reset(tmp_path):
     assert labs.state(tmp_path, "LM-01")["answers"]["north-big-orders"] == content.file_text("LM-01", "starter.sql")
     assert labs.hint("LAB-02", "store-revenue-2026", 1)["of"] == 3
     assert labs.hint("LAB-02", "store-revenue-2026", 99)["level"] == 3
-    assert labs.hint("LM-01", "north-big-orders", 1)["of"] == 0
+    assert labs.hint("LM-01", "north-big-orders", 1)["of"] == 3
     with pytest.raises(ValueError):
         labs.save_answer(tmp_path, "LM-01", "nope", "x")
 
@@ -179,10 +179,22 @@ def test_every_reference_solution_passes_its_own_checks(tmp_path, module_id):
         assert out["passed"], out["results"]
 
 
+@pytest.mark.parametrize("module_id", [m["id"] for m in content.modules() if "duckdb" in m["engines"]])
+def test_no_starter_already_passes(tmp_path, module_id):
+    module = content.get(module_id)
+    labs.start(tmp_path, module_id)
+    for ex in module["exercises"]:
+        if ex.get("starter"):
+            out = labs.check(tmp_path, module_id, ex["id"], content.file_text(module_id, ex["starter"]))
+            assert not out["passed"], f"{module_id}/{ex['id']}: the starter is already the answer"
+
+
 def test_labs_import_nothing_that_reaches_fabric():
-    allowed = {"__future__", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
+    allowed = {"__future__", "contextlib", "datetime", "decimal", "threading", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
-               "sqlcompat", "model_practices", "datasets", "checks", "content", ""}
+               "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", "",
+               # fixes.py (GD-02) reads SQL with the compatibility checker's tokens: a parser, no I/O
+               "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules"}
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

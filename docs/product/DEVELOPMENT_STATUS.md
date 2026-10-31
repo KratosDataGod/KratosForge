@@ -3,27 +3,34 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-29 11:42 UTC, main 188d5a93.** Covers the PRs merged from #135 to #1050.
+**Product check of 2026-10-31 11:42 UTC, main f3750b9d.** Covers the PRs merged from #135 to #1202.
 
 ## Summary
 
-- 82 PRs merged since the evening check's commit (b19b7456), 63 of them numbered #973 to #1050. The tenant smoke-test harness (#884) and its
-  central platform flows (#919) are in, and so are the OneLake lease and MERGE live-test checks (#892)
-  and the pipeline mailbox's run check (#931). None of these has run on a tenant yet. Also merged:
-  - Snowflake as a Preview engine (#993, #995).
-  - Block policies stop promote (GOV-003, #924).
-  - Accessibility fixes from the audit (#926, #951, #988, #990).
-  - Paged reads that can't loop forever (#944), and Fabric's own error text (#939).
-  - A mypy and ruff check in CI (#1011, #1032).
-  - The Apache-2.0 license (#973) and a new README (#998).
-- 3 more items moved to In review: PB-031, PB-072 and PB-083. PB-067's file clean-up merged (#950), but its
-  run dialog isn't built, so it stays In progress. PB-031 can't widen a type
-  without a rewrite (delta-rs and the Fabric-safe profile), so its first criterion is Chris's call.
-- 23 items are In review and wait on the product owner. Two of them have changed acceptance criteria
-  (PB-049, PB-072), which also need him.
-- Inventory: 142 features. 119 are Implemented, 13 Partially Implemented, 4 Implemented but Not Exposed, 2 Missing and 4 Planned.
-  3 are Verified, 128 Partially Verified and 11 Unverified. None has been verified on a Fabric tenant end to end.
-- Backlog: 106 items (5 P0, 31 P1, 54 P2, 16 P3). 19 are Proposed, 24 In progress, 23 In review and 40 Accepted.
+- Morning check, 2026-10-31: three more PRs merged. Snowflake functions are checked value by
+  value against Snowflake's docs (PB-117, #1202), a time limit or early Cancel says truthfully
+  whether a remote statement stopped (#1201), and every platform role write leaves an audit row
+  (PB-052, #1200). PB-117 moved to In review in the queue refresh (#1196).
+- Evening check, 2026-10-30: 23 PRs merged after 02118fa4, besides the product data PRs.
+- Acceptance batch 2 (2026-10-30, #1163): the product owner accepted 19 items, 10 of them with
+  documented limitations, and approved the changed criteria for PB-031, PB-049 and PB-072.
+- Merged:
+  - Learn guidance levels, with Professional the default (GD-01, #1161), and Try the fix and Compare
+    beside SQL findings (GD-02, #1162). Also Explain and Lesson buttons (#1160) and the Microsoft
+    Fabric path (#1159). All Preview.
+  - The Getting started panel on Home (#1147).
+  - Column completion in notebook `%%sql` cells, offline too (PB-027, #901).
+  - Prove takes Spark notebooks with MERGE, UPDATE and DELETE (PB-015, #1157).
+  - The AI client checklist run with Claude Code, Codex CLI and curl (PB-096, #1185).
+  - The remaining allow_ policy switches fail closed (PB-061, #1150). The engine's method lists are
+    checked against each other (PB-098, #1152). HD-050 slices 6 and 7 (#1153, #1156).
+  - Databricks SQL whole results and functions (#1180, #1183), and retries for remote Spark and
+    Databricks calls (#1191).
+- PB-027 and PB-096 moved to In review. PB-061 is In progress: the keys FD-105 lists are still to
+  decide. PB-015 stays In progress for its live Prove run.
+- Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
+  3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 15 are Proposed, 25 In progress, 10 In review and 59 Accepted.
 
 ## Workstreams
 
@@ -36,7 +43,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 | Governance and mesh | Enterprise governance foundation; data mesh | PB-057, PB-053, PB-083 | Block policies stop promote (GOV-003, #924); endorsed filter (#889) |
 | Developer experience | UX oversight; action-first; VS Code | PB-078, PB-077, PB-070, PB-063 | Audit fixes (#926, #951), tab rows (#988), High Contrast (#990), Browse buttons (#987) |
 | Testing and security | Codebase audit; engineering quality | PB-074, PB-072, PB-051, PB-101 | Long calls bounded (#898); mypy and ruff in CI (#1011, #1032); HD-050 slices 3 and 4 |
-| Databricks and Snowflake | Fabric and Databricks unified development | PB-116, PB-117, PB-118 | Livy draft #891; Snowflake engine and SQL merged as Preview (#993, #995) |
+| Databricks and Snowflake | Fabric and Databricks unified development | PB-116, PB-117, PB-118 | Livy (#891) and the loss report (#1053) merged; engine picker (#1096); Fabric verified to level 2 |
 | Release | Release management | | Working |
 
 ## Open pull requests
@@ -46,7 +53,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 23 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
+two release gates. Also waiting: acceptance of the 10 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

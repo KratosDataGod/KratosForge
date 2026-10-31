@@ -139,6 +139,7 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
 #   dropped  not in the converted notebook at all
 #   changed  carried over in another form
 #   check    carried over as written, but won't work the same where it now runs
+#   fabric   runs on this PC as written, but needs a change before it runs in Fabric
 
 def _note(cell: int | None, kind: str, what: str) -> dict[str, Any]:
     return {"cell": cell, "kind": kind, "what": what}
@@ -193,17 +194,51 @@ _HERE_CHECKS = (
     (re.compile(r"\bdbutils\.library\.install"), "dbutils.library.install runs in Databricks; this PC's packages are fixed."),
     (re.compile(r"\bdbutils\.credentials\."), "dbutils.credentials is a Databricks on AWS feature; this PC signs in to Microsoft as you."),
     (re.compile(r"(?i)(?:dbfs:/|[\"'\s(]/dbfs/|[\"'\s(]/Volumes/|[\"'\s(]/Workspace/)"),
-     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which this PC can't reach. "
-     "Point it at a lakehouse or a folder on this PC to run it here."),
+     "A Databricks storage path (dbfs:/, /dbfs/, /Volumes/ or /Workspace/), which neither this PC nor Fabric "
+     "can reach. Point it at Files/ or Tables/ in a lakehouse, or at a folder on this PC."),
+    # Delta Live Tables (Lakeflow declarative pipelines): Python decorators and SQL statements.
+    (re.compile(r"(?m)^\s*(?:import\s+dlt\b|from\s+dlt\s+import\b|@dlt\.)|(?i:\bCREATE\s+(?:OR\s+REFRESH\s+)?"
+                r"(?:STREAMING|LIVE)\s+(?:TABLE|LIVE\s+TABLE|VIEW)\b|\bCREATE\s+OR\s+REFRESH\b|"
+                r"\b(?:APPLY\s+CHANGES|AUTO\s+CDC)\s+INTO\b|\bCONSTRAINT\s+\w+\s+EXPECT\s*\()"),
+     "Delta Live Tables code, which only a Databricks pipeline runs: neither this PC nor Fabric has it. "
+     "Rewrite each dataset as a cell that writes its table, check the data in code instead of EXPECT, "
+     "and run the cells in order from a pipeline."),
     (re.compile(r"(?m)^\s*%run\s+(?:\.{1,2}/|/)"),
      "%run with a workspace path: on this PC it runs the notebook of that name from the notebooks folder, so import it too."),
+)
+
+
+# Databricks code that runs on this PC but needs a change before it runs in Fabric. Based on the
+# migration gotchas in microsoft/skills-for-fabric (MIT), written in our own words:
+# https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/databricks-migration/resources/migration-gotchas.md
+# Not checked, because the source doesn't show them: Unity Catalog names (one schema-enabled
+# lakehouse per catalog keeps schema.table as it was), Photon tuning, cluster init scripts, and
+# Repos versus Fabric Git integration.
+_FABRIC_CHECKS = (
+    (re.compile(r"\bdbutils\.widgets\."),
+     "dbutils.widgets runs on this PC, but Fabric has no widgets. Before running it in Fabric, put the "
+     "defaults in a parameter cell; a pipeline or notebookutils.notebook.run passes the values."),
+    (re.compile(r"\bdbutils\.library\.restartPython\b"),
+     "In Fabric the call is notebookutils.session.restartPython(). For scheduled runs, add the packages "
+     "to the Fabric environment rather than installing them in the notebook."),
+    # spark.databricks.delta.* settings are Delta Lake's own and Fabric's Delta reads them; the rest
+    # are Databricks Runtime settings.
+    (re.compile(r"""["']spark\.databricks\.(?!delta\.)\w[\w.]*["']"""),
+     "A Databricks Runtime setting (spark.databricks., other than Delta's), which Fabric doesn't have: "
+     "setting it does nothing there, and reading it fails unless the call gives a default."),
+    (re.compile(r"\.trigger\(\s*(?:processingTime|continuous)\s*="),
+     "A stream that keeps running. In Fabric it uses capacity for as long as it runs, and continuous "
+     "triggers aren't supported there. The usual Fabric pattern is trigger(availableNow=True) run on a "
+     "schedule. On this PC it already runs once, as availableNow."),
 )
 
 
 def _here_notes(cells: list[dict[str, Any]], notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for n, c in enumerate(cells, 1):
         if c.get("type") == "code":
-            notes += [_note(n, "check", what) for pattern, what in _HERE_CHECKS if pattern.search(c.get("source", ""))]
+            source = c.get("source", "")
+            notes += [_note(n, "check", what) for pattern, what in _HERE_CHECKS if pattern.search(source)]
+            notes += [_note(n, "fabric", what) for pattern, what in _FABRIC_CHECKS if pattern.search(source)]
     return sorted(notes, key=lambda x: (x["cell"] or 0))
 
 

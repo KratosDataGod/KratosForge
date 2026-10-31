@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .. import app_settings
+from .. import app_settings, jsonfile
 from .. import governance_notices as notices
 from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES, TENANT_WRITE_SCOPES
 from ..fabric_api import FabricClient, FabricError
@@ -1119,7 +1119,7 @@ class PlatformMixin:
             if old is None:
                 new_path.unlink()
             else:
-                new_path.write_text(old, encoding="utf-8")
+                jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
         if original and original != product.get("name"):
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)

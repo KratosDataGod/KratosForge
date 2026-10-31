@@ -1,4 +1,4 @@
-// The notebook's Best practices panel (Preview): the notebook rules NB001 to NB012
+// The notebook's Best practices panel (Preview): the notebook rules (NB001 to NB012, NB018 to NB020)
 // (notebook_practices.py) on this notebook's code cells, read on this PC as you type. Nothing runs
 // and no capacity is used. The policies in force for the open project tune the rules
 // (governance_practice_settings): one a policy turns off isn't shown, and a policy can change a
@@ -29,7 +29,7 @@ function practiceRows(result, at) {
 
 // The toolbar label: the number to look at, when there is one.
 function practiceLabel(p) {
-  const n = p?.rows?.length || 0;
+  const n = p?.shown ?? (p?.rows?.length || 0);
   return p?.open && n ? `Best practices · ${n}` : "Best practices";
 }
 
@@ -96,7 +96,12 @@ async function checkPractices(nb) {
     p.error = String(err.message || err);
   }
   if (p.sig !== sig) return;  // typed again while the engine read it
-  if (!p.error) Object.assign(p, practiceRows(result, at));
+  if (!p.error) {
+    const out = practiceRows(result, at);
+    await learnPrepareFindings(out.rows, (f) => String(nb.cells[f.n - 1]?.source || "").split("\n")[f.line - 1]);  // learn.js
+    if (p.sig !== sig) return;
+    Object.assign(p, out);
+  }
   drawPractices(nb);
 }
 
@@ -136,15 +141,22 @@ function practicesContent(nb) {
   if (!p.rows) {
     body.append(h("p", { class: "muted-text" }, "Checking..."));
   } else {
+    // Dismissed findings (learn.js) leave the list and the counts; a rule a policy names stays.
+    const ctx = { where: `${nb.place?.root || "notebooks"}/${nb.name}`, required: (id) => !!p.settings?.[id]?.enabled, redraw: () => drawPractices(nb) };
+    const { shown, hidden } = learnSplitFindings(p.rows, ctx.where, ctx.required);
+    p.shown = shown.length;
+    const counts = Object.fromEntries(PRACTICE_SEVERITIES.map((s) => [s, shown.filter((f) => f.severity === s).length]));
     body.append(h("div", { class: "row practice-counts" }, PRACTICE_SEVERITIES.map((s) =>
-      h("span", { class: `pill-s ${p.counts[s] ? PRACTICE_PILL[s] : "neu"}` }, `${p.counts[s]} ${s === "Info" ? "info" : `${s.toLowerCase()}${p.counts[s] === 1 ? "" : "s"}`}`))));
-    if (!p.rows.length) body.append(h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."));
-    p.rows.forEach((f) => body.append(h("div", { class: "comment-thread practice", "data-rule": f.rule_id },
+      h("span", { class: `pill-s ${counts[s] ? PRACTICE_PILL[s] : "neu"}` }, `${counts[s]} ${s === "Info" ? "info" : `${s.toLowerCase()}${counts[s] === 1 ? "" : "s"}`}`))));
+    if (!shown.length) body.append(h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."));
+    shown.forEach((f) => body.append(h("div", { class: "comment-thread practice", "data-rule": f.rule_id },
       h("div", { class: "row" }, h("span", { class: `pill-s ${PRACTICE_PILL[f.severity]}` }, f.severity), h("b", {}, f.rule)),
       h("p", { class: "comment-text" }, f.description),
       h("div", { class: "row" }, h("button", { class: "link-btn", onclick: () => practiceGo(nb, f) }, `Go to cell ${f.n}, line ${f.line}`),
         h("span", { class: "muted-text" }, `${f.rule_id} · ${f.category}`),
-        f.url ? docLink(f.url, `About ${f.rule_id}`) : null))));
+        f.url ? docLink(f.url, `About ${f.rule_id}`) : null),
+      learnFindingActions(f, ctx))));
+    body.append(learnDismissedBlock(hidden, ctx) || "");
   }
   body.append(h("p", { class: "muted-text" }, p.policies.length
     ? `Tuned by ${p.policies.join(", ")}: a rule a policy turns off isn't shown.`

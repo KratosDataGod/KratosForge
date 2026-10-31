@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
 import requests
 
+from . import jsonfile
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -355,7 +356,7 @@ class DataOpsMixin:
             return 0, failure(exc)
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         sent.update({k: now for k in keys})
-        (self.root / "freshness_alerts.json").write_text(json.dumps(sent, indent=1), encoding="utf-8")  # type: ignore[attr-defined]
+        jsonfile.write_text(self.root / "freshness_alerts.json", json.dumps(sent, indent=1))  # type: ignore[attr-defined]
         return len(lines), None
 
     def _alerts_unreadable(self) -> bool:

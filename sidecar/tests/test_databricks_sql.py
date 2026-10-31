@@ -110,7 +110,7 @@ def tokens():
 
 
 def adapter(ws):
-    return dbsql.DatabricksSqlAdapter(client_for=lambda conn: dbsql.Client(tokens(), ws), sleep=lambda s: None)
+    return dbsql.DatabricksSqlAdapter(client_for=lambda conn: dbsql.Client(tokens(), ws, sleep=lambda s: None), sleep=lambda s: None)
 
 
 def open_session(ws, **options):
@@ -205,6 +205,40 @@ def test_long_statements_are_polled_until_they_finish():
     r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
     assert r.status == "ok"
     assert sum(1 for m, p, *_ in ws.calls if m == "GET" and p.startswith("/api/2.0/sql/statements/")) == 3
+
+
+def _drop_on_poll(ws, refuse_cancel=False):
+    def drop():
+        raise ConnectionError("network down " + PAT)
+    ws.on_poll = drop
+    if refuse_cancel:
+        _flaky(ws, [403], lambda m, p: p.endswith("/cancel"))
+
+
+def test_a_failed_poll_stops_the_statement_on_the_warehouse():
+    ws = FakeWorkspace(polls=3)
+    _drop_on_poll(ws)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and ws.cancelled == ["s1"]
+    assert "Couldn't reach" in r.outputs[0]["evalue"] and "was stopped on Shared" in r.outputs[0]["evalue"]
+    assert PAT not in json.dumps(r.as_dict())
+
+
+def test_when_the_cancel_fails_too_the_error_says_where_to_stop_it():
+    ws = FakeWorkspace(polls=3)
+    _drop_on_poll(ws, refuse_cancel=True)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "error" and evalue.startswith("Couldn't reach") and "may still be running on Shared" in evalue
+    assert "query history" in evalue and PAT not in json.dumps(r.as_dict())
+
+
+def test_a_failed_submit_sends_no_cancel():
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    ws.refuse = 503
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and not any(p.endswith("/cancel") for _, p, *_ in ws.calls)
 
 
 def test_a_failed_statement_is_the_cells_error_without_a_token():
@@ -408,7 +442,7 @@ def test_on_windows_only_databricks_exe_in_a_drive_folder_counts(tmp_path, monke
 @pytest.mark.parametrize("bad", ["../../api/2.0/clusters/delete", "wh1/x", "wh 1", "", "a" * 65])
 def test_ids_are_checked_before_they_reach_a_url(bad):
     ws = FakeWorkspace()
-    client = dbsql.Client(tokens(), ws)
+    client = dbsql.Client(tokens(), ws, sleep=lambda s: None)
     for call in (client.warehouse, client.status, client.cancel):
         with pytest.raises(dbsql.DatabricksError, match="isn't a Databricks"):
             call(bad)
@@ -418,7 +452,7 @@ def test_ids_are_checked_before_they_reach_a_url(bad):
 def test_a_statement_running_too_long_is_cancelled_and_reported():
     ws = FakeWorkspace(polls=1000)
     now = [0.0]
-    s = dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws), "wh1",
+    s = dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws, sleep=lambda s: None), "wh1",
                                    sleep=lambda sec: now.__setitem__(0, now[0] + 60), clock=lambda: now[0],
                                    max_seconds=300)
     r = s.execute(CellRequest("SELECT 1", "sql"))
@@ -427,3 +461,288 @@ def test_a_statement_running_too_long_is_cancelled_and_reported():
 
 def test_the_engine_says_cells_can_change_data_without_another_confirm():
     assert any("no further confirm" in x for x in registry.get("databricks-sql").limitations)
+
+
+@pytest.mark.parametrize("status,path,code,hint", [
+    (403, "/api/2.0/sql/warehouses/wh1", "", "CAN USE on the SQL warehouse."),
+    (404, "/api/2.0/sql/warehouses/wh1", "", "Check the SQL warehouse ID"),
+    (404, "/api/2.0/sql/statements/s1", "", "run the cell again"),
+    (403, "/api/2.1/clusters/list", "", "CAN ATTACH TO"),
+    (404, "/api/2.1/clusters/get", "", "Check the cluster ID"),
+    (404, "/api/2.1/unity-catalog/metastore_summary", "", "no Unity Catalog metastore assigned"),
+    (404, "/api/2.1/unity-catalog/catalogs", "METASTORE_DOES_NOT_EXIST", "no Unity Catalog metastore assigned"),
+    (403, "/api/2.1/unity-catalog/tables", "", "USE CATALOG and USE SCHEMA"),
+    (403, "/api/2.0/preview/scim/v2/Me", "", "its own user details"),
+    (401, "/api/2.1/clusters/list", "", "Sign in again."),
+    (429, "/api/2.0/sql/statements", "", "busy"),
+    (403, "/api/2.0/other", "", "Ask a workspace admin"),
+    (500, "/api/2.0/sql/warehouses", "", ""),
+])
+def test_each_api_says_what_to_check_when_it_refuses(status, path, code, hint):
+    got = dbsql.refusal_hint(status, path, code)
+    assert (hint in got) if hint else got == ""
+
+
+def test_a_refusal_names_the_api_that_refused_and_never_a_token():
+    resp = Resp(404, {"error_code": "NOT_FOUND", "message": "nothing here for " + PAT})
+    msg = dbsql.Client._refusal(resp, "/api/2.1/clusters/get")
+    assert msg.startswith("Databricks refused the request (HTTP 404).") and msg.endswith("Check the cluster ID and the workspace.")
+    assert PAT not in msg and "warehouse" not in msg
+
+# ---------------------------------------------------------------- retries (KF-REMOTE-RETRY, #1189)
+
+
+def _flaky(ws, statuses, when):
+    """The next calls matching ``when(method, path)`` answer ``statuses`` before the fake's own answer."""
+    real, left = ws.request, list(statuses)
+
+    def request(method, url, **kw):
+        if left and when(method, url[len(HOST):]):
+            ws.calls.append((method, url[len(HOST):], None, None, None))
+            return Resp(left.pop(0), {"message": "busy " + PAT})
+        return real(method, url, **kw)
+    ws.request = request
+
+
+def _submits(ws):
+    return sum(1 for m, p, *_ in ws.calls if m == "POST" and p == "/api/2.0/sql/statements")
+
+
+def test_throttled_and_briefly_unavailable_polls_are_tried_again():
+    ws = FakeWorkspace(polls=2)
+    _flaky(ws, [429, 503], lambda m, p: m == "GET" and p.startswith("/api/2.0/sql/statements/"))
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "ok" and ws.cancelled == []
+
+
+def test_a_submit_is_resent_after_429_but_never_after_a_5xx():
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    _flaky(ws, [429], lambda m, p: m == "POST" and p == "/api/2.0/sql/statements")
+    assert s.execute(CellRequest("SELECT 1", "sql")).status == "ok" and ws.n == 1 and _submits(ws) == 2
+    ws = FakeWorkspace()
+    s = open_session(ws)
+    _flaky(ws, [503], lambda m, p: m == "POST" and p == "/api/2.0/sql/statements")
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "error" and _submits(ws) == 1 and "Tried" not in r.outputs[0]["evalue"]
+
+
+def test_after_the_last_try_the_error_says_it_was_retried_without_a_token():
+    ws = FakeWorkspace()
+    _flaky(ws, [503] * 4, lambda m, p: p == "/api/2.0/sql/warehouses/wh1")
+    with pytest.raises(dbsql.DatabricksError) as err:
+        open_session(ws)
+    assert str(err.value).startswith("Databricks refused the request (HTTP 503).")
+    assert str(err.value).endswith("Tried 4 times.") and PAT not in str(err.value)
+
+
+def test_a_cancel_is_tried_again_after_a_gateway_error():
+    ws = FakeWorkspace(polls=3)
+    _flaky(ws, [502], lambda m, p: p.endswith("/cancel"))
+    _drop_on_poll(ws)
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert "was stopped on Shared" in r.outputs[0]["evalue"] and ws.cancelled == ["s1"]
+
+
+def test_one_dropped_poll_neither_fails_the_cell_nor_stops_the_statement():
+    ws = FakeWorkspace(polls=2)
+    drops = [ConnectionError("reset")]
+
+    def drop_once():
+        if drops:
+            raise drops.pop()
+    ws.on_poll = drop_once
+    r = open_session(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert r.status == "ok" and ws.cancelled == []
+
+
+# ---------------------------------------------------------------- whole results (KF-DBX-CHUNKS, #1167)
+
+
+class ChunkedWorkspace(FakeWorkspace):
+    """Results split into ``chunks`` (lists of rows); the statement's reply carries chunk 0 and each
+    chunk names the next, as the INLINE disposition does. ``row_limit`` is applied as the API does."""
+
+    def __init__(self, chunks, columns, refuse_chunk=None, loop=False):
+        super().__init__(rows=[r for c in chunks for r in c], columns=columns)
+        self.chunks = chunks
+        self.refuse_chunk = refuse_chunk
+        self.loop = loop
+        self.limits = []
+
+    def _page(self, n, limit):
+        before = sum(len(c) for c in self.chunks[:n])
+        rows = self.chunks[n][:max(0, limit - before)] if limit else self.chunks[n]
+        more = n + 1 < len(self.chunks) and (not limit or before + len(self.chunks[n]) < limit)
+        page = {"chunk_index": n, "data_array": rows}
+        if more or self.loop:
+            page["next_chunk_index"] = 0 if self.loop else n + 1
+        return page
+
+    def request(self, method, url, headers=None, timeout=None, json=None, params=None):
+        path = url[len(HOST):]
+        if "/result/chunks/" in path:
+            self.calls.append((method, path, headers, json, params))
+            if self.refuse_chunk:
+                return Resp(self.refuse_chunk, {"error_code": "PERMISSION_DENIED", "message": "no " + PAT})
+            return Resp(200, self._page(int(path.rsplit("/", 1)[1]), self.limit))
+        if path == "/api/2.0/sql/statements" and method == "POST":
+            self.limits.append(json.get("row_limit"))
+            self.limit = json.get("row_limit") or 0
+        resp = super().request(method, url, headers, timeout, json, params)
+        body = resp.json()
+        if (body.get("manifest") or {}).get("schema", {}).get("columns"):
+            body["result"] = self._page(0, self.limit)
+            body["manifest"]["total_chunk_count"] = len(self.chunks)
+            resp = Resp(200, body)
+        return resp
+
+
+TYPED = [{"name": "id", "type_name": "INT"}, {"name": "amount", "type_name": "DECIMAL", "type_precision": 10,
+                                               "type_scale": 2},
+         {"name": "at", "type_name": "TIMESTAMP"}, {"name": "day", "type_name": "DATE"},
+         {"name": "ok", "type_name": "BOOLEAN"}, {"name": "tags", "type_name": "ARRAY", "type_text": "ARRAY<STRING>"}]
+
+
+def _typed_rows(start, n):
+    return [[str(i), f"{i}.50", f"2024-03-10T0{i % 10}:45:10.000Z", "2024-03-10", "true" if i % 2 else "false",
+             '["a"]'] for i in range(start, start + n)]
+
+
+def test_a_whole_result_reads_every_chunk_in_order_and_types_the_values():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3), _typed_rows(6, 2)], TYPED)
+    s = open_session(ws)
+    r = s.execute(CellRequest("USE main; SELECT * FROM t", "sql", preview_rows=2, result_rows=100))
+    assert r.status == "ok" and r.rows == 8 and r.table.num_rows == 8
+    assert r.table.column("id").to_pylist() == list(range(8))
+    assert str(r.table.schema.field("amount").type) == "decimal128(10, 2)"
+    assert str(r.table.schema.field("at").type) == "timestamp[us]"   # UTC, no zone, as Fabric Spark keeps it
+    assert r.table.column("at")[1].as_py().hour == 1
+    assert r.table.column("ok").to_pylist()[:2] == [False, True]
+    # The first statement runs as before; the last asks for one row more than allowed.
+    assert ws.limits == [None, 101]
+    assert [p for _, p, *_ in ws.calls if "/result/chunks/" in p] == \
+        ["/api/2.0/sql/statements/s2/result/chunks/1", "/api/2.0/sql/statements/s2/result/chunks/2"]
+    assert r.outputs[0] == {"type": "stream", "text": "Kept as text: tags (array<string>).\n"}
+    assert r.outputs[1]["total_rows"] == 8 and len(r.outputs[1]["rows"]) == 2
+
+
+def test_more_rows_than_asked_for_is_an_error_with_no_table():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=4))
+    assert r.status == "error" and r.table is None and r.rows is None
+    assert "more than the 4 rows" in r.outputs[0]["evalue"]
+
+
+def test_a_result_over_the_byte_cap_is_an_error(monkeypatch):
+    monkeypatch.setattr(dbsql, "RESULT_BYTES", 300)
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and r.table is None and "larger than" in r.outputs[0]["evalue"]
+
+
+def test_a_refused_chunk_is_an_error_that_never_shows_the_token():
+    ws = ChunkedWorkspace([_typed_rows(0, 2), _typed_rows(2, 2)], TYPED, refuse_chunk=403)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and r.table is None
+    assert PAT not in json.dumps(r.as_dict()) and "CAN USE" in r.outputs[0]["evalue"]
+
+
+def test_chunks_that_go_round_stop_with_an_error():
+    ws = ChunkedWorkspace([_typed_rows(0, 1)], TYPED, loop=True)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
+
+
+def test_empty_chunks_that_never_end_stop_at_the_chunk_cap(monkeypatch):
+    monkeypatch.setattr(dbsql, "MAX_CHUNKS", 5)
+    ws = ChunkedWorkspace([_typed_rows(0, 1)] + [[] for _ in range(20)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "more than 5 chunks" in r.outputs[0]["evalue"]
+    assert sum(1 for _, p, *_ in ws.calls if "/result/chunks/" in p) == 4
+
+
+@pytest.mark.parametrize("first", [-1_000_000_000, "x"])
+def test_the_first_chunk_index_from_the_warehouse_doesnt_steer_the_loop(first):
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    page = ws._page
+    ws._page = lambda n, limit: {**page(n, limit), "chunk_index": first} if n == 0 else page(n, limit)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "ok" and r.table.num_rows == 2
+
+
+def test_a_chunk_index_that_skips_ahead_stops_with_an_error():
+    ws = ChunkedWorkspace([_typed_rows(0, 1), _typed_rows(1, 1)], TYPED)
+    ws._page, page = (lambda n, limit: {**page(n, limit), "next_chunk_index": 7} if n == 0 else page(n, limit)), ws._page
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql", result_rows=100))
+    assert r.status == "error" and "out of order" in r.outputs[0]["evalue"]
+
+
+def test_a_cell_that_ends_without_a_query_has_no_result_to_compare():
+    r = open_session(ChunkedWorkspace([[]], TYPED)).execute(CellRequest("USE main", "sql", result_rows=10))
+    assert r.status == "error" and "End the cell with a query" in r.outputs[0]["evalue"]
+
+
+def test_two_columns_of_one_name_cant_be_compared():
+    cols = [{"name": "x", "type_name": "INT"}, {"name": "x", "type_name": "INT"}]
+    r = open_session(ChunkedWorkspace([[["1", "2"]]], cols)).execute(
+        CellRequest("SELECT 1 AS x, 2 AS x", "sql", result_rows=10))
+    assert r.status == "error" and "more than one column named x" in r.outputs[0]["evalue"]
+
+
+def test_a_value_that_doesnt_read_as_its_type_stays_text_and_is_named():
+    cols = [{"name": "n", "type_name": "INT"}]
+    r = open_session(ChunkedWorkspace([[["1"], ["not a number"]]], cols)).execute(
+        CellRequest("SELECT n FROM t", "sql", result_rows=10))
+    assert r.status == "ok" and r.table.column("n").to_pylist() == ["1", "not a number"]
+    assert "Kept as text: n (int)" in r.outputs[0]["text"]
+
+
+def test_a_normal_cell_still_shows_the_first_chunk_only():
+    ws = ChunkedWorkspace([_typed_rows(0, 3), _typed_rows(3, 3)], TYPED)
+    r = open_session(ws).execute(CellRequest("SELECT * FROM t", "sql"))
+    assert r.status == "ok" and r.table is None and ws.limits == [None]
+    assert not any("/result/chunks/" in p for _, p, *_ in ws.calls)
+
+
+def test_the_result_capability_says_the_rows_are_copied_onto_this_pc():
+    note = registry.get("databricks-sql").capability("result")
+    assert note.available and "copied onto this PC" in note.note
+
+# ---------------------------------------------------------------- truthful cancels (KF-REMOTE-LIMIT, #1198)
+
+
+def _limited(ws):
+    now = [0.0]
+    return dbsql.DatabricksSqlSession(SessionConfig("nb"), dbsql.Client(tokens(), ws, sleep=lambda s: None), "wh1",
+                                      sleep=lambda sec: now.__setitem__(0, now[0] + 60), clock=lambda: now[0],
+                                      max_seconds=300)
+
+
+def test_the_time_limit_says_the_statement_was_stopped_only_when_it_was():
+    ws = FakeWorkspace(polls=1000)
+    r = _limited(ws).execute(CellRequest("SELECT 1", "sql"))
+    assert "after 5 minutes. The statement was stopped on Shared." in r.outputs[0]["evalue"]
+    ws = FakeWorkspace(polls=1000)
+    s = _limited(ws)
+    _flaky(ws, [403], lambda m, p: p.endswith("/cancel"))
+    evalue = s.execute(CellRequest("SELECT 1", "sql")).outputs[0]["evalue"]
+    assert "may still be running on Shared" in evalue and "query history" in evalue
+    assert "cancelled" not in evalue and "stopped on" not in evalue and PAT not in evalue
+
+
+def test_a_cancel_pressed_while_sending_that_is_refused_says_the_statement_may_still_run():
+    ws = FakeWorkspace(polls=3)
+    s = open_session(ws)
+    real = ws.request
+
+    def press_cancel_during_submit(method, url, **kw):
+        if method == "POST" and url.endswith("/api/2.0/sql/statements"):
+            assert s.cancel() is True  # no statement id yet: execute cancels it once submit returns
+        return real(method, url, **kw)
+    ws.request = press_cancel_during_submit
+    _flaky(ws, [403, 403], lambda m, p: p.endswith("/cancel"))
+    r = s.execute(CellRequest("SELECT 1", "sql"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "cancelled" and evalue.startswith("Cancelled. The statement may still be running on Shared")
+    assert "HTTP 403" not in evalue and PAT not in json.dumps(r.as_dict())

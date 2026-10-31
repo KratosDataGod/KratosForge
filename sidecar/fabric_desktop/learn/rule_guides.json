@@ -1,0 +1,202 @@
+{
+ "NB001": {
+  "why": "A key, password or connection string in code is copied into Git, notebook versions, cell outputs and anything else that keeps the notebook. Anyone who can read the notebook can use it.",
+  "fine": "Never in a notebook that is saved or shared. Rotate a secret that was committed.",
+  "instead": "",
+  "language": "python",
+  "before": "conn = \"Server=...;Password=Sup3rS3cret!\"",
+  "after": "conn = notebookutils.credentials.getSecret(\"https://my-vault.vault.azure.net/\", \"sales-db\")"
+ },
+ "NB002": {
+  "why": "An `abfss://<workspace id>@...` path points at one workspace. When the notebook is promoted to Test or Prod, it still reads and writes the Dev lakehouse.",
+  "fine": "A one-off notebook that is never promoted. A parameter is still easier to change.",
+  "instead": "",
+  "language": "python",
+  "before": "df = spark.read.load(\"abfss://3f2a...@onelake.dfs.fabric.microsoft.com/9c1d.../Tables/sales\")",
+  "after": "df = spark.read.table(\"sales\")          # or the default lakehouse's \"Tables/sales\""
+ },
+ "NB003": {
+  "why": "Both bring every row to the driver, one machine. A table that fits today can run the driver out of memory next month.",
+  "fine": "The DataFrame is already small by construction, such as the result of an aggregation.",
+  "instead": "",
+  "language": "python",
+  "before": "rows = df.toPandas()",
+  "after": "rows = df.groupBy(\"region\").agg(F.sum(\"amount\")).toPandas()   # aggregate first\nsample = df.limit(1000).toPandas()                              # or take a sample"
+ },
+ "NB004": {
+  "why": "Nobody reads a scheduled run's output, and displaying a whole table makes the run slower and its output large. Checked only for notebooks that run on a schedule.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "display(df)",
+  "after": "print(f\"{df.count():,} rows written\")"
+ },
+ "NB005": {
+  "why": "Inferring a schema reads the files an extra time, and the inferred types change when the files do, so a column can turn from a number into a string without warning.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "df = spark.read.option(\"header\", True).csv(\"Files/orders/\")",
+  "after": "schema = \"order_id INT, order_date DATE, amount DECIMAL(18,2)\"\ndf = spark.read.option(\"header\", True).schema(schema).csv(\"Files/orders/\")"
+ },
+ "NB006": {
+  "why": "It reads every column, which costs time on wide tables, and code that depends on column order breaks when a column is added or renamed.",
+  "fine": "A quick look at a table while you explore.",
+  "instead": "",
+  "language": "sql",
+  "before": "SELECT * FROM sales",
+  "after": "SELECT order_id, order_date, amount FROM sales"
+ },
+ "NB007": {
+  "why": "An overwrite without `replaceWhere` rewrites every file and makes a full new table version, even when only one day changed.",
+  "fine": "Small tables, and full reloads that are meant to replace everything.",
+  "instead": "",
+  "language": "python",
+  "before": "df.write.mode(\"overwrite\").saveAsTable(\"sales\")",
+  "after": "(df.write.mode(\"overwrite\")\n   .option(\"replaceWhere\", \"order_date >= '2026-10-01'\")\n   .saveAsTable(\"sales\"))"
+ },
+ "NB008": {
+  "why": "The package is installed again on every run. That is slow, and a run fails when the package index can't be reached. Checked only for notebooks that run on a schedule.",
+  "fine": "",
+  "instead": "Put the package in a Fabric environment and attach it to the notebook.",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "NB009": {
+  "why": "A new release of the package can change results or break the notebook, and two runs a week apart may not use the same code.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "%pip install great-expectations",
+  "after": "%pip install great-expectations==1.2.3"
+ },
+ "NB010": {
+  "why": "Each write makes small files and a new table version. A thousand passes make a thousand versions and a slow table.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "for region in regions:\n    load(region).write.mode(\"append\").saveAsTable(\"sales\")",
+  "after": "from functools import reduce\nfrom pyspark.sql import DataFrame\nreduce(DataFrame.unionByName, [load(r) for r in regions]).write.mode(\"append\").saveAsTable(\"sales\")"
+ },
+ "NB011": {
+  "why": "Every `count()` runs the whole query again. Three counts read the data three times.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "if df.count() > 0: print(df.count())",
+  "after": "n = df.count()\nif n > 0: print(n)"
+ },
+ "NB012": {
+  "why": "`except ...: pass` hides a failure, so the run reports success while the table is wrong or missing.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "try:\n    load_day(day)\nexcept Exception:\n    pass",
+  "after": "try:\n    load_day(day)\nexcept FileNotFoundError:\n    print(f\"No file for {day}; skipped\")   # catch only what you expect, and say so"
+ },
+ "NB018": {
+  "why": "A Python UDF sends every row from Spark to a Python process and back, one row at a time. A built-in function runs inside Spark and is usually many times faster. When nothing built in fits, a `pandas_udf` works on whole batches. `pandas_udf` and Fabric User Data Functions (`@udf.function()`) aren't flagged.",
+  "fine": "Logic no built-in function can express, on a small table.",
+  "instead": "",
+  "language": "python",
+  "before": "upper = F.udf(lambda s: s.upper())\ndf = df.withColumn(\"name\", upper(\"name\"))",
+  "after": "df = df.withColumn(\"name\", F.upper(\"name\"))"
+ },
+ "NB019": {
+  "why": "Spark's readers expect storage paths, so an `http(s)` address fails or reads differently from run to run, and the file behind it can change or disappear. A copy in the lakehouse gives every run the same input. Reading a web address with pandas (`pd.read_csv(url)`) isn't flagged.",
+  "fine": "",
+  "instead": "",
+  "language": "python",
+  "before": "df = spark.read.option(\"header\", True).csv(\"https://example.com/sales.csv\")",
+  "after": "# copy it once (a pipeline Copy activity, for example), then read the copy\ndf = spark.read.option(\"header\", True).csv(\"Files/landing/sales.csv\")"
+ },
+ "NB020": {
+  "why": "`VACUUM` deletes files that older table versions use. With less than the default 168 hours, it can delete files a running query or write still needs, and time travel to those versions stops working. Found in `%%sql` cells, `spark.sql(...)`, `DeltaTable.vacuum(hours)` and delta-rs `vacuum(retention_hours=...)`.",
+  "fine": "A table nothing else reads or writes, such as a scratch table in a test.",
+  "instead": "",
+  "language": "sql",
+  "before": "VACUUM sales RETAIN 0 HOURS",
+  "after": "VACUUM sales RETAIN 168 HOURS"
+ },
+ "SQ001": {
+  "why": "The object's columns change whenever the table's do. A report or caller that expects the old columns breaks, and a view can keep returning the columns it had when it was created.",
+  "fine": "",
+  "instead": "",
+  "language": "sql",
+  "before": "CREATE VIEW dbo.v_sales AS SELECT * FROM dbo.sales;",
+  "after": "CREATE VIEW dbo.v_sales AS SELECT order_id, order_date, amount FROM dbo.sales;"
+ },
+ "SQ002": {
+  "why": "The engine skips files and row groups by comparing a column's values with your filter. Wrapped in a function, the column can't be compared directly, so every row is read.",
+  "fine": "Small tables, or a function on the other side of the comparison (`order_date >= DATEADD(day, -7, GETDATE())`), which isn't reported.",
+  "instead": "",
+  "language": "sql",
+  "before": "WHERE YEAR(order_date) = 2026",
+  "after": "WHERE order_date >= '2026-01-01' AND order_date < '2027-01-01'"
+ },
+ "SQ003": {
+  "why": "In a Fabric Warehouse, MAX columns are stored and read less efficiently than sized ones, and tools that read the table can't plan for the length.",
+  "fine": "Values that really can be longer than 8,000 bytes, like JSON documents.",
+  "instead": "",
+  "language": "sql",
+  "before": "CREATE TABLE dbo.customer (name varchar(max));",
+  "after": "CREATE TABLE dbo.customer (name varchar(200));"
+ },
+ "SQ004": {
+  "why": "The new table takes its types from the query, so a change to the query or the data can change the table's types. `#temp` tables aren't reported.",
+  "fine": "",
+  "instead": "",
+  "language": "sql",
+  "before": "SELECT order_id, amount INTO dbo.big_orders FROM dbo.sales WHERE amount > 1000;",
+  "after": "CREATE TABLE dbo.big_orders (order_id int, amount decimal(18,2));\nINSERT INTO dbo.big_orders (order_id, amount) SELECT order_id, amount FROM dbo.sales WHERE amount > 1000;"
+ },
+ "SQ005": {
+  "why": "`sales` means whatever the caller's default schema has, which differs between people and service accounts. `dbo.sales` always means the same table.",
+  "fine": "",
+  "instead": "",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SQ006": {
+  "why": "Every row is matched with every row of the other table. Two tables of 10,000 rows give 100,000,000 rows.",
+  "fine": "A deliberate product with a small table, such as a date spine or a list of scenarios.",
+  "instead": "",
+  "language": "sql",
+  "before": "SELECT o.order_id, c.name FROM dbo.orders o JOIN dbo.customer c",
+  "after": "SELECT o.order_id, c.name FROM dbo.orders o JOIN dbo.customer c ON c.customer_id = o.customer_id"
+ },
+ "SQ007": {
+  "why": "A loop handles one row or batch at a time. A distributed engine is fastest when one statement works on the whole set.",
+  "fine": "Loops over a handful of items, like the tables to load.",
+  "instead": "",
+  "language": "sql",
+  "before": "-- a cursor that updates each order's status",
+  "after": "UPDATE o SET status = 'late'\nFROM dbo.orders AS o\nWHERE o.due_date < CAST(GETDATE() AS date) AND o.shipped_date IS NULL;"
+ },
+ "SQ008": {
+  "why": "A view's `ORDER BY` doesn't order the rows its callers get, and `TOP 10` without `ORDER BY` returns any ten rows, which can change from one run to the next.",
+  "fine": "",
+  "instead": "",
+  "language": "sql",
+  "before": "SELECT TOP 10 customer_id, amount FROM dbo.sales;",
+  "after": "SELECT TOP 10 customer_id, amount FROM dbo.sales ORDER BY amount DESC;"
+ },
+ "SQ009": {
+  "why": "`GROUP BY` already returns one row per group, so `DISTINCT` only adds a step.",
+  "fine": "",
+  "instead": "",
+  "language": "",
+  "before": "",
+  "after": ""
+ },
+ "SQ010": {
+  "why": "Columns are matched by position. Adding a column to either table, or changing their order, puts values in the wrong columns without an error when the types happen to fit.",
+  "fine": "",
+  "instead": "",
+  "language": "sql",
+  "before": "INSERT INTO dbo.sales_archive SELECT * FROM dbo.sales;",
+  "after": "INSERT INTO dbo.sales_archive (order_id, order_date, amount)\nSELECT order_id, order_date, amount FROM dbo.sales;"
+ }
+}

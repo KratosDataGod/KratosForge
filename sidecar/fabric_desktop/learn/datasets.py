@@ -110,7 +110,7 @@ def _add_defects(con: duckdb.DuckDBPyConnection, seed: int, n_orders: int, n_cus
     con.execute("UPDATE customers SET email = NULL WHERE customer_id = ?", [missing])
     con.execute("UPDATE customers SET region = lower(region) WHERE customer_id = ?", [lower])
     con.execute("UPDATE orders SET amount = -amount WHERE order_id = ?", [negative])
-    con.execute("UPDATE orders SET order_date = DATE '2031-01-01' WHERE order_id = ?", [future])
+    con.execute("UPDATE orders SET order_date = DATE '2099-01-01' WHERE order_id = ?", [future])
     con.execute("UPDATE orders SET store_id = 99 WHERE order_id = ?", [orphan])
     rows = [("duplicate_customer", "customers", dup), ("missing_email", "customers", missing),
             ("region_case", "customers", lower), ("negative_amount", "orders", negative),

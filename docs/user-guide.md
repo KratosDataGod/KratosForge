@@ -103,7 +103,7 @@ Click your initial at the top right:
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
 4. **Set up a metadata project** (Data mesh in the left rail) when you want KratosForge to build and run your medallion layers for you.
 
-Home shows a **Get started** list with these steps until you have a metadata project. Each step has a **Start** button and gets a tick when done. **Hide** removes the list.
+Home shows **Getting started with KratosForge** under **Start something**: one small tile for each main starting point (run a notebook on this PC, bring your notebooks from Fabric or Databricks, explore OneLake, build medallion tables, spend less Fabric capacity, set up the platform), each with a button that opens it. A tile gets a tick once you've tried it. Click the heading to fold the panel to one line; Home remembers that, and the heading opens it again.
 
 ## Home
 
@@ -117,14 +117,16 @@ From the top:
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
 | **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
-| **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
+| **Getting started with KratosForge** | Six starting points, each with a button that opens it, and a tick once tried. Click the heading to fold it to one line; Home remembers that. See [Get started](#get-started). |
+| **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
+| **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
 | **Running now** | What this app is running, here or in Fabric. |
 | **Coming up** | The next scheduled runs, on this PC and in Fabric. **All schedules** opens Monitor > KratosForge > Schedules. |
 | **Data mesh** (Preview) | A map of the whole mesh: each domain and subdomain, the projects in it, the data products they publish (colored by who may read them) and arrows from each product to the projects that read it. Your open project is outlined; click it to open Data mesh > Domains > This project. The section folds with its arrow. |
-| **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Before you have a metadata project, this space shows **Get started** instead. |
+| **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Hidden until you have a metadata project. |
 | **Estate X-ray** (Preview) | See below. |
 
 ### All notebooks
@@ -246,13 +248,13 @@ In a notebook, select lines of a cell's code (or none, for the whole cell) and c
 
 ## Notebook best practices (Preview)
 
-**Best practices** on a notebook's View tab opens a panel that checks the notebook's code cells against the notebook rules (NB001 to NB012) as you type: secrets in code, collect() without a limit, CSV read without a schema, unpinned %pip and the rest. Each finding has its severity, what to do, and **Go to cell** (to the line). Nothing runs and no capacity is used. The governance policies in force for the open project tune the rules: one a policy turns off isn't shown, and a policy can change a rule's severity. See [Notebook best practices](notebook-best-practices.md).
+**Best practices** on a notebook's View tab opens a panel that checks the notebook's code cells against the notebook rules (NB001 to NB012, NB018 to NB020) as you type: secrets in code, collect() without a limit, CSV read without a schema, unpinned %pip, Python UDFs, short VACUUM retention and the rest. Each finding has its severity, what to do, and **Go to cell** (to the line). Nothing runs and no capacity is used. The governance policies in force for the open project tune the rules: one a policy turns off isn't shown, and a policy can change a rule's severity. See [Notebook best practices](notebook-best-practices.md).
 
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
-- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
+- **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**. The pin on an item's row pins it to Home (Preview, see [Pinned items](home-notebooks.md#pinned-items-preview)).
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
 - Click a workspace's row to open it: its lakehouses, with **New lakehouse**, **New notebook** and **Open in notebook**.
 - **Open in Fabric** opens the workspace in the Fabric page.
@@ -684,6 +686,7 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Explanations.** **On request** (the default) keeps the help out of the way: each page's one-line explanation and its **How this works** panel, which says what the page reads, what it changes and where results go, open together as a drawer from the info button in the title bar. Escape or the button closes it. The button shows only on pages that have help. **Beside the page** puts the explanation under the title and the panel in a column on the right, as before. Confirms before a change always say what they change, whichever you pick.
 - **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
+- **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
 
 ### Motion and effects
 
@@ -702,7 +705,7 @@ On **Platform > Settings**. Each environment shows whether it uses a Platform wo
 
 ### External AI tools
 
-**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
+**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. Claude Code has been partly tried with it. The others haven't been tried yet, so they are marked **Untested** ([compatibility](product/ai-integration-compatibility.md)).
 
 1. Turn on **Let AI tools connect**. It's off until you do, and your organization can keep it off.
 2. **Add a tool**: pick it, name it, and choose what it may do. **Read metadata** (names, structure, schemas, checks, no rows) is always included. **Read data** reads rows. **Run code on this PC** runs Python and notebooks, and asks you every time.
@@ -715,7 +718,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
 | **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code, checks a run's risk only for workloads deployed in those workspaces, and sees only the notebooks, proofs, receipts and runs in those workspaces) or makes a new HTTP token. **Revoke** stops it at once. |
 | **Extensions** (Preview) | Extra capabilities tools can use, each off until you turn it on. The built-in **Notebook outline** lets a tool read a notebook's headings, functions and classes without its code. A tool still needs the permission an extension asks for, and anything that runs code still asks you. Tools that are connected see the change within a few seconds. Your organization can limit which extensions can be turned on. |
-| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
+| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. A call you approved shows **started** while it runs; if the tool or KratosForge stopped before it finished, it stays **started** (or **unfinished**), so an approved call never goes missing. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
 
 Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Setup for each tool, workflows and instructions to paste into it: [Connect your AI tool](ai/README.md). Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
 

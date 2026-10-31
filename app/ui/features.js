@@ -107,7 +107,11 @@ const PREVIEW_FEATURES = {
   sqlPractices: "SQL best practices",
   bestPractices: "Best practices: checks and templates",
   updateBanner: "New build banner",
+  engines: "Notebook engine picker",
   vscode: "VS Code pairing",
+  runSeveral: "Run several notebooks from Home",
+  itemPins: "Items pinned to Home",
+  learn: "Learn",
 };
 
 function previewShown() {
@@ -183,8 +187,10 @@ const LAYOUT_CHOICES = {
   ui_preview_marks: ["Preview marks", "How features still in preview are marked. Page titles keep the full tag.",
     [["tags", "Tags"], ["dots", "Quiet dots"]]],
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
+  learn_mode: ["Learning guidance (Preview)", "Expert shows findings, their About link and Dismiss. Professional, the default, adds a line on why each finding matters, with Explain and Show example when you want them. Guided opens the explanation, adds the Learn lesson that covers each finding and suggests your next lesson on Learn. A preference only: checks and your organization's rules are the same at every level.",
+    [["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
 };
-const LAYOUT_DEFAULTS = { ui_explanations: "on_request" };  // as app_settings.DEFAULTS; others: the first choice
+const LAYOUT_DEFAULTS = { ui_explanations: "on_request", learn_mode: "professional" };  // as app_settings.DEFAULTS; others: the first choice
 const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_DEFAULTS[key] || LAYOUT_CHOICES[key][2][0][0];
 const howView = { open: null };  // the view the drawer was opened on
 

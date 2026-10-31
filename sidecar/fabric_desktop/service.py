@@ -21,7 +21,7 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -46,6 +46,7 @@ from .central.requests_service import RequestsMixin
 from .central.trust_service import TrustMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
+from .notebook_batch_service import NotebookBatchMixin
 from .incident_service import IncidentMixin
 from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
@@ -68,6 +69,7 @@ from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
 from .model_ossie_service import ModelOssieMixin
 from .model_directlake_service import ModelDirectLakeMixin
+from .powerbi_embed_service import PowerBiEmbedMixin
 from .model_dictionary_service import ModelDictionaryMixin
 from .environment_service import EnvironmentMixin
 from .local_writes_service import LocalWritesMixin
@@ -83,15 +85,18 @@ from .warehouse_monitoring_service import WarehouseMonitoringMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
 from .progress_service import ProgressMixin
+from .learn_service import LearnMixin
 from .comments_service import CommentsMixin
+from .engines_service import EnginesMixin
 from .kernel_proc import ProcessKernel
 from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
-from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_watches
+from .notebook import WIDGET_GONE, Kernel, NotebookShelf, check_notebook_name, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
 
 _log = logging.getLogger(__name__)
+MAX_ITEM_PINS = 50  # items pinned to Home
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -117,7 +122,7 @@ ENDORSED_FILTER_REASON = (
     "admin who is also a Fabric administrator chooses Scan now there), or in Fabric's own catalog (Open Fabric's catalog on OneLake > Catalog).")
 
 
-class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin):
+class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, FabricPipelineRunsMixin, WorkspacePipelinesMixin, FabricConnectionsMixin, WorkspaceDataflowsMixin, WorkspaceCopyJobsMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, LandingCopyMixin, RequestsMixin, EntraGroupsMixin, ShortcutMixin, ChecksMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, ModelBpaMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, SqlTemplatesMixin, SqlQueriesMixin, WarehouseProjectMixin, WarehouseMonitoringMixin, ProgressMixin, EnvironmentMixin, CommentsMixin, ModelOssieMixin, ModelDirectLakeMixin, ModelDictionaryMixin, EditorMixin, EnginesMixin, PowerBiEmbedMixin, LearnMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -483,19 +488,61 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
     def set_workspace_mark(self, workspace_id: str, mark: str, on: bool) -> dict[str, list[str]]:
         if mark not in ("favorites", "pins"):
             raise ValueError(f"unknown workspace mark {mark!r}")
-        marks = self.workspace_marks()
-        ids = [i for i in marks[mark] if i != workspace_id]
+        marks = jsonfile.read_json(self.workspace_marks_file, {})  # item_pins and anything else stay as they are
+        ids = [i for i in marks.get(mark, []) if i != workspace_id]
         marks[mark] = ids + [workspace_id] if on else ids
         jsonfile.write_json(self.workspace_marks_file, marks, indent=None)
-        return marks
+        return self.workspace_marks()
+
+    def item_pins(self) -> list[dict[str, str]]:
+        """Items pinned to Home, in the order they were pinned: notebooks on this PC (``kind``
+        "notebook", ``id`` its name) and Fabric items (``kind`` the item type, ``id`` its item id).
+        Kept on this PC beside the workspace pins: Fabric has no API for pins."""
+        pins = jsonfile.read_json(self.workspace_marks_file, {}).get("item_pins", [])
+        return [p for p in pins if isinstance(p, dict) and p.get("kind") and p.get("id")]
+
+    def set_item_pin(self, kind: str, id: str, on: bool, name: str = "", workspace_id: str = "",  # noqa: A002
+                     workspace_name: str = "") -> list[dict[str, str]]:
+        kind, id = str(kind or "").strip(), str(id or "").strip()  # noqa: A001
+        if not kind or not id or len(kind) > 64 or len(id) > 256:
+            raise ValueError("Say what to pin: a kind and an id")
+        if kind == "notebook":
+            check_notebook_name(id)
+        marks = jsonfile.read_json(self.workspace_marks_file, {})
+        pins = [p for p in marks.get("item_pins", []) if isinstance(p, dict) and (p.get("kind"), p.get("id")) != (kind, id)]
+        if on:
+            if len(pins) >= MAX_ITEM_PINS:
+                raise ValueError(f"Up to {MAX_ITEM_PINS} items can be pinned. Unpin one first.")
+            pins.append({"kind": kind, "id": id, "name": str(name or id)[:256],
+                         "workspace_id": str(workspace_id or "")[:64], "workspace_name": str(workspace_name or "")[:256]})
+        marks["item_pins"] = pins
+        jsonfile.write_text(self.workspace_marks_file, json.dumps(marks))
+        return self.item_pins()
+
+    def _rename_item_pin(self, kind: str, old: str, new: str) -> None:
+        marks = jsonfile.read_json(self.workspace_marks_file, {})
+        pins = marks.get("item_pins") or []
+        hit = [p for p in pins if isinstance(p, dict) and p.get("kind") == kind and p.get("id") == old]
+        if not hit:
+            return
+        for p in hit:
+            p["id"] = new
+            p["name"] = new
+        jsonfile.write_text(self.workspace_marks_file, json.dumps(marks))
 
     def create_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any]:
         return self.fabric.create_lakehouse(workspace_id, name)
 
     def list_tables(self, workspace_id: str, lakehouse_id: str) -> dict[str, list[str]]:
         catalog = TableCatalog(self.auth.storage_token)
-        return {s: catalog.list_tables(workspace_id, lakehouse_id, s)
-                for s in catalog.list_schemas(workspace_id, lakehouse_id)}
+        tables = {s: catalog.list_tables(workspace_id, lakehouse_id, s)
+                  for s in catalog.list_schemas(workspace_id, lakehouse_id)}
+        schema_cache.record_tables(self.root, lakehouse_id, tables)
+        return tables
+
+    def cached_schemas(self, lakehouse_id: str) -> dict[str, Any]:
+        """The table and column names last read from this lakehouse, for completion while offline."""
+        return schema_cache.load(self.root, lakehouse_id)
 
     def preview_job(self, path: str, limit: int = 100) -> dict[str, Any]:
         data = run_local(Job.load(path))
@@ -935,8 +982,10 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)
         # Delta's own type names (string, long, timestamp), as Fabric shows them.
-        return [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
-                for f in lakehouse.open_table(table).schema().fields]
+        columns = [{"name": f.name, "type": f.type.type if isinstance(f.type.type, str) else str(f.type)}
+                   for f in lakehouse.open_table(table).schema().fields]
+        schema_cache.record_columns(self.root, lakehouse_ref["lakehouse_id"], table, columns)
+        return columns
 
     def _schemas_enabled(self, workspace_id: str, lakehouse_id: str) -> bool:
         """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse.
@@ -1092,6 +1141,7 @@ class Service(TrustMixin, AccessCacheMixin, LocalWritesMixin, NotebookResourcesM
             ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
             ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
             ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
+            ("pin", lambda: self._rename_item_pin("notebook", name, new_name)),
         ]
         for step, run in steps:
             try:

@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 import requests
 
-from . import delta_dml, delta_profile, leases, redact
+from . import delta_dml, delta_profile, jsonfile, leases, redact
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
 
@@ -138,8 +138,8 @@ class Ledger:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"run_id": self.run_id, "workspace_id": self.workspace_id,
-                                         "created": self.created}, indent=2), encoding="utf-8")
+        jsonfile.write_text(self.path, json.dumps({"run_id": self.run_id, "workspace_id": self.workspace_id,
+                                                    "created": self.created}, indent=2))
 
     @classmethod
     def load(cls, path: Path) -> "Ledger":

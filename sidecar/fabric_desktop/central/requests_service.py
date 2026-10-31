@@ -17,7 +17,10 @@ these makes what was asked for first, as the person approving, and only then app
 
 If a step fails, the request stays waiting and the error names the step. What a workspace request
 made is recorded on the request (record_request_progress) and in the workspace's description, so a
-retry finds it instead of making it twice. Nothing here posts anything but governance's own notices.
+retry finds it instead of making it twice. Declining or withdrawing a request whose approval made
+something before a later step failed changes nothing in Fabric: the answer's ``next`` says what is
+still there, for the person to remove if it isn't wanted (left_in_fabric). Nothing here posts anything
+but governance's own notices.
 """
 
 from __future__ import annotations
@@ -63,6 +66,17 @@ def _rank(role: str) -> int:
     return core.WORKSPACE_ROLES.index(role)
 
 
+def _assigned(assignments: Any, who: dict[str, Any]) -> dict[str, Any] | None:
+    """The role assignment given directly to ``who`` (a request's principal), if any."""
+    found = None
+    for r in assignments:
+        p = access_mod.principal(r.get("principal") or {})
+        if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
+                who.get("email") and str(p["email"]).lower() == who["email"]):
+            found = r
+    return found
+
+
 def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
     """Call a platform operation that came with an update. A UDF_Platform made before it has no such
     function (Fabric answers 404, read as LookupError), or refuses a request kind it doesn't know:
@@ -81,6 +95,32 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
             _log.info("%s: %s", op, describe(exc))
             raise LookupError(missing) from exc
         raise
+
+
+def left_in_fabric(req: dict[str, Any]) -> list[str]:
+    """What approving this request made in Fabric before a later step failed (its ``detail.made``), as
+    sentences saying it is still there. Declining or withdrawing deletes nothing: that stays the person's call."""
+    d = req.get("detail") or {}
+    made = d.get("made") or {}
+    kind, out = req.get("kind"), []
+    if kind == "workspace" and made.get("workspace_id"):
+        name = d.get("name") or req.get("target") or made["workspace_id"]
+        out.append(f"The workspace {name}, made by this request, is still in Fabric on its capacity: "
+                   "delete it there if it isn't wanted")
+    elif kind == "workspace_access" and made.get("assigned"):
+        who = d.get("principal") or {}
+        label = who.get("name") or who.get("email") or who.get("id") or "They"
+        whom = f"The group {label}" if who.get("type") == "Group" else label
+        ws = d.get("workspace_name") or d.get("workspace_id") or "the workspace"
+        # Approving may have kept a role they already had, so this says where things stand.
+        out.append(f"{whom} keeps the {d.get('role') or 'role'} role (or the higher one they had) in {ws} from "
+                   "approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted")
+    elif kind == "source" and made.get("copy_job_id"):
+        name = made.get("copy_job_name") or made["copy_job_id"]
+        runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
+        out.append(f"The Copy job {name}, made by this request, is still in the landing workspace{runs}: "
+                   "delete it there if it isn't wanted")
+    return out
 
 
 class RequestsMixin:
@@ -105,6 +145,32 @@ class RequestsMixin:
                                   f"than this app. {REPAIR}") from exc
             raise
 
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        """Each waiting workspace access request the viewer can decide says the role its person or group
+        has in that workspace today (``today``: ``{"role": "Admin"}``, ``{"role": ""}`` for none of its
+        own, or ``{"checked": False}``), read from Fabric as the viewer once per workspace and never
+        stored, so the approver sees whether approving changes anything (#1108)."""
+        out = super().platform_requests(status)  # type: ignore[misc]
+        asks = [r for r in out if r.get("kind") == "workspace_access" and r.get("status") == "waiting"
+                and r.get("can_decide")]
+        roles: dict[str, list[Any] | None] = {}
+        for r in asks:
+            d = r.get("detail") or {}
+            wid = str(d.get("workspace_id") or "")
+            if wid not in roles:
+                try:
+                    roles[wid] = list(self._rq_fabric().list_role_assignments(wid))
+                except Exception as exc:  # noqa: BLE001 - the row says it couldn't check; approving still works
+                    _log.info("Couldn't read the roles in %s: %s", wid, describe(exc))
+                    roles[wid] = None
+            have = roles[wid]
+            if have is None:
+                r["today"] = {"checked": False}
+            else:
+                found = _assigned(have, d.get("principal") or {})
+                r["today"] = {"role": str((found or {}).get("role") or "")}
+        return out
+
     def _rq_name_free(self, name: str) -> None:
         """Refuse a new workspace whose name is taken, as far as the person asking can see."""
         try:
@@ -120,7 +186,7 @@ class RequestsMixin:
         """Approving a workspace, workspace access or domain request makes it first, as the person
         approving. ``capacity_id`` is for a workspace request sent without one: the approver picks it."""
         if not approve:
-            return super().platform_decide(id, approve, note)  # type: ignore[misc]
+            return self._rq_closed(super().platform_decide(id, approve, note))  # type: ignore[misc]
         req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
                     if r["id"] == id), None)
         if req is None or req["kind"] not in NEW_KINDS:
@@ -138,6 +204,17 @@ class RequestsMixin:
         if made.get("next"):
             out["next"] = made["next"]
         out["made"] = {k: v for k, v in made.items() if k != "next"}
+        return out
+
+    def platform_withdraw(self, id: str) -> dict[str, Any]:
+        return self._rq_closed(super().platform_withdraw(id))  # type: ignore[misc]
+
+    @staticmethod
+    def _rq_closed(out: dict[str, Any]) -> dict[str, Any]:
+        """A declined or withdrawn request says what its approval already made in Fabric."""
+        left = left_in_fabric(out)
+        if left:
+            out["next"] = [*(out.get("next") or []), *left]
         return out
 
     # ---- carrying out each kind
@@ -260,12 +337,7 @@ class RequestsMixin:
 
         def give() -> str:
             """The role they already had and kept, or "" when this gave or raised it."""
-            current = None
-            for r in api.list_role_assignments(wid):
-                p = access_mod.principal(r.get("principal") or {})
-                if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
-                        who.get("email") and str(p["email"]).lower() == who["email"]):
-                    current = r
+            current = _assigned(api.list_role_assignments(wid), who)
             if current is None:
                 self._rq_add(api, wid, who, role)
                 return ""

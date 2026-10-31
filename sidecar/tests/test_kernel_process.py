@@ -97,7 +97,9 @@ def described(pid):
 
 
 def alive(pid):
-    """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
+    """Whether process ``pid`` is still running. A zombie waiting to be reaped counts as ended, and so
+    does one being reaped ("X (dead)"), which comes after "Z": treating it as running let the check
+    see the process end and then come back."""
     if sys.platform == "win32":
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -116,7 +118,9 @@ def alive(pid):
     if not Path("/proc").is_dir():
         return True  # macOS: the signal is all there is to go on
     try:
-        return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
+        lines = Path(f"/proc/{pid}/status").read_text().splitlines()
+        state = next((line for line in lines if line.startswith("State:")), "State:\tX")
+        return state.split()[1] not in ("Z", "X")
     except (FileNotFoundError, ProcessLookupError):
         return False  # a zombie reaped between the signal and the read: it ended
 
@@ -192,13 +196,13 @@ def test_the_setting_switches_the_kernel_and_stop_uses_it(tmp_path, monkeypatch)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     s = Service(root=tmp_path / "app")
-    assert call(s, "kernel_info") == {"process": False, "pid": os.getpid()}
+    assert s.kernel_info() == {"process": False, "pid": os.getpid()}
     assert call(s, "stop_kernel_process") == {"stopped": False, "in_engine": True}
     call(s, "save_app_settings", changes={"kernel_process": True})
     assert app_settings.value("kernel_process") is True
     try:
         call(s, "start_cell", code="import time\ntime.sleep(600)")
-        info = call(s, "kernel_info")
+        info = s.kernel_info()
         assert info["process"] is True and info["pid"] != os.getpid()
         out = handle(s, json.dumps({"id": 1, "method": "save_app_settings", "params": {"changes": {"kernel_process": False}}}))
         assert "running" in out["error"]["message"] if isinstance(out.get("error"), dict) else "running" in str(out.get("error"))

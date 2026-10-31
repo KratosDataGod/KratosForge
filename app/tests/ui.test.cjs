@@ -3985,8 +3985,10 @@ ${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
 ${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
 this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
   const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
-  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" }]).kids[1].kids;
-  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path"]);
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" },
+    { cell: 4, kind: "fabric", what: "widgets" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path",
+    "4|Before running in Fabric|widgets"]);
   const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
   assert.strictEqual(blocks.length, 1);
   assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);
@@ -5437,6 +5439,38 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
 });
 
+
+// Engine picker (Preview): Engine replaces Runs on beside Run all, remote engines ask first and
+// never start on their own, a switch that loses variables is a red confirm, and a cell the engine
+// can't run is flagged with "Run this cell on Python" for that cell only.
+test("the engine picker is a Preview feature that asks before remote compute", () => {
+  const src = fs.readFileSync(path.join(ui, "engines.js"), "utf8");
+  const nbsrc = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="nbnext\.js"><\/script>\n  <script src="engines\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /engines: "Notebook engine picker",/);
+  assert.match(src, /registerFeature\(\{ id: "engines", preview: true/);
+  assert.match(nbsrc, /const engineCtl = \(\) => previewShown\(\) \? engineToolbar\(nb\) : \[computeBtn\];/, "Preview hidden keeps Runs on");
+  assert.strictEqual((nbsrc.match(/\.\.\.engineCtl\(\)/g) || []).length, 2, "Home and Run toolbars both carry it");
+  assert.match(fn("openEngineMenu"), /if \(!previewShown\(\)\) return showMenu\(anchor, computeMenu\(nb\)\);/);
+  assert.match(fn("openEngineMenu"), /planned\.map\(\(e\) => \(\{ info:/, "planned engines are info rows, never choices");
+  const choose = fn("chooseEngine");
+  assert.match(choose, /rpc\("engine_prepare"[\s\S]*engineSwitchDialog[\s\S]*engineRemoteDialog[\s\S]*rpc\("engine_select"/, "prepare, switch, confirm, then select");
+  assert.match(choose, /if \(e\.location === "remote" && plan\.confirm\) \{\n\s*confirmed = await engineRemoteDialog\(nb, e, plan\);\n\s*if \(!confirmed\) return;/);
+  const confirm = fn("engineRemoteDialog");
+  assert.match(confirm, /\["Risk check"/);
+  assert.match(confirm, /Each start bills DBUs until its auto-stop/);
+  assert.match(confirm, /It uses Fabric capacity until it closes/);
+  assert.match(confirm, /never falls back to remote compute on its own/);
+  assert.match(fn("engineSwitchDialog"), /btn\("Switch and close session", null, \(\) => done\("close"\), "tool danger-solid"\)/);
+  assert.match(fn("engineSwitchDialog"), /"Keep both"/);
+  assert.match(fn("chooseKernel"), /confirmDialog\([\s\S]*"Switch and close session", \{ danger: true \}\)/);
+  assert.match(fn("engineFlagPanel"), /btn\("Run this cell on Python", "play", \(\) => runCellOnKernel\(cell\)/);
+  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) return runEngineCell\(cell, nb\);/);
+  for (const name of ["engines.js", "notebook.js"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ui, name), "utf8"), /no Fabric capacity/i, `${name}: local engines still use capacity for OneLake`);
+  }
+});
 // PB-078: every feature the docs call Preview is one Settings > Preview features knows (an id in
 // PREVIEW_FEATURES), or the docs say why it has none: it has no screen yet, or it's a setting in a
 // file rather than a screen, which show_preview can't hide.
@@ -5446,6 +5480,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5466,6 +5501,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
+    learn: ["Learn", "Writing a Learn lesson"],
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5475,15 +5512,11 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
-    "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
-    "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
-    "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
-    "Fabric Spark": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks workspace discovery": ["docs/engines.md", /Discovery is a command, with no screen in the app yet/],
     "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
-    "Writing a Learn lesson": ["docs/learn/writing-lessons.md", /Learn has no screen in the app yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
@@ -5546,4 +5579,59 @@ test("every folder box on this PC has a Browse… button", () => {
   assert.match(helper, /browse\.disabled = true;[\s\S]*\.finally\(\(\) => \{ browse\.disabled = false; \}\)/, "one dialog at a time");
   const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
   assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
+});
+
+// #1108: a waiting workspace access request says the role its person or group has today, as drawn.
+test("workspace access requests show today's role, and the confirm says what approving changes", async () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const seen = [];
+  const box = { WORKSPACE_ROLES: ["Viewer", "Contributor", "Member", "Admin"], h: (tag, attrs, text) => text,
+    confirmDialog: async (title, text, ok) => { seen.push({ title, text, ok }); return true; }, result: null };
+  vm.runInNewContext(`${fn("accessToday")}${fn("accessTodayLine")}${fn("confirmApproval")}
+    result = { accessTodayLine, confirmApproval };`, box);
+  const { accessTodayLine, confirmApproval } = box.result;
+  const req = (role, today) => ({ kind: "workspace_access", target: "Sales Prod", today,
+    detail: { role, principal: { type: "Group", name: "Sales Engineers", id: "g" } } });
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Admin" })), "Sales Engineers has Admin in Sales Prod today, so approving keeps Admin.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today, so approving keeps Viewer.");
+  assert.strictEqual(accessTodayLine(req("Contributor", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today; approving raises it to Contributor.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "" })), "Sales Engineers has no role of its own in Sales Prod today. A role through another group isn't counted.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { checked: false })), "Couldn't check today's role: Fabric didn't answer. Approving never lowers a role either way.");
+  assert.strictEqual(accessTodayLine(req("Viewer", undefined)), null, "nothing for a row the viewer can't decide");
+  for (const today of [{ role: "Admin" }, { role: "Viewer" }, { role: "" }, { checked: false }, undefined]) {
+    assert.strictEqual(JSON.stringify(await confirmApproval(req(today?.role === "Viewer" ? "Contributor" : "Viewer", today))), "{}");
+  }
+  const after = " Then the request is approved. If any step fails, it stays waiting and says which.";
+  assert.deepStrictEqual(seen.map((s) => [s.text, s.ok]), [
+    ["Sales Engineers already has Admin in Sales Prod, which is higher than Viewer. Approving keeps Admin and marks the request approved. Nothing changes in Fabric." + after, "Approve"],
+    ["As you, KratosForge raises the group Sales Engineers from Viewer to Contributor in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"]]);
+  seen.length = 0;
+  await confirmApproval(req("Member", { role: "Member" }));
+  assert.deepStrictEqual([seen[0].text, seen[0].ok], ["Sales Engineers already has Member in Sales Prod, which is the role asked for. Approving keeps Member and marks the request approved. Nothing changes in Fabric." + after, "Approve"]);
+  assert.match(src, /r\.kind === "workspace_access" \? accessTodayLine\(r\) : null/, "the line sits under the reason");
+});
+
+// #1195: declining a request whose approval already made something says it stays in Fabric, before the click.
+test("declining or withdrawing a partly carried-out request says what is still in Fabric", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));  // out of the vm's realm
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
+    ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
+    ["The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
+    ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
+  for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
+    assert.strictEqual(left({ kind, detail: { made: {} } }).length, 0, `${kind} with nothing made declines as before`);
+    assert.strictEqual(left({ kind, detail: {} }).length, 0);
+  }
+  assert.match(src, /Declining deletes nothing in Fabric\. \$\{left\.join\("\. "\)\}\./, "the decline confirm says it");
+  assert.match(src, /if \(res\.next\?\.length\) toast\(`Withdrew \$\{r\.target\}; \$\{res\.next\.join\("; "\)\}`/, "withdrawing says it after");
 });

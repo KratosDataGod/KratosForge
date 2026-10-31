@@ -11,7 +11,7 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",
-    "sqlglot>=30.12",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft)
+    "sqlglot>=30.12,<30.24",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft); 30.24 drops exp.SortArray (sql.py)
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",
@@ -67,7 +67,7 @@ include = ["fabric_desktop*"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
-"fabric_desktop.learn" = ["content/*.json", "content/*/*"]
+"fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it

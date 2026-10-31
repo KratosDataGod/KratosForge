@@ -16,7 +16,7 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", "sql_query_save", "sql_query_delete"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", "sql_query_save", "sql_query_delete"],
     mocks: { ...sqlRunMocks(() => ({ columns: [{ name: "x", type: "int" }], rows: [[1]] })) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);

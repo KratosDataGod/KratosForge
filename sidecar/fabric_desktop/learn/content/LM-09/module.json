@@ -1,0 +1,47 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-09",
+  "kind": "module",
+  "title": "Direct Lake: tables a Power BI model reads straight from OneLake",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 20,
+  "objectives": [
+    "Tell Import, DirectQuery and Direct Lake apart",
+    "Shape Gold tables a Direct Lake model reads well: a star, real tables, compact files",
+    "Build a date dimension with a whole-number key, and a fact table that finds it"
+  ],
+  "prerequisites": ["LM-05", "LM-07"],
+  "platforms": ["DuckDB", "Fabric Lakehouse", "Power BI semantic models"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": ["shop"],
+  "size": "S",
+  "exercises": [
+    {
+      "id": "date-star",
+      "prompt": "Make dim_date (date_key INTEGER like 20260301, date DATE, year, month; one row per order date) and fact_orders (order_id, date_key INTEGER, customer_id, amount DECIMAL(12,2)), where every order finds its date.",
+      "engine": "duckdb",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "year(d) * 10000 + month(d) * 100 + day(d) gives 20260301, and runs in DuckDB, Spark SQL and T-SQL alike. CAST it AS INTEGER: DuckDB's year() is a BIGINT.",
+        "Build dim_date from SELECT DISTINCT order_date FROM orders, so every date appears once.",
+        "fact_orders computes date_key from order_date the same way, so every key is in dim_date."
+      ],
+      "checks": [
+        {"kind": "table_shape", "table": "dim_date", "columns": {"date_key": "INTEGER", "date": "DATE", "year": "", "month": ""},
+         "unique": ["date_key"], "not_null": ["date_key", "date"]},
+        {"kind": "table_shape", "table": "fact_orders", "columns": {"order_id": "", "date_key": "INTEGER", "customer_id": "", "amount": "DECIMAL(12,2)"},
+         "unique": ["order_id"], "not_null": ["date_key"]},
+        {"kind": "integrity", "child": "fact_orders", "column": "date_key", "parent": "dim_date"}
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview",
+           "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-overview"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-30"
+}

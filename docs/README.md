@@ -65,6 +65,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [vscode.md](vscode.md) | Engineers | VS Code and KratosForge on the same notebooks: Open in VS Code, editing in both, `kratosforge://` links back, repository setup, Copilot (Preview) |
+| [home-notebooks.md](home-notebooks.md) | Engineers, analysts | Home's Recent notebooks: each notebook's workspace, lakehouse and last run, running several at once, and items pinned to Home (Preview) |
+| [learn.md](learn.md) | Everyone | Learn (Preview): lessons, paths and practice labs that run on this PC, the best-practice rules explained, and guidance modes; [writing a lesson](learn/writing-lessons.md) for authors |
 | [notebook-fabric-step.md](notebook-fabric-step.md) | Engineers | Run the last cell on Fabric Spark after the others run on this PC, to V-Order tables for Direct Lake (Preview) |
 | [notebook-best-practices.md](notebook-best-practices.md) | Engineers | Best-practice checks on a notebook's code, read on this PC without running it (Preview) |
 | [notebook-folders.md](notebook-folders.md) | Engineers, analysts | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one; publishing from a folder (Preview) |
@@ -75,6 +77,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
 | [notebook-editor/select-and-run-parts.md](notebook-editor/select-and-run-parts.md) | Engineers, analysts | Select several cells and act on them; run selected cells or selected text |
 | [notebook-editor/organise-cells.md](notebook-editor/organise-cells.md) | Engineers, analysts | Collapse heading sections, cell titles and tags, duplicate and drag cells |
+| [platforms.md](platforms.md) | Engineers | What KratosForge supports on Fabric, Databricks, Snowflake and this PC, at which level, and the evidence behind each level |
 | [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, the Databricks SQL warehouse engine, Databricks SQL and Snowflake SQL tried on DuckDB, usage figures, connection profiles for Fabric, Databricks, Snowflake or a mix (Preview) |
 | [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
 | [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
@@ -107,8 +110,9 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
 | [agent.md](agent.md) | Platform owners | The headless agent on Windows or Linux servers |
 | [architecture.md](architecture.md) | Contributors | How the app, the engine and OneLake fit together |
-| [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md) |
+| [ai/README.md](ai/README.md) | Everyone | Connecting your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client): setup for each, [workflows](ai/workflows.md), [instructions to paste](ai/agent-instructions.md), [use with Microsoft's Fabric skills](ai/microsoft-fabric-skills.md) |
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
+| [architecture/power-bi-embedding.md](architecture/power-bi-embedding.md) | Contributors | Proposed, not built: Embed Studio for Power BI embedded analytics, the isolated embed host, tokens and what each content type supports |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md](design/KRATOSFORGE_VISUAL_STYLE_GUIDE.md) | Contributors, designers, agents | The visual identity, Forged Heroism: the canonical storyboard, palette, the wolf, the forge language, animation standards, consistency checks, image generation ([assets](design/assets.md), [wolf sheet](design/wolf-character-sheet.md), [event catalog](design/animation-events.md), [examples](design/examples.md)) |
 | [animation-style-guide.md](animation-style-guide.md) | Contributors, designers | The four animation tiers (Ember, Spark, Forge, Titan), brand fire and winter colours, motifs, timing and reduced-motion rules |
@@ -155,6 +159,7 @@ KratosForge is new, and it's honest about what has been proven.
 | --- | --- |
 | Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
+| Notebook engine picker | Notebook ribbon: Engine beside Run all, which replaces Runs on ([engines.md](engines.md#engine-picker-preview)) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
@@ -162,6 +167,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Notebook runs | Notebook ribbon > Schedule > Recent runs, or the Run tab ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
+| Run several notebooks from Home | Home > Recent notebooks: tick notebooks, then Run ([home-notebooks.md](home-notebooks.md#run-several-notebooks-preview)) |
+| Items pinned to Home | Home > Pinned; the pin on Home's notebook rows and on Workspaces item rows ([home-notebooks.md](home-notebooks.md#pinned-items-preview)) |
 | Run the last cell on Fabric | Notebook cell ⋯ menu > Run on Fabric (Spark) ([notebook-fabric-step.md](notebook-fabric-step.md)) |
 | Pipelines | Create > Pipeline ([user-guide.md](user-guide.md#pipelines-preview)) |
 | Pop-out windows | Monitor > Pop out on From KratosForge and In Fabric ([user-guide.md](user-guide.md#pop-out-windows-preview)) |
@@ -225,6 +232,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Quarantine replay | Entity page, quarantined rows (always shown) |
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
+| Learn | Learn at the bottom of the left rail: lessons, practice labs on this PC and the best-practice rules ([learn.md](learn.md)) |
 
 Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
 

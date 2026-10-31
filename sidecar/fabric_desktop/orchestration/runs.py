@@ -1,5 +1,7 @@
 """Where local pipeline run records live (ORCH-003): one JSON file per run under the app's data
-folder, written atomically, so a record survives the app stopping mid-run.
+folder, written atomically (jsonfile.py), so a record survives the app stopping mid-run. On Windows a
+reader (the status poll, a virus scanner) can hold the file open just as a save swaps the new copy in;
+jsonfile waits that out on both sides instead of failing the run with WinError 5.
 
 When the store opens, a run still marked running or pending is from an app that stopped while it
 was going. It is marked ``interrupted`` and never resumed: activities that were running may have
@@ -9,11 +11,12 @@ done part of their work, so running them again needs a person to decide.
 from __future__ import annotations
 
 import json
-import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .. import jsonfile
 
 KEEP = 200
 _ID_CHARS = set("0123456789abcdefABCDEF-")
@@ -33,15 +36,12 @@ class RunStore:
     def save(self, record: dict[str, Any]) -> None:
         path = self._path(record["run_id"])
         with self._lock:
-            self.folder.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(f".{threading.get_ident()}.tmp")
-            tmp.write_text(json.dumps(record, default=str), encoding="utf-8")
-            os.replace(tmp, path)
+            jsonfile.write_text(path, json.dumps(record, default=str))
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         self.recover()
         try:
-            return json.loads(self._path(run_id).read_text(encoding="utf-8"))
+            return json.loads(jsonfile.read_text(self._path(run_id)))
         except (OSError, ValueError):
             return None
 
@@ -55,7 +55,7 @@ class RunStore:
         out = []
         for path in self._files()[:max(1, min(limit, KEEP))]:
             try:
-                out.append(json.loads(path.read_text(encoding="utf-8")))
+                out.append(json.loads(jsonfile.read_text(path)))
             except (OSError, ValueError):
                 continue
         return out
@@ -76,7 +76,7 @@ class RunStore:
         count = 0
         for path in self._files():
             try:
-                record = json.loads(path.read_text(encoding="utf-8"))
+                record = json.loads(jsonfile.read_text(path))
             except (OSError, ValueError):
                 continue
             if record.get("state") in ("running", "pending") and record.get("run_id") not in (live or set()):

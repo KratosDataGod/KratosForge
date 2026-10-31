@@ -33,7 +33,7 @@ def test_a_shared_session_shares_spark_but_not_variables(svc):  # noqa: F811
     rows = {r["notebook"]: r for r in call(svc, "kernel_sessions")["sessions"]}
     assert set(rows) == {"A"} and rows["A"]["shared_with"] == ["B"]
     # One process; one cell at a time across the notebooks, and each sees only its own cell.
-    assert call(svc, "kernel_info", notebook="B")["pid"] == call(svc, "kernel_info", notebook="A")["pid"]
+    assert svc.kernel_info(notebook="B")["pid"] == svc.kernel_info(notebook="A")["pid"]
     call(svc, "start_cell", code="import time\ntime.sleep(3)", notebook="A")
     with pytest.raises(Exception, match="A is running a cell in this shared session"):
         call(svc, "start_cell", code="1", notebook="B")
@@ -49,7 +49,7 @@ def test_a_shared_session_shares_spark_but_not_variables(svc):  # noqa: F811
     # Leave: B's next cell starts a session of its own, without A's temp view.
     assert call(svc, "kernel_session_leave", notebook="B") == {"notebook": "B", "left": "A"}
     assert out(run(svc, "B", "print('shared_view' in [t.name for t in spark.catalog.listTables()])")) == "False\n"
-    assert call(svc, "kernel_info", notebook="B")["pid"] != call(svc, "kernel_info", notebook="A")["pid"]
+    assert svc.kernel_info(notebook="B")["pid"] != svc.kernel_info(notebook="A")["pid"]
 
 
 def test_stop_ends_the_shared_session_for_every_notebook_in_it(svc):  # noqa: F811
@@ -60,7 +60,7 @@ def test_stop_ends_the_shared_session_for_every_notebook_in_it(svc):  # noqa: F8
     assert call(svc, "stop_kernel_process", notebook="B") == {"stopped": True}
     assert out(run(svc, "A", "print('x' in dir())")) == "False\n"
     assert out(run(svc, "B", "print('y' in dir())")) == "False\n"
-    assert call(svc, "kernel_info", notebook="B")["pid"] == call(svc, "kernel_info", notebook="A")["pid"]
+    assert svc.kernel_info(notebook="B")["pid"] == svc.kernel_info(notebook="A")["pid"]
 
 
 def test_what_sharing_refuses(svc):  # noqa: F811

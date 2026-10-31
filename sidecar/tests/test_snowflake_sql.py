@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from fabric_desktop import notebook_formats
@@ -28,7 +29,7 @@ PROBE = [
      "translated", []),
     ("IFF/NVL/ZEROIFNULL", "select iff(amt>9,'big','small'), nvl(grp,'x'), zeroifnull(amt) from t", "translated", []),
     ("DATEADD/DATEDIFF", "select dateadd(day, 3, ts), datediff(day, ts, current_timestamp()) from t",
-     "difference", ["SFD-004"]),
+     "difference", ["SFD-004", "SFD-006"]),
     ("TO_VARCHAR format", "select to_varchar(ts, 'YYYY-MM-DD') from t", "translated", []),
     ("TO_CHAR format", "select to_char(current_date(), 'YYYY-MM-DD')", "translated", []),
     ("VARIANT path", "select v:k.x::int as x from t", "translated", []),
@@ -178,6 +179,9 @@ def test_sfx004_object_construct_star_is_refused():
     ("select amt / 2 from t", "SFD-003"),
     ("select current_timestamp()", "SFD-004"),
     ("select f.value from t, lateral flatten(input => v:arr) f", "SFD-005"),
+    ("select date_trunc('month', ts) from t", "SFD-006"),
+    ("select dateadd(week, 1, ts) from t", "SFD-006"),
+    ("select typeof(v) from t", "SFD-007"),
 ])
 def test_each_known_difference_is_named(code, note):
     (report,) = sf.translate(code).statements
@@ -306,3 +310,21 @@ def test_every_rule_the_code_uses_is_in_the_docs_table():
     used = set(re.findall(r'"(SF[XDN]-\d{3})"', source))
     listed = [id for id, _, _ in sf.CATALOG]
     assert len(listed) == len(set(listed)) and used == set(listed)
+
+
+def test_a_time_unit_on_date_arithmetic_is_not_a_date_difference():
+    (report,) = sf.translate("select dateadd(hour, 2, ts), date_trunc('minute', ts) from t").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+
+
+def test_values_in_from_get_snowflakes_column_names_and_an_aliased_list_keeps_its_own():
+    con = duckdb.connect()
+    sql = sf.translate("select column1, column2 from values (1, 'a'), (2, 'b') order by column1").duckdb_sql
+    assert con.execute(sql).fetchall() == [(1, "a"), (2, "b")]
+    sql = sf.translate("select v.column2 from values (1, 'a') as v").duckdb_sql
+    assert con.execute(sql).fetchall() == [("a",)]
+    sql = sf.translate("select a from values (7, 'x') as v(a, b)").duckdb_sql
+    assert con.execute(sql).fetchall() == [(7,)]
+    con.execute("create table iv(a int, b varchar)")
+    con.execute(sf.translate("insert into iv values (1, 'z')").duckdb_sql)  # INSERT ... VALUES is left alone
+    assert con.execute("select * from iv").fetchall() == [(1, "z")]

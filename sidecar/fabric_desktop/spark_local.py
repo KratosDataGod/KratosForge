@@ -1051,7 +1051,10 @@ def _sql_text(value: Any) -> str:
     expr = getattr(value, "expr", None)
     if expr is None:
         raise TypeError(f"Expected SQL text or a Column, got {type(value).__name__}.")
-    return str(expr)
+    import sqlglot
+
+    # A Column prints as DuckDB SQL, which from DuckDB 2.0 quotes names ("s"."amount"): a string in Spark SQL.
+    return sqlglot.transpile(str(expr), read="duckdb", write="spark")[0]
 
 
 class LocalMergeBuilder:

@@ -105,18 +105,29 @@ def test_layout_choices_default_to_help_on_request_and_take_only_their_choices(d
     assert "ui_density must be one of comfortable, compact" in app_settings.policy_problems()
 
 
-def test_learn_mode_defaults_to_focus_and_a_policy_can_set_it(dirs):
-    assert app_settings.load()["learn_mode"] == {"value": "focus", "source": "default"}
+def test_learn_mode_defaults_to_professional_and_a_policy_can_set_it(dirs):
+    assert app_settings.load()["learn_mode"] == {"value": "professional", "source": "default"}
     assert app_settings.save({"learn_mode": "guided"})["learn_mode"]["value"] == "guided"
-    with pytest.raises(ValueError, match="focus, guided, learning"):
+    with pytest.raises(ValueError, match="expert, professional, guided"):
         app_settings.save({"learn_mode": "loud"})
-    dirs.write_text(json.dumps({"learn_mode": "learning"}))
-    assert app_settings.load()["learn_mode"] == {"value": "learning", "source": "policy"}
+    dirs.write_text(json.dumps({"learn_mode": "expert"}))
+    assert app_settings.load()["learn_mode"] == {"value": "expert", "source": "policy"}
 
 
-def test_skipping_learns_first_use_question_stores_focus_so_it_isnt_asked_again(dirs):
+@pytest.mark.parametrize("first, now", [("focus", "expert"), ("learning", "guided")])
+def test_the_first_learn_mode_names_still_read_as_their_new_level(dirs, first, now):
+    # Someone who chose Focus or Learning before the levels were renamed keeps their choice.
+    app_settings.user_path().parent.mkdir(parents=True, exist_ok=True)
+    app_settings.user_path().write_text(json.dumps({"learn_mode": first}), encoding="utf-8")
+    assert app_settings.load()["learn_mode"] == {"value": now, "source": "user"}
+    dirs.write_text(json.dumps({"learn_mode": first}))
+    assert app_settings.load()["learn_mode"] == {"value": now, "source": "policy"}
+    assert not [p for p in app_settings.policy_problems() if "learn_mode" in p]
+
+
+def test_skipping_learns_first_use_question_stores_professional_so_it_isnt_asked_again(dirs):
     # learn.js asks only while the source is "default"; Skip saves the default value as the person's own.
-    assert app_settings.save({"learn_mode": "focus"})["learn_mode"] == {"value": "focus", "source": "user"}
+    assert app_settings.save({"learn_mode": "professional"})["learn_mode"] == {"value": "professional", "source": "user"}
     assert app_settings.save({"learn_mode": None})["learn_mode"]["source"] == "default"
 
 

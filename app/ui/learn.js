@@ -79,9 +79,9 @@ function learnHome(cat, byId, next, inOrder) {
       path ? btn("See the path", null, () => { learnPage.tab = "paths"; render(); }, "tool outline") : null))
     : emptyState({ icon: "beaker", title: "No lessons yet", text: "Lessons arrive with app updates." });
   const after = next ? inOrder.slice(inOrder.indexOf(next) + 1) : [];
-  const suggest = learnMode() === "learning" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
+  const suggest = learnMode() === "guided" ? after.find((m) => !m.started) || inOrder.find((m) => !m.started && m !== next) : null;
   return [suggest ? h("div", { class: "learn-home-top" }, cont, h("section", { class: "card pad learn-suggest" },
-    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Learning mode: the next lesson you haven't started.")),
+    h("div", { class: "learn-eyebrow" }, "Suggested next ", engineInfo("Shown in Guided: the next lesson you haven't started.")),
     h("b", {}, `${suggest.id} · ${suggest.title}`),
     h("span", { class: "muted-text small" }, learnMeta(suggest)),
     h("div", { class: "row" }, btn("Open", null, () => learnOpen(suggest.id), "tool outline")))) : cont,
@@ -126,9 +126,10 @@ async function learnPractices(body) {
 
 // ---------- guidance (LX-06) ----------
 
-// Settings > Appearance > Learning guidance (app_settings learn_mode). Focus is the default and adds
-// nothing beside your work; with preview features hidden it's always Focus.
-const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "focus");
+// Settings > Appearance > Learning guidance (app_settings learn_mode): Expert, Professional (the
+// default) or Guided. A preference only: checks and policies are the same at every level. With preview
+// features hidden it's always Expert, which adds nothing but Dismiss, and that is Preview too.
+const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "expert");
 
 function learnGuidancePicker() {
   const key = "learn_mode";
@@ -141,7 +142,7 @@ function learnGuidancePicker() {
 
 // The first time Learn opens (from the approved mockup): would you like help improving your skills?
 // Asked once, only while the mode is still the default and nobody (policy or environment) set it.
-// Save or Skip both store a choice, so it's never asked again; Skip keeps Focus.
+// Save or Skip both store a choice, so it's never asked again; Skip keeps Professional, the default.
 function learnAsk() {
   const key = "learn_mode";
   if (!previewShown() || state.settings?.[key]?.source !== "default") return null;
@@ -151,20 +152,20 @@ function learnAsk() {
     render();  // Learn's head, with the picker, is built before the lessons are read
     document.querySelector(".learn-guidance select")?.focus();
   };
-  const say = { focus: "Findings, their About link and Dismiss. No suggestions.",
-    guided: "Each finding also offers Explain, an example and the lesson that covers it.",
-    learning: "Everything in Guided, plus a suggested next lesson on Learn." };
+  const say = { expert: "Findings, their About link and Dismiss. No explanations unless you open About.",
+    professional: "A line on why each finding matters, with Explain and an example when you want them.",
+    guided: "Explanations open beside each finding, plus the lesson that covers it and a suggested next lesson on Learn." };
   const options = LAYOUT_CHOICES[key][2].map(([value, label]) => h("label", { class: "learn-ask-option" },
-    h("input", { type: "radio", name: "learn-ask", value, checked: value === "focus" ? true : null }),
-    h("span", {}, h("b", {}, label), value === "focus" ? h("span", { class: "muted-text small" }, " · the default") : null,
+    h("input", { type: "radio", name: "learn-ask", value, checked: value === "professional" ? true : null }),
+    h("span", {}, h("b", {}, label), value === "professional" ? h("span", { class: "muted-text small" }, " · the default") : null,
       h("span", { class: "muted-text small learn-ask-say" }, say[value]))));
   const card = h("section", { class: "card pad learn-ask", "aria-labelledby": "learn-ask-title" },
     h("h2", { id: "learn-ask-title" }, "Would you like KratosForge to help you improve your development skills?"),
     h("p", { class: "muted-text" }, "This only changes how much guidance you see beside your work. Checks run the same either way, and you can change it at any time with Learning guidance, above, or in Settings > Appearance > Layout."),
     h("fieldset", { class: "learn-ask-modes" }, h("legend", {}, "How much guidance would you like?"), options),
     h("div", { class: "row" },
-      btn("Save", null, () => choose(card.querySelector("input[name=learn-ask]:checked")?.value || "focus"), "tool primary"),
-      btn("Skip", null, () => choose("focus"), "tool outline")),
+      btn("Save", null, () => choose(card.querySelector("input[name=learn-ask]:checked")?.value || "professional"), "tool primary"),
+      btn("Skip", null, () => choose("professional"), "tool outline")),
     h("p", { class: "muted-text small" }, "Your organization can set this for everyone. Learning progress stays on this PC."));
   return card;
 }
@@ -175,11 +176,10 @@ function learnCatalogCached() {
   return (learnCatalogLoad ||= rpc("learn_catalog").catch(() => { learnCatalogLoad = null; return null; }));
 }
 
-// Guided and Learning: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers.
-// Focus shows nothing extra. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
+// Guided: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
 // lesson explains the rule.
 function learnFindingLink(ruleId) {
-  if (learnMode() === "focus") return null;
+  if (learnMode() !== "guided") return null;
   const slot = h("span", { class: "learn-finding" });
   learnCatalogCached().then((cat) => {
     const covering = (cat?.modules || []).filter((m) => m.status === "live" && (m.rules || []).includes(ruleId));
@@ -195,9 +195,10 @@ function learnFindingLink(ruleId) {
 
 // Explain and Show example read each rule's section of the best-practices guide, shipped with the
 // app (learn/guides.py). Dismiss hides a finding in this person's own panels on this PC
-// (learn/dismissals.py); the check still runs. In Focus only Dismiss shows; Guided and Learning add
-// Explain, Show example and the Lesson link. A rule a policy for the project names can't be
-// dismissed. All of it is Preview.
+// (learn/dismissals.py); the check still runs. Expert shows only Dismiss. Professional adds the
+// guide's first sentence, Explain and Show example; Guided opens Explain to start with and adds the
+// Lesson link. A rule a governance policy for the project turns on can't be dismissed. All of it is
+// Preview.
 let learnGuidesLoad = null;
 function learnGuidesCached() {
   return (learnGuidesLoad ||= rpc("learn_rule_guides").catch(() => { learnGuidesLoad = null; return {}; }));
@@ -275,19 +276,33 @@ async function learnUndismiss(id, ctx, back = []) {
   learnRedraw(ctx, ...back, `${ctx.where}|dismissed`);
 }
 
+// What each importance means, as the docs' rule pages say it (GD-03); the tag's tooltip.
+const LEARN_IMPORTANCE = {
+  Critical: "Critical: it can leak a secret, lose data or put wrong data in place.",
+  Recommended: "Recommended: sound practice that most code should follow.",
+  Educational: "Educational: a habit worth knowing, with little risk when it's skipped.",
+  Advanced: "Advanced: a tradeoff that needs judgment, where the exceptions matter.",
+};
+
 // The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
 function learnFindingActions(f, ctx) {
   if (!previewShown()) return null;
-  const guided = learnMode() !== "focus";
+  const mode = learnMode();
+  const guided = mode !== "expert";
   const guide = learnGuides[f.rule_id];
   const key = `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}`;
-  const open = learnDetail.get(key);
+  // Guided starts with Explain open; closing it is remembered like any other press (null).
+  const open = learnDetail.has(key) ? learnDetail.get(key) : (mode === "guided" && guide ? "explain" : null);
   const toggle = (what) => {
-    if (open === what) learnDetail.delete(key); else learnDetail.set(key, what);
+    learnDetail.set(key, open === what ? null : what);
     learnRedraw(ctx, learnFocusKey(ctx, f, what));
   };
   const pressed = (what) => ({ "aria-expanded": String(open === what), "data-learn-focus": learnFocusKey(ctx, f, what) });
   const row = h("div", { class: "row learn-actions" });
+  // Try the fix (GD-02), at every level: only a finding the engine found a safe rewrite for has one.
+  if (f.fix && ctx.fix) row.append(btn("Try the fix", null, () => toggle("fix"), `tool small outline${open === "fix" ? " toggled" : ""}`, pressed("fix")));
+  // Professional: the guide's first sentence, so why it matters is there without a press.
+  const why = mode === "professional" && guide?.why ? h("p", { class: "learn-why muted-text small" }, learnFirstSentence(guide.why)) : null;
   if (guided && guide) {
     row.append(btn("Explain", null, () => toggle("explain"), `tool small outline${open === "explain" ? " toggled" : ""}`, pressed("explain")));
     if (guide.after) row.append(btn("Show example", null, () => toggle("example"), `tool small outline${open === "example" ? " toggled" : ""}`, pressed("example")));
@@ -316,18 +331,140 @@ function learnFindingActions(f, ctx) {
     wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
     row.append(wrap);
   }
-  if (!guided || !guide || !open) return row;
+  if (open === "fix" && f.fix && ctx.fix) return [why, row, learnFixPreview(f, ctx, key)];
+  if (!guided || !guide || !open || open === "fix") return why ? [why, row] : row;
   const detail = open === "explain"
-    ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
+    ? h("div", { class: "learn-detail" },
+      // GD-03: how important the rule is and its area, one tag row. A label only: severity and policies decide.
+      guide.importance ? h("span", { class: `badge learn-importance ${guide.importance.toLowerCase()}`,
+        "aria-label": `Importance: ${[guide.importance, guide.area].filter(Boolean).join(", ")}`, title: LEARN_IMPORTANCE[guide.importance] || null },
+      [guide.importance, guide.area].filter(Boolean).join(" · ")) : null,
+      h("b", {}, "Why it matters"), markdown(guide.why),
+      // What to do: the guide's own instruction where it has one, otherwise the principle behind the rule.
+      guide.instead || guide.principle ? [h("b", {}, "What to do"), markdown(guide.instead || guide.principle)] : null,
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
-      guide.instead ? [h("b", {}, "Do this instead"), markdown(guide.instead)] : null,
-      h("span", { class: "muted-text small" }, "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
+      guide.check ? [h("b", {}, "How to check"), markdown(guide.check)] : null,
+      h("span", { class: "muted-text small" }, (guide.importance ? "Importance is the guide's view. The severity and your organization's policies decide what's flagged and required. " : "")
+        + "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
     : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
       h("b", {}, "After"), h("pre", { class: "learn-code after" }, guide.after),
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(guide.after)
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
-  return [row, detail];
+  return [why, row, detail];
+}
+
+// ---------- Try the fix (GD-02, from the approved mockup) ----------
+
+// The engine offers a rewrite only where it keeps the result (learn/fixes.py), for the rules below.
+// Nothing changes until Apply, which is one edit in the editor, undone with Ctrl+Z. Compare runs the
+// statement as written and as fixed, read-only, where the page runs SQL, and compares the rows on this
+// PC (learn_fix_compare): the page's ctx.fix says whether it can (a warehouse or SQL analytics endpoint).
+const LEARN_FIX_RULES = ["SQ002", "SQ005"];
+const learnFixCompare = new Map();  // finding key -> {state: "running"|"done"|"failed", result, error}
+
+// Gives each finding the engine found a safe fix for its .fix. provider: the editor's completion
+// provider (tables(), cachedColumns(t), columns(t)), so the engine sees the catalog the page has.
+async function learnPrepareFixes(rows, text, target, provider) {
+  if (!previewShown() || !provider || !(rows || []).some((f) => LEARN_FIX_RULES.includes(f.rule_id))) return rows;
+  const catalog = () => {
+    const tables = provider.tables() || [];
+    const columns = {};
+    tables.forEach((t) => { const c = provider.cachedColumns(t); if (c?.length) columns[`${t.schema}.${t.name}`] = c; });
+    return { tables, columns };
+  };
+  const ask = () => rpc("learn_fixes", { query: text, target, catalog: catalog(),
+    findings: rows.map((f) => ({ rule_id: f.rule_id, line: f.line, col: f.col })) });
+  try {
+    let out = await ask();
+    if (out.needs?.length) {  // column types the page hasn't read yet: read them as autocomplete does, then ask again
+      await Promise.all(out.needs.map((t) => provider.columns(t).catch(() => [])));
+      out = await ask();
+    }
+    (out.fixes || []).forEach((fx) => { if (rows[fx.index]) rows[fx.index].fix = fx; });
+  } catch { /* no fixes: the findings show as they are */ }
+  return rows;
+}
+
+function learnFixPreview(f, ctx, key) {
+  const fx = f.fix;
+  const cmp = learnFixCompare.get(key);
+  const focusKey = (what) => learnFocusKey(ctx, f, what);
+  const compare = async () => {
+    learnFixCompare.set(key, { state: "running" });
+    learnRedraw(ctx, focusKey("compare"));
+    try {
+      const result = await ctx.fix.compare(f);
+      if (result) learnFixCompare.set(key, { state: "done", result });
+      else learnFixCompare.delete(key);  // the person said no to running it, or pressed Stop
+    } catch (err) {
+      learnFixCompare.set(key, { state: "failed", error: friendlyError(err).text });
+    }
+    learnRedraw(ctx, focusKey("apply"));
+  };
+  const close = () => {
+    if (cmp?.state === "running") ctx.fix.stop();
+    learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix"));
+  };
+  const running = cmp?.state === "running";
+  const apply = () => {
+    if (!ctx.fix.apply(f)) return;
+    learnDetail.delete(key); learnFixCompare.delete(key);
+    learnRedraw(ctx);  // Ctrl+Z can bring the same finding back: its buttons start closed, not from this preview
+    // GD-06: a fix applied after Compare found the same rows goes in Profile; the engine compares again first.
+    const runs = cmp?.state === "done" && cmp.result.result === "match" ? cmp.result.runs : null;
+    if (runs) {
+      rpc("learn_fix_checked", { before: runs.before, after: runs.after, rule_id: f.rule_id }).then((out) => {
+        if (out.recorded) toast(`Applied the fix for ${f.rule_id}. Ctrl+Z undoes it. Profile records it as fixed and checked.`);
+      }, () => {});  // Profile is a record, never a reason for Apply to fail
+    }
+  };
+  const canCompare = ctx.fix.canCompare(f);
+  const done = cmp?.state === "done";
+  return h("div", { class: "learn-detail learn-fix" },
+    h("b", {}, "Preview · nothing has changed yet"),
+    h("span", { class: "muted-text small" }, "Now"), h("pre", { class: "learn-code before" }, fx.before),
+    h("span", { class: "muted-text small" }, "With the fix"), h("pre", { class: "learn-code after" }, fx.text),
+    h("span", {}, fx.why_safe),
+    cmp ? learnFixResult(cmp, ctx) : null,
+    h("div", { class: "row" },
+      canCompare && !done && !running ? btn("Compare before applying", null, compare, "tool small primary", { "data-learn-focus": focusKey("compare") }) : null,
+      running ? btn("Stop", null, () => ctx.fix.stop(), "tool small outline", { "data-learn-focus": focusKey("compare") }) : null,
+      btn("Apply", null, apply, `tool small${canCompare && !done ? " outline" : " primary"}`, { disabled: running ? true : null, "data-learn-focus": focusKey("apply") }),
+      btn("Cancel", null, close, "tool small outline")),
+    h("span", { class: "muted-text small" }, canCompare
+      ? "Apply is one edit you can undo with Ctrl+Z. Compare runs both versions, read-only, and changes nothing."
+      : `Apply is one edit you can undo with Ctrl+Z. ${ctx.fix.whyNoCompare(f)}`),
+    h("div", { class: "learn-principle" }, h("b", {}, "The principle"), h("span", {}, fx.principle)));
+}
+
+// What Compare found: the same rows or not, each run's measured time, and what the comparison covered.
+function learnFixResult(cmp, ctx) {
+  if (cmp.state === "running") return h("p", { class: "muted-text small", role: "status" }, `Running both versions ${ctx.fix.where}...`);
+  if (cmp.state === "failed") return h("p", { class: "output error", role: "status" }, `Couldn't compare: ${cmp.error}`);
+  const r = cmp.result;
+  const same = r.result === "match";
+  const secs = (v) => (typeof v === "number" ? `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} s` : "not available");
+  const rows = (n) => `${n.toLocaleString()} row${n === 1 ? "" : "s"}`;
+  return h("div", { class: "learn-fix-result", role: "status" },
+    h("b", {}, `Compared ${ctx.fix.where} · read-only`),
+    h("div", { class: "row" }, h("span", { class: `pill-s ${same ? "pass" : "fail"}` }, same ? "Same rows" : "Different rows"),
+      h("span", {}, same
+        ? `${rows(r.rows.after)}, ${r.level === "complete" ? "every row compared" : "counts and a checksum of every row compared"}`
+        : `${rows(r.rows.before)} now, ${rows(r.rows.after)} with the fix. Don't apply it before finding out why.`)),
+    h("table", { class: "learn-fix-times" },
+      h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "Now"), h("th", {}, "With the fix"))),
+      h("tbody", {}, h("tr", {}, h("th", { scope: "row" }, "Time · measured"), h("td", {}, secs(r.seconds.before)), h("td", {}, secs(r.seconds.after))))),
+    h("span", { class: "muted-text small" }, "One run each, the fixed one second, so data cached by the first can favor it. Times vary between runs."),
+    (r.limitations || []).map((l) => h("span", { class: "muted-text small" }, l)));
+}
+
+// "Why: the engine skips... Wrapped in a function..." -> its first sentence, without Markdown marks.
+// A sentence ends at . ! or ? followed by a capital letter or the end, so "@...", "e.g." and
+// "dbo.sales" don't end it.
+function learnFirstSentence(text) {
+  const plain = String(text).replace(/`([^`]*)`/g, "$1").replace(/\*\*?([^*]+)\*\*?/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  return (plain.match(/^.*?(?<!\b(?:e\.g|i\.e|etc|vs))(?<!\.\.)[.!?](?=\s+[A-Z]|\s*$)/) || [plain])[0];
 }
 
 // "2 dismissed · Show", and when shown, each with Show again, and Show all again.

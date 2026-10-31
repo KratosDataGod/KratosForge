@@ -9,6 +9,8 @@ Several processes use this file at once: the app's engine (the Settings page, ap
                 without asking (auto), optional workspace list, HTTP token hash, revoked time
     approvals   one row per request that needs the person's yes: what, by whom, on what, the
                 hash of the exact arguments, and what happened to it
+    approval_uses  when each approval was used, so Recent activity can show an approved call
+                that left no audit line (the process was killed as it started)
 
 HTTP tokens are stored only as SHA-256 hashes. No Fabric or Entra token is ever stored here.
 """
@@ -38,11 +40,13 @@ create table if not exists approvals (
     args_hash text not null, state text not null, created_at real not null, decided_at real,
     expires_at real not null, note text not null default '');
 create index if not exists approvals_state on approvals (state, created_at);
+create table if not exists approval_uses (approval_id text primary key, client_id text not null, used_at real not null);
 """
 
 PENDING_SECONDS = 300      # a request nobody answers is dropped after 5 minutes
 APPROVED_SECONDS = 600     # an approval must be used within 10 minutes
 MAX_ARGUMENT_TEXT = 20_000
+USES_SECONDS = 90 * 86400  # approval_uses rows are kept 90 days
 
 DEFAULT_SETTINGS: dict[str, Any] = {"enabled": False, "http_enabled": False, "http_port": 47615,
                                     "extensions": {}}  # extension id -> on (extensions.py)
@@ -254,5 +258,16 @@ class IntegrationStore:
             self._expire(db)
             changed = db.execute("update approvals set state = 'used' where id = ? and client_id = ? and args_hash = ? "
                                  "and state = 'approved'", (approval_id, client_id, digest)).rowcount
+            if changed == 1:
+                db.execute("insert or replace into approval_uses (approval_id, client_id, used_at) values (?,?,?)",
+                           (approval_id, client_id, self.clock()))
+                db.execute("delete from approval_uses where used_at < ?", (self.clock() - USES_SECONDS,))
         return changed == 1
+
+    def approval_uses(self, since: float, client_id: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        """Approvals used since ``since``, newest first, with what they were for."""
+        sql = ("select u.used_at, a.* from approval_uses u join approvals a on a.id = u.approval_id where u.used_at >= ?"
+               + (" and u.client_id = ?" if client_id else "") + " order by u.used_at desc limit ?")
+        rows = self._db().execute(sql, [since, *([client_id] if client_id else []), limit])
+        return [{**(self._approval(r) or {}), "used_at": r["used_at"]} for r in rows]
 

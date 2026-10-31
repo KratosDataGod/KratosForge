@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "02118fa41572b709dfdfbe9282a0221d777adaf4",
-    "date": "2026-10-29",
+    "commit": "f3750b9d6564608f0f15d931800990b65b3047a9",
+    "date": "2026-10-31",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
       "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
@@ -23,7 +23,10 @@
       "Acceptance of the 2026-10-28 In review batch recorded (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4); stale limitations on FEAT-REL-01, SQL-01, NB-07 and SQL-02 corrected from main's code.",
       "Product check 2026-10-28 23:42 at b19b7456f5cb50a4957ac6cb432706d96fffc3bd: PRs #828 to #972 merged after #839; their rows were updated, and backlog items link their story issues. Other rows were not re-read.",
       "Product check 2026-10-29 11:42 at 188d5a93153f54df837fde8d8046ec01ef054fc1: PRs merged after b19b7456 (#973 to #1050) were linked to their rows and items, and the stories they finished moved to In review. Other rows were not re-read.",
-      "Product check 2026-10-29 23:42 at 02118fa41572b709dfdfbe9282a0221d777adaf4: the 59 PRs merged after 188d5a93 were linked to their rows and items. The 2026-10-29 KUDP live run is recorded as report evidence on FEAT-AUTH-01, FAB-02 and EXT-05. Other rows were not re-read."
+      "Product check 2026-10-29 23:42 at 02118fa41572b709dfdfbe9282a0221d777adaf4: the 59 PRs merged after 188d5a93 were linked to their rows and items. The 2026-10-29 KUDP live run is recorded as report evidence on FEAT-AUTH-01, FAB-02 and EXT-05. Other rows were not re-read.",
+      "Acceptance batch 2 recorded (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b).",
+      "Product check 2026-10-30 23:42 at 0c96c9ce6a6a84651d879288fe3caf7552a250d9: the 23 PRs merged after 02118fa4 (other than the product data PRs) were linked to their rows and items. Other rows were not re-read.",
+      "Product check 2026-10-31 11:42 at f3750b9d6564608f0f15d931800990b65b3047a9: #1200 to #1202 linked to their rows and items. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -126,7 +129,10 @@
         930,
         1026,
         1050,
-        1089
+        1089,
+        1152,
+        1153,
+        1156
       ]
     },
     {
@@ -238,7 +244,8 @@
         943,
         974,
         987,
-        1131
+        1131,
+        1147
       ]
     },
     {
@@ -454,7 +461,8 @@
         769,
         843,
         957,
-        983
+        983,
+        1150
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -1605,7 +1613,8 @@
         835,
         912,
         949,
-        985
+        985,
+        1181
       ],
       "limitations": [
         "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
@@ -2193,7 +2202,8 @@
         592,
         596,
         1028,
-        1054
+        1054,
+        1157
       ]
     },
     {
@@ -2355,7 +2365,7 @@
     {
       "id": "FEAT-NB-07",
       "name": "Where a notebook can run (compute check)",
-      "description": "A saved This PC / Fabric choice per notebook and a static check naming the cells that block each side.",
+      "description": "A saved This PC / Fabric choice per notebook and a check that reads each cell's Python (aliased and from-imports, SQL in variables) and names the cells that block each side, or that it can't read (Unknown, never taken as runs here).",
       "pillar": "Local development",
       "category": "Local Development and Execution",
       "status": "Implemented",
@@ -2378,6 +2388,11 @@
         {
           "kind": "code",
           "ref": "sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY lists notebookutils.variableLibrary, which notebookutils_local implements"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_compute_check_ast.py",
+          "note": "30 tests (aliases, Unknown, Prove/validate/advice/risk read the same result); passed on the PB-014 branch, fail on main"
         }
       ],
       "source": [
@@ -2386,7 +2401,8 @@
       ],
       "tests": [
         "sidecar/tests/test_notebook.py",
-        "sidecar/tests/test_fabric_compute.py"
+        "sidecar/tests/test_fabric_compute.py",
+        "sidecar/tests/test_compute_check_ast.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -2461,7 +2477,8 @@
         "Variable history, watches and hidden-state warnings are Preview (PR #129)"
       ],
       "prs": [
-        129
+        129,
+        901
       ],
       "next_action": "Merge the %%sql column completion PR for PB-027, then verify it on a real lakehouse.",
       "backlog": [
@@ -2794,7 +2811,8 @@
         733,
         771,
         778,
-        1035
+        1035,
+        1157
       ],
       "workstream": "Prove",
       "next_action": "Run one proof on the tenant (PB-002); add the column heatmap from plan Stage 3.",
@@ -4354,7 +4372,8 @@
         1074,
         1081,
         1100,
-        1112
+        1112,
+        1200
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -5862,8 +5881,13 @@
           "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
+          "kind": "report",
+          "ref": "docs/product/ai-integration-compatibility.md#checklist-runs",
+          "note": "Claude Code 2.1.314 and curl partly tested by hand on Linux, 2026-10-30 (PB-096)"
+        },
+        {
           "kind": "absent",
-          "ref": "No named AI tool has been run against it (docs/product/ai-integration-client-checklist.md, PB-096)"
+          "ref": "No named AI tool has run the whole checklist on Windows with a Fabric sign-in (docs/product/ai-integration-client-checklist.md, PB-096)"
         }
       ],
       "source": [
@@ -5904,10 +5928,12 @@
         779,
         982,
         991,
-        1111
+        1111,
+        1185,
+        1187
       ],
       "workstream": "Bring your own AI integration",
-      "next_action": "Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
+      "next_action": "Finish the client checklist on Windows with a Fabric sign-in for each named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
       "backlog": [
         "PB-095",
         "PB-096"
@@ -6977,7 +7003,8 @@
         1106,
         1144,
         1145,
-        1146
+        1146,
+        1180
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Implementation review of PR #371."
@@ -7564,7 +7591,11 @@
         1124,
         1125,
         1133,
-        1142
+        1142,
+        1183,
+        1191,
+        1201,
+        1202
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -7929,7 +7960,7 @@
     {
       "id": "FEAT-DEV-04",
       "name": "Learn",
-      "description": "Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance modes (Focus, Guided, Learning) and Learn evidence in Profile.",
+      "description": "Lessons, paths and practice labs that run on this PC with generated data, the best-practice rules with their explanations, guidance levels (Expert, Professional, Guided) and Learn evidence in Profile.",
       "pillar": "Local development",
       "category": "Developer Experience and Productivity",
       "status": "Implemented",
@@ -7965,7 +7996,12 @@
         1137,
         1138,
         1139,
-        1140
+        1140,
+        1158,
+        1159,
+        1160,
+        1161,
+        1162
       ],
       "backlog": [
         "PB-119"

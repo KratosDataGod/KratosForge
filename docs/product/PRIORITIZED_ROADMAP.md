@@ -287,3 +287,6 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-27 | Evening check for #811 to #826; inventory text the #815 implementation reviews named stale corrected; FEAT-FAB-05 to Partially Verified (cargo tests run in CI) | Product management thread |
 | 2026-10-28 | Product check for #827 and #829 to #838; fixed review findings (PB-025, PB-059, PB-082) taken off the inventory's limitations | Product management thread |
 | 2026-10-28 | Chris accepted the In review batch: 35 items Accepted (20 with documented limitations, PB-059 among them); PB-024 narrowed to warehouses (PB-114 split out) and PB-112's Fabric half split to PB-115; PB-005, PB-045, PB-084 and PB-024 stay In review | Product management thread |
+| 2026-10-30 | Chris accepted acceptance batch 2: 19 items Accepted (10 with documented limitations), with changed criteria for PB-031, PB-049 and PB-072; PB-049 stays In progress for its live run; PB-005, PB-024, PB-045 and PB-084 stay In review | Product management thread |
+| 2026-10-30 | Evening check for #1150 to #1191 (with #901 and #1147); PB-027 and PB-096 to In review, PB-061 to In progress | Product management thread |
+| 2026-10-31 | Morning check for #1196 and #1200 to #1202 | Product management thread |

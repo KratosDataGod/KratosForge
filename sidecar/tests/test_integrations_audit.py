@@ -114,9 +114,115 @@ def test_approvals_are_recorded_as_the_person_decided(store):
     assert call(reg, "ext_run", client["id"], {"code": "print(2)"}) == "approval_denied"
     reg.authorizer.wait_seconds = 0.1
     assert call(reg, "ext_run", client["id"], {"code": "print(3)"}) == "approval_required"
-    assert [(r["decision"], r["outcome"]) for r in lines(store)] == [
+    started, done, denied, pending = lines(store)
+    assert [(r["decision"], r["outcome"]) for r in lines(store)] == [("approved", "started"),
         ("approved", "ok"), ("approval_denied", "approval_denied"), ("approval_pending", "approval_required")]
-    assert lines(store)[0]["seconds"] > 0  # the wait for the person counts
+    assert done["seconds"] > 0 and started["seconds"] == 0  # the wait for the person counts, on the outcome line
+    [used] = store.approvals("used")
+    assert started["approval_id"] == done["approval_id"] == used["id"] and "approval_id" not in denied
+    assert started["arguments"] == {"code": GIVEN} and started["client"] == "Codex"
+
+
+def approve_first(store):
+    def answer():
+        for _ in range(500):
+            pending = store.approvals("pending")
+            if pending:
+                store.decide(pending[0]["id"], True)
+                return
+            time.sleep(0.02)
+    threading.Thread(target=answer, daemon=True).start()
+
+
+def test_an_approved_call_is_recorded_before_it_runs(store):
+    reg = registry(store, wait=10)
+    seen = []
+    reg.register(Capability("ext_peek", "Peek", "Looks at the trail.", schema({"code": {"type": "string"}}),
+                            schema(extra=True), "EXECUTE_LOCAL_CODE",
+                            lambda s, c, **a: seen.extend(lines(store)) or {"ok": True}, read_only=False,
+                            approval="always", needs_service=False))
+    client, _ = store.add_client("Codex", grants=["EXECUTE_LOCAL_CODE"])
+    approve_first(store)
+    assert call(reg, "ext_peek", client["id"], {"code": "x"}) == "ok"
+    [line] = seen  # while the handler ran, the started line was already there
+    assert (line["capability"], line["decision"], line["outcome"]) == ("ext_peek", "approved", "started")
+    assert line["approval_id"] == store.approvals("used")[0]["id"]
+
+
+KILLED = """
+import pathlib, sys, threading, time
+sys.path.insert(0, sys.argv[3])
+from test_integrations_audit import approve_first, registry
+from fabric_desktop.integrations.core import CallContext, Caller
+from fabric_desktop.integrations.registry import Capability, schema
+from fabric_desktop.integrations.store import IntegrationStore
+store = IntegrationStore(sys.argv[1])
+reg = registry(store, wait=10)
+def hang(s, c, **a):
+    pathlib.Path(sys.argv[2]).write_text("running")
+    time.sleep(120)
+reg.register(Capability("ext_hang", "Hang", "Never ends.", schema({"code": {"type": "string"}}), schema(extra=True),
+                        "EXECUTE_LOCAL_CODE", hang, read_only=False, approval="always", needs_service=False))
+client = store.client(sys.argv[4])
+approve_first(store)
+reg.invoke(None, "ext_hang", {"code": "x"}, CallContext(Caller(client["id"], "mcp-stdio"), timeout=300))
+"""
+
+
+def test_a_call_killed_after_approval_still_shows_in_recent_activity(tmp_path):
+    from fabric_desktop.service import Service
+    svc = Service(root=tmp_path)
+    svc.integrations_set_enabled(True)
+    store = svc.integration_store
+    client, _ = store.add_client("Codex", grants=["EXECUTE_LOCAL_CODE"])
+    marker = tmp_path / "running"
+    proc = subprocess.Popen([sys.executable, "-c", KILLED, str(store.path), str(marker), str(__import__("pathlib").Path(__file__).parent),
+                             client["id"]])
+    try:
+        for _ in range(1500):
+            if marker.exists() or proc.poll() is not None:
+                break
+            time.sleep(0.02)
+        assert marker.exists(), "the handler never started"
+    finally:
+        proc.kill()  # SIGKILL / TerminateProcess: no finally, no handler
+        proc.wait(30)
+    [row] = svc.integrations_activity(10)
+    assert (row["capability"], row["decision"], row["outcome"]) == ("ext_hang", "approved", "started")
+    assert row["approval_id"] == store.approvals("used")[0]["id"]
+    assert IntegrationAudit(store).verify()["ok"]
+
+
+def test_recent_activity_shows_an_approved_call_once_and_one_with_no_line_as_unfinished(tmp_path):
+    from fabric_desktop.integrations.permissions import summary
+    from fabric_desktop.integrations.store import args_hash
+    from fabric_desktop.service import Service
+    svc = Service(root=tmp_path)
+    svc.integrations_set_enabled(True)
+    store = svc.integration_store
+    reg = registry(store, wait=10)
+    client, _ = store.add_client("Codex", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    approve_first(store)
+    assert call(reg, "ext_run", client["id"], {"code": "print(1)"}) == "ok"
+    [row] = svc.integrations_activity(10)  # the started line drops out once the outcome is there
+    assert (row["outcome"], row["approval_id"]) == ("ok", store.approvals("used")[0]["id"])
+    # An approval used with no line at all: the process was killed between using it and writing.
+    cap = reg.get("ext_run")
+    args = {"code": "import os"}
+    asked = store.request_approval(store.client(client["id"]), cap.id, cap.title, cap.permission,
+                                   summary(cap, store.client(client["id"]), args), args)
+    store.decide(asked["id"], True)
+    assert store.consume(asked["id"], client["id"], args_hash(cap.id, args))
+    lost, done = svc.integrations_activity(10)
+    assert (lost["outcome"], lost["decision"], lost["capability"], lost["approval_id"]) == ("unfinished", "approved", "ext_run", asked["id"])
+    assert lost["arguments"] == {"code": GIVEN} and lost["client"] == "Codex" and "no record of how it ended" in lost["error"]
+    assert done["outcome"] == "ok"
+    assert svc.integrations_activity(10, client_id="cl_other") == []
+    # A shorter page leaves out approvals used before its oldest line.
+    for i in range(3):
+        call(reg, "ext_sql", client["id"], {"workspace_id": f"ws{i}"})
+    assert [r["outcome"] for r in svc.integrations_activity(3)] == ["ok", "ok", "ok"]
+    assert [r["outcome"] for r in svc.integrations_activity(5)] == ["ok", "ok", "ok", "unfinished", "ok"]
 
 
 def test_an_audit_problem_never_fails_the_call(store, capsys):
@@ -128,6 +234,24 @@ def test_an_audit_problem_never_fails_the_call(store, capsys):
     reg.audit = broken
     assert call(reg, "ext_sql", client["id"], {"workspace_id": "ws1"}) == "ok"
     assert "could not record ext_sql" in capsys.readouterr().err
+
+
+def test_an_approved_call_that_cant_be_recorded_does_not_run(store, capsys):
+    reg = registry(store, wait=10)
+    ran = []
+    reg.register(Capability("ext_mark", "Mark", "Runs code.", schema({"code": {"type": "string"}}), schema(extra=True),
+                            "EXECUTE_LOCAL_CODE", lambda s, c, **a: ran.append(1) or {"ok": True}, read_only=False,
+                            approval="always", needs_service=False))
+    client, _ = store.add_client("Codex", grants=["EXECUTE_LOCAL_CODE"])
+
+    def broken(*a, **k):
+        raise OSError("disk full")
+    reg.audit = broken
+    approve_first(store)
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(None, "ext_mark", {"code": "x"}, ctx(client["id"]))
+    assert err.value.code == "internal" and "didn't run" in err.value.message and ran == []
+    assert "could not record ext_mark" in capsys.readouterr().err
 
 
 def test_arguments_keep_ids_and_drop_content():

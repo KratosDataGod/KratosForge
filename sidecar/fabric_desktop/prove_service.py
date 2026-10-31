@@ -91,7 +91,7 @@ class ProveMixin:
             if version:
                 seen[m] = {"version": version, "seen_at": _now(), "python": env.get("python")}
         self.root.mkdir(parents=True, exist_ok=True)
-        self._observed_file.write_text(json.dumps(seen, indent=1, sort_keys=True), encoding="utf-8")
+        jsonfile.write_text(self._observed_file, json.dumps(seen, indent=1, sort_keys=True))
 
     def notebook_environment(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                              compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:

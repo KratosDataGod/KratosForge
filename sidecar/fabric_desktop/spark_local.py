@@ -280,6 +280,104 @@ def change_runs_here(query: str, lakehouse_name: str | None = None) -> bool:
     return change is not None
 
 
+# ---- what fabric_run.compute_check reads before a run (#1286)
+#
+# Every NotImplementedError this module raises, by the function that raises it, and how the check
+# behind Runs on finds it in a notebook's code. tests/test_spark_refusals.py fails when a refusal is
+# added here without an entry, so Runs on can't say "runs on this PC" for code this PC refuses.
+CHECKED_REFUSALS = {
+    "option": "a refused writer option, by its literal name (writer_option_refusal)",
+    "_check_options": "an option saveAsTable or insertInto doesn't take, by its literal name (writer_option_refusal)",
+    "_refuse_dynamic_overwrite": "spark.conf.set of a dynamic partitionOverwriteMode (REFUSED_CODE)",
+    "_refuse_auto_merge": "spark.conf.set of autoMerge in a notebook that runs a MERGE (AUTO_MERGE_CODE)",
+    "_preview_on": "change_runs_here, with Preview features off",
+    "schema": "read.schema() given a string (READ_SCHEMA_TEXT)",
+    "_no_schema": "read.schema() on a read of a table or text files (READ_SCHEMA_ON)",
+    "sql": "sql_refusal: MERGE WITH SCHEMA EVOLUTION",
+    "_statement": "sql_refusal: INSERT with PARTITION or REPLACE WHERE",
+    "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
+    "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
+    "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+}
+
+_IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
+# Code this PC's Spark refuses, as (pattern on a Python cell's text, reason).
+REFUSED_CODE: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"""\.conf\.set\(\s*["']spark\.sql\.sources\.partitionOverwriteMode["']\s*,\s*["']dynamic["']""", re.I),
+     "sets a dynamic partitionOverwriteMode, which this PC's Spark refuses: ignoring it would replace the whole table"),
+    (re.compile(r"""\bDeltaTable\.forPath\(\s*[^,()]+,\s*[rRuU]?["'](?![^"']*Tables/)"""),
+     "opens DeltaTable.forPath outside the lakehouse's Tables/, which this PC's Spark refuses (use DeltaTable.forName)"),
+    (re.compile(r"\.withSchemaEvolution\("), _IN_FABRIC_TEXT.format("merges with schema evolution (withSchemaEvolution)")),
+]
+# DeltaTable methods that change the table, which this PC refuses (LocalDeltaTable._in_fabric).
+DELTA_CHANGES = ("restoreToVersion", "restoreToTimestamp", "vacuum", "optimize")
+DELTA_CHANGE_TEXT = _IN_FABRIC_TEXT.format("changes a Delta table with DeltaTable.{}")
+# Turning on autoMerge only matters to a MERGE, which this PC then refuses (_refuse_auto_merge).
+AUTO_MERGE_CODE = re.compile(r"""["']spark\.databricks\.delta\.schema\.autoMerge\.enabled["']\s*,\s*["']?true""", re.I)
+AUTO_MERGE_TEXT = ("turns on Delta schema autoMerge, so its MERGE would add the source's new columns: schema evolution "
+                   "runs in Fabric (this PC's Spark refuses it)")
+# For a cell Python can't read: the refused writer options that only a writer takes (a reader's
+# "path" option is fine, so it isn't here). A cell Python reads goes through writer_option_refusal.
+REFUSED_OPTION_TEXT = re.compile(r"""\.option\(\s*["'](replaceWhere|partitionOverwriteMode)["']""", re.I)
+READ_SCHEMA_TEXT = "gives read.schema() a DDL string, which this PC's Spark refuses (give it a StructType)"
+READ_SCHEMA_ON = "applies read.schema() to a read of {}, which this PC's Spark refuses (leave it out and cast the columns after)"
+READ_FORMATS = ("delta", "csv", "json", "parquet", "text")
+READ_FORMAT_TEXT = "reads format {!r}, which this PC's Spark doesn't have (it reads csv, json, parquet, text and delta)"
+TABLE_FORMAT_TEXT = "saves a lakehouse table as {!r}, which this PC's Spark refuses: lakehouse tables are Delta tables"
+# The options each table write takes on this PC (_check_options), by lower-case name.
+WRITE_TAKES = {"saveAsTable": _SCHEMA_OPTIONS + _LAYOUT_OPTIONS, "insertInto": _LAYOUT_OPTIONS}
+
+
+def writer_option_refusal(name: str, terminal: str | None) -> str | None:
+    """Why this PC's writer refuses option ``name`` on a write that ends in ``terminal`` (saveAsTable,
+    insertInto, or None when the check can't tell), or None when it takes it."""
+    key = name.lower()
+    if key in _REFUSED:
+        first = _REFUSED[key].split(". ")[0]
+        return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
+    takes = WRITE_TAKES.get(terminal or "")
+    if takes is not None and key not in takes:
+        return f"uses the {name} write option, which {terminal} doesn't take on this PC"
+    return None
+
+
+def sql_refusal(query: str) -> tuple[str, str] | None:
+    """Why this PC's spark.sql refuses ``query``, as ("blocked" or "unknown", reason), or None when
+    nothing in its text is refused. A DROP TABLE or TRUNCATE TABLE of a name with no schema is
+    "unknown": it runs here for a temp view and in Fabric for a lakehouse table."""
+    import sqlglot
+    from sqlglot import exp
+
+    head = delta_dml_comments.sub("", query)
+    if _RESTORE.match(head):
+        return "blocked", _IN_FABRIC_TEXT.format("restores a table to an older version (RESTORE)")
+    if _SCHEMA_EVOLUTION.match(head):
+        return "blocked", _IN_FABRIC_TEXT.format("merges WITH SCHEMA EVOLUTION")
+    try:
+        trees = [t for t in sqlglot.parse(query, read="spark") if t is not None]
+    except sqlglot.errors.SqlglotError:
+        return None
+    if len(trees) > 1 and any(isinstance(t, (exp.Merge, exp.Update, exp.Delete)) for t in trees):
+        return "blocked", ("runs MERGE, UPDATE or DELETE with other statements in one spark.sql call, which this "
+                           "PC's Spark refuses (give each statement its own call)")
+    for tree in trees:
+        if isinstance(tree, exp.Insert) and (tree.find(exp.Partition) or tree.args.get("where")):
+            return "blocked", ("inserts with PARTITION or REPLACE WHERE, which this PC's Spark refuses: ignoring it "
+                               "would replace the whole table")
+        truncate = isinstance(tree, exp.TruncateTable)
+        if truncate or (isinstance(tree, exp.Drop) and str(tree.args.get("kind", "")).upper() == "TABLE"):
+            tables = tree.expressions if truncate else tree.args.get("tables") or []
+            what = "empties" if truncate else "drops"
+            word = "TRUNCATE TABLE" if truncate else "DROP TABLE"
+            named = [".".join(p for p in (t.db, t.name) if p) for t in tables if isinstance(t, exp.Table)]
+            if any(t.db for t in tables if isinstance(t, exp.Table)):
+                return "blocked", _IN_FABRIC_TEXT.format(f"{what} the lakehouse table {', '.join(named)} ({word})")
+            if named:
+                return "unknown", (f"{what} {', '.join(named)} ({word}), which runs here for a temp view and in "
+                                   "Fabric for a lakehouse table")
+    return None
+
+
 def _in_attached(tree: Any, name: str | None = None) -> None:
     """Drop the attached lakehouse's own name from a MERGE's, UPDATE's or DELETE's target (Sales.dbo.sales, or Sales.sales
     in a lakehouse without schemas), as table_ref does for reads and writes. ``name``, with nothing
@@ -854,8 +952,8 @@ spark_compat.install()
 _frame_init = _dataframe.DataFrame.__init__
 
 
-def _tracked_init(self: DataFrame, relation: Any, session: Any) -> None:
-    _frame_init(self, relation, session)
+def _tracked_init(self: DataFrame, relation: Any, session: Any, *args: Any, **kwargs: Any) -> None:
+    _frame_init(self, relation, session, *args, **kwargs)  # duckdb 2.0 adds names and join_inputs (#1264)
     if isinstance(session, LocalSparkSession):
         session._frames.add(self)
 
@@ -1149,34 +1247,61 @@ def query_profile(df: Any) -> dict[str, Any]:
                 os.unlink(out)
             except OSError:  # silent-ok: an empty temp file
                 pass
-    root = json.loads(text)
+    return _read_profile(json.loads(text))
+
+
+# The profiler's own steps above the query's plan: 1.x wraps the plan in EXPLAIN_ANALYZE, 2.0 also
+# in RESULT_COLLECTOR.
+_PROFILER_STEPS = {"EXPLAIN_ANALYZE", "RESULT_COLLECTOR"}
+
+
+def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
+    """DuckDB's JSON profile as query_profile returns it. duckdb 1.x gives one tree whose nodes have
+    operator_name, operator_timing and operator_cardinality, with totals on the root. 2.0 gives an
+    "operator" list of nodes with type, timing and intermediate_rows, totals under "query" and
+    "system", and names a function scan TABLE_SCAN with the function in extra_info (#1264)."""
+    query, system = root.get("query") or {}, root.get("system") or {}
     steps: list[dict[str, Any]] = []
     total = 0.0
+    leaf_rows = 0
+
+    def first(node: dict[str, Any], *keys: str) -> Any:
+        return next((node[k] for k in keys if node.get(k) is not None), None)
 
     def walk(node: dict[str, Any], depth: int) -> None:
-        nonlocal total
-        name = node.get("operator_name") or node.get("operator_type") or ""
-        if name == "EXPLAIN_ANALYZE":  # the profiler's own step
-            depth -= 1
-        elif name:
-            seconds = float(node.get("operator_timing") or 0)
+        nonlocal total, leaf_rows
+        extra = node.get("extra_info") or {}
+        name = first(node, "operator_name", "operator_type", "type") or ""
+        if name == "TABLE_SCAN" and extra.get("Function"):
+            name = extra["Function"]
+        children = node.get("children") or []
+        if name and name not in _PROFILER_STEPS:
+            seconds = float(first(node, "operator_timing", "timing") or 0)
+            rows = int(first(node, "operator_cardinality", "intermediate_rows") or 0)
             total += seconds
+            if not children:
+                leaf_rows += rows
             if len(steps) < PROFILE_NODES:
-                details = {k: str(v) for k, v in (node.get("extra_info") or {}).items() if v not in ("", None)}
-                steps.append({"depth": depth, "name": name, "rows": int(node.get("operator_cardinality") or 0),
-                              "seconds": round(seconds, 6), "details": details})
+                details = {k: str(v) for k, v in extra.items() if v not in ("", None)}
+                steps.append({"depth": depth, "name": name, "rows": rows, "seconds": round(seconds, 6),
+                              "details": details})
             else:
                 steps.append({})  # counted, not listed
-        for child in node.get("children") or []:
-            walk(child, depth + 1)
-    walk(root, -1)
+            depth += 1
+        for child in children:
+            walk(child, depth)
+    for top in root["operator"] if "operator" in root else [root]:
+        walk(top, 0)
     listed = [st for st in steps if st]
     for st in listed:
         st["share"] = round(st["seconds"] / total, 4) if total else 0.0
-    return {"seconds": round(float(root.get("latency") or 0), 6),
+    # Scans of a function or an Arrow table (every lakehouse table) report no rows scanned; the rows
+    # their steps produced are the closest count then.
+    scanned = int(first(root, "cumulative_rows_scanned") or first(query, "total_rows_scanned") or 0) or leaf_rows
+    return {"seconds": round(float(first(root, "latency") or first(query, "total_time") or 0), 6),
             "rows": listed[0]["rows"] if listed else 0,
-            "rows_scanned": int(root.get("cumulative_rows_scanned") or 0),
-            "peak_memory": int(root.get("system_peak_buffer_memory") or 0),
+            "rows_scanned": scanned,
+            "peak_memory": int(first(root, "system_peak_buffer_memory") or first(system, "peak_buffer_memory") or 0),
             "steps": listed, "more_steps": len(steps) - len(listed)}
 
 

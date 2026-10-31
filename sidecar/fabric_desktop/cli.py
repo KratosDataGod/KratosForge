@@ -119,6 +119,7 @@ def main(argv: list[str] | None = None) -> None:
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
     bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
+    bundle.add_argument("--preview", action="store_true", help="say what the bundle would hold, without saving it")
     trail = sub.add_parser("audit", help="show this PC's audit trail, or check that no line was changed or removed")
     trail.add_argument("--verify", action="store_true", help="check the hash chain and exit 1 if it is broken")
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
@@ -264,8 +265,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "support-bundle":
         from pathlib import Path
 
-        from .support_bundle import create
-        print(create(Path(args.out), agent_home=Path(args.agent_home) if args.agent_home else None))
+        from .support_bundle import create, preview
+        agent_home = Path(args.agent_home) if args.agent_home else None
+        if args.preview:
+            shown = preview(agent_home=agent_home)
+            print("\n".join(f"{f['name']}  {f['bytes']:,} bytes" for f in shown["files"]))
+            print()
+            print(shown["contents"], end="")
+            return
+        print(create(Path(args.out), agent_home=agent_home))
         return
     if args.command == "audit":
         raise SystemExit(_audit(args))
@@ -509,6 +517,10 @@ def _live_test_databricks(args: argparse.Namespace) -> int:
         return 2
     credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
     connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    checks = dbx_livetest.pc_checks(connection)
+    print("This PC:")
+    for ok, what in checks:
+        print(f"  {'ok ' if ok else 'NO '} {what}")
     if args.dry_run:
         print("The Databricks live test will:")
         for step in dbx_livetest.DatabricksLiveTest(connection, args.warehouse, None, None, None, Path(args.out),
@@ -517,6 +529,9 @@ def _live_test_databricks(args: argparse.Namespace) -> int:
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, started or written.")
         return 0
+    if not all(ok for ok, _ in checks):
+        print("Not run: fix the lines marked NO above first. Nothing was signed in to or started.")
+        return 2
     try:
         tokens = databricks_auth.provider_for(connection)
     except databricks_auth.DatabricksAuthError as exc:
@@ -601,7 +616,13 @@ def _nb_validate(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         observed = {}
     runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
-    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed)
+    from .notebook import check_notebook_name
+
+    def sibling(name: str) -> list[dict]:  # %run Name: the notebook next to this file, as in the app's folder
+        other = path.parent / f"{check_notebook_name(name)}.ipynb"
+        return from_ipynb(json.loads(other.read_text(encoding="utf-8")))["cells"]
+
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed, load=sibling)
     if args.json:
         print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
     else:
@@ -737,11 +758,20 @@ def _pipeline(args: argparse.Namespace) -> int:
 
 
 def _pipeline_schedule(args: argparse.Namespace) -> int:
-    pairs = lambda items: dict(item.partition("=")[::2] for item in items)  # noqa: E731
+    def pairs(items: list[str], flag: str) -> dict[str, str]:
+        bad = [item for item in items if "=" not in item]
+        if bad:
+            raise ValueError(f"{flag} takes NAME=VALUE (got {bad[0]!r})")
+        return dict(item.partition("=")[::2] for item in items)
+
     try:
-        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else {}
-        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param),
-                  "mocks": mocks, "notebooks": pairs(args.notebook), "sql_projects": pairs(args.sql_project),
+        mocks = {}
+        if args.mocks:
+            with open(args.mocks, encoding="utf-8") as f:
+                mocks = json.load(f)
+        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param, "--param"),
+                  "mocks": mocks, "notebooks": pairs(args.notebook, "--notebook"),
+                  "sql_projects": pairs(args.sql_project, "--sql-project"),
                   "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace or ""}
         schedule = ({"kind": "cron", "every_minutes": args.every_minutes} if args.every_minutes else
                     {"kind": "weekly" if args.weekday else "daily", "times": args.at, "weekdays": args.weekday})

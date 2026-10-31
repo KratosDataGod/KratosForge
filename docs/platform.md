@@ -11,7 +11,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 
 | Item | Type | What it's for |
 | --- | --- | --- |
-| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`, until they move into [one keys database](#one-keys-database-for-dev-test-and-prod)) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change: each change an admin, owner or member makes, keys copied in by a move, and requests sent, decided or withdrawn) |
+| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`, until they move into [one keys database](#one-keys-database-for-dev-test-and-prod)) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change: each change an admin, owner or member makes, keys copied in by a move, requests sent, decided or withdrawn, projects recorded or changed, links, and shortcut scans and changes. Left off by design: keys issued by loads, which keys tables record, and following a product) |
 | `UDF_Platform` | User data functions | The platform's API. KratosForge, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
 | `LH_Landing` | Lakehouse | The one landing zone: raw files from every source system, in `Files/<source>/<entity>/`. Teams read it; they don't copy it |
 | `LH_Meta` | Lakehouse | Run history from every project |

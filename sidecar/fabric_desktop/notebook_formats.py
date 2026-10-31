@@ -65,6 +65,13 @@ def _magic(source: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
+def _magic_first(source: str) -> str:
+    """``source`` with its cell magic on the first line: the blank lines before a cell magic, and the
+    indent of its line, are dropped, as Jupyter runs it. Any other cell is returned as it is."""
+    rest = source.replace("\r\n", "\n").replace("\r", "\n").lstrip()
+    return rest if _magic(rest) else source
+
+
 def _lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
@@ -87,6 +94,23 @@ def _meta_block(value: dict[str, Any]) -> list[str]:
     return [FABRIC_METADATA, ""] + [f"# META {line}" for line in json.dumps(value, indent=2).split("\n")]
 
 
+def _prefixed(prefix: str, lines: list[str]) -> list[str]:
+    """Each line behind ``prefix``. A blank line gets the bare prefix; any other line keeps its
+    trailing spaces, which are part of the text (two at the end of a markdown line break it)."""
+    return [f"{prefix} {line}" if line else prefix for line in lines]
+
+
+_FABRIC_MARKERS = (FABRIC_CELL, FABRIC_PARAMS, FABRIC_MARKDOWN, FABRIC_METADATA)
+
+
+def _misread(lines: list[str], markers: tuple[str, ...], titles: bool = False) -> bool:
+    """Whether a Python cell written as it is would read back as something else: a line that is a
+    cell marker would split it, and a cell of only ``# MAGIC`` lines would lose that prefix."""
+    if any(ln.rstrip() in markers or (titles and ln.startswith("# DBTITLE")) for ln in lines):
+        return True
+    return any(ln.strip() for ln in lines) and all(ln.startswith("# MAGIC") for ln in lines if ln.strip())
+
+
 def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None) -> str:
     """The notebook as Fabric writes ``notebook-content.py`` in a Git-connected workspace."""
     meta: dict[str, Any] = {"kernel_info": {"name": "synapse_pyspark"}, "dependencies": {}}
@@ -99,12 +123,16 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         source = c.get("source", "")
         out.append("")
         if c.get("type") == "markdown":
-            out += [FABRIC_MARKDOWN, ""] + [f"# {line}".rstrip() for line in _lines(source)]
+            out += [FABRIC_MARKDOWN, ""] + _prefixed("#", _lines(source))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
         language = _FABRIC_LANGUAGE.get(magic or "", "python")
         out += [FABRIC_PARAMS if _is_params(c) else FABRIC_CELL, ""]
-        out += [f"# MAGIC {line}".rstrip() for line in _lines(source)] if magic else _lines(source)
+        lines = _lines(source)
+        # A Python cell that would read back wrong is written as # MAGIC lines too, as a magic
+        # cell is; its METADATA still says Python, so it reads back as the same code.
+        out += _prefixed("# MAGIC", lines) if magic or _misread(lines, _FABRIC_MARKERS) else lines
         out += [""] + _meta_block({"language": language, "language_group": "synapse_pyspark"})
     return "\n".join(out) + "\n"
 
@@ -116,18 +144,22 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
     for c in cells:
         source = c.get("source", "")
         if c.get("type") == "markdown":
-            parts.append("\n".join(["# MAGIC %md"] + [f"# MAGIC {line}".rstrip() for line in _lines(source)]))
+            parts.append("\n".join(_prefixed("# MAGIC", ["%md"] + _lines(source))))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
+        lines = _lines(source)
         if magic:
-            first, _, rest = source.partition("\n")
-            head = f"%{_TO_DATABRICKS[magic]}" if magic in _TO_DATABRICKS else first
-            body = [head] + (_lines(rest) if rest else [])
-            parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in body))
+            head = f"%{_TO_DATABRICKS[magic]}" if magic in _TO_DATABRICKS else lines[0]
+            parts.append("\n".join(_prefixed("# MAGIC", [head] + lines[1:])))
         elif source.lstrip().startswith("%"):
             # A line magic cell (%run, %fs, %pip): Databricks keeps it as # MAGIC lines, never bare,
             # since a bare %line isn't Python.
-            parts.append("\n".join(f"# MAGIC {line}".rstrip() for line in _lines(source)))
+            parts.append("\n".join(_prefixed("# MAGIC", lines)))
+        elif not source.strip() or _misread(lines, (f"# {DATABRICKS_COMMAND}",), titles=True):
+            # An empty cell, or Python that would read back wrong (a COMMAND line splits it, a
+            # DBTITLE line is dropped): written as a %python cell, which Databricks reads as the same code.
+            parts.append("\n".join(_prefixed("# MAGIC", ["%python"] + lines)))
         else:
             parts.append(source)
     return f"# {DATABRICKS_HEADER}\n" + f"\n\n# {DATABRICKS_COMMAND}\n\n".join(parts) + "\n"
@@ -169,13 +201,20 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
         if c.get("type") != "code":
             continue
-        source = c.get("source", "")
+        source = _magic_first(c.get("source", ""))
         magic = _magic(source)
         if magic and magic not in _DATABRICKS_KNOWN:
             notes.append(_note(n, "check", f"%%{magic} has no Databricks equivalent. The cell is kept as written, "
                                            "so it won't run there until it's rewritten."))
-        elif magic in _TO_DATABRICKS and magic not in ("md", "pyspark"):
+        elif magic == "md":
+            notes.append(_note(n, "changed", "%%md became a %md cell, which Databricks shows as markdown, so it "
+                                             "comes back from Databricks as a markdown cell."))
+        elif magic in _TO_DATABRICKS and magic != "pyspark":
             notes.append(_note(n, "changed", f"%%{magic} became %{_TO_DATABRICKS[magic]}, Databricks' way to mark the language."))
+        options = _lines(source)[0][len(magic or "") + 2:].strip()
+        if magic in _TO_DATABRICKS and options:
+            notes.append(_note(n, "dropped", f"The options on the %%{magic} line ({options}): the export writes "
+                                             f"%{_TO_DATABRICKS[magic]} on its own."))
         rest = [ln for ln in _lines(source.lstrip())[1:] if ln.strip() and not ln.lstrip().startswith("%")]
         if not magic and source.lstrip().startswith("%") and rest:
             first = source.lstrip().split(None, 1)[0]

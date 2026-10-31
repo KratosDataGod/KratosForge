@@ -11,7 +11,7 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "duckdb>=1.1",
-    "sqlglot>=30.12,<30.24",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft); 30.24 drops exp.SortArray (sql.py)
+    "sqlglot>=30.22,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",

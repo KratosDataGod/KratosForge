@@ -2386,7 +2386,7 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here && !here.ok) {
+  if (here?.reasons?.length) {  // Unknown cells (here.unknown) aren't shown as blockers
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),

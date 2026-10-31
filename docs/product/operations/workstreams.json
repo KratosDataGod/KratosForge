@@ -37,11 +37,8 @@
       },
       "ready": [
         {
-          "issue": 1110,
-          "title": "FS-05 (local engine): cross-check local table maintenance thresholds against skills-for-fabric"
-        },
-        {
-          "story": "PB-014"
+          "issue": 1273,
+          "title": "Hardening: the compute check follows %run and notebook.run into the notebooks on this PC"
         }
       ],
       "backlog": [
@@ -54,8 +51,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
-      "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
-      "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
+      "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
+      "next_action": "Keep PB-015 moving; #1273 next, and file the next pipeline and engine hardening stories."
     },
     {
       "key": "fabric",
@@ -73,19 +70,13 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 1179,
-        "title": "Warehouse Monitoring KQL query retries throttling, 5xx and dropped connections"
+        "issue": 1178,
+        "title": "Every Fabric fake refuses what the live runs showed the real API refuses"
       },
       "ready": [
         {
-          "issue": 1178,
-          "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
-          "note": "Starts after #1166 merges."
-        },
-        {
-          "issue": 1109,
-          "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric",
-          "note": "PR #1176 at review."
+          "issue": 1165,
+          "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")"
         }
       ],
       "backlog": [
@@ -102,8 +93,8 @@
         "PB-049 (#920), PB-052 (#909) and PB-003 (#887): only the live runs remain, each needs Chris's yes",
         "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
-      "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
-      "next_action": "#1179 (KQL retry), then #1178 once #1166 merges."
+      "last_completed": "#1179 KQL Monitoring query retries throttling, 5xx and dropped connections",
+      "next_action": "#1178 fakes match the live API; #1165 UDF_Platform setup; file the next hardening stories."
     },
     {
       "key": "dbx-snow",
@@ -115,15 +106,11 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1198,
-        "title": "The two-hour limit and an early Cancel say truthfully whether the remote statement stopped (KF-REMOTE-LIMIT)"
+        "issue": 1278,
+        "title": "[DBX-HARDEN] A Databricks preview never pads a broken row with NULLs",
+        "note": "Built as #1279, in quality."
       },
-      "ready": [
-        {
-          "issue": 1199,
-          "title": "Snowflake \"translated\" verdicts are checked value by value against Snowflake's documented results (SF-PARITY)"
-        }
-      ],
+      "ready": [],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -133,8 +120,8 @@
         "Snowflake SF-01 sign-in and SF-07 engine wait on Chris's D4 decision",
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#1191 KF-REMOTE-ORPHAN and KF-REMOTE-RETRY (#1188, #1189); #1183 KF-DBX-CHUNKS (#1167); #1180 KF-DBX-SQLGAPS; #853 Snowflake research closed (PB-117 In review)",
-      "next_action": "#1198 remote limit and Cancel truthfulness, then #1199 Snowflake parity values."
+      "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
+      "next_action": "Land #1279; file the next Databricks and Snowflake fidelity stories."
     },
     {
       "key": "enterprise",
@@ -147,10 +134,25 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "PB-062",
-        "note": "Engine and CLI support bundle with redaction first; the Settings button waits on a mockup. Needs a security read."
+        "issue": 1260,
+        "title": "[HD] A shortcut request records the shortcut its approval made, so a decline says it is still in OneLake",
+        "note": "Built as #1265, with Release management."
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1261,
+          "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric",
+          "note": "Built as #1267 (stacked on #1265), with Release management."
+        },
+        {
+          "issue": 1269,
+          "title": "[HD] A long request target never cuts off what a notice says is left in Fabric"
+        },
+        {
+          "issue": 1270,
+          "title": "[HD] A domain approval retried after its progress record failed still records the domain it made"
+        }
+      ],
       "backlog": [
         "PB-060",
         "PB-092"
@@ -160,10 +162,11 @@
       ],
       "blockers": [
         "PB-052 tenant verification needs Chris's yes",
-        "Workload pipelines mockup waits on Chris"
+        "Workload pipelines mockup waits on Chris",
+        "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
-      "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
-      "next_action": "Support bundle engine and CLI (PB-062), with a test that a planted secret never reaches the zip."
+      "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
+      "next_action": "Land #1265 and #1267; then #1269 and #1270."
     },
     {
       "key": "devex",
@@ -176,11 +179,7 @@
         "Make every screen action-first",
         "Run continuous product management"
       ],
-      "active": {
-        "issue": 1197,
-        "title": "Browser and accessibility tests for Settings > Integrations",
-        "note": "Depends on #1187."
-      },
+      "active": {},
       "ready": [],
       "backlog": [
         "PB-087",
@@ -189,7 +188,7 @@
       "dependencies": [],
       "blockers": [],
       "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
-      "next_action": "#1197 Settings > Integrations browser and accessibility tests; lead files the next ready story."
+      "next_action": "File and start the next browser, accessibility or test story."
     },
     {
       "key": "platform",
@@ -204,13 +203,17 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "issue": 1173,
-        "title": "Every engine method returns a typed error for malformed input: no traceback, no internal path, no partial write"
+        "issue": 1252,
+        "title": "[Platform] Every sqlglot version pyproject allows passes the engine tests"
       },
       "ready": [
         {
-          "issue": 1174,
-          "title": "Every engine subprocess call has a timeout, with an AST guard test"
+          "issue": 1253,
+          "title": "[Platform] Spark SQL that can't be translated exactly is refused, not answered differently"
+        },
+        {
+          "issue": 1264,
+          "title": "[Platform] Query profile reads DuckDB 2.0's profiler output"
         }
       ],
       "backlog": [
@@ -223,47 +226,12 @@
         "Rest of PB-072 needs a Stop design mockup",
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#1152 PB-098 one list of engine methods (In review); #1154, #1155, #1156, #1164 at PASS with Release management",
-      "next_action": "RPC fuzz test (#1173) once one of #1154, #1155, #1156, #1164 merges; then #1174."
+      "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
+      "next_action": "#1252, then #1253."
     }
   ],
   "new_stories": {},
   "side_programs": [
-    {
-      "key": "learn",
-      "name": "Learning and developer excellence",
-      "workstream": "devex",
-      "thread": "Build learning and developer excellence",
-      "review_cap": 2,
-      "stories": [
-        {
-          "issue": 1064,
-          "title": "[LX-01] Every best-practice rule explained, with About on each finding",
-          "status": "review"
-        },
-        {
-          "issue": 1067,
-          "title": "[LX-04] Learn mockup on the design canvas",
-          "status": "active"
-        },
-        {
-          "issue": 1065,
-          "title": "[LX-02] Learning content format, loader and CI checks",
-          "status": "ready"
-        },
-        {
-          "issue": 1066,
-          "title": "[LX-03] Local lab runner: seeded datasets, checks, reset, publish guard",
-          "status": "ready"
-        },
-        {
-          "issue": 1068,
-          "title": "[LX-05..08] Learn page, learning modes, lab evidence in the profile, first content",
-          "status": "blocked",
-          "note": "Waits on the LX-04 mockup and Chris's go"
-        }
-      ]
-    },
     {
       "key": "pbe",
       "name": "Power BI Embed Studio",

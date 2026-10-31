@@ -37,7 +37,7 @@ Select **Import from Fabric or Databricks** under **Start something** on **Home*
 
 Before anything is written, the dialog shows the format it found and each notebook it will create, with its name, number of cells and languages. For a Databricks notebook it also lists, cell by cell, everything the conversion dropped or changed and anything that won't run the same on this PC (see below). Select **Import** to create them. The first new notebook opens; all of them are in **Recent notebooks**.
 
-Limits: a file can be up to 64 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all.
+Limits: a file can be up to 64 MB. A `.dbc` archive can hold up to 500 files, 16 MB per notebook and 128 MB in all once unpacked, and up to 200 notebooks. An archive with a path that climbs out of it (`..`, a drive letter or a leading slash) or that is encrypted isn't imported at all, and neither is a damaged one or one whose entries hold more than their headers say; the message says which.
 
 ## What a Databricks conversion doesn't carry over
 
@@ -80,6 +80,21 @@ The Fabric entries are based on the migration gotchas in Microsoft's [skills-for
 | The attached lakehouse, and outputs | Dropped: Databricks source holds code only | Not carried over (whole notebook) |
 | Cell magics Databricks doesn't have, such as `%%configure`, `%%html` or `%%powershell` | Kept as written; they won't run there | Check |
 | A cell that starts with a line magic and has Python after it | In Databricks the whole cell is the magic, so the Python won't run | Check |
+| `%%md` code cells | `%md`, which Databricks shows as markdown, so the cell comes back from Databricks as a markdown cell | Changed |
+| Options on a cell magic line, such as `%%sql -o result` | Dropped: the file has `%sql` on its own | Not carried over |
+
+## Round trips
+
+A notebook exported as Databricks source, Fabric source or `.ipynb` and imported again comes back with the same cells: as many, in the same order, each the same kind (code or markdown) in the same language, with the same text. Tests write 300 generated notebooks through each format and read them back, with Python, `%%sql`, `%%spark`, `%%sparkr`, `%%md`, `%run` and `%pip` cells, markdown, empty cells, parameter cells, non-English text, tabs, trailing spaces, Windows line endings, and text that looks like another format's cell markers.
+
+To keep that, a Python cell that the source format would read back as something else is written in a form that format reads as the same code: in Databricks source, an empty cell, or one with a `# COMMAND ----------` or `# DBTITLE` line, or with only `# MAGIC` lines, is written as a `%python` cell; in Fabric source, a cell with a `# CELL`, `# PARAMETERS CELL`, `# MARKDOWN` or `# METADATA` marker line, or with only `# MAGIC` lines, is written as `# MAGIC` lines, with its metadata still saying Python. Trailing spaces in markdown and magic cells are kept.
+
+What `.py` source can't hold, so it changes on the way through (`.ipynb` keeps all of these):
+
+- **Line endings and blank lines at the edges of a cell.** The file uses `\n` line endings, and a cell's leading and trailing blank lines aren't kept.
+- **A markdown line that is a Fabric marker without its `# `,** such as `CELL ********************`. Fabric writes markdown lines behind `# `, which turns that line into Fabric's own cell marker, so in Fabric source the cell splits there, as it would in Fabric. Databricks source keeps it.
+- **A code cell that starts with a Databricks language magic** such as `%sql`, `%scala` or `%md` (one `%`). That is how Databricks marks a cell's language, so it comes back from Databricks source as a `%%sql`, `%%spark` or markdown cell.
+- **Databricks source only:** the parameter cell setting, `%%md` cells and cell magic options, each listed when you export (see above), and `%%pyspark`, which comes back as plain Python, the same language.
 | `notebookutils` or `mssparkutils` calls | Kept; Databricks has `dbutils` instead | Check |
 
 ## How this works

@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "8",
+  "registry_version": "9",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,

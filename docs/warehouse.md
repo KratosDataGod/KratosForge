@@ -183,6 +183,8 @@ Each opens in a new tab and runs there, so it asks first like any other run and 
 
 **Monitoring** in the page's toolbar opens a tab for Fabric's [workspace monitoring](https://learn.microsoft.com/fabric/data-warehouse/warehouse-workspace-monitoring) of this warehouse (or SQL analytics endpoint). Once a workspace admin turns monitoring on (Workspace settings > Monitoring), Fabric records every completed, user-initiated query in the `WarehouseExecutions` table of a read-only KQL database in the workspace, and keeps 30 days.
 
+How the views' alert level and lists compare with Microsoft's guidance is in [Health thresholds](health-thresholds.md#warehouse-monitoring).
+
 The tab finds that database among the workspace's KQL databases (one small KQL query each, names ending in `_Database` first) and shows, for a window from the last hour to the last 30 days:
 
 | View | What it shows |

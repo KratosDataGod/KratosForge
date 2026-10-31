@@ -55,7 +55,7 @@ _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IG
 _RUNNING = ("RUNNING", "STARTING", "PENDING", "RESIZING", "RESTARTING")
 
 
-MIN_PYTHON = (3, 11)          # sidecar/pyproject.toml requires-python
+MIN_PYTHON = (3, 12)          # sidecar/pyproject.toml requires-python
 MIN_CLI = (0, 205)           # the first Databricks CLI with ``auth token`` as databricks_auth reads it
 _CLI_VERSION = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?")
 

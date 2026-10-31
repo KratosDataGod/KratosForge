@@ -196,3 +196,21 @@ def test_a_request_recorded_before_the_change_was_kept_says_to_check_before_remo
     assert left_in_fabric(old) == [f"{DEV} has the Member role or a higher one in Sales Prod: they had it before "
                                    "this request, or approving it gave it. Check which before removing it in the "
                                    "workspace's Manage access in Fabric"]
+
+
+def test_withdrawing_a_half_made_request_tells_the_approvers_on_teams(svc, who, monkeypatch, tmp_path):
+    """The person who withdraws it usually can't delete a workspace; the approvers can (#1261)."""
+    from fabric_desktop import app_settings
+    from fabric_desktop import platform_notify_service as pns
+    monkeypatch.setattr(app_settings, "policy_path", lambda: tmp_path / "policy.json")
+    monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "user.json")
+    posts = []
+    monkeypatch.setattr(pns, "post_teams", lambda url, title, lines: posts.append((title, lines)))
+    req = half_made_workspace(svc, who)
+    svc.platform_notify_save([{"name": "default", "url": "https://contoso.webhook.office.com/webhookb2/a/IncomingWebhook/b/c"}])
+    posts.clear()
+    as_user(who, DEV)
+    svc.platform_withdraw(req["id"])
+    assert [p[0] for p in posts] == ["Withdrawn: New workspace Sales Forecasting - Dev; the workspace it made is still "
+                                     "in Fabric"]
+    assert "Lee" not in str(posts) and "Forecast models" not in str(posts)  # no admins' names, no reason

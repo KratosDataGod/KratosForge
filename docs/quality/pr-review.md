@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1302 688b3ffc | Save a replay bundle browser tests | PASS 9.2 | Test only, merges clean. Merge result: replay-bundle.test.cjs 6/6 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Fixture IDs and token are made up. The owner's note that saving with the sample ticked offline doesn't return within 30s should be checked under its own issue; it is not covered here. |
+
 | 2026-10-31 | #1299 f94d33a5 | Monitor > Operations browser tests (Agents, Queue, Run as) | PASS 9.2 | Merges clean. The runas.js empty-state fix uses the same state.query pattern as agents.js and queue.js. Merge result: operations-panels.test.cjs 13/13 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Rows are counted and read in one step, and the RPC check diffs against a baseline taken after the app's startup polls. |
 
 | 2026-10-31 | #1298 a416faeb | Run stale cells tested in a real browser | PASS 9.2 | Test only, merges clean. Merge result: stale-cells.test.cjs 5/5 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Sleeps are only grace periods after nothing-should-run checks; all other waits are on state. Writes stay local (an engineHome file and an in-memory DuckDB table). |

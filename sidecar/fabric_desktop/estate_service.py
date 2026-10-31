@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import polars as pl
+import requests
 from deltalake.exceptions import TableNotFoundError
 
 from . import jsonfile
@@ -382,13 +383,22 @@ class EstateMixin:
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
-        r = http_session.session().post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
-                          json={"emailAddress": email, "groupUserAccessRight": role, "principalType": "User"},
-                          headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        http = http_session.session()
+        unsure = (f"Fabric may or may not have added {email}. Check the workspace's access list before "
+                  "trying again, so they aren't added twice.")
+        try:  # a write: only a 429 (refused unread) is sent again, as Retry-After says
+            r = send_with_retry(lambda: http.post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
+                                                  json={"emailAddress": email, "groupUserAccessRight": role,
+                                                        "principalType": "User"},
+                                                  headers={"Authorization": f"Bearer {token}"}, timeout=30), "POST")
+        except (requests.ConnectionError, requests.Timeout):
+            raise RuntimeError(f"The connection to Fabric dropped. {unsure}") from None
         if r.status_code == 404:
             raise LookupError(f"No one with the email {email} in your organization, or the workspace is gone.")
+        if r.status_code >= 500 or r.status_code == 408:
+            raise RuntimeError(f"Fabric answered {r.status_code}. {unsure}")
         if not r.ok:
-            raise RuntimeError(f"Fabric didn't add {email} ({r.status_code}): {r.text[:200]}")
+            raise RuntimeError(f"Fabric didn't add {email} ({r.status_code}{_powerbi_error(r)}).")
 
     def access_find_person(self, text: str, workspace_id: str = "") -> dict[str, Any]:
         """A person by email, or a group or app by its object ID.
@@ -580,3 +590,16 @@ class EstateMixin:
             raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
         # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
         return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}
+
+
+
+def _powerbi_error(resp: Any) -> str:
+    """Power BI's own error code and message from a response body, as ": code: message", or ""."""
+    try:
+        err = (resp.json() or {}).get("error")
+    except (ValueError, AttributeError):
+        return ""
+    if not isinstance(err, dict):
+        return ""
+    text = ": ".join(str(err.get(k) or "") for k in ("code", "message") if err.get(k)).replace("\n", " ")
+    return f": {text[:300]}" if text else ""

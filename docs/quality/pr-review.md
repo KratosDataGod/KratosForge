@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1258 c1544a97 | Browser and accessibility test for Report a problem | PASS 9.2 | Test only, merges clean. Merge result: report-problem.test.cjs passed 4/4 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 310/0. Waits are safe because send() awaits the copy and opens the link before closeDialog(), so reading after the dialog detaches sees both. |
+
 | 2026-10-31 | #1230 d80c0e20 | Browser and accessibility tests for Settings > Integrations | PASS 9.2 | openTab() now waits until the tab has finished loading with rows in it, and the rows are counted and read in one waitForFunction (exactly 8). Merge result: integrations-tab.test.cjs passed 4/4 in 8 of 8 runs, the first from a cold start, each with two ui.test processes running alongside for load. ui 310/0. |
 
 | 2026-10-31 | #1230 d43e1950 | Browser and accessibility tests for Settings > Integrations | CONDITIONAL 8.7 | Test only, merges clean, ui 310/0. integrations-tab.test.cjs passed 4/4 in 8 of 12 runs here. Under load (ui.test running in parallel), test 1 failed 2 of 8 times with rows.count() 0 !== 8: it counts the rows as soon as the Recent activity heading appears, before the rows have loaded. The first cold run failed tests 3 and 4; I didn't capture why and couldn't reproduce it. Fix: wait for the rows (e.g. rows.nth(7).waitFor()) before counting. |

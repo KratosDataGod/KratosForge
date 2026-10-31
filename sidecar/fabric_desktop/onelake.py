@@ -71,6 +71,21 @@ def storage_options(token: str) -> dict[str, str]:
             "timeout": REQUEST_TIMEOUT, "connect_timeout": "30s", "retry_timeout": RETRY_TIMEOUT}
 
 
+# A short read the person waits on, such as a replay bundle's sample: storage_options' upload-tuned
+# limits would keep it retrying for up to 30 minutes on a PC that's offline (#1303).
+READ_TIMEOUT = "60s"
+READ_CONNECT_TIMEOUT = "10s"
+READ_RETRY_TIMEOUT = "60s"
+READ_MAX_RETRIES = "2"
+
+
+def read_storage_options(token: str) -> dict[str, str]:
+    """storage_options for a small read the person waits on: it fails within about a minute when
+    OneLake can't be reached, instead of retrying for up to 30 minutes."""
+    return storage_options(token) | {"timeout": READ_TIMEOUT, "connect_timeout": READ_CONNECT_TIMEOUT,
+                                     "retry_timeout": READ_RETRY_TIMEOUT, "max_retries": READ_MAX_RETRIES}
+
+
 class TableCatalog:
     """Read-only listing through the OneLake Delta table API (Unity Catalog compatible)."""
 

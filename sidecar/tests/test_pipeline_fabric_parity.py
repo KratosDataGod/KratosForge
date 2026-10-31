@@ -1,8 +1,9 @@
 """ORCH-H3 (#1229): local pipeline runs against cases with a known Fabric outcome.
 
 Each file in tests/pipelines/fabric_recorded/ is one case: a pipeline, its parameters and mocks,
-the outcome Fabric gives it, and where that outcome comes from. ``documented`` cases quote
-Microsoft's documentation; ``recorded`` cases come from a run in a Fabric tenant (added only with
+its expected outcome, and where that outcome comes from. ``documented`` cases quote Microsoft's
+documentation (today Data Factory's, whose semantics Fabric pipelines share but which no tenant
+run has confirmed yet); ``recorded`` cases come from a run in a Fabric tenant (added only with
 Chris's yes, since a run uses capacity). A mismatch names the case, the activity and the field.
 No network, no Fabric."""
 
@@ -65,7 +66,7 @@ def compare(case: dict) -> list[str]:
     name, out = case["case"], []
     want = case["expected"]
     if want.get("status") is not None and FABRIC_STATUS[r.state] != want["status"]:
-        out.append(f"{name}: pipeline status is {FABRIC_STATUS[r.state]}, Fabric gives {want['status']}")
+        out.append(f"{name}: pipeline status is {FABRIC_STATUS[r.state]}, expected {want['status']}")
     rows = {a["name"]: a for a in record["activities"] if not a["label"]}
     for act, expected in want["activities"].items():
         row = rows.get(act)
@@ -78,7 +79,7 @@ def compare(case: dict) -> list[str]:
             if isinstance(value, dict) and isinstance(got, dict):
                 got = {k: got.get(k) for k in value}
             if got != value:
-                out.append(f"{name}: activity {act} {field} is {got!r}, Fabric gives {value!r}")
+                out.append(f"{name}: activity {act} {field} is {got!r}, expected {value!r}")
     return out
 
 
@@ -110,10 +111,10 @@ def test_a_mismatch_names_the_case_activity_and_field():
     case = read(CASES / "try_catch_previous_fails.json")
     wrong = {**case, "expected": {"status": "Failed", "activities": {"Catch": "Skipped", "Nope": "Succeeded"}}}
     found = compare(wrong)
-    assert "try_catch_previous_fails: pipeline status is Succeeded, Fabric gives Failed" in found
-    assert "try_catch_previous_fails: activity Catch status is 'Succeeded', Fabric gives 'Skipped'" in found
+    assert "try_catch_previous_fails: pipeline status is Succeeded, expected Failed" in found
+    assert "try_catch_previous_fails: activity Catch status is 'Succeeded', expected 'Skipped'" in found
     assert "try_catch_previous_fails: activity Nope has no run record" in found
     # Fields other than status, such as the error a catch branch reads, compare only the keys given.
     err = {**case, "expected": {"status": None, "activities": {"Previous": {"error": {"errorCode": "E2"}}}}}
     assert compare(err) == ["try_catch_previous_fails: activity Previous error is {'errorCode': 'E1'}, "
-                            "Fabric gives {'errorCode': 'E2'}"]
+                            "expected {'errorCode': 'E2'}"]

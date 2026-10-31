@@ -124,8 +124,9 @@ SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
                  "Add ORDER BY INDEX where order matters.", f"{_DOCS}/functions/flatten")
 
 SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
-              "DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in "
-              "Snowflake; here the result is a TIMESTAMP at midnight. The date is the same.",
+              "DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC of a value whose type "
+              "isn't known here, keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
+              "midnight. The date is the same.",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF names DuckDB's types",
@@ -284,9 +285,12 @@ def _rewrite_flatten(statement: exp.Expression) -> bool:
             source, outer = parts
             alias_node = join.this.args.get("alias")
             alias = alias_node.name if alias_node is not None and alias_node.name else "flatten"
-            src = _duck(source)
-            how = f"LEFT JOIN json_each({src}) AS {alias} ON TRUE" if outer else f"CROSS JOIN json_each({src}) AS {alias}"
+            _duck(source)  # refused here when DuckDB can't take the input
+            how = f"LEFT JOIN json_each(_kf_src) AS {alias} ON TRUE" if outer else f"CROSS JOIN json_each(_kf_src) AS {alias}"
             joins[i] = sqlglot.parse_one(f"SELECT 1 FROM _x {how}", read="duckdb").args["joins"][0]
+            # The input goes in as a tree, not as text read again: sqlglot 30.25 reads DuckDB's
+            # "v -> '$.arr'" back as a lambda (#1252).
+            next(c for c in joins[i].find_all(exp.Column) if c.name == "_kf_src").replace(source.copy())
             aliases.append(alias.lower())
             did = True
         if not aliases:
@@ -338,6 +342,22 @@ def _strftime(model: str) -> str | None:
             out.append(model[i])
             i += 1
     return "".join(out)
+
+
+def _date_trunc_of_a_date(node: exp.Expr) -> bool:
+    return (isinstance(node, exp.DateTrunc) and node.this.is_type(exp.DataType.Type.DATE)
+            and str(getattr(node.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS)
+
+
+def _rewrite_date_trunc(statement: exp.Expression) -> None:
+    """DATE_TRUNC of a DATE stays a DATE, as in Snowflake. sqlglot 30.25 does this itself; before
+    it, the result was a TIMESTAMP at midnight. Here every version gives the same (#1252)."""
+    for node in [n for n in statement.find_all(exp.DateTrunc) if _date_trunc_of_a_date(n)]:
+        if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.DATE):
+            continue
+        trunc = node.copy()
+        trunc.set("input_type_preserved", None)
+        node.replace(exp.cast(trunc, exp.DataType.Type.DATE))
 
 
 def _rewrite_to_char(statement: exp.Expression) -> None:
@@ -429,7 +449,7 @@ def _differences(statement: exp.Expression) -> list[Note]:
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
     if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS
-           for n in statement.find_all(exp.TimestampTrunc, exp.DateTrunc, exp.DateAdd)):
+           for n in statement.find_all(exp.TimestampTrunc, exp.DateTrunc, exp.DateAdd) if not _date_trunc_of_a_date(n)):
         notes.append(SFD_DATE)
     if any(statement.find_all(exp.Typeof)):
         notes.append(SFD_TYPEOF)
@@ -497,6 +517,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     try:
         flattened = _rewrite_flatten(tree)
         _rewrite_to_char(tree)
+        _rewrite_date_trunc(tree)
         _rewrite_object_construct(tree)
         _rewrite_values(tree)
         sql = _duck(tree)

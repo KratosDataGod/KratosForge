@@ -1024,10 +1024,10 @@ class LocalEngine:
         props = CommitProperties(custom_metadata={"fabric_desktop.project": self.project.id,
                                                   "fabric_desktop.query": query_id})
         source_table = f"__fd_merge_{uuid.uuid4().hex}"
-        source = names = None
+        source = names = stream = None
         try:
             if c.kind == "merge":
-                source, names = self._merge_source(con, c, current, source_table, name)
+                source, names, stream = self._merge_source(con, c, current, source_table, name)
             if dry_run:
                 with self._shadow(folder) as copy:
                     out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
@@ -1043,6 +1043,8 @@ class LocalEngine:
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:
+            if stream is not None:
+                stream.close()  # a refused MERGE never read it, and DuckDB 2.0 runs nothing while it's open
             if c.kind == "merge":
                 con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
         after = DeltaTable(str(folder))
@@ -1052,9 +1054,10 @@ class LocalEngine:
         return out
 
     def _merge_source(self, con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", current: Any,
-                      source_table: str, name: str) -> tuple[Any, list[str]]:
+                      source_table: str, name: str) -> tuple[Any, list[str], Any]:
         """The MERGE's source rows, kept in a temporary table so the check below and the merge read
-        the same rows, as a stream of Fabric-safe types with column names in the table's case."""
+        the same rows, as a stream of Fabric-safe types with column names in the table's case, and
+        DuckDB's stream under it, for the caller to close."""
         query = c.source_sql("duckdb")
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
@@ -1079,7 +1082,7 @@ class LocalEngine:
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
-        return delta.Conform(reader, schema, by_position=True).reader, names
+        return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
     def _shadow(self, folder: Path):
@@ -1278,12 +1281,36 @@ class _Rows:
         return self.rows
 
 
+def _profile_1x(raw: dict[str, Any]) -> dict[str, Any]:
+    """DuckDB 2.0's JSON profile in 1.x's shape. 2.0 puts the totals under "query", "system" and "io",
+    and the plan in an "operator" list (under a RESULT_COLLECTOR) of nodes with type, timing,
+    intermediate_rows and rows_scanned (#1341)."""
+    if "operator" not in raw:
+        return raw
+    query, system, io = raw.get("query") or {}, raw.get("system") or {}, raw.get("io") or {}
+
+    def node(n: dict[str, Any]) -> dict[str, Any]:
+        return {"operator_name": n.get("type", ""), "operator_timing": n.get("timing"),
+                "operator_cardinality": n.get("intermediate_rows"), "operator_rows_scanned": n.get("rows_scanned"),
+                "extra_info": n.get("extra_info"), "children": [node(c) for c in n.get("children") or []]}
+
+    roots = [node(n) for n in raw.get("operator") or []]
+    while len(roots) == 1 and roots[0]["operator_name"] == "RESULT_COLLECTOR":
+        roots = roots[0]["children"]
+    return {"latency": query.get("total_time"), "cpu_time": query.get("cpu_time"),
+            "cumulative_rows_scanned": query.get("total_rows_scanned"),
+            "system_peak_buffer_memory": system.get("peak_buffer_memory"),
+            "system_peak_temp_dir_size": system.get("peak_temp_dir_size"),
+            "total_bytes_read": io.get("total_bytes_read"), "children": roots}
+
+
 def _explained(raw: Any, mode: str) -> dict[str, Any]:
     if mode == "plan":
         roots = raw if isinstance(raw, list) else [raw]
         plan = [_plan_node(n) for n in roots]
         return {"mode": "plan", "plan": plan, "text": "\n".join(_render(plan)), "totals": None, "slowest": [],
                 "hints": []}
+    raw = _profile_1x(raw)
     roots = [c for c in raw.get("children", []) if c.get("operator_name") != "EXPLAIN_ANALYZE"]
     for wrapper in raw.get("children", []):
         if wrapper.get("operator_name") == "EXPLAIN_ANALYZE":

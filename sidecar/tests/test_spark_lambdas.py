@@ -25,6 +25,10 @@ def answer(query: str, dialect: str = "databricks"):
     ("SELECT transform(array(array(1, 2)), (x, i) -> transform(x, y -> y + i))", [[1, 2]]),
     ("SELECT transform(array(7), (x, i) -> named_struct('i', i))", [{"i": 0}]),   # the key stays 'i'
     ("SELECT transform(array(1, 2), x -> x + 1)", [2, 3]),                        # no index: unchanged
+    ("SELECT transform(array(5, 6), (x, i) -> i)", [0, 1]),                       # the index alone
+    ("SELECT transform(array(named_struct('i', 5)), (x, i) -> x.i + i)", [5]),    # a field named i stays
+    ("SELECT transform(array(named_struct('a', named_struct('i', 7))), (x, i) -> x.a.i * 10 + i)", [70]),
+    ("SELECT transform(array(map('i', 3)), (x, i) -> x['i'] + i)", [3]),
 ])
 def test_an_index_lambda_counts_from_0_as_in_spark(dialect, query, want):
     assert answer(query, dialect) == want

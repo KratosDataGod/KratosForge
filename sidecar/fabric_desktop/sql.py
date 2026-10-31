@@ -244,6 +244,11 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+# Where an Identifier named like the index is a name, not a use of the index.
+_NOT_A_REFERENCE = {("expression", exp.Dot), ("expressions", exp.Lambda), ("alias", exp.Alias),
+                    ("this", exp.TableAlias), ("columns", exp.TableAlias), ("this", exp.PropertyEQ)}
+
+
 def _spark_lambdas(statement: exp.Expression) -> None:
     """transform and filter with an index lambda count the index from 0 in Spark and from 1 in DuckDB,
     so the index becomes (i - 1) in the lambda's body; a nested lambda that reuses the name is refused
@@ -276,9 +281,8 @@ def _spark_lambdas(statement: exp.Expression) -> None:
                 if parent.this is not ident:
                     continue
                 target = parent
-            elif isinstance(parent, (exp.Dot, exp.Lambda, exp.Alias, exp.TableAlias, exp.PropertyEQ)) and \
-                    ident.arg_key != "expression":
-                continue
+            elif (ident.arg_key, type(parent)) in _NOT_A_REFERENCE:
+                continue   # a struct field (x.i), a lambda's own argument, an alias or a struct key
             else:
                 target = ident
             target.replace(exp.paren(exp.Sub(this=ident.copy(), expression=exp.Literal.number(1))))

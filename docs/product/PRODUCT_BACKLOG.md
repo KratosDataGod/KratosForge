@@ -206,11 +206,11 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Snowflake is one of the three target platforms and has no work at all.
 - **Proposed capability:** An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.
-- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview
+- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview; 114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** No code and no Snowflake account spend before Chris's go
 - **Owner:** Fabric and Databricks unified development (KF-SNOWFLAKE-RESEARCH)
-- **Pull requests:** [#993](https://github.com/KratosDataGod/KratosForge/pull/993), [#995](https://github.com/KratosDataGod/KratosForge/pull/995)
+- **Pull requests:** [#993](https://github.com/KratosDataGod/KratosForge/pull/993), [#995](https://github.com/KratosDataGod/KratosForge/pull/995), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202)
 - **Story issues:** [#853](https://github.com/KratosDataGod/KratosForge/issues/853)
 - **Acceptance criteria:**
     - A parity matrix like databricks/parity-matrix.md, with official sources for each row
@@ -818,12 +818,12 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** SQL_Platform T-SQL runs only on SQLite in tests; whether User Data Functions expose the executing user is unverified; domain import shape is unverified.
 - **Proposed capability:** A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.
-- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests; Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93
+- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests; Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93; A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d
 - **Inventory features:** [FEAT-MESH-01](FEATURE_INVENTORY.md#feat-mesh-01), [FEAT-MESH-02](FEATURE_INVENTORY.md#feat-mesh-02), [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04)
 - **Dependencies:** [PB-002](#pb-002), Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Central business keys are shared data; a defect would corrupt keys across every domain.
-- **Pull requests:** [#919](https://github.com/KratosDataGod/KratosForge/pull/919), [#1036](https://github.com/KratosDataGod/KratosForge/pull/1036), [#1038](https://github.com/KratosDataGod/KratosForge/pull/1038), [#1041](https://github.com/KratosDataGod/KratosForge/pull/1041), [#1045](https://github.com/KratosDataGod/KratosForge/pull/1045)
+- **Pull requests:** [#919](https://github.com/KratosDataGod/KratosForge/pull/919), [#1036](https://github.com/KratosDataGod/KratosForge/pull/1036), [#1038](https://github.com/KratosDataGod/KratosForge/pull/1038), [#1041](https://github.com/KratosDataGod/KratosForge/pull/1041), [#1045](https://github.com/KratosDataGod/KratosForge/pull/1045), [#1200](https://github.com/KratosDataGod/KratosForge/pull/1200)
 - **Story issues:** [#909](https://github.com/KratosDataGod/KratosForge/issues/909)
 - **Acceptance criteria:**
     - Setup and join run on the maintainer's tenant and are recorded
@@ -1508,7 +1508,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-SQL-03](FEATURE_INVENTORY.md#feat-sql-03)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KUDP-01..06)
-- **Pull requests:** [#1056](https://github.com/KratosDataGod/KratosForge/pull/1056), [#1078](https://github.com/KratosDataGod/KratosForge/pull/1078), [#1115](https://github.com/KratosDataGod/KratosForge/pull/1115), [#1118](https://github.com/KratosDataGod/KratosForge/pull/1118), [#1124](https://github.com/KratosDataGod/KratosForge/pull/1124), [#1125](https://github.com/KratosDataGod/KratosForge/pull/1125), [#1142](https://github.com/KratosDataGod/KratosForge/pull/1142), [#1180](https://github.com/KratosDataGod/KratosForge/pull/1180), [#1183](https://github.com/KratosDataGod/KratosForge/pull/1183), [#1191](https://github.com/KratosDataGod/KratosForge/pull/1191)
+- **Pull requests:** [#1056](https://github.com/KratosDataGod/KratosForge/pull/1056), [#1078](https://github.com/KratosDataGod/KratosForge/pull/1078), [#1115](https://github.com/KratosDataGod/KratosForge/pull/1115), [#1118](https://github.com/KratosDataGod/KratosForge/pull/1118), [#1124](https://github.com/KratosDataGod/KratosForge/pull/1124), [#1125](https://github.com/KratosDataGod/KratosForge/pull/1125), [#1142](https://github.com/KratosDataGod/KratosForge/pull/1142), [#1180](https://github.com/KratosDataGod/KratosForge/pull/1180), [#1183](https://github.com/KratosDataGod/KratosForge/pull/1183), [#1191](https://github.com/KratosDataGod/KratosForge/pull/1191), [#1201](https://github.com/KratosDataGod/KratosForge/pull/1201), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202)
 - **Acceptance criteria:**
     - Owned and specified by the unified platform program (KUDP)
 

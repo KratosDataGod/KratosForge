@@ -2638,6 +2638,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-dismiss-item:hover, .learn-dismiss-item:focus-visible { background: var(--border-soft); }
 .learn-detail { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border-radius: 6px; background: var(--border-soft); font-size: 13px; }
 .learn-detail p { margin: 0; }
+.learn-detail .learn-importance { align-self: flex-start; }
+.learn-detail .learn-importance.critical { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .learn-detail .learn-code { margin: 0; }
 .learn-dismissed { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }

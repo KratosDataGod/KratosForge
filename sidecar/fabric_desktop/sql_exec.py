@@ -691,6 +691,10 @@ class SqlExecutions:
                 "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < run.rows}
 
+    def query_of(self, run_id: str) -> str:
+        """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
+        return self._get(run_id).query
+
     def table(self, run_id: str) -> tuple[dict[str, Any], pa.Table]:
         """A completed run's status and its whole result, from its snapshot (Compare, GD-02). Columns
         with the same name get the export's unique names."""

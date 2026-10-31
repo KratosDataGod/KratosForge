@@ -312,6 +312,38 @@ def test_every_rule_the_code_uses_is_in_the_docs_table():
     assert len(listed) == len(set(listed)) and used == set(listed)
 
 
+@pytest.mark.parametrize("code", [
+    "select dateadd(day, 1, ts::timestamp) from t",
+    "select date_trunc('day', current_timestamp())",
+    "select dateadd(month, 1, to_timestamp('2026-01-01 10:00'))",
+    "select dateadd(day, 1, to_timestamp(s)) from t",
+    "select date_trunc('day', to_timestamp_ntz(s)) from t",
+    "select dateadd(week, 1, try_to_timestamp(s)) from t",
+    "select date_trunc('month', to_timestamp_tz(s)) from t",
+    "select date_trunc('week', convert_timezone('UTC', ts)) from t",
+])
+def test_date_arithmetic_on_a_plain_timestamp_is_not_a_date_difference(code):
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+
+
+@pytest.mark.parametrize("code", [
+    "select dateadd(day, 1, ts) from t",
+    "select date_trunc('month', ts) from t",
+    "select dateadd(year, 1, to_date('2026-01-01'))",
+])
+def test_date_arithmetic_on_what_may_be_a_date_is_a_date_difference(code):
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" in [n.id for n in report.notes]
+
+
+def test_date_trunc_of_a_date_stays_a_date_on_every_sqlglot():
+    """#1252: cast back to DATE here, as Snowflake (and sqlglot 30.25 itself) does, so no SFD-006."""
+    (report,) = sf.translate("select date_trunc('month', ts::date) from t").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    assert report.duckdb_sql.upper().startswith("SELECT CAST(DATE_TRUNC('MONTH', CAST(TS AS DATE)) AS DATE)")
+
+
 def test_a_time_unit_on_date_arithmetic_is_not_a_date_difference():
     (report,) = sf.translate("select dateadd(hour, 2, ts), date_trunc('minute', ts) from t").statements
     assert "SFD-006" not in [n.id for n in report.notes]

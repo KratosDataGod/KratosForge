@@ -325,3 +325,26 @@ def test_run_b_in_a_notebook_it_runs_reads_this_notebooks_resources(resources):
     out = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["%run -b setup.py"]}), resources=resources)
     assert out["local"]["reasons"][0]["text"] == ("runs Helpers (%run), whose cell 1 runs setup.py (%run -b), which uses "
                                                   "Fabric notebook utilities that need Fabric")
+
+
+@pytest.mark.parametrize("call, status", [
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=True)", "ok"),
+    ("nu.notebook.run('Child', 90, {'useRootDefaultLakehouse': True})", "ok"),
+    ("nu.notebook.run('Child', arguments={'day': '1', 'useRootDefaultLakehouse': True})", "ok"),
+    ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}}]})",
+     "ok"),
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=False)", "blocked"),
+    ("nu.notebook.run('Child', 90, {'day': '1'})", "blocked"),
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=flag)", "unknown"),
+    ("nu.notebook.run('Child', 90, args)", "unknown"),
+    ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}},"
+     " {'name': 'd', 'path': 'Child'}]})", "blocked"),
+])
+def test_use_root_default_lakehouse_gives_the_child_this_notebooks_lakehouse(call, status):
+    """useRootDefaultLakehouse=True runs the child with the caller's lakehouse, so its own missing one doesn't matter."""
+    child = {"cells": cells("df = spark.read.table('dbo.t')"), "lakehouse": None}
+    out = compute_check(cells(f"import notebookutils as nu\n{call}"), LH, lambda name: child)
+    assert out["fabric"]["status"] == status, out["fabric"]
+    if status == "unknown":
+        assert "useRootDefaultLakehouse" in out["fabric"]["unknown"][0]["text"]
+    assert out["local"]["status"] == "ok"

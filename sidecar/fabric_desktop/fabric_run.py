@@ -665,8 +665,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
             out["unknown"].append((line, "imports a module named only at run time, which the check can't read"))
         elif (full := _full(node.func, utils)) and _UTILS_RUN.match(full):
             how = full.split(".", 1)[1]
-            if names := _run_names(first, how):
-                out["runs"] += [(line, name, how) for name in names]
+            if names := _run_names(node, how):
+                out["runs"] += [(line, name, how, root) for name, root in names]
             else:
                 out["unknown"].append((line, _RUN_TEXT.format(how=how)))
         elif _session_sql(node, sessions):
@@ -690,27 +690,57 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
     return out
 
 
-def _run_names(first: ast.expr | None, how: str) -> list[str] | None:
-    """The notebooks ``notebook.run`` or ``runMultiple`` runs, when its first argument names them
-    in a literal: a name, a list of names, or a DAG whose every activity gives its ``path``. None
-    when any of them is known only at run time."""
-    if first is None:
+_ROOT = "useRootDefaultLakehouse"
+_UNREAD = object()  # a value the check can't read, where it isn't a literal
+
+
+def _run_names(node: ast.Call, how: str) -> list[tuple[str, bool | None]] | None:
+    """The notebooks ``notebook.run`` or ``runMultiple`` runs, when the call names them in a literal
+    (a name, a list of names, or a DAG whose every activity gives its ``path``), each with whether
+    it runs with this notebook's lakehouse (useRootDefaultLakehouse): True, False, or None when that's
+    known only at run time. None when any notebook is known only at run time."""
+    if not node.args:
         return None
-    try:
-        value = ast.literal_eval(first)
-    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-        return None
+    value = _literal(node.args[0])
     if how == "notebook.run":
-        paths = [value]
+        root = next((k.value for k in node.keywords if k.arg == _ROOT), None)
+        args = next((k.value for k in node.keywords if k.arg == "arguments"), node.args[2] if len(node.args) > 2 else None)
+        flag = _literal(root) if root is not None else _root_in(args)
+        paths = [(value, flag)]
     elif isinstance(value, (list, tuple)):
-        paths = list(value)
+        paths = [(v, False) for v in value]
     elif isinstance(value, dict) and isinstance(value.get("activities"), list):
-        paths = [a.get("path") if isinstance(a, dict) else None for a in value["activities"]]
+        paths = [(a.get("path"), (a.get("args") or {}).get(_ROOT, False) if isinstance(a.get("args") or {}, dict)
+                  else _UNREAD) if isinstance(a, dict) else (None, False) for a in value["activities"]]
     else:
         return None
-    if not paths or not all(isinstance(p, str) and p.strip() for p in paths):
+    if not paths or not all(isinstance(p, str) and p.strip() for p, _ in paths):
         return None
-    return [p.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb") for p in paths]
+    return [(p.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb"),
+             flag if isinstance(flag, bool) else None if flag is _UNREAD else bool(flag)) for p, flag in paths]
+
+
+def _literal(node: ast.AST | None) -> Any:
+    """A literal's value, or _UNREAD."""
+    if node is None:
+        return None
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return _UNREAD
+
+
+def _root_in(args: ast.AST | None) -> Any:
+    """useRootDefaultLakehouse in notebook.run's ``arguments``: False when it isn't there."""
+    if args is None:
+        return False
+    value = _literal(args)
+    if isinstance(value, dict):
+        return value.get(_ROOT, False)
+    if isinstance(args, ast.Dict) and not any(_text(k) == _ROOT for k in args.keys if k is not None) \
+            and None not in args.keys:
+        return False  # a dict whose other values aren't literals, without the key
+    return _UNREAD
 
 
 def _line(source: str, line: int) -> str:
@@ -819,7 +849,7 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                         sql_unknown.append((line_magic.line, refused[1]))
         if read:
             unknown = list(read["unknown"])
-        runs: list[tuple[int, str | None, str]] = list(read["runs"]) if read else []
+        runs: list[tuple[int, str | None, str, bool | None]] = list(read["runs"]) if read else []
         if language == "python":
             for magic in magics.find(source):
                 if magic.name == "run":
@@ -833,11 +863,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                             how, name = "%run -b", _run_target(script["rest"], keep_path=True)[0]
                     except ValueError:
                         name = None
-                    runs.append((magic.line, name, how))
+                    runs.append((magic.line, name, how, True))  # %run shares this session and lakehouse
         run_block: dict[str, tuple[int, str] | None] = {"local": None, "fabric": None}
         run_unknown: dict[str, list[tuple[int, str]]] = {"local": [], "fabric": []}
-        for line, name, how in sorted(runs, key=lambda r: r[0]):
-            for side, got in _followed(name, how, lakehouse, load, _seen, resources).items():
+        for line, name, how, root in sorted(runs, key=lambda r: r[0]):
+            for side, got in _followed(name, how, lakehouse, load, _seen, resources, root).items():
                 if got and got[0] == "blocked":
                     run_block[side] = run_block[side] or (line, got[1])
                 elif got:
@@ -874,7 +904,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
 
 
 def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None, load: Loader | None,
-              seen: tuple[str, ...], resources: str | None) -> dict[str, tuple[str, str] | None]:
+              seen: tuple[str, ...], resources: str | None,
+              root: bool | None = True) -> dict[str, tuple[str, str] | None]:
     """What a cell that runs notebook ``name`` (or, for ``%run -b``, Built-in file ``name``) gets from
     it on each side: ("blocked" or "unknown", text), or None."""
     def both(text: str) -> dict[str, tuple[str, str] | None]:
@@ -908,11 +939,14 @@ def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None, load
         r = blockers[0] if blockers else (child[side]["unknown"] or [None])[0]
         out[side] = (("blocked" if blockers else "unknown"),
                      f"runs {name} ({how}), {whose.format(cell=r['cell'])} {r['text']}") if r else None
-    # notebook.run and runMultiple run it in a session of its own, which in Fabric uses its own lakehouse.
-    if how != "%run" and how != "%run -b" and own_lakehouse is None and (out["fabric"] or ("", ""))[0] != "blocked" \
+    # notebook.run and runMultiple run it in a session of its own, which in Fabric uses its own lakehouse
+    # unless useRootDefaultLakehouse gives it this one's (``root``).
+    if root is not True and own_lakehouse is None and (out["fabric"] or ("", ""))[0] != "blocked" \
             and (uses_spark(cells) or uses_local_module(cells)):
-        out["fabric"] = ("blocked", f"runs {name} ({how}) in a session of its own, and {name} has no lakehouse "
-                                    "attached, so in Fabric it can't read or write tables")
+        text = (f"runs {name} ({how}) in a session of its own, and {name} has no lakehouse attached, so in Fabric "
+                "it can't read or write tables")
+        out["fabric"] = ("blocked", text) if root is False else \
+            ("unknown", f"{text}, unless useRootDefaultLakehouse, which is set only at run time, gives it this one's")
     return out
 
 

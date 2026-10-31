@@ -1001,6 +1001,7 @@ function leftInFabric(r) {
   }
   if (r.kind === "domain" && made.domain_id) {
     const name = d.name || r.target || made.domain_id;
+    if (made.found) return [`The domain ${name} is in the platform${made.fabric_domain_id ? " and Fabric" : ""}: it was there before this request, or approving it made it. Check which before deleting it`];
     return [made.fabric_domain_id
       ? `The domain ${name}, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted`
       : `The domain ${name}, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted`];

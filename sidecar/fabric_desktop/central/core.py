@@ -726,6 +726,9 @@ def register_project(db: Db, project: dict[str, Any], by: str = "") -> dict[str,
     _upsert(db, "catalog", "project", "name", row)
     if "landing" in project:
         _save_readers(db, name, project.get("landing") or {})
+    # Who recorded a project owns it, so the trail says who and when; readers are on the project.
+    _audit(db, by, "change project" if before else "record project", name,
+           {"domain": dom, "subdomain": sub, **({"readers": True} if "landing" in project else {})})
     db.commit()
     return dict(row, domain_request=asked) if asked else row
 

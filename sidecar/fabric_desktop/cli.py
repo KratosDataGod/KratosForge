@@ -509,6 +509,10 @@ def _live_test_databricks(args: argparse.Namespace) -> int:
         return 2
     credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
     connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    checks = dbx_livetest.pc_checks(connection)
+    print("This PC:")
+    for ok, what in checks:
+        print(f"  {'ok ' if ok else 'NO '} {what}")
     if args.dry_run:
         print("The Databricks live test will:")
         for step in dbx_livetest.DatabricksLiveTest(connection, args.warehouse, None, None, None, Path(args.out),
@@ -517,6 +521,9 @@ def _live_test_databricks(args: argparse.Namespace) -> int:
             print(f"  - {step}")
         print("Dry run: nothing was signed in to, started or written.")
         return 0
+    if not all(ok for ok, _ in checks):
+        print("Not run: fix the lines marked NO above first. Nothing was signed in to or started.")
+        return 2
     try:
         tokens = databricks_auth.provider_for(connection)
     except databricks_auth.DatabricksAuthError as exc:

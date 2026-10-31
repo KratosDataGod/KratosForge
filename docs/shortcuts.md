@@ -38,7 +38,7 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 | **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or **Remove** it. When you can't open the lakehouse at all, see [A lakehouse you can't open](#a-lakehouse-you-cant-open) |
 | **Broken**, storage refused the connection | An ADLS Gen2, S3 or other storage shortcut whose connection was refused: an expired key or secret, or the account lost its rights | The connection's owner updates it in Fabric (**Settings > Manage connections and gateways**), then **Check now** |
 | **Unreachable** | You have no access to a OneLake target, so the check can't tell whether it works for others | Ask for access to the target, or ask someone who has it to check |
-| **Not checked** | Not checked yet, or you can't read the lakehouse it's in | **Check all now** |
+| **Not checked** | Not checked yet, you can't read the lakehouse it's in, or OneLake was busy (it throttled the check, or failed it for a OneLake target, after a few tries; for an ADLS, S3 or other storage target a 500, 502 or 504 shows as broken, since the storage itself may be down) | **Check all now**, or wait for the next check |
 
 Every shortcut is checked when the page opens. To stop that, untick **Check every shortcut when this page opens** on the Health view.
 

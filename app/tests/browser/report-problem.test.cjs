@@ -95,7 +95,11 @@ test("Copy only copies the redacted report and opens nothing; the diagnostics ca
 });
 
 test("Report a problem has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+  // The dialog fades and rises in, and axe measures contrast on the colors as drawn: mid-way, its
+  // text is still faded. So no motion here, and no animation running when axe looks.
+  await page().emulateMedia({ reducedMotion: "reduce" });
   await open("mailto:help@contoso.com");
+  await page().waitForFunction(() => document.getAnimations().length === 0);
   await page().addScriptTag({ content: axeSource });
   const found = await page().evaluate(async () => {
     const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });

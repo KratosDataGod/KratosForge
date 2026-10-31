@@ -592,7 +592,7 @@ class ProveMixin:
         ``location_ref`` is the notebook repository's lakehouse for the current environment, used
         when the notebook has none of its own (as a run of its cells does)."""
         lakehouse_ref = lakehouse_ref or location_ref
-        check = proof.check(cells, lakehouse_ref, self._cells_of)  # type: ignore[attr-defined]
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         env = envprofile.check(cells, self._fabric_observed())
         ws = None
         try:
@@ -625,7 +625,7 @@ class ProveMixin:
             raise RuntimeError("A replay is using the kernel. End it first.")
         if any(r["state"] in ("local", "fabric", "checking") for r in self._sbs_state().values()):  # type: ignore[attr-defined]
             raise RuntimeError("A side-by-side run is going. Wait for it, or cancel it.")
-        check = proof.check(cells, lakehouse_ref, self._cells_of)  # type: ignore[attr-defined]
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         if not check["ok"]:
             b = check["blockers"][0]
             where = f"Cell {b['cell']} " if b.get("cell") else ""

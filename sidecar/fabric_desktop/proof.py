@@ -86,9 +86,9 @@ def _line(source: str, pos: int) -> tuple[int, str]:
 
 
 def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-          load: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
+          load: Callable[[str], Any] | None = None, resources: str | None = None) -> dict[str, Any]:
     """Whether a proof can run this notebook, and what it should tell the person first. ``load``
-    reads another notebook's cells by name, so a ``%run`` of a notebook on this PC is checked too."""
+    and ``resources`` let the check follow the notebooks and Built-in files it runs (compute_check)."""
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
@@ -109,7 +109,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     if not spark and not uses_local_module(cells):
         add(blockers, None, None, "The notebook doesn't use `from fabric_desktop import lakehouse` or Spark. A proof "
                                   "compares the tables a notebook writes, so there would be nothing to compare.")
-    compat = compute_check(cells, lakehouse, load)
+    compat = compute_check(cells, lakehouse, load, resources=resources)
     for side, label in (("local", "this PC"), ("fabric", "Fabric")):
         for r in compat[side]["reasons"]:
             if r.get("cell") is None and side == "fabric" and not lakehouse:

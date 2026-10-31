@@ -618,11 +618,15 @@ def _nb_validate(args: argparse.Namespace) -> int:
     runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
     from .notebook import check_notebook_name
 
-    def sibling(name: str) -> list[dict]:  # %run Name: the notebook next to this file, as in the app's folder
-        other = path.parent / f"{check_notebook_name(name)}.ipynb"
-        return from_ipynb(json.loads(other.read_text(encoding="utf-8")))["cells"]
+    from .notebook_resources import folder_for
 
-    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed, load=sibling)
+    def sibling(name: str) -> dict:  # %run Name: the notebook next to this file, as in the app's folder
+        other = from_ipynb(json.loads((path.parent / f"{check_notebook_name(name)}.ipynb").read_text(encoding="utf-8")))
+        return {"cells": other["cells"], "lakehouse": other["lakehouse"]}
+
+    resources = folder_for(path)  # <name>.resources beside the file, where %run -b finds its files
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed, load=sibling,
+                            resources=str(resources) if resources.is_dir() else None)
     if args.json:
         print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
     else:

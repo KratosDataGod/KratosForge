@@ -116,7 +116,7 @@ async function loadRunAs(box) {
         h("td", {}, RA_CREDENTIAL[r.credential?.kind] || h("span", { class: "muted-text" }, "Unknown")),
         h("td", {}, raState(r)),
         h("td", {}, r.boundary, r.place?.kind === "pc" && r.detail ? h("div", { class: "muted-text small" }, r.detail) : null))))))
-      : h("p", { class: "muted-text monitor-empty" }, "Nothing matches your search."),
+      : h("p", { class: "muted-text monitor-empty" }, state.query ? "Nothing matches your search." : "No places to show."),
     h("p", { class: "muted-text small inc-foot" }, "Only places this app knows: this PC, agents that publish a status record in your environments, and Fabric schedules on items in your environments' workspaces. Workspace roles and OneLake access are on each item's Access tab."));
 }
 

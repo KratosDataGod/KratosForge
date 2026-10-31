@@ -9,7 +9,9 @@ network or a tenant. The contracts:
   it replaces an existing file (no If-None-Match), and a failed step stops before the file is
   committed (no flush after a failed append, nothing after a failed create);
 * delete sends one DELETE with recursive=true by default (false on request), treats 404 as done and
-  never repeats itself on an error;
+  never repeats itself on an error other than throttling (429, where OneLake did nothing);
+* upload waits out a 429 on any step and sends anything else once; mkdir (If-None-Match: *) is
+  tried again after throttling, a 5xx or a dropped connection;
 * the read-only and dry-run paths (probe, list, the live test's plan and --dry-run, the readiness
   write test refused for a production workspace) send no mutating request;
 * every request stays under https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/.
@@ -136,12 +138,66 @@ def test_deleting_something_already_gone_is_fine():
     assert len(t.sent) == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
+@pytest.mark.parametrize("status", [500, 503])
 def test_a_failed_delete_raises_and_is_not_repeated_by_filestore(status):
     fs, t = store([Reply(status)])
     with pytest.raises(requests.HTTPError):
         fs.delete(WS, LH, "Files/folder")
     assert len(t.sent) == 1
+
+
+# ---- throttling (#1287): a 429 is waited out, since OneLake did nothing
+
+
+def waiting_store(replies):
+    s, transport = session(replies)
+    waits = []
+    return FileStore(lambda: "tok", session=s, sleep=waits.append), transport, waits
+
+
+def test_an_upload_whose_append_is_throttled_writes_once():
+    fs, t, waits = waiting_store([Reply(201), Reply(429, headers={"Retry-After": "2"}), Reply(202), Reply(200)])
+    fs.upload(WS, LH, "Files/x.txt", b"data")
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "append"), ("PATCH", "flush")]
+    assert waits == [2]
+
+
+def test_a_throttled_delete_is_sent_again_after_the_wait():
+    fs, t, waits = waiting_store([Reply(429, headers={"Retry-After": "1"}), Reply(200)])
+    fs.delete(WS, LH, "Files/folder")
+    assert [r.method for r in t.sent] == ["DELETE", "DELETE"] and waits == [1]
+
+
+@pytest.mark.parametrize("first", [Reply(503), Reply(429)])
+def test_a_folder_create_is_tried_again_after_a_busy_answer(first):
+    fs, t, _ = waiting_store([first, Reply(201)])
+    fs.mkdir(WS, LH, "Files/in")
+    assert [r.method for r in t.sent] == ["PUT", "PUT"]
+    assert all(r.headers["If-None-Match"] == "*" for r in t.sent)
+
+
+def test_a_folder_that_is_there_is_still_fine():
+    fs, t, _ = waiting_store([Reply(409, {"error": {"code": "PathAlreadyExists"}})])
+    fs.mkdir(WS, LH, "Files/in")
+    assert len(t.sent) == 1
+
+
+def test_a_refused_write_says_what_and_why_without_the_url():
+    fs, _, _ = waiting_store([Reply(201), Reply(202), Reply(503, {"error": {"code": "ServerBusy", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.upload(WS, LH, "Files/in/data.csv", b"data")
+    assert str(err.value) == "OneLake didn't commit Files/in/data.csv (503: ServerBusy)."
+    assert err.value.response.status_code == 503 and "https://" not in str(err.value)
+
+    fs, _, _ = waiting_store([Reply(403, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't delete Files/a \(403: AuthorizationPermissionMismatch\)\.$"):
+        fs.delete(WS, LH, "Files/a")
+
+    fs, t, _ = waiting_store([Reply(500)] * 5)  # a folder create is tried 5 times before it gives up
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't create the folder Files/b \(500\)\.$"):
+        fs.mkdir(WS, LH, "Files/b")
+    assert len(t.sent) == 5
 
 
 # ---- read-only and dry-run paths send no mutating request

@@ -2150,7 +2150,7 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         if _duplicate_key(_request_out(r)) == mine:
             raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     _upsert(db, "catalog", "request", "id", row)
-    _audit(db, by, f"request {kind}", target, {"project": project})
+    _audit(db, by, f"request {kind}", target, {"request": row["id"], "project": project})
     db.commit()
     return _request_out(row)
 

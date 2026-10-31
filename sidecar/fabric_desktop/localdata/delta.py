@@ -33,6 +33,8 @@ import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
+
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 # Characters Fabric (Spark, the SQL endpoint) can't take in a column name without column mapping,
 # which is outside the Fabric-safe profile.
@@ -183,7 +185,7 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {exc}") from None
+        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(tree, start)
     return (tree.sql(dialect="duckdb"), found) if found else (sql, [])
 

@@ -157,8 +157,6 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
     if spark:
         limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
                    "aren't, so a change to them between the runs isn't found.",
-                   "In Fabric, a Spark read whose path is given as an option (option(\"path\", ...).load()) or as a "
-                   "file:/lakehouse/default/... path isn't pinned.",
                    "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
                    "stopped or compared.",
                    "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]

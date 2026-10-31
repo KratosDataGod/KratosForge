@@ -192,6 +192,14 @@ def test_create_dataframe_reads_a_ddl_schema_string(live):
         live.createDataFrame([(1,)], "s geometry")
 
 
+def test_python_ints_are_bigint_as_spark_infers_them(live):
+    df = live.createDataFrame([(1, [2, 3], "x")], ["n", "xs", "s"])
+    assert df.dtypes == [("n", "bigint"), ("xs", "array<bigint>"), ("s", "string")]
+    assert rows(df) == [(1, [2, 3], "x")]
+    assert [t for _n, t in live.createDataFrame([(1,)]).dtypes] == ["bigint"]
+    assert live.createDataFrame([(1,)], "n int").dtypes == [("n", "int")]  # a schema says what it says
+
+
 def test_ddl_schema_reads_structs_comments_and_not_null(live):
     df = live.createDataFrame([((1, ["x"]), 5)],
                               "s STRUCT<a: INT, b: ARRAY<STRING>> COMMENT 'nested, kept', id bigint NOT NULL COMMENT \"key\"")

@@ -5625,7 +5625,7 @@ test("declining or withdrawing a partly carried-out request says what is still i
   assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
     ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
-    ["The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+    ["The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
   assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
     ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
   for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
@@ -5634,4 +5634,48 @@ test("declining or withdrawing a partly carried-out request says what is still i
   }
   assert.match(src, /Declining deletes nothing in Fabric\. \$\{left\.join\("\. "\)\}\./, "the decline confirm says it");
   assert.match(src, /if \(res\.next\?\.length\) toast\(`Withdrew \$\{r\.target\}; \$\{res\.next\.join\("; "\)\}`/, "withdrawing says it after");
+});
+
+// #1206: a domain request's decline says where the domain it made still is.
+test("declining a domain request whose domain was made says where it is", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr" } } }),
+    ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
+    ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+});
+
+// #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
+test("declining a workspace access request says whether its approval gave, raised or kept the role", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (made) => JSON.parse(JSON.stringify(box.result({ kind: "workspace_access",
+    detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { email: "dev@contoso.com" }, made } })));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ assigned: true, change: "gave", from: "" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }),
+    ["dev@contoso.com has the Contributor role in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ assigned: true }),
+    ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
+});
+
+// #1260: a shortcut request's decline says the shortcut its approval made is still in OneLake.
+test("declining a shortcut request whose shortcut was made says it is still in OneLake", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
+  assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
+    ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
 });

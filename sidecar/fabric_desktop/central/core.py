@@ -2259,7 +2259,15 @@ def _left(req: dict[str, Any]) -> dict[str, Any]:
     """The ids of what approving a request made before it was declined or withdrawn, for the audit
     trail: closing it deletes nothing in Fabric."""
     made = (req.get("detail") or {}).get("made") or {}
-    return {k: v for k, v in made.items() if k.endswith("_id") or k == "assigned"}
+    if made.get("change") == "kept":  # a higher role they already had: approving changed nothing
+        return {}
+    return {k: made[k] for k in _LEFT.get(req.get("kind") or "", ()) if made.get(k)}
+
+
+# What each kind's approval makes, by the keys record_request_progress keeps: a workspace request's
+# capacity_id or a source's landing workspace_id are where things went, not what was made.
+_LEFT = {"workspace": ("workspace_id",), "workspace_access": ("assigned", "change", "from"), "source": ("copy_job_id", "schedule_id"),
+         "domain": ("domain_id", "fabric_domain_id"), "shortcut": ("shortcut_id",)}
 
 
 def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:

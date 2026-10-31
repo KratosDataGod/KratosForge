@@ -26,11 +26,13 @@ UNTIL_DEFAULT_TIMEOUT = 7 * 24 * 3600   # Data Factory's default: 7 days
 
 
 class ActivityFailed(Exception):
-    """The activity ends Failed with this error (``errorCode``, ``message``)."""
+    """The activity ends Failed with this error. The runner adds ``target`` and ``details``, so the
+    error has the fields Fabric's ``activity('X').error`` has."""
 
-    def __init__(self, message: str, code: str = "LocalActivityFailed", output: Any = None):
+    def __init__(self, message: str, code: str = "LocalActivityFailed", output: Any = None,
+                 failure_type: str = "UserError"):
         super().__init__(message)
-        self.error = {"errorCode": code, "message": message}
+        self.error = {"errorCode": code, "message": message, "failureType": failure_type}
         self.output = output
 
 

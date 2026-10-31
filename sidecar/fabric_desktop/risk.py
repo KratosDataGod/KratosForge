@@ -198,6 +198,11 @@ def check_compatibility(f: dict[str, Any]) -> list[dict[str, Any]]:
                            "The notebook uses things that don't work there; the run is likely to fail at those cells.",
                            evidence=[f"Cell {r['cell']}: {r['text']}" if r.get("cell") else r["text"] for r in reasons[:5]],
                            remedy="Change those cells, or run it where they work.", source=src))
+    elif unknown := compat.get(here, {}).get("unknown") or []:
+        out.append(finding("compatibility", UNKNOWN, f"Not known whether all of the notebook runs on {place}",
+                           "The check can't read some cells well enough to tell whether they work there.",
+                           evidence=[f"Cell {r['cell']}: {r['text']}" for r in unknown[:5]],
+                           remedy="Prove the notebook to find out.", source=src))
     if f["where"] == "fabric":
         local = compat.get(other, {}).get("reasons") or []
         if local:
@@ -205,6 +210,11 @@ def check_compatibility(f: dict[str, Any]) -> list[dict[str, Any]]:
                                "It can't run on this PC, so Fabric is the right place for it.",
                                evidence=[f"Cell {r['cell']}: {r['text']}" if r.get("cell") else r["text"] for r in local[:5]],
                                source=src))
+        elif unknown := compat.get(other, {}).get("unknown") or []:
+            out.append(finding("local_alternative", UNKNOWN, "Not known whether this PC could run it",
+                               "The check can't read some cells well enough to tell whether they run on this PC. "
+                               "Prove the notebook to find out.",
+                               evidence=[f"Cell {r['cell']}: {r['text']}" for r in unknown[:5]], source=src))
         else:
             out.append(finding("local_alternative", PASS, "This PC could run it too",
                                "Nothing in the notebook needs Fabric, so you could try it on this PC first without "

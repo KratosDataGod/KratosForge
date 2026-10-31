@@ -81,9 +81,11 @@ Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding
 
-- **Explain** shows why the rule matters, and when it's fine to leave, from the rule's section of the
-  notebook or SQL best-practices guide. That text ships with the app, so it works offline and nothing
-  is sent anywhere.
+- **Explain** shows how important the rule is (Critical, Recommended, Educational or Advanced) and its
+  area, why it matters, what to do, when it's fine to leave, and how to check a change worked, from
+  the rule's section of the notebook or SQL best-practices guide. Importance only explains a rule: its
+  severity and your organization's policies decide what is flagged and required. That text ships with
+  the app, so it works offline and nothing is sent anywhere.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
 - **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It

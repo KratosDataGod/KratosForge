@@ -33,6 +33,8 @@ progress.add(learn, progress.from_lab({"exercise": "store-revenue-2026", "versio
     {"kind": "result_matches", "passed": True}, {"kind": "faster_than", "passed": True,
      "measured": {"seconds": 0.12, "baseline_seconds": 0.5, "speedup": 4.17}}]}, lab))
 progress.add(learn, progress.module_complete(learn, lab))
+progress.add(learn, progress.from_fix("SQ002", "Performance", {"result": "match", "level": "complete", "rows": {"after": 4},
+    "seconds": {"before": 1.84, "after": 0.21}, "target": "warehouse"}, {"before": "run-a", "after": "run-b"}, "WH_Gold"))
 json.dump({"profile": s.profile_get(), "report": s.profile_report(), "earned": earned, "proved": proved,
            "learn": learn["evidence"]}, sys.stdout)
 `;
@@ -119,4 +121,13 @@ test("a Learn exercise and a finished lab read as what was done, with the measur
   assert.match(text[0], /Learn LAB-02\/store-revenue-2026 · lab version 1/);
   assert.match(text[1], /Finished lab LAB-02 · Optimize a slow query/);
   assert.match(text[1], /Its exercise passed on this PC\./);
+});
+
+test("a fix checked with Compare reads as what was checked and measured, one run each (GD-06)", { skip }, async () => {
+  const text = await app.page.evaluate((r) => profileRow({ ...r, xp: 0, excluded: false }).textContent, data.learn[2]);
+  assert.match(text, /Fixed SQ002 on WH_Gold, and checked it/);
+  assert.match(text, /Compare ran the query as written and as fixed: the same 4 rows, every row compared\. Measured, one run each: 1\.84 s as written, 0\.21 s fixed\./);
+  assert.match(text, /Compare · runs run-a and run-b/);
+  assert.match(text, /Skills: Engineering Quality, Performance & Optimization/);
+  assert.doesNotMatch(text, /master|XP/i);
 });

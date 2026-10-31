@@ -276,6 +276,14 @@ async function learnUndismiss(id, ctx, back = []) {
   learnRedraw(ctx, ...back, `${ctx.where}|dismissed`);
 }
 
+// What each importance means, as the docs' rule pages say it (GD-03); the tag's tooltip.
+const LEARN_IMPORTANCE = {
+  Critical: "Critical: it can leak a secret, lose data or put wrong data in place.",
+  Recommended: "Recommended: sound practice that most code should follow.",
+  Educational: "Educational: a habit worth knowing, with little risk when it's skipped.",
+  Advanced: "Advanced: a tradeoff that needs judgment, where the exceptions matter.",
+};
+
 // The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
 function learnFindingActions(f, ctx) {
   if (!previewShown()) return null;
@@ -326,10 +334,18 @@ function learnFindingActions(f, ctx) {
   if (open === "fix" && f.fix && ctx.fix) return [why, row, learnFixPreview(f, ctx, key)];
   if (!guided || !guide || !open || open === "fix") return why ? [why, row] : row;
   const detail = open === "explain"
-    ? h("div", { class: "learn-detail" }, h("b", {}, "Why it matters"), markdown(guide.why),
+    ? h("div", { class: "learn-detail" },
+      // GD-03: how important the rule is and its area, one tag row. A label only: severity and policies decide.
+      guide.importance ? h("span", { class: `badge learn-importance ${guide.importance.toLowerCase()}`,
+        "aria-label": `Importance: ${[guide.importance, guide.area].filter(Boolean).join(", ")}`, title: LEARN_IMPORTANCE[guide.importance] || null },
+      [guide.importance, guide.area].filter(Boolean).join(" · ")) : null,
+      h("b", {}, "Why it matters"), markdown(guide.why),
+      // What to do: the guide's own instruction where it has one, otherwise the principle behind the rule.
+      guide.instead || guide.principle ? [h("b", {}, "What to do"), markdown(guide.instead || guide.principle)] : null,
       guide.fine ? [h("b", {}, "When it's fine"), markdown(guide.fine)] : null,
-      guide.instead ? [h("b", {}, "Do this instead"), markdown(guide.instead)] : null,
-      h("span", { class: "muted-text small" }, "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
+      guide.check ? [h("b", {}, "How to check"), markdown(guide.check)] : null,
+      h("span", { class: "muted-text small" }, (guide.importance ? "Importance is the guide's view. The severity and your organization's policies decide what's flagged and required. " : "")
+        + "From the best-practices guide that ships with KratosForge. Nothing is sent anywhere."))
     : h("div", { class: "learn-detail" }, h("b", {}, "Before"), h("pre", { class: "learn-code before" }, guide.before),
       h("b", {}, "After"), h("pre", { class: "learn-code after" }, guide.after),
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(guide.after)
@@ -409,7 +425,18 @@ function learnFixPreview(f, ctx, key) {
     learnDetail.set(key, null); learnFixCompare.delete(key); learnRedraw(ctx, focusKey("fix"));
   };
   const running = cmp?.state === "running";
-  const apply = () => { if (ctx.fix.apply(f)) { learnDetail.delete(key); learnFixCompare.delete(key); } };
+  const apply = () => {
+    if (!ctx.fix.apply(f)) return;
+    learnDetail.delete(key); learnFixCompare.delete(key);
+    learnRedraw(ctx);  // Ctrl+Z can bring the same finding back: its buttons start closed, not from this preview
+    // GD-06: a fix applied after Compare found the same rows goes in Profile; the engine compares again first.
+    const runs = cmp?.state === "done" && cmp.result.result === "match" ? cmp.result.runs : null;
+    if (runs) {
+      rpc("learn_fix_checked", { before: runs.before, after: runs.after, rule_id: f.rule_id }).then((out) => {
+        if (out.recorded) toast(`Applied the fix for ${f.rule_id}. Ctrl+Z undoes it. Profile records it as fixed and checked.`);
+      }, () => {});  // Profile is a record, never a reason for Apply to fail
+    }
+  };
   const canCompare = ctx.fix.canCompare(f);
   const done = cmp?.state === "done";
   return h("div", { class: "learn-detail learn-fix" },

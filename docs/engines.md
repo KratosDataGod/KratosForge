@@ -41,7 +41,7 @@ APIs and clients, and stay Preview until they have.
 | Apache Spark (this PC) | This PC | none yet | none yet | | | | Nothing | Planned |
 | Fabric Spark (remote) | A Spark session on your Fabric capacity | PySpark, Python, Spark SQL, Scala native | Spark SQL native | Native | No (df.explain) | No | Partial (SQL cells) | Fabric capacity | Preview, tested against fakes |
 | Databricks Connect (remote) | Your Databricks cluster (Python on this PC) | PySpark native; Python partial | (use spark.sql) | Partial (Spark jobs) | No (df.explain) | No | No | DBUs | Preview, tested against fakes |
-| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | No | DBUs | Preview, tested against fakes |
+| Databricks SQL warehouse (remote) | Your Databricks SQL warehouse | SQL | Databricks SQL native | Native | Partial (EXPLAIN on the warehouse) | No | Partial (up to 25 MB) | DBUs | Preview, tested against fakes |
 | Snowflake SQL (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
 | Snowpark (this PC, simulated) | This PC, its own process | none yet | none yet | | | | Nothing | Planned |
 | Snowpark Connect (remote) | Your Snowflake warehouse | none yet | none yet | | | | Snowflake credits | Planned, Preview |
@@ -89,10 +89,11 @@ The same session rules apply as for any DuckDB cell (no files, extensions or net
 shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions; each probe statement is a test.
+and DuckDB versions, and from 114 function checks against Snowflake's documented values (below);
+each is a test.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.10.1.
+Rules 2026.10.2.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -100,12 +101,15 @@ Rules 2026.10.1.
 | SFX-002 | Rewritten | TO_VARCHAR and TO_CHAR with a date or time format written in the query become strftime. Elements with no equivalent (quarter, week) aren't rewritten. |
 | SFX-003 | Runs only in Snowflake | TO_VARCHAR and TO_CHAR with a number format. |
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
+| SFX-005 | Rewritten | A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless its alias names the columns. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
-| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. |
+| SFD-003 | Runs, with a difference: Division returns DOUBLE | DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Dividing by zero gives infinity or NULL here, where Snowflake stops with an error. |
 | SFD-004 | Runs, with a difference: Local time zone is this PC's | TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter. |
 | SFD-005 | Runs, with a difference: FLATTEN rows and keys | FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for array elements (Snowflake gives NULL) and PATH is written differently. |
+| SFD-006 | Runs, with a difference: Date arithmetic on a DATE returns a TIMESTAMP | DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. |
+| SFD-007 | Runs, with a difference: TYPEOF names DuckDB's types | TYPEOF gives Snowflake's VARIANT type names (INTEGER, VARCHAR, OBJECT...); here it gives DuckDB's (JSON for a parsed value). |
 | SFN-001 | Runs only in Snowflake | Streams. |
 | SFN-002 | Runs only in Snowflake | Tasks. |
 | SFN-003 | Runs only in Snowflake | Dynamic tables (their SELECT can be tried on its own). |
@@ -120,6 +124,27 @@ Rules 2026.10.1.
 | SFN-012 | Runs only in Snowflake | Cortex AI functions. |
 | SFN-013 | Runs only in Snowflake | TIMESTAMP_TZ text with an offset after a space; DuckDB reads it as a time zone name. |
 | SFN-099 | Runs only in Snowflake | Any other Snowflake command sqlglot can't read as a statement. |
+
+### Snowflake functions checked value by value
+
+Each check runs a Snowflake function through the same rules and DuckDB and compares the answer
+with the value Snowflake's SQL reference documents for it. A function that answers differently is
+always labelled as a difference when it runs, never as translated.
+
+<!-- Generated from snowflake_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
+Of 114 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
+
+| Function | Group | On this PC | What to know |
+| --- | --- | --- | --- |
+| `SOUNDEX` | String | Runs only in Snowflake | The rules have no DuckDB rewrite for it, so the cell runs only in Snowflake (SFX-000). |
+| `/ (by zero)` | Numeric | Different result | Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
+| `DATE_TRUNC (DATE)` | Date and time | Different result | The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006). |
+| `DATEADD (DATE, month end)` | Date and time | Different result | The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006). |
+| `TYPEOF` | Semi-structured | Different result | It names DuckDB's type (JSON), not Snowflake's VARIANT type (SFD-007). |
+| `RATIO_TO_REPORT` | Aggregate | Doesn't run | DuckDB has no RATIO_TO_REPORT; write x / SUM(x) OVER () instead. |
+| `HAVERSINE` | Geospatial | Doesn't run | DuckDB has no HAVERSINE outside its spatial extension, which this PC's sessions don't load. |
+
+These 107 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `IS_NULL_VALUE`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `APPROX_COUNT_DISTINCT`, `STDDEV_SAMP`.
 
 ## Databricks SQL warehouse (Preview)
 
@@ -143,9 +168,26 @@ warehouse. **Plan** runs EXPLAIN on the warehouse.
   write and test a warehouse query against local tables without starting the warehouse. Unity
   Catalog three-part names need that catalog and schema in the local session, and Delta-only
   commands don't run there.
+- **Busy or briefly unavailable:** checking on a statement, and cancelling one, is tried up to four
+  times through throttling (HTTP 429), gateway errors (502, 503, 504) and a dropped connection,
+  waiting as Databricks' `Retry-After` says (at most 30 seconds in all). A statement is sent again
+  only after a 429, because the warehouse turned it away unread; after any other failure it is never
+  resent, so it can't run twice. An error after the last try says how many times it was tried.
+- **If the connection stays down mid-cell:** the statement is cancelled on the warehouse, so it doesn't
+  keep the warehouse busy with no one watching. If the cancel can't get through either, the error
+  says the statement may still be running; stop it in Databricks' query history. The two-hour limit
+  and a **Cancel** pressed while the statement is being sent report the same way: "stopped" only
+  when the warehouse accepted the cancel.
 - **Limits:** a statement still running after two hours is cancelled. Results come back inline, so the warehouse refuses one over 25 MB (add a LIMIT), and
   only the first result chunk is previewed. Billed DBUs are in Databricks' system billing tables,
   per warehouse and hour, so the engine reports measured seconds only.
+- **Whole results, to compare engines.** When a comparison asks for the whole result, the cell's last
+  statement runs with a row limit one above the rows asked for, and every result chunk is read in
+  order. Values are typed from the warehouse's schema: numbers, decimals, booleans, strings, dates
+  and timestamps (read as UTC, kept without a zone, as the Fabric Spark engine keeps them). Arrays,
+  maps, structs, binary and intervals come back as text, and the output names those columns. More
+  rows than asked for is an error, never a cut table. The rows are copied onto this PC, so a
+  comparison asks for them only after its own confirm.
 
 ### Databricks SQL functions on this PC
 
@@ -156,18 +198,13 @@ here or below hasn't been checked.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
 
-Of 139 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
+Of 150 checks on commonly used Databricks SQL built-in functions, these are the functions the DuckDB engine doesn't answer the same way.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `format_number` | String | Doesn't run | DuckDB has no format_number; use printf or format. |
-| `soundex` | String | Doesn't run | DuckDB has no soundex. |
-| `bround` | Math | Doesn't run | DuckDB has no banker's rounding function. |
-| `conv` | Math | Doesn't run | DuckDB has no base conversion function. |
-| `exists` | Array and map | Doesn't run | The lambda isn't translated to DuckDB's syntax. |
 | `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
 
-These 133 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `levenshtein`, `abs`, `round`, `round (negative half)`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`.
+These 149 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`.
 
 ## Databricks workspace discovery (Preview)
 
@@ -231,8 +268,10 @@ the rest of the cell's Python runs on this PC.
 
 Cells can run in an interactive Spark session in your Fabric workspace, on a lakehouse you pick,
 through Fabric's Livy API with your own Fabric sign-in. PySpark, Python, Spark SQL and Scala cells
-run in the same session, as in a Fabric notebook. Each cell is sent once and never retried, so it
-can't run twice. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
+run in the same session, as in a Fabric notebook. A cell is sent again only when Fabric turns it
+away as busy (HTTP 429) before accepting it, so it can't run twice; checking on a cell, cancelling it
+and closing the session are tried up to four times through throttling, gateway errors and a dropped
+connection, within 30 seconds of waiting. **Cancel** cancels the running statement in Fabric, and closing the session ends it.
 
 - **It uses Fabric capacity** for as long as the session is open, including while it sits idle,
   until you close it or Fabric ends it. A session opens only after your confirmation for that
@@ -240,7 +279,10 @@ can't run twice. **Cancel** cancels the running statement in Fabric, and closing
   from KratosForge.
 - **Limits:** output arrives when the cell finishes; notebookutils and %magics are Fabric notebook
   features a Livy session doesn't fully have; capacity use is in the Fabric Capacity Metrics app, not
-  per cell. A cell still running after two hours is cancelled.
+  per cell. A cell still running after two hours is cancelled. If the connection stays down mid-cell,
+  the cell is cancelled in Fabric. If that cancel, the two-hour limit's cancel, or a **Cancel**
+  pressed while the cell is being sent can't get through, the error says the cell may still be
+  running, so stop it from the Monitor hub or close the session.
 
 ## Switching engines
 

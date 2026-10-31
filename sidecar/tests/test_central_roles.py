@@ -266,6 +266,39 @@ def test_a_role_write_succeeds_for_someone_with_the_role(seeded, tmp_path, op, a
     assert _dump(path) != before
 
 
+# Writes deliberately left off the audit trail, each with why. A role write that's neither audited nor
+# listed here fails the test below: Platform > Govern > Audit says it holds every change (#1194).
+NOT_AUDITED: dict[str, str] = {}
+
+
+@pytest.mark.parametrize("op,allowed,args", ROLE_WRITES, ids=[r[0] for r in ROLE_WRITES])
+def test_every_role_write_leaves_an_audit_row_naming_who_made_it(seeded, tmp_path, op, allowed, args):
+    path = _copy(seeded, tmp_path)
+    db = _db(path)
+    kwargs = args(db)
+    db.conn.close()
+    platform = LocalPlatform(path, lambda: allowed)
+    before = {row["id"] for row in platform.call("audit", limit=100_000)}
+    platform.call(op, **kwargs)
+    added = [row for row in platform.call("audit", limit=100_000) if row["id"] not in before]
+    if op in NOT_AUDITED:
+        assert not added, f"{op} is audited now: take it off NOT_AUDITED"
+        return
+    assert added, f"{op} changed the platform without an audit row"
+    assert {row["by_user"] for row in added} == {allowed}
+
+
+def test_withdrawing_a_request_is_on_the_audit_trail(seeded, tmp_path):
+    path = _copy(seeded, tmp_path)
+    db = _db(path)
+    rid = _requests(db)["key_table"]
+    db.conn.close()
+    platform = LocalPlatform(path, lambda: REQUESTER)
+    platform.call("withdraw_request", id=rid)
+    [row] = [r for r in platform.call("audit", limit=5) if r["action"].startswith("withdrew")]
+    assert row["action"] == "withdrew key_table" and row["by_user"] == REQUESTER and rid in row["detail"]
+
+
 def test_the_platform_s_own_lists_of_reads_and_repeatable_operations_match_these():
     assert core.READ_OPERATIONS == set(READS)
     assert core.REPEATABLE_OPERATIONS <= set(ANYONE)

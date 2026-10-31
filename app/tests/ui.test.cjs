@@ -5648,3 +5648,21 @@ test("declining a domain request whose domain was made says where it is", () => 
   assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
     ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
 });
+
+// #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
+test("declining a workspace access request says whether its approval gave, raised or kept the role", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (made) => JSON.parse(JSON.stringify(box.result({ kind: "workspace_access",
+    detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { email: "dev@contoso.com" }, made } })));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ assigned: true, change: "gave", from: "" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
+  const careful = ["dev@contoso.com keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"];
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }), careful);
+  assert.deepStrictEqual(left({ assigned: true }), careful, "a request recorded before #1207");
+});

@@ -8,7 +8,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, settleForAxe } = require("./harness.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
@@ -205,6 +205,7 @@ test("the Run stale cells dialog has no serious axe findings", { skip: skip || (
   const dialog = page().locator("#dialog-root .dialog");
   await dialog.waitFor();
   assert.match(await dialog.innerText(), /Run 3 stale cells\?/);
+  await settleForAxe(page());
   await page().addScriptTag({ content: axeSource });
   const found = await page().evaluate(async () => {
     const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });

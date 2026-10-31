@@ -266,3 +266,125 @@ def test_a_long_reason_still_makes_the_copy_job_with_its_marker(svc, who, api):
     description = api.items[0]["description"]
     assert len(description) <= 256 and description.endswith(f" (KratosForge request {req['id']})")
     assert description.startswith("Lands erp in the landing zone.") and other["id"] not in description
+
+
+# --------------------------------------------------------------------------- deleting a source with a Copy job (#1311)
+
+
+def test_a_source_whose_copy_job_is_still_in_fabric_is_not_deleted(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    with pytest.raises(core.PlatformError) as err:
+        svc.platform_delete_source("erp")
+    assert str(err.value) == ("erp has the Copy job CJ_Landing_erp in the landing workspace, on its schedule: "
+                              "delete it in Fabric first, then delete the source")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+    assert [c[0] for c in api.calls] == ["save_item", "create_schedule"]  # nothing changed in Fabric
+    assert "cj-1" in {i["id"] for i in api.items}
+
+
+def test_once_the_copy_job_is_deleted_in_fabric_the_source_deletes(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    api.items.clear()  # an admin deleted CJ_Landing_erp in Fabric
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+def test_a_source_without_a_copy_job_deletes_as_before(svc, who, api):
+    who["user"] = DEV
+    req = svc.platform_request("source", "shopify", "Orders from the shop")
+    who["user"] = ADMIN
+    svc.platform_decide(req["id"], True)
+    api.list_items = None  # Fabric isn't read: there's no job to ask about
+    assert all(s["name"] != "shopify" for s in svc.platform_delete_source("shopify"))
+
+
+def test_a_copy_job_a_withdrawn_request_made_still_holds_the_source(svc, who, api):
+    req = ask(svc, who)
+    api.fail["create_schedule"] = 1
+    with pytest.raises(StepError):
+        svc.platform_decide(req["id"], True)  # the job is made, its schedule isn't
+    svc.platform_save_source({"name": "erp"})
+    svc.platform_decide(req["id"], False, "Not now")
+    with pytest.raises(core.PlatformError, match="has the Copy job CJ_Landing_erp"):
+        svc.platform_delete_source("erp")
+
+
+def test_when_fabric_cant_be_read_the_source_is_kept(svc, who, api, monkeypatch):
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def down(workspace_id):
+        raise RuntimeError("Fabric is unreachable")
+    monkeypatch.setattr(api, "list_items", down)
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job CJ_Landing_erp is still"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+def test_someone_who_isnt_an_admin_is_refused_as_before_without_hearing_of_the_job(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    who["user"] = DEV
+    with pytest.raises(Exception) as err:
+        svc.platform_delete_source("erp")
+    assert "Copy job" not in str(err.value) and "admin" in str(err.value).lower()
+
+
+def test_once_the_landing_workspace_is_deleted_the_source_deletes(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def gone(workspace_id):
+        raise FabricError("The requested workspace was not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", gone)
+    monkeypatch.setattr(type(svc), "_fabric_admin", lambda self, write=False: AdminApi({"state": "Deleted"}))
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+class AdminApi:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def admin_get_workspace(self, workspace_id):
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return dict(self.answer, id=workspace_id)
+
+
+@pytest.mark.parametrize("admin", [
+    {"state": "Active"},  # there, only not for this admin: a non-member's 404
+    "forbidden",          # not a Fabric admin, so it can't be confirmed
+])
+def test_a_not_found_the_admin_api_doesnt_confirm_keeps_the_source(svc, who, api, monkeypatch, admin):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def not_found(workspace_id):
+        raise FabricError("The requested workspace was not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", not_found)
+    answer = FabricError("Forbidden", code="InsufficientPrivileges", status=403) if admin == "forbidden" else admin
+    monkeypatch.setattr(type(svc), "_fabric_admin", lambda self, write=False: AdminApi(answer))
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+def test_the_admin_api_not_finding_the_workspace_either_lets_the_source_go(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def not_found(workspace_id):
+        raise FabricError("not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", not_found)
+    monkeypatch.setattr(type(svc), "_fabric_admin",
+                        lambda self, write=False: AdminApi(FabricError("not found", code="WorkspaceNotFound", status=404)))
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+def test_no_access_to_the_landing_workspace_keeps_the_source(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def denied(workspace_id):
+        raise FabricError("Forbidden", code="InsufficientPrivileges", status=403)
+    monkeypatch.setattr(api, "list_items", denied)
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())

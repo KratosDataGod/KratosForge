@@ -353,3 +353,37 @@ def test_values_in_from_get_snowflakes_column_names_and_an_aliased_list_keeps_it
     con.execute("create table iv(a int, b varchar)")
     con.execute(sf.translate("insert into iv values (1, 'z')").duckdb_sql)  # INSERT ... VALUES is left alone
     assert con.execute("select * from iv").fetchall() == [(1, "z")]
+
+
+def test_ratio_to_report_is_the_value_over_its_partitions_sum_and_null_when_that_sum_is_0():
+    con = duckdb.connect()
+    for statement in SETUP:
+        con.execute(statement)
+    sql = sf.translate("select id, ratio_to_report(amt) over (partition by grp order by id) r from t "
+                       "order by id").duckdb_sql
+    assert "ORDER BY id)" not in sql  # the window's ORDER BY doesn't change the result, so it's dropped
+    assert [round(r, 9) for _, r in con.execute(sql).fetchall()] == [round(10 / 30, 9), round(20 / 30, 9), 1.0]
+    sql = sf.translate("select ratio_to_report(x) over () from values (1), (-1), (null) as v(x)").duckdb_sql
+    assert con.execute(sql).fetchall() == [(None,)] * 3
+
+
+@pytest.mark.parametrize("code", [
+    "select ratio_to_report(amt) over (order by id rows between unbounded preceding and current row) from t",
+    "select ratio_to_report(amt, id) over () from t",
+    "select haversine(1, 2, 3) from t",
+])
+def test_ratio_to_report_and_haversine_refuse_shapes_snowflake_does_not_allow(code):
+    translation = sf.translate(code)
+    assert not translation.runnable
+    assert translation.first_refusal()
+
+
+def test_haversine_is_kilometres_on_a_6371_km_sphere_and_reads_columns():
+    con = duckdb.connect()
+    sql = sf.translate("select haversine(40.7127, -74.0059, 34.0500, -118.2500)").duckdb_sql
+    assert round(con.execute(sql).fetchone()[0], 9) == 3936.385096389  # Snowflake's docs example
+    con.execute("create table p(a_lat int, a_lon int, b_lat int, b_lon int)")
+    con.execute("insert into p values (0, 0, 0, 180), (0, 0, 0, 0), (null, 0, 0, 0)")
+    sql = sf.translate("select haversine(a_lat, a_lon, b_lat, b_lon) from p").duckdb_sql
+    got = [r[0] for r in con.execute(sql).fetchall()]
+    assert round(got[0], 6) == round(3.141592653589793 * 6371, 6) and got[1] == 0 and got[2] is None

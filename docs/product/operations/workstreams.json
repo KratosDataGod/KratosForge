@@ -37,8 +37,8 @@
       },
       "ready": [
         {
-          "issue": 1273,
-          "title": "Hardening: the compute check follows %run and notebook.run into the notebooks on this PC"
+          "issue": 1288,
+          "title": "Hardening: the compute check reads notebook.run's own lakehouse, runMultiple's named notebooks, and %run -b Python files"
         }
       ],
       "backlog": [
@@ -52,7 +52,7 @@
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; #1273 next, and file the next pipeline and engine hardening stories."
+      "next_action": "Keep PB-015 moving; #1288 next, and file the next engine hardening stories."
     },
     {
       "key": "fabric",
@@ -71,12 +71,14 @@
       ],
       "active": {
         "issue": 1178,
-        "title": "Every Fabric fake refuses what the live runs showed the real API refuses"
+        "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
+        "note": "Built as #1246; merges after #1166."
       },
       "ready": [
         {
           "issue": 1165,
-          "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")"
+          "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")",
+          "note": "Fixed by #1166, PASS, with Release management."
         }
       ],
       "backlog": [
@@ -94,7 +96,7 @@
         "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
       "last_completed": "#1179 KQL Monitoring query retries throttling, 5xx and dropped connections",
-      "next_action": "#1178 fakes match the live API; #1165 UDF_Platform setup; file the next hardening stories."
+      "next_action": "Land #1166 and #1246; file the next Fabric hardening stories."
     },
     {
       "key": "dbx-snow",
@@ -105,11 +107,7 @@
       "members": [
         "Snowflake local-first development (to be opened)"
       ],
-      "active": {
-        "issue": 1278,
-        "title": "[DBX-HARDEN] A Databricks preview never pads a broken row with NULLs",
-        "note": "Built as #1279, in quality."
-      },
+      "active": {},
       "ready": [],
       "backlog": [],
       "dependencies": [
@@ -121,7 +119,7 @@
         "Databricks live runs need a workspace and Chris's yes"
       ],
       "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
-      "next_action": "Land #1279; file the next Databricks and Snowflake fidelity stories."
+      "next_action": "File and start the next Databricks and Snowflake fidelity or hardening stories."
     },
     {
       "key": "enterprise",
@@ -134,23 +132,20 @@
         "Workload management workspace"
       ],
       "active": {
-        "issue": 1260,
-        "title": "[HD] A shortcut request records the shortcut its approval made, so a decline says it is still in OneLake",
-        "note": "Built as #1265, with Release management."
+        "issue": 1261,
+        "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric",
+        "note": "Built as #1267, with Release management."
       },
       "ready": [
         {
-          "issue": 1261,
-          "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric",
-          "note": "Built as #1267 (stacked on #1265), with Release management."
-        },
-        {
           "issue": 1269,
-          "title": "[HD] A long request target never cuts off what a notice says is left in Fabric"
+          "title": "[HD] A long request target never cuts off what a notice says is left in Fabric",
+          "note": "Built as #1308 (stacked on #1267), in review."
         },
         {
           "issue": 1270,
-          "title": "[HD] A domain approval retried after its progress record failed still records the domain it made"
+          "title": "[HD] A domain approval retried after its progress record failed still records the domain it made",
+          "note": "Built as #1309 (stacked on #1267), in review."
         }
       ],
       "backlog": [
@@ -166,7 +161,7 @@
         "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
       "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "Land #1265 and #1267; then #1269 and #1270."
+      "next_action": "Land #1267, #1308 and #1309; file the next hardening stories."
     },
     {
       "key": "devex",
@@ -179,7 +174,11 @@
         "Make every screen action-first",
         "Run continuous product management"
       ],
-      "active": {},
+      "active": {
+        "issue": 1284,
+        "title": "Accessibility audit covers Preview screens and common dialogs",
+        "note": "Five screens merged in #1294; the engine picker dialog follows #1184."
+      },
       "ready": [],
       "backlog": [
         "PB-087",
@@ -188,7 +187,7 @@
       "dependencies": [],
       "blockers": [],
       "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
-      "next_action": "File and start the next browser, accessibility or test story."
+      "next_action": "File and start the next browser, accessibility or test stories."
     },
     {
       "key": "platform",
@@ -202,20 +201,8 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {
-        "issue": 1252,
-        "title": "[Platform] Every sqlglot version pyproject allows passes the engine tests"
-      },
-      "ready": [
-        {
-          "issue": 1253,
-          "title": "[Platform] Spark SQL that can't be translated exactly is refused, not answered differently"
-        },
-        {
-          "issue": 1264,
-          "title": "[Platform] Query profile reads DuckDB 2.0's profiler output"
-        }
-      ],
+      "active": {},
+      "ready": [],
       "backlog": [
         "PB-061"
       ],
@@ -227,7 +214,7 @@
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
       "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
-      "next_action": "#1252, then #1253."
+      "next_action": "File and start the next two hardening stories."
     }
   ],
   "new_stories": {},

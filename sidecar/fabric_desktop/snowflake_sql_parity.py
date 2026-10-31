@@ -105,8 +105,12 @@ CASES: tuple[Case, ...] = (
     _c("ASCII", "String", "SELECT ascii('A')", 65),
     _c("CHR", "String", "SELECT chr(65)", "A"),
     _c("EDITDISTANCE", "String", "SELECT editdistance('kitten', 'sitting')", 3),
-    _c("SOUNDEX", "String", "SELECT soundex('Miller')", "M460", "untranslated",
-       "The rules have no DuckDB rewrite for it, so the cell runs only in Snowflake (SFX-000)."),
+    _c("SOUNDEX", "String", "SELECT soundex('Miller')", "M460"),
+    _c("SOUNDEX (same code for similar names)", "String", "SELECT soundex('Rupert')", "R163"),
+    _c("SOUNDEX (adjacent same codes)", "String", "SELECT soundex('Tymczak')", "T522"),
+    _c("SOUNDEX (first letter's code)", "String", "SELECT soundex('Pfister')", "P236"),
+    _c("SOUNDEX (H between same codes)", "String", "SELECT soundex('Ashcraft')", "A261"),
+    _c("SOUNDEX (padded with zeros)", "String", "SELECT soundex('Lee')", "L000"),
     _c("MD5", "String", "SELECT md5('a')", "0cc175b9c0f1b6a831c399e269772661"),
     _c("SHA2 (256 by default)", "String", "SELECT sha2('a')",
        "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"),
@@ -176,9 +180,20 @@ CASES: tuple[Case, ...] = (
     _c("APPROX_COUNT_DISTINCT", "Aggregate", f"SELECT approx_count_distinct(x) FROM {_values(1, 1, 2)}", 2),
     _c("STDDEV_SAMP", "Aggregate", f"SELECT stddev_samp(x) FROM {_values(1, 3)}", 2 ** 0.5, page="stddev_samp"),
     _c("RATIO_TO_REPORT", "Aggregate", f"SELECT ratio_to_report(x) OVER () FROM {_values(1, 3)} ORDER BY x LIMIT 1",
-       0.25, "error", "DuckDB has no RATIO_TO_REPORT; write x / SUM(x) OVER () instead."),
-    _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0, "error",
-       "DuckDB has no HAVERSINE outside its spatial extension, which this PC's sessions don't load."),
+       0.25),
+    _c("RATIO_TO_REPORT (docs example)", "Aggregate",
+       f"SELECT ratio_to_report(x) OVER (ORDER BY x) FROM {_values(300, 250, 450, 'NULL')} "
+       "ORDER BY x DESC NULLS LAST LIMIT 1", 0.45),
+    _c("RATIO_TO_REPORT (null value)", "Aggregate",
+       f"SELECT ratio_to_report(x) OVER () FROM {_values(300, 'NULL')} ORDER BY x NULLS FIRST LIMIT 1", None),
+    _c("RATIO_TO_REPORT (sum is 0)", "Aggregate", f"SELECT ratio_to_report(x) OVER () FROM {_values(1, -1)} LIMIT 1",
+       None),
+    _c("RATIO_TO_REPORT (by partition)", "Aggregate",
+       "SELECT ratio_to_report(column2) OVER (PARTITION BY column1) FROM VALUES ('a', 2), ('a', 3), ('b', 7) "
+       "ORDER BY column1, column2 LIMIT 1", 0.4),
+    _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0),
+    _c("HAVERSINE (docs example)", "Geospatial", "SELECT haversine(40.7127, -74.0059, 34.0500, -118.2500)",
+       3936.385096389, page="haversine"),
 )
 
 

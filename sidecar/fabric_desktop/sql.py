@@ -42,11 +42,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
-            raise ValueError(f"Could not read the query: {first_error}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
             statements = sqlglot.parse(query, read="duckdb")
         except ParseError:
-            raise ValueError(f"Could not read the query: {first_error}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     statements = [s for s in statements if s is not None]
     if not statements:
         raise ValueError("The query is empty.")
@@ -162,6 +162,27 @@ def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
     return cast(exp.Expression, sqlglot.parse_one(template.format(*(duckdb_sql(a) for a in args)), read="duckdb"))
 
 
+# sqlglot 30.24 folded SortArray into ArraySort, which then carries asc and nulls_first itself.
+_SORTS = tuple(c for c in (getattr(exp, "SortArray", None), exp.ArraySort) if c is not None)
+
+
+def _sort_nulls_first(node: exp.Expression) -> bool | None:
+    """Where Spark puts NULL for this sort: sort_array first when ascending and last when descending,
+    array_sort last. None for an array_sort with a comparator, which keeps sqlglot's translation."""
+    asc = node.args.get("asc")
+    if asc is not None and not isinstance(asc, exp.Boolean):
+        return None
+    up = asc is None or asc.this
+    if "nulls_first" in node.args:  # 30.24 and later: sqlglot already says which Spark function it was
+        if isinstance(node, exp.ArraySort) and node.expression is not None:
+            return None
+        flag = node.args.get("nulls_first")
+        return bool(flag.this) if isinstance(flag, exp.Boolean) else False
+    if isinstance(node, exp.ArraySort):
+        return None if node.expression is not None else False
+    return up  # SortArray before 30.24
+
+
 def _spark_functions(statement: exp.Expression) -> exp.Expression:
     """Spark functions DuckDB answers differently, rewritten to answer as Spark does (#1105):
     dayofweek counts Sunday as 1, sort_array puts NULL first ascending and last descending,
@@ -170,23 +191,20 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     next_day take text, pmod moves a negative remainder by the divisor, and bround, conv, soundex,
     format_number and exists (with a lambda) are written in DuckDB SQL (#1168). Deepest first, so a rewritten argument is
     written out already rewritten."""
-    found = list(statement.find_all(exp.DayOfWeek, exp.SortArray, exp.ArraySort, exp.Quantile, exp.ArrayDistinct,
+    found = list(statement.find_all(exp.DayOfWeek, *_SORTS, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
                                     exp.Anonymous))
     for node in reversed(found):
         if isinstance(node, exp.DayOfWeek):
             node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
-        elif isinstance(node, exp.SortArray):
-            asc = node.args.get("asc")
-            if asc is None or isinstance(asc, exp.Boolean):
+        elif isinstance(node, _SORTS):
+            nulls_first = _sort_nulls_first(node)
+            if nulls_first is not None:
+                asc = node.args.get("asc")
                 up = asc is None or asc.this
                 node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
                     node.this, exp.Literal.string("ASC" if up else "DESC"),
-                    exp.Literal.string("NULLS FIRST" if up else "NULLS LAST")]))
-        elif isinstance(node, exp.ArraySort):
-            if node.expression is None:  # array_sort with a comparator keeps sqlglot's translation
-                node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
-                    node.this, exp.Literal.string("ASC"), exp.Literal.string("NULLS LAST")]))
+                    exp.Literal.string("NULLS FIRST" if nulls_first else "NULLS LAST")]))
         elif isinstance(node, exp.Quantile):
             node.replace(exp.Anonymous(this="QUANTILE_CONT", expressions=[node.this, node.args["quantile"]]))
         elif isinstance(node, exp.ArrayDistinct):
@@ -278,7 +296,7 @@ _SLICE_LENGTH = "Unexpected value for length in function slice: length must be g
 
 # Functions this module rewrites into longer DuckDB SQL; a select of one keeps the name Spark gives it.
 _REWRITTEN = (exp.IgnoreNulls, exp.AddMonths, exp.StrToUnix, exp.Substring, exp.ArraySlice, exp.MonthsBetween,
-              exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.DayOfWeek, exp.SortArray, exp.ArraySort,
+              exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc, exp.DayOfWeek, *_SORTS,
               exp.Quantile, exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay)
 
 

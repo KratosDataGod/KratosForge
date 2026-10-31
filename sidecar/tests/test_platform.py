@@ -665,6 +665,13 @@ def test_requests_for_key_tables_sources_and_access(platform):
     with pytest.raises(core.PlatformError, match="owner or a platform admin"):
         ana.call("revoke_grant", product_id="crm/c360", project="ledger")
     assert bo.call("revoke_grant", product_id="crm/c360", project="ledger") == []
+    # Taking it away again finds nothing to take: it says so and the audit trail gains no second revoke (#1237).
+    revokes = len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"])
+    with pytest.raises(core.PlatformError, match="ledger has no access to crm/c360 to take away"):
+        bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"]) == revokes == 1
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):  # the role check comes first
+        ana.call("revoke_grant", product_id="crm/c360", project="nowhere")
 
     # Declined and withdrawn requests stay in the list with who and when.
     nope = ana.call("request", kind="key_table", target="vendor")

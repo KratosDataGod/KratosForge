@@ -33,6 +33,8 @@ import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
+
 
 def _duckdb(node: exp.Expr) -> str:
     """``node`` as DuckDB SQL, refused when sqlglot would leave part of it out (#1253)."""
@@ -190,7 +192,7 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {exc}") from None
+        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(tree, start)
     return (_duckdb(tree), found) if found else (sql, [])
 

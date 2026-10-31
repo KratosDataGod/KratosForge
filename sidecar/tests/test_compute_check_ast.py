@@ -110,3 +110,44 @@ def test_prove_validate_advice_and_the_risk_check_read_the_same_unknown():
     assert [f["outcome"] for f in alt] == [risk.UNKNOWN] and alt[0]["evidence"] == [f"Cell 2: {unknown['text']}"]
     here = risk.check_compatibility({"where": "pc", "compatibility": compat})
     assert [f["outcome"] for f in here] == [risk.UNKNOWN]
+
+
+# ---- #1226: another notebook's cells, names inside f-strings, other names for the Spark session
+
+@pytest.mark.parametrize("sources, how", [
+    (("%run Helpers",), "%run"),
+    (("x = 1\n%run Helpers\ny = 2",), "%run"),
+    (("import notebookutils as nu\nnu.notebook.run('Child', 60)",), "notebook.run"),
+    (("from notebookutils import notebook", "notebook.runMultiple(['a', 'b'])"), "notebook.runMultiple"),
+    (("from notebookutils import mssparkutils\nmssparkutils.notebook.run('Child')",), "notebook.run"),
+])
+def test_a_cell_that_runs_another_notebook_is_unknown_on_both_sides(sources, how):
+    out = check(*sources)
+    for side in ("local", "fabric"):
+        assert out[side]["status"] == "unknown" and not out[side]["ok"], side
+        assert out[side]["unknown"][0]["text"] == f"runs another notebook ({how}), whose cells this check doesn't read"
+        assert out[side]["unknown"][0]["cell"] == len(sources)
+
+
+def test_a_name_inside_an_f_string_is_read_through_its_string_values():
+    merge = 'spark.sql(f"MERGE INTO {t} t USING s ON t.id = s.id WHEN MATCHED THEN DELETE")'
+    assert check("t = 'LH_Keys.keys.customer'", merge)["local"]["status"] == "blocked"
+    assert check("t = 'dbo.sales'", merge)["local"]["ok"]
+    assert check("t = 'dbo.sales'\nt = pick()", merge)["local"]["status"] == "unknown"
+    assert check("t = 7", merge)["local"]["status"] == "unknown"
+    assert check(merge.replace("{t}", "{t!r}"), "t = 'dbo.sales'")["local"]["status"] == "unknown"  # repr isn't the text
+
+
+@pytest.mark.parametrize("sources", [
+    ("from pyspark.sql import SparkSession\ns = SparkSession.builder.getOrCreate()", f"s.sql({MERGE_KEYS!r})"),
+    ("session = spark", f"session.sql({MERGE_KEYS!r})"),
+    ("session = spark\nother = session", f"other.sql({MERGE_KEYS!r})"),
+    (f"SparkSession.builder.appName('x').getOrCreate().sql({MERGE_KEYS!r})",),
+])
+def test_sql_on_another_name_for_the_spark_session_is_read_like_spark_sql(sources):
+    assert check(*sources)["local"]["status"] == "blocked"
+
+
+def test_sql_on_something_that_isnt_the_spark_session_is_left_alone():
+    assert check(f"db.sql({MERGE_KEYS!r})")["local"]["ok"]
+    assert check("s = spark\ns = make_db()", f"s.sql({MERGE_KEYS!r})")["local"]["ok"]

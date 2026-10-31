@@ -54,7 +54,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ErrorLevel, ParseError
 
-from . import sql_policy
+from . import sql_dialects, sql_policy
 
 KINDS = ("warehouse", "endpoint")  # a Data warehouse, or a lakehouse's SQL analytics endpoint
 HOST_SUFFIX = ".datawarehouse.fabric.microsoft.com"
@@ -161,7 +161,8 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     try:
         statements = [s for s in sqlglot.parse(query, read="tsql", error_level=ErrorLevel.RAISE) if s is not None]
     except ParseError as exc:
-        raise ValueError(f"The query couldn't be read as T-SQL, so it can't be shown to only read: {exc}") from None
+        raise ValueError("The query couldn't be read as T-SQL, so it can't be shown to only read: "
+                         + sql_dialects.parse_problem(exc)) from None
     if not statements:
         raise ValueError("The query is empty.")
     out = []

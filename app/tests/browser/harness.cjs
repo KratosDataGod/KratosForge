@@ -189,4 +189,11 @@ async function startupReads(app) {
   }
 }
 
-module.exports = { playwright, openApp, sqlRunMocks, startupReads };
+// Before axe looks: no motion, and no animation still running. Dialogs and panels fade in, and axe
+// measures contrast on the colors as drawn, so mid-way it sees faded text (#1297).
+async function settleForAxe(page) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForFunction(() => document.getAnimations().length === 0);
+}
+
+module.exports = { playwright, openApp, sqlRunMocks, startupReads, settleForAxe };

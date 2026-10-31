@@ -34,7 +34,7 @@ import sqlglot
 from sqlglot import exp
 
 
-def _duckdb(node: exp.Expression) -> str:
+def _duckdb(node: exp.Expr) -> str:
     """``node`` as DuckDB SQL, refused when sqlglot would leave part of it out (#1253)."""
     from .. import sql
     return sql.duckdb_sql(node)

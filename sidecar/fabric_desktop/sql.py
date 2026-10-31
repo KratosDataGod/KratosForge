@@ -345,10 +345,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             continue
         for key, refused, message in (("start", lambda n: n == 0, _SLICE_INDEX_0),
                                       ("end", lambda n: n < 0, _SLICE_LENGTH)):
-            value = part.args.get(key)
-            if value is None:
+            bound = part.args.get(key)
+            if bound is None:
                 continue
-            v = duckdb_sql(value)
+            v = duckdb_sql(bound)
             try:
                 if not refused(int(v)):
                     continue  # a whole number Spark takes
@@ -521,7 +521,7 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
-def duckdb_sql(statement: exp.Expression) -> str:
+def duckdb_sql(statement: exp.Expr) -> str:
     """``statement`` as DuckDB SQL. sqlglot leaves out what DuckDB has no way to say (such as
     array_sort's comparator) and only logs it, so the query would answer differently from Fabric;
     here that is a ValueError instead, and nothing runs (#1253)."""
@@ -585,8 +585,8 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     once the lakehouse tables are registered, so the query can't read local files, load
     extensions or reach the network (external AI tools, integrations/executions.py)."""
     if sandbox:
-        con, statement = prepare_sandboxed(query, dialect)
-        return con, con.execute(statement)
+        con, text = prepare_sandboxed(query, dialect)
+        return con, con.execute(text)
     con = _connect()
     views: dict[str, str] = {}
     result = None

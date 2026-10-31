@@ -1047,7 +1047,7 @@ class LocalEngine:
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
         keys = delta_dml.equi_keys(c)
-        if keys and any(w.match == "matched" for w in c.whens):
+        if keys and c.on is not None and any(w.match == "matched" for w in c.whens):
             # Spark refuses a MERGE in which one row of the table matches two source rows: which
             # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
             group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)

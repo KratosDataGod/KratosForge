@@ -49,6 +49,7 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow.ipc as ipc
 
     from . import lakehouse, sql, sql_policy
+    from .duckdb_rows import keep_try_cast
 
     lh = job["lakehouse"]
     lakehouse.attach(lakehouse.Attached(
@@ -69,7 +70,7 @@ def run(job: dict[str, Any]) -> None:
                      + _advice(stop.kind))
         return
 
-    con = duckdb.connect()
+    con = keep_try_cast(duckdb.connect())
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
         con.execute(f"SET memory_limit = '{int(job['memory_mb'])}MB'")

@@ -71,7 +71,7 @@ class Change:
         return any(w.match == "not_matched_by_source" and (w.condition is None or
                    not any(True for _ in w.condition.find_all(exp.Column))) for w in self.whens)
 
-    def source_sql(self, dialect: str = "duckdb") -> str:
+    def source_sql(self, dialect: Any = "duckdb") -> str:
         """The rows the MERGE reads, as a query in ``dialect``."""
         assert self.source is not None
         if isinstance(self.source, exp.Table):

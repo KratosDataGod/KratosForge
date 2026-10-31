@@ -16,6 +16,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from urllib.parse import quote
 
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
@@ -45,6 +46,8 @@ _log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# An email as Microsoft Entra takes it: one "@", a dotted domain, and no spaces, slashes or URL characters.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 
 
 def _guid(value: Any, what: str) -> str:
@@ -411,9 +414,10 @@ class EstateMixin:
         text = (text or "").strip()
         if _GUID.fullmatch(text):
             return {"id": text, "name": text, "email": "", "type": "Group"}
-        if "@" not in text:
+        if not _EMAIL.fullmatch(text):
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         if workspace_id:
+            _guid(workspace_id, "workspace")
             try:
                 assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001 - e.g. a Viewer can't list roles; try the directory
@@ -430,7 +434,7 @@ class EstateMixin:
                               "(Microsoft Entra admin center > Users).") from exc
         headers = {"Authorization": f"Bearer {token}"}
         http = http_session.session()
-        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{quote(text, safe='@')}",
                                                  params={"$select": "id,displayName,userPrincipalName,mail"},
                                                  headers=headers, timeout=30), "GET")
         if r.status_code == 404:

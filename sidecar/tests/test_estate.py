@@ -241,9 +241,9 @@ def test_access_by_email_needs_no_directory_permission(svc, monkeypatch):
     svc.access_set_role(WS_ID, role="Contributor", email="bo@contoso.com")
     assert posted == [(f"https://api.powerbi.com/v1.0/myorg/groups/{WS_ID}/users",
                        {"emailAddress": "bo@contoso.com", "groupUserAccessRight": "Contributor", "principalType": "User"})]
-    assert svc.access_find_person("ANA@contoso.com", workspace_id="ws1")["id"] == "oid-ana"
+    assert svc.access_find_person("ANA@contoso.com", workspace_id=WS_ID)["id"] == "oid-ana"
     with pytest.raises(LookupError, match="object ID"):
-        svc.access_find_person("bo@contoso.com", workspace_id="ws1")
+        svc.access_find_person("bo@contoso.com", workspace_id=WS_ID)
 
 
 WS_ID = "11111111-2222-3333-4444-555555555555"
@@ -258,6 +258,41 @@ def test_a_workspace_id_that_isnt_a_guid_never_reaches_a_url(svc, monkeypatch, b
         svc.access_set_role(bad, role="Viewer", email="bo@contoso.com")
     with pytest.raises(ValueError, match="workspace id"):
         svc._add_user_by_email(bad, "bo@contoso.com", "Viewer")
+
+
+@pytest.mark.parametrize("bad", ["bo", "bo@contoso", "bo@contoso.com/memberOf", "../me@contoso.com", "bo@contoso.com?$x=1",
+                                 "bo smith@contoso.com", "bo@contoso.com#x", "bo@@contoso.com", "bo@con\ntoso.com"])
+def test_find_person_takes_only_an_email_or_an_object_id(svc, monkeypatch, bad):
+    from fabric_desktop import estate_service
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: pytest.fail("nothing is sent"))
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))
+    with pytest.raises(ValueError, match="email"):
+        svc.access_find_person(bad, workspace_id=WS_ID)
+
+
+@pytest.mark.parametrize("bad", ["ws1", "../admin", f"{WS_ID}/users", f"{WS_ID}\n"])
+def test_find_person_checks_the_workspace_id(svc, monkeypatch, bad):
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))
+    with pytest.raises(ValueError, match="workspace id"):
+        svc.access_find_person("bo@contoso.com", workspace_id=bad)
+
+
+def test_find_person_escapes_the_email_in_the_directory_url(svc, monkeypatch):
+    from fabric_desktop import estate_service
+    asked = []
+
+    class Auth:
+        def _token(self, scopes):
+            return "tok"
+
+    def get(url, params, headers, timeout):
+        asked.append(url)
+        return types.SimpleNamespace(status_code=200, ok=True, json=lambda: {
+            "id": "oid-o", "displayName": "O'Brien", "userPrincipalName": "o'brien+kf@contoso.com", "mail": ""})
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: types.SimpleNamespace(get=get))
+    svc._auth = Auth()
+    assert svc.access_find_person("o'brien+kf@contoso.com")["id"] == "oid-o"
+    assert asked == ["https://graph.microsoft.com/v1.0/users/o%27brien%2Bkf@contoso.com"]
 
 
 @pytest.mark.parametrize("field", ["assignment_id", "principal_id"])

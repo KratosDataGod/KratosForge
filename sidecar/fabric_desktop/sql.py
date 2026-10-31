@@ -42,11 +42,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
-            raise ValueError(f"Could not read the query: {first_error}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
             statements = sqlglot.parse(query, read="duckdb")
         except ParseError:
-            raise ValueError(f"Could not read the query: {first_error}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
     statements = [s for s in statements if s is not None]
     if not statements:
         raise ValueError("The query is empty.")

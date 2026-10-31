@@ -1,0 +1,54 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-12",
+  "kind": "module",
+  "title": "Incremental loads: a watermark that misses nothing",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 20,
+  "objectives": [
+    "Say what a watermark is: the point the last load got up to",
+    "Pick a watermark column that only grows, so late rows aren't missed",
+    "Work out the next watermark from the rows you loaded, not from the clock"
+  ],
+  "prerequisites": ["LM-04", "LM-06"],
+  "platforms": ["DuckDB", "Python (DuckDB or Polars)", "Fabric notebooks", "Databricks"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "rows-to-load",
+      "prompt": "Return the rows this load should copy: every row in source_orders that arrived after the last load's watermark. Columns order_id, order_date, amount and arrived_at, smallest order_id first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "load_state holds one row: last_watermark, the arrived_at the last load got up to.",
+        "Order 1006 is dated 2026-04-01, before the watermark, but it arrived after it. Should this load copy it?",
+        "Filter on arrived_at, the column that only grows, and use > so the last load's rows aren't copied twice."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    },
+    {
+      "id": "next-watermark",
+      "prompt": "Return the watermark the next load should start from, as one row with one column, next_watermark: the latest arrived_at among the rows this load copies. If it copies nothing, keep last_watermark.",
+      "engine": "duckdb",
+      "starter": "starter_next.sql",
+      "solution": "solution_next.sql",
+      "hints": [
+        "The next load starts where this one ended: the newest arrived_at it copied.",
+        "now() is when the query ran, not when the data arrived. A row that lands while the load runs would be skipped for good.",
+        "coalesce(max(arrived_at), last_watermark) keeps the old watermark when there's nothing new."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://learn.microsoft.com/azure/data-factory/tutorial-incremental-copy-overview",
+           "https://duckdb.org/docs/stable/sql/statements/select"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-31"
+}

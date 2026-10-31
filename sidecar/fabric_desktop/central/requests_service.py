@@ -130,6 +130,14 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
         runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
         out.append(f"The Copy job {name}, made by this request, is still in the landing workspace{runs}: "
                    "delete it there if it isn't wanted")
+    elif kind == "shortcut" and made.get("shortcut_id"):
+        name, lakehouse = d.get("name") or req.get("target"), d.get("lakehouse_name") or "its lakehouse"
+        if made.get("found"):  # it was there already: possibly someone else's, so no removal advice
+            out.append(f"The shortcut {name} in {lakehouse} is in OneLake: it was there before this request, or "
+                       "approving it made it. Check which before removing it on OneLake > Shortcuts")
+        else:
+            out.append(f"The shortcut {name} in {lakehouse}, made by this request, is still in OneLake: remove it on "
+                       "OneLake > Shortcuts if it isn't wanted")
     elif kind == "domain" and made.get("domain_id"):
         name = d.get("name") or req.get("target") or made["domain_id"]
         if made.get("fabric_domain_id"):

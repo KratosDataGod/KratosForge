@@ -186,4 +186,6 @@ is accepted in SQL but not checked, since DuckDB has no such constraint. In SQL,
 
 ## Not on this PC
 
+**Runs on** knows what this PC's Spark refuses, from the same list the run uses, so a notebook that uses any of it shows as running in Fabric only before you run it ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
+
 RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

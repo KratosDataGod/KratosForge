@@ -217,7 +217,8 @@ def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, spar
                                 "text": "uses Spark, which this run doesn't take yet. Use the lakehouse module "
                                         "(read_table, write_table, sql)."})
     uncontained = [{"cell": w["cell"], "cell_id": w.get("cell_id"), "line": w.get("line"), "text": _effect(w["text"])[1]}
-                   for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith("uses the clock")]
+                   for w in pr["warnings"] if w["cell"] != step and not w["text"].startswith(("uses the clock", "may not run on"))]
+    # "may not run on this PC" (compute_check's Unknown) isn't something the run lets out: running it is how to find out.
     return {"ok": not blockers, "blockers": blockers, "uncontained": uncontained,
             "sandbox": bool(lakehouse)}
 

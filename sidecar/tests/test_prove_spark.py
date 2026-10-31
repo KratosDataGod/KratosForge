@@ -190,7 +190,7 @@ def test_the_check_takes_spark_notebooks_and_stops_what_their_fabric_side_refuse
                          ("df.writeTo('dbo.t').append()", "writeTo"),
                          ("spark.readStream.table('dbo.t')", "stream"),
                          ("spark.sql('DROP TABLE dbo.t')", "drops"),
-                         ("%%sql\nTRUNCATE TABLE dbo.t", "drops"),
+                         ("%%sql\nTRUNCATE TABLE dbo.t", "TRUNCATE TABLE"),  # Runs on's reason comes first (#1286)
                          ("DeltaTable.createOrReplace(spark).tableName('t').execute()", "DeltaTable.create")]:
         out = proof.check([{"type": "code", "source": "df = spark.table('dbo.t')"}, {"type": "code", "source": source}], lh)
         assert not out["ok"] and says in out["blockers"][0]["text"], source

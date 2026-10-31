@@ -81,6 +81,25 @@ test("Dismiss Not in this file hides a finding in this notebook only, and Show a
   await pane().locator("[data-rule=NB003]").waitFor();
 });
 
+test("Explain says how important a rule is, its principle and how to check the change (GD-03)", { skip }, async () => {
+  await page().evaluate(() => {
+    const view = editors.get(state.notebook.cells[1].id);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'conn = "Server=x;Password=Sup3rS3cret!"' } });
+  });
+  const nb001 = pane().locator("[data-rule=NB001]");
+  await nb001.waitFor({ timeout: 10000 });
+  await nb001.locator("button", { hasText: "Explain" }).click();
+  const explain = nb001.locator(".learn-detail");
+  await explain.waitFor();
+  const tag = explain.locator(".learn-importance");
+  assert.strictEqual(await tag.innerText(), "Critical · Security");
+  assert.strictEqual(await tag.getAttribute("aria-label"), "Importance: Critical, Security");
+  assert.match(await tag.getAttribute("title"), /^Critical: it can leak a secret, lose data or put wrong data in place\.$/);
+  assert.match(await explain.innerText(), /What to do\s+Keep secrets out of code[\s\S]*How to check\s+Best practices shows no NB001/);
+  assert.strictEqual(await nb001.locator(".pill-s").first().innerText(), "Error", "the severity stays the rule's");
+  if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-practices-explain.png") });
+});
+
 test("closing the panel stops it", { skip }, async () => {
   await pane().getByRole("button", { name: "Close best practices" }).click();
   assert.strictEqual(await pane().count(), 0);

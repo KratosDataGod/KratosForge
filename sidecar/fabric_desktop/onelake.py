@@ -93,11 +93,12 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
     response, for callers that read its status."""
     code = resp.headers.get("x-ms-error-code") if resp.headers else None
     try:
-        body = resp.json() or {}
-        err = body.get("error") if isinstance(body.get("error"), dict) else {}
-        code = err.get("code") or body.get("error_code") or code
-    except (ValueError, AttributeError):
-        pass
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        err = body.get("error")
+        code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
     return requests.HTTPError(f"OneLake didn't {what} ({resp.status_code}{': ' + code if code else ''}).",
                               response=resp)
 

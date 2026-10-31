@@ -3,6 +3,8 @@ result, run again under DuckDB's profiler (spark_local.query_profile)."""
 
 import pytest
 
+from fabric_desktop import spark_local
+
 from fabric_desktop.frames import FrameGone
 from fabric_desktop.kernel_proc import ProcessKernel
 from fabric_desktop.notebook import Kernel
@@ -31,7 +33,10 @@ def test_a_sql_cell_result_and_a_dataframe_from_arrow_profile_too():
     assert k.frame_query_profile(fid)["rows"] == 3
     fid = _frame(k.run("import pyarrow as pa\nspark.createDataFrame(pa.table({'a': list(range(100))})).filter('a > 89')"))
     p = k.frame_query_profile(fid)
-    assert p["rows"] == 10 and p["steps"][-1]["details"].get("Filters") == "a>89"
+    assert p["rows"] == 10
+    # duckdb 1.x pushes the filter into the scan; 2.0 keeps it as its own FILTER step.
+    assert any(s["details"].get("Filters") == "a>89" or s["details"].get("Expression") == "(a > 89)"
+               for s in p["steps"])
 
 
 def test_profiling_leaves_the_session_as_it_was(capfd):
@@ -67,3 +72,34 @@ def test_the_notebooks_own_process_profiles_too():
         assert k.frame_query_profile(fid)["rows"] == 40
     finally:
         k.close()
+
+
+# The same plan as each duckdb version's profiler writes it (#1264): 1.x one tree with totals on the
+# root, 2.0 an "operator" list with totals under "query" and "system".
+_V1 = {"latency": 0.5, "cumulative_rows_scanned": 0, "system_peak_buffer_memory": 4096, "children": [
+    {"operator_name": "EXPLAIN_ANALYZE", "operator_timing": 0.0, "operator_cardinality": 0, "children": [
+        {"operator_name": "HASH_GROUP_BY", "operator_timing": 0.3, "operator_cardinality": 7,
+         "extra_info": {"Aggregates": "count_star()"}, "children": [
+            {"operator_name": "RANGE", "operator_timing": 0.1, "operator_cardinality": 200, "extra_info": {},
+             "children": []}]}]}]}
+_V2 = {"query": {"total_time": 0.5, "total_rows_scanned": 0}, "system": {"peak_buffer_memory": 4096}, "operator": [
+    {"type": "RESULT_COLLECTOR", "timing": 0.0, "intermediate_rows": 0, "extra_info": {}, "children": [
+        {"type": "EXPLAIN_ANALYZE", "timing": 0.0, "intermediate_rows": 0, "extra_info": {}, "children": [
+            {"type": "HASH_GROUP_BY", "timing": 0.3, "intermediate_rows": 7,
+             "extra_info": {"Aggregates": "count_star()"}, "children": [
+                {"type": "TABLE_SCAN", "timing": 0.1, "intermediate_rows": 200,
+                 "extra_info": {"Function": "RANGE"}}]}]}]}]}
+
+
+@pytest.mark.parametrize("profile", [_V1, _V2], ids=["duckdb 1.x", "duckdb 2.0"])
+def test_both_profiler_shapes_read_the_same(profile):
+    p = spark_local._read_profile(profile)
+    assert [(s["depth"], s["name"], s["rows"], s["seconds"], s["share"]) for s in p["steps"]] == [
+        (0, "HASH_GROUP_BY", 7, 0.3, 0.75), (1, "RANGE", 200, 0.1, 0.25)]
+    assert p["steps"][0]["details"] == {"Aggregates": "count_star()"}
+    assert (p["seconds"], p["rows"], p["rows_scanned"], p["peak_memory"], p["more_steps"]) == (0.5, 7, 200, 4096, 0)
+
+
+def test_rows_scanned_comes_from_the_profiler_when_it_reports_them():
+    assert spark_local._read_profile(_V1 | {"cumulative_rows_scanned": 999})["rows_scanned"] == 999
+    assert spark_local._read_profile(_V2 | {"query": {"total_rows_scanned": 999}})["rows_scanned"] == 999

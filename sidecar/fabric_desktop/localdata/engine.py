@@ -39,7 +39,7 @@ from typing import Any
 import duckdb
 import pyarrow as pa
 
-from .. import delta_dml, delta_profile
+from .. import delta_dml, delta_profile, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -617,7 +617,7 @@ class LocalEngine:
             try:
                 trees = [t for t in sqlglot.parse(sql, read="spark") if t is not None]
             except ParseError as exc:
-                raise ValueError(f"Could not read the query as Spark SQL: {exc}") from None
+                raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)

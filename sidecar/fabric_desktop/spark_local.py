@@ -854,8 +854,8 @@ spark_compat.install()
 _frame_init = _dataframe.DataFrame.__init__
 
 
-def _tracked_init(self: DataFrame, relation: Any, session: Any) -> None:
-    _frame_init(self, relation, session)
+def _tracked_init(self: DataFrame, relation: Any, session: Any, *args: Any, **kwargs: Any) -> None:
+    _frame_init(self, relation, session, *args, **kwargs)  # duckdb 2.0 adds names and join_inputs (#1264)
     if isinstance(session, LocalSparkSession):
         session._frames.add(self)
 
@@ -1149,35 +1149,62 @@ def query_profile(df: Any) -> dict[str, Any]:
                 os.unlink(out)
             except OSError:  # silent-ok: an empty temp file
                 pass
-    root = json.loads(text)
+    return _read_profile(json.loads(text))
+
+
+# The profiler's own steps above the query's plan: 1.x wraps the plan in EXPLAIN_ANALYZE, 2.0 also
+# in RESULT_COLLECTOR.
+_PROFILER_STEPS = {"EXPLAIN_ANALYZE", "RESULT_COLLECTOR"}
+
+
+def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
+    """DuckDB's JSON profile as query_profile returns it. duckdb 1.x gives one tree whose nodes have
+    operator_name, operator_timing and operator_cardinality, with totals on the root. 2.0 gives an
+    "operator" list of nodes with type, timing and intermediate_rows, totals under "query" and
+    "system", and names a function scan TABLE_SCAN with the function in extra_info (#1264)."""
+    query, system = root.get("query") or {}, root.get("system") or {}
     steps: list[dict[str, Any]] = []
     total = 0.0
+    leaf_rows = 0
+
+    def first(node: dict[str, Any], *keys: str) -> Any:
+        return next((node[k] for k in keys if node.get(k) is not None), None)
 
     def walk(node: dict[str, Any], depth: int) -> None:
-        nonlocal total
-        name = node.get("operator_name") or node.get("operator_type") or ""
-        if name == "EXPLAIN_ANALYZE":  # the profiler's own step
-            depth -= 1
-        elif name:
-            seconds = float(node.get("operator_timing") or 0)
+        nonlocal total, leaf_rows
+        extra = node.get("extra_info") or {}
+        name = first(node, "operator_name", "operator_type", "type") or ""
+        if name == "TABLE_SCAN" and extra.get("Function"):
+            name = extra["Function"]
+        children = node.get("children") or []
+        if name and name not in _PROFILER_STEPS:
+            seconds = float(first(node, "operator_timing", "timing") or 0)
+            rows = int(first(node, "operator_cardinality", "intermediate_rows") or 0)
             total += seconds
+            if not children:
+                leaf_rows += rows
             if len(steps) < PROFILE_NODES:
-                details = {k: str(v) for k, v in (node.get("extra_info") or {}).items() if v not in ("", None)}
-                steps.append({"depth": depth, "name": name, "rows": int(node.get("operator_cardinality") or 0),
-                              "rows_scanned": int(node.get("operator_rows_scanned") or 0),
+                details = {k: str(v) for k, v in extra.items() if v not in ("", None)}
+                steps.append({"depth": depth, "name": name, "rows": rows,
+                              "rows_scanned": int(first(node, "operator_rows_scanned", "rows_scanned") or 0),
                               "seconds": round(seconds, 6), "details": details})
             else:
                 steps.append({})  # counted, not listed
-        for child in node.get("children") or []:
-            walk(child, depth + 1)
-    walk(root, -1)
+            depth += 1
+        for child in children:
+            walk(child, depth)
+    for top in root["operator"] if "operator" in root else [root]:
+        walk(top, 0)
     listed = [st for st in steps if st]
     for st in listed:
         st["share"] = round(st["seconds"] / total, 4) if total else 0.0
-    return {"seconds": round(float(root.get("latency") or 0), 6),
+    # Scans of a function or an Arrow table (every lakehouse table) report no rows scanned; the rows
+    # their steps produced are the closest count then.
+    scanned = int(first(root, "cumulative_rows_scanned") or first(query, "total_rows_scanned") or 0) or leaf_rows
+    return {"seconds": round(float(first(root, "latency") or first(query, "total_time") or 0), 6),
             "rows": listed[0]["rows"] if listed else 0,
-            "rows_scanned": int(root.get("cumulative_rows_scanned") or 0),
-            "peak_memory": int(root.get("system_peak_buffer_memory") or 0),
+            "rows_scanned": scanned,
+            "peak_memory": int(first(root, "system_peak_buffer_memory") or first(system, "peak_buffer_memory") or 0),
             "steps": listed, "more_steps": len(steps) - len(listed)}
 
 

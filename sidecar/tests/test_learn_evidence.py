@@ -66,20 +66,24 @@ def test_nothing_odd_in_a_profile_breaks_it():
         assert evidence.notes(p) == []
 
 
-def test_against_duckdb_the_year_filter_gets_a_note_and_the_range_none():
+def test_against_duckdb_a_wrapped_filter_gets_a_note_and_the_bare_one_none():
+    # trim() hides the column's values from row-group skipping in DuckDB 1.x and 2.0 alike. (DuckDB 2.0
+    # skips through year() and other monotonic date functions itself, so those get no note there.)
     s = spark_local.session()
-    s.conn.execute("CREATE OR REPLACE TABLE gd04_sales AS SELECT range AS id, (DATE '2020-01-01' + (range // 1200)::INT) "
-                   "AS order_date, range % 7 AS region, 1.0 AS amount FROM range(3000000)")
+    s.conn.execute("CREATE OR REPLACE TABLE gd04_codes AS SELECT range AS id, 'c' || lpad(range::VARCHAR, 7, '0') "
+                   "AS code, range % 7 AS region, 1.0 AS amount FROM range(3000000)")
     try:
-        year = spark_local.query_profile(s.sql("SELECT region, sum(amount) FROM gd04_sales WHERE year(order_date) = 2026 GROUP BY region"))
-        rng = spark_local.query_profile(s.sql("SELECT region, sum(amount) FROM gd04_sales WHERE order_date >= DATE '2026-01-01' "
-                                              "AND order_date < DATE '2027-01-01' GROUP BY region"))
+        wrapped = spark_local.query_profile(s.sql("SELECT region, sum(amount) FROM gd04_codes "
+                                                  "WHERE trim(code) >= 'c2600000' GROUP BY region"))
+        bare = spark_local.query_profile(s.sql("SELECT region, sum(amount) FROM gd04_codes "
+                                               "WHERE code >= 'c2600000' GROUP BY region"))
     finally:
-        s.conn.execute("DROP TABLE gd04_sales")
-    assert [n["rule_id"] for n in evidence.notes(year)] == ["SQ002"]
-    assert evidence.notes(rng) == []
+        s.conn.execute("DROP TABLE gd04_codes")
+    (note,) = evidence.notes(wrapped)
+    assert note["rule_id"] == "SQ002" and "wraps code in trim()" in note["text"]
+    assert evidence.notes(bare) == []
     scanned = lambda p: next(st["rows_scanned"] for st in p["steps"] if st["name"] in {"SEQ_SCAN", "TABLE_SCAN"})
-    assert scanned(rng) < scanned(year) == 3_000_000   # the range let DuckDB skip; the measured proof
+    assert scanned(bare) < scanned(wrapped) == 3_000_000   # the bare filter let DuckDB skip; the measured proof
 
 
 def test_the_service_adds_the_notes_to_a_profile_and_leaves_a_gone_one_alone():

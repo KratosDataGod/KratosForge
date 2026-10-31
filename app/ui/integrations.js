@@ -24,7 +24,10 @@ const PERMISSION_HELP = {
 const TESTED_TOOLS = new Set();
 const DECISION_TEXT = { pending: "Waiting", approved: "Approved, not used yet", used: "Approved by you", denied: "Denied",
   expired: "Not answered" };
-const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info" };
+const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info",
+  started: "wrn", unfinished: "wrn" };
+// An approved call writes a "started" line before it runs; the engine drops it once the result is in.
+const OUTCOME_TITLE = { started: "Started after your approval. No result yet: it is still running, or the tool or KratosForge stopped before it finished." };
 
 const integ = { status: null, activity: null, watching: false, shown: new Set() };
 
@@ -376,7 +379,7 @@ function activityCard(rows, status) {
   const result = (r) => {
     const state = r.outcome === "ok" ? (r.execution_state || "ok") : r.outcome;
     const pill = state === "ok" ? "pass" : OUTCOME_PILL[state] || (r.outcome === "ok" ? "info" : "fail");
-    return h("span", { class: `pill-s ${pill}`, title: r.error || "" }, state.replaceAll("_", " "));
+    return h("span", { class: `pill-s ${pill}`, title: r.error || OUTCOME_TITLE[state] || "" }, state.replaceAll("_", " "));
   };
   const target = (r) => Object.entries(r.arguments || {}).filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
     .slice(0, 4).map(([k, v]) => `${k} ${v}`).join(" · ");

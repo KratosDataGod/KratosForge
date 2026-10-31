@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -622,7 +622,7 @@
       "problem": "The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.",
       "capability": "A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.",
       "evidence": [
-        "fabric_run.py compute_check is regex-based",
+        "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
         "docs/product/enterprise-gap-analysis.md FD-111 partial"
       ],
       "features": [
@@ -669,7 +669,8 @@
       "evidence": [
         "spark_local.py raises for MERGE, UPDATE, DELETE",
         "meta/engine.py already merges with delta-rs for metadata runs",
-        "MERGE INTO (#933) and UPDATE and DELETE (#1028) run on this PC as Preview, and the run check judges them against the notebook's lakehouse (#1054) on main at 02118fa4. Criterion 4: Prove takes Spark notebooks (proof_spark.py), and a MERGE, UPDATE and DELETE proof matched with Apache Spark 3.5 and Delta 3.2 standing in for Fabric; the live run in Fabric waits on Chris's yes"
+        "MERGE INTO (#933) and UPDATE and DELETE (#1028) run on this PC as Preview, and the run check judges them against the notebook's lakehouse (#1054) on main at 02118fa4. Criterion 4: Prove takes Spark notebooks (proof_spark.py), and a MERGE, UPDATE and DELETE proof matched with Apache Spark 3.5 and Delta 3.2 standing in for Fabric; the live run in Fabric waits on Chris's yes",
+        "Prove takes Spark notebooks with MERGE, UPDATE and DELETE: in Fabric the proof copy's first cell points Spark at the proof, tested with a real Spark and Delta standing in for Fabric (#1157) on main at 0c96c9ce. Criterion 4's live Prove run is still to do"
       ],
       "features": [
         "FEAT-NB-04"
@@ -712,7 +713,8 @@
       "prs": [
         933,
         1028,
-        1054
+        1054,
+        1157
       ],
       "issues": [
         848
@@ -1268,7 +1270,8 @@
       "problem": "Completion knows only what the kernel has run, so column names of attached tables aren't offered.",
       "capability": "Completion of table and column names from the attached lakehouse's Delta schemas.",
       "evidence": [
-        "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)"
+        "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)",
+        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce"
       ],
       "features": [
         "FEAT-NB-08"
@@ -1293,7 +1296,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
@@ -2198,7 +2201,8 @@
       "evidence": [
         "docs/platform.md lists the unverified points",
         "central/setup.py setup() and join() have no tests",
-        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93"
+        "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
+        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2242,7 +2246,8 @@
         1036,
         1038,
         1041,
-        1045
+        1045,
+        1200
       ],
       "issues": [
         909
@@ -2537,7 +2542,8 @@
       "capability": "Implement or remove each documented key.",
       "evidence": [
         "app_settings.py key list",
-        "docs/enterprise-install.md"
+        "docs/enterprise-install.md",
+        "The three remaining allow_ switches fail closed, and a test keeps every allow_ key in RESTRICTED (#1150) on main at 0c96c9ce. The policy keys FD-105 lists (approved endpoints, execution location, updates, retention, telemetry) are still to decide"
       ],
       "features": [
         "FEAT-SHL-08"
@@ -2561,7 +2567,7 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "external_dependencies": [
         "Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)"
       ],
@@ -2573,6 +2579,9 @@
       },
       "issues": [
         960
+      ],
+      "prs": [
+        1150
       ]
     },
     {
@@ -4123,7 +4132,8 @@
       "problem": "Only the MCP SDK client and plain HTTP were tested; named AI tools are marked Untested.",
       "capability": "Each client run through docs/product/ai-integration-client-checklist.md and recorded.",
       "evidence": [
-        "AI integration thread notes"
+        "AI integration thread notes",
+        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -4150,13 +4160,16 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.75,
         "cost": 1.0,
         "score": 2.75,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1185
+      ]
     },
     {
       "id": "PB-097",
@@ -4232,13 +4245,16 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
       "computed": {
         "benefit": 2.6,
         "cost": 1.0,
         "score": 2.6,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1152
+      ]
     },
     {
       "id": "PB-099",
@@ -4434,7 +4450,9 @@
         1050,
         1055,
         1089,
-        1122
+        1122,
+        1153,
+        1156
       ],
       "issues": [
         910,
@@ -4615,7 +4633,10 @@
         1093,
         1095,
         1097,
-        1107
+        1107,
+        1154,
+        1155,
+        1164
       ]
     },
     {
@@ -4781,7 +4802,8 @@
         912,
         949,
         985,
-        1112
+        1112,
+        1181
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5179,7 +5201,8 @@
         722,
         760,
         776,
-        865
+        865,
+        1147
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5341,10 +5364,11 @@
     {
       "id": "PB-117",
       "title": "Snowflake pillar: audit, ADRs and parity matrix",
-      "state": "In progress",
+      "state": "In review",
       "prs": [
         993,
-        995
+        995,
+        1202
       ],
       "category": "Local Development and Execution",
       "effort": "M",
@@ -5356,7 +5380,8 @@
       "evidence": [
         "No Snowflake code or docs on main",
         "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
-        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview"
+        "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview",
+        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -5456,13 +5481,19 @@
         1137,
         1138,
         1139,
-        1140
+        1140,
+        1158,
+        1159,
+        1160,
+        1161,
+        1162
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
       "capability": "A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
-        "No backlog item tracked it before this check"
+        "No backlog item tracked it before this check",
+        "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -5501,13 +5532,18 @@
       "category": "Extensibility, APIs, CLI, and MCP",
       "effort": "L",
       "prs": [
+        1056,
         1078,
         1115,
         1118,
         1124,
         1125,
         1142,
-        1056
+        1180,
+        1183,
+        1191,
+        1201,
+        1202
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",

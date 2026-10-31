@@ -72,7 +72,8 @@ def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     inserts = [p for sql, p in conn.statements if "IDENTITY_INSERT" in sql]
     assert out == {"imported": 2500, "already_there": 0}
     assert sum(len(p) for p in inserts) == 2500 * 3 and len(inserts) == 5
-    assert "RESEED, 2500" in conn.statements[-1][0]
+    keys_sql = [sql for sql, _ in conn.statements if "[audit]" not in sql]  # the import's audit row comes last (#1194)
+    assert "RESEED, 2500" in keys_sql[-1]
 
 
 def test_keys_are_issued_in_batches(platform):

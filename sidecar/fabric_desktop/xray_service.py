@@ -13,7 +13,7 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import app_settings, maintenance, risk, xray
+from . import app_settings, jsonfile, maintenance, risk, xray
 from .auth import FABRIC_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
@@ -158,7 +158,7 @@ class XRayMixin:
             result["counts"] = xray.counts(result["findings"])
             result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
-            self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
+            jsonfile.write_text(self._xray_file, json.dumps(result, default=str))
             state: dict[str, Any] = {"running": False}
         except Exception as exc:
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -392,7 +392,7 @@ class XRayMixin:
             where = f"{t['schema']}.{t['table']}" if t.get("schema") else t["table"]
             label = f"{workspace_name} / {lakehouse_name} / {where}".strip(" /")
             text = adopted_entity_text(name, owner, uri, label, dict(schema), keys)
-            (project.entities_dir / f"{name}.toml").write_text(text, encoding="utf-8")
+            jsonfile.write_text(project.entities_dir / f"{name}.toml", text)
             written.append(name)
         return {"adopted": written, "problems": problems, "layer": layer}
 

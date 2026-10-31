@@ -89,7 +89,7 @@ def test_a_result_larger_than_the_byte_cap_is_an_error(duck, monkeypatch):
 
 def test_which_engines_claim_result_and_polars_says_why_not():
     claims = {e.id for e in registry.ENGINES.values() if e.capability("result").available}
-    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark"}
+    assert claims == {"local-duckdb", "local-sqlite", "fabric-spark", "databricks-sql"}
     assert registry.get("local-polars").capability("result").note
 
 
@@ -242,3 +242,19 @@ def test_duckdb_against_fabric_spark_on_a_fake_needs_the_copy_confirm_then_match
         assert report["result"] == "match" and report["right"]["engine"] == "fabric-spark"
     finally:
         mp.undo()
+
+
+def test_duckdb_against_a_databricks_sql_warehouse_on_a_fake_needs_the_copy_confirm_then_matches(duck):
+    import test_databricks_sql as dbx_t
+    cols = [{"name": "id", "type_name": "LONG"}, {"name": "name", "type_name": "STRING"},
+            {"name": "amount", "type_name": "DECIMAL", "type_precision": 10, "type_scale": 2}]
+    ws = dbx_t.ChunkedWorkspace([[["1", "a", "1.50"], ["2", "b", "2.50"]], [["3", "c", "3.50"]]], cols)
+    warehouse = dbx_t.open_session(ws)
+    query = sql("SELECT id, name, amount FROM main.sales.t")
+    local = sql("SELECT id::BIGINT AS id, name, amount::DECIMAL(10, 2) AS amount FROM t")
+    with pytest.raises(cmp.CopyNotConfirmed):
+        cmp.compare(duck, warehouse, local, right_request=query)
+    assert not any(p == "/api/2.0/sql/statements" for _, p, *_ in ws.calls)
+    report = cmp.compare(duck, warehouse, local, right_request=query, rules={"keys": ["id"]}, copy_confirmed=True)
+    assert report["result"] == "match" and report["right"]["engine"] == "databricks-sql"
+    assert report["right"]["rows"] == 3

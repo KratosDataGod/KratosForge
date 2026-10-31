@@ -17,7 +17,10 @@ these makes what was asked for first, as the person approving, and only then app
 
 If a step fails, the request stays waiting and the error names the step. What a workspace request
 made is recorded on the request (record_request_progress) and in the workspace's description, so a
-retry finds it instead of making it twice. Nothing here posts anything but governance's own notices.
+retry finds it instead of making it twice. Declining or withdrawing a request whose approval made
+something before a later step failed changes nothing in Fabric: the answer's ``next`` says what is
+still there, for the person to remove if it isn't wanted (left_in_fabric). Nothing here posts anything
+but governance's own notices.
 """
 
 from __future__ import annotations
@@ -94,6 +97,32 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
         raise
 
 
+def left_in_fabric(req: dict[str, Any]) -> list[str]:
+    """What approving this request made in Fabric before a later step failed (its ``detail.made``), as
+    sentences saying it is still there. Declining or withdrawing deletes nothing: that stays the person's call."""
+    d = req.get("detail") or {}
+    made = d.get("made") or {}
+    kind, out = req.get("kind"), []
+    if kind == "workspace" and made.get("workspace_id"):
+        name = d.get("name") or req.get("target") or made["workspace_id"]
+        out.append(f"The workspace {name}, made by this request, is still in Fabric on its capacity: "
+                   "delete it there if it isn't wanted")
+    elif kind == "workspace_access" and made.get("assigned"):
+        who = d.get("principal") or {}
+        label = who.get("name") or who.get("email") or who.get("id") or "They"
+        whom = f"The group {label}" if who.get("type") == "Group" else label
+        ws = d.get("workspace_name") or d.get("workspace_id") or "the workspace"
+        # Approving may have kept a role they already had, so this says where things stand.
+        out.append(f"{whom} keeps the {d.get('role') or 'role'} role (or the higher one they had) in {ws} from "
+                   "approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted")
+    elif kind == "source" and made.get("copy_job_id"):
+        name = made.get("copy_job_name") or made["copy_job_id"]
+        runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
+        out.append(f"The Copy job {name}, made by this request, is still in the landing workspace{runs}: "
+                   "delete it there if it isn't wanted")
+    return out
+
+
 class RequestsMixin:
 
     def _rq_fabric(self) -> Any:
@@ -157,7 +186,7 @@ class RequestsMixin:
         """Approving a workspace, workspace access or domain request makes it first, as the person
         approving. ``capacity_id`` is for a workspace request sent without one: the approver picks it."""
         if not approve:
-            return super().platform_decide(id, approve, note)  # type: ignore[misc]
+            return self._rq_closed(super().platform_decide(id, approve, note))  # type: ignore[misc]
         req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
                     if r["id"] == id), None)
         if req is None or req["kind"] not in NEW_KINDS:
@@ -175,6 +204,17 @@ class RequestsMixin:
         if made.get("next"):
             out["next"] = made["next"]
         out["made"] = {k: v for k, v in made.items() if k != "next"}
+        return out
+
+    def platform_withdraw(self, id: str) -> dict[str, Any]:
+        return self._rq_closed(super().platform_withdraw(id))  # type: ignore[misc]
+
+    @staticmethod
+    def _rq_closed(out: dict[str, Any]) -> dict[str, Any]:
+        """A declined or withdrawn request says what its approval already made in Fabric."""
+        left = left_in_fabric(out)
+        if left:
+            out["next"] = [*(out.get("next") or []), *left]
         return out
 
     # ---- carrying out each kind

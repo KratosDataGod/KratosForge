@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import __version__
+from . import __version__, jsonfile
 from .redact import secrets as redact_secrets
 
 MAX_BODY_BYTES = 1024 * 1024
@@ -80,7 +80,7 @@ class Channel:
         self._thread = threading.Thread(target=server.serve_forever, daemon=True, name="editor-channel")
         self._thread.start()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        (self.data_dir / PORT_FILE).write_text(f"{self.port} {self.hello}", encoding="utf-8")
+        jsonfile.write_text(self.data_dir / PORT_FILE, f"{self.port} {self.hello}")
         return self.port  # type: ignore[return-value]
 
     def stop(self) -> None:

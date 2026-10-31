@@ -43,7 +43,7 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")).sql("duckdb")
+    return spark_sql.duckdb_sql(spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -301,8 +301,8 @@ def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
     parsed = spark_sql.spark_substring(sqlglot.parse_one(text, read="spark"))
     if isinstance(parsed, exp.Alias):
-        return _sql(parsed.this.sql("duckdb")).alias(parsed.alias)
-    return _sql(parsed.sql("duckdb"))
+        return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
+    return _sql(spark_sql.duckdb_sql(parsed))
 
 
 _count = F.count

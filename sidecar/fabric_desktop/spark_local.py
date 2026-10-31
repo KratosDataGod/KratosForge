@@ -462,7 +462,9 @@ class LakehouseReader:
         schema = getattr(self, "_schema", None)
         if schema is None:
             return df
-        rel = df.relation
+        # A limit no file reaches keeps DuckDB 2.0 from pushing the TRY_CASTs below into the file scan,
+        # where a value that doesn't fit fails the read instead of being NULL (#1341).
+        rel = df.relation.limit(2**62)
         have = rel.columns
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
@@ -597,7 +599,10 @@ class LocalSparkSession(SparkSession):
             return
         # A DataFrame is a query over the view's name, run when it's used: a view one still reads stays.
         used = [frame.relation.sql_query() for frame in list(self._frames) if frame.relation is not None]
-        used += [sql for (sql,) in self.conn.execute("SELECT sql FROM duckdb_views() WHERE NOT internal").fetchall() if sql]
+        # DuckDB 2.0 lists the registered views too, each with its own name in its SQL: those don't count.
+        ours = {v.lower() for v in views.values()}
+        used += [sql for name, sql in self.conn.execute("SELECT view_name, sql FROM duckdb_views() WHERE NOT internal")
+                 .fetchall() if sql and name.lower() not in ours]
         text = "\n".join(used)
         for key in old:
             view = views[key]
@@ -813,9 +818,15 @@ class LocalSparkSession(SparkSession):
             schema = ddl_schema(schema)
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
-        # DuckDB's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
-        # how Spark infers and checks the schema, which is done above.
-        df = super().createDataFrame(data, schema)
+        # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
+        # how Spark infers and checks the schema, which is done above. DuckDB 2.0 checks the schema
+        # itself unless verifySchema=False reaches it.
+        try:
+            df = super().createDataFrame(data, schema, verifySchema=verifySchema)
+        except NotImplementedError:  # DuckDB 1.x: verifySchema=False
+            if verifySchema:
+                raise
+            df = super().createDataFrame(data, schema)
         inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
         return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
 

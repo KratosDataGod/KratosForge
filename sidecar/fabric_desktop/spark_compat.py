@@ -253,8 +253,32 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    # Spark: #,###,###.## rounded half-even to d places (2.345 -> 2.34, 0.125 -> 0.12).
-    return _sql(f"printf('%,.{int(d)}f', round_even({_col_sql(col)}, {int(d)}))")
+    """#,###,###.## rounded half-even to d places, as Spark's DecimalFormat does: a double by its exact
+    binary value (2.345 is 2.34500000000000019... so 2.35; 2.675 is 2.67499999... so 2.67; 0.125 is a
+    tie, so 0.12), a decimal or an integer by its value. DuckDB's round_even doesn't do that on 1.x
+    (it rounds a decimal as a double) or 2.0 (a double by its shortest digits), so a double's exact
+    digits (printf prints them) are rounded as a decimal, half-even by hand."""
+    x, d = _col_sql(col), int(d)
+    if not 0 <= d <= 18:
+        return _sql(f"printf('%,.{max(d, 0)}f', {x})")
+    exact = f"CAST(printf('%.20f', CAST({x} AS DOUBLE)) AS DECIMAL(38, 20))"
+    # Beyond the exact decimals (a double from 1e17, any other number from 1e20) DuckDB's own rounding
+    # prints it, as before.
+    big = f"printf('%,.{d}f', round_even({x}, {d}))"
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE WHEN abs({x}) < 1e17 THEN "
+                f"{_half_even(exact, d)} ELSE {big} END) WHEN abs({x}) < 1e20 THEN "
+                f"{_half_even(f'CAST({x} AS DECIMAL(38, 18))', d)} ELSE {big} END")
+
+
+def _half_even(v: str, d: int) -> str:
+    """``v``, an exact decimal, rounded half-even to ``d`` places and printed with thousands separators.
+    A NULL stays NULL."""
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    r = f"round({v}, {d})"  # half away from zero, exact on a decimal
+    tie_to_odd = f"abs({v} - {r}) * 2 = {unit} AND CAST({r} * CAST('1e{d}' AS DECIMAL(38, 0)) AS HUGEINT) % 2 <> 0"
+    rounded = f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
+    # A negative value that rounds to zero keeps its sign, as DecimalFormat prints it (-0.25 -> -0).
+    return f"CASE WHEN {v} < 0 AND {rounded} = 0 THEN '-' ELSE '' END || printf('%,.{d}f', {rounded})"
 
 
 def to_json(col: Any, options: Any = None) -> Column:
@@ -418,7 +442,8 @@ def _ordered(name: str, fn: Any) -> Any:
     return order
 
 
-_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE \(\2 IS NOT NULL\)\)$', re.S)
+# DuckDB 1.x prints "first"(x) FILTER (WHERE (x IS NOT NULL)); 2.0 drops the quotes and the inner parentheses.
+_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 IS NOT NULL(?(3)\))\)$', re.S)
 
 
 def _over(self: Column, window: WindowSpec) -> Column:

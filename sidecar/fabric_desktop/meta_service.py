@@ -91,6 +91,15 @@ def _days(value: Any) -> Any:
         return value
 
 
+
+def _project_folder(path: str) -> Path:
+    """A project's folder as the app's folder picker gives it: a full path. A relative one would be
+    taken from wherever the engine happened to start (#1173)."""
+    folder = Path(path)
+    if not folder.is_absolute():
+        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
+    return folder
+
 class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
 
@@ -175,12 +184,12 @@ class MetaMixin:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
-        init_project(Path(path), preset, owner, sample)
+        init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
 
     def meta_open(self, path: str) -> dict[str, Any]:
-        if not (Path(path) / "layers.toml").exists():
+        if not (_project_folder(path) / "layers.toml").exists():
             raise FileNotFoundError(f"{path} isn't a metadata project (it has no layers.toml)")
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()

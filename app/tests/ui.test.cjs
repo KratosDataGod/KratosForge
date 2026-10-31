@@ -5647,6 +5647,8 @@ test("declining a domain request whose domain was made says where it is", () => 
     ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
     ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr", found: true } } }),
+    ["The domain HR is in the platform and Fabric: it was there before this request, or approving it made it. Check which before deleting it"], "#1270: possibly someone else's");
 });
 
 // #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.

@@ -302,6 +302,44 @@ def test_until_timeout():
     assert r.state == "failed" and r.to_json()["activities"][0]["error"]["errorCode"] == "LocalUntilTimeout"
 
 
+def _inner(r, name):
+    return next(a for a in r.to_json()["activities"] if a["name"] == name)
+
+
+def test_until_timeout_cancels_a_long_iteration():
+    """#1316: at the Until's timeout, the activity running in its iteration is cancelled and the next one
+    doesn't start, as in Data Factory, rather than the loop waiting for the iteration to end."""
+    inner = [wait("Long", 30), setvar("After", "v", "x", depends=["Long"])]
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=inner),
+                    variables={"v": {"type": "String"}})
+    started = time.monotonic()
+    r = run(text, wait_scale=1)
+    assert time.monotonic() - started < 10
+    assert r.state == "failed" and _inner(r, "U")["error"]["errorCode"] == "LocalUntilTimeout"
+    assert _inner(r, "Long")["state"] == "cancelled" and "error" not in _inner(r, "Long")
+    assert _inner(r, "After")["state"] == "cancelled" and _inner(r, "After")["executed_by"] == "not_started"
+    assert r.variables.get("v") in (None, "")
+
+
+def test_an_outer_until_timeout_stops_an_inner_until_and_its_retry_wait():
+    retried = act("Flaky", "Fail", message="no", errorCode="E") | {"policy": {"retry": 5, "retryIntervalInSeconds": 30}}
+    inner_until = act("Inner", "Until", expression="@false", timeout="0.01:00:00", activities=[retried])
+    text = pipeline(act("Outer", "Until", expression="@false", timeout="0.00:00:01", activities=[inner_until]))
+    started = time.monotonic()
+    r = run(text, wait_scale=1)
+    assert time.monotonic() - started < 10
+    assert r.state == "failed" and _inner(r, "Outer")["error"]["errorCode"] == "LocalUntilTimeout"
+    assert _inner(r, "Inner")["state"] == "cancelled" and _inner(r, "Flaky")["state"] == "cancelled"
+
+
+def test_an_activitys_own_policy_timeout_inside_an_until_still_fails_it():
+    slow = wait("Slow", 30) | {"policy": {"timeout": "0.00:00:01"}}
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.01:00:00", activities=[slow]))
+    r = run(text, wait_scale=1)
+    assert _inner(r, "Slow")["error"]["errorCode"] == "LocalActivityTimeout"
+    assert _inner(r, "U")["error"]["errorCode"] == "LocalInnerActivityFailed"
+
+
 def test_fail_and_filter():
     r = run(pipeline(fail("F", message="@concat('bad ', 'thing')", code="E42"))).to_json()
     assert r["activities"][0]["error"] == {"errorCode": "E42", "message": "bad thing", "failureType": "UserError",

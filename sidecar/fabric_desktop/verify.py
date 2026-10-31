@@ -29,6 +29,7 @@ import math
 from typing import Any
 
 import pyarrow as pa
+from .duckdb_rows import one_row
 
 DEFAULTS: dict[str, Any] = {"keys": [], "ignore": [], "abs": 0.0, "rel": 1e-9, "columns": {}, "timestamps": "us",
                             "limit_rows": 5_000_000, "examples": 50}
@@ -147,7 +148,7 @@ def _tolerance(r: dict[str, Any], column: str) -> tuple[float, float]:
 
 
 def _count(con: Any, sql: str) -> int:
-    return int(con.execute(sql).fetchone()[0] or 0)
+    return int(one_row(con.execute(sql))[0] or 0)
 
 
 def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, offset: int = 0) -> dict[str, Any]:
@@ -259,10 +260,10 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         entry: dict[str, Any] = {"rows": n}
         _m_name, max_abs, max_rel = metrics[i]
         if n and max_abs:
-            mx = con.execute(f'SELECT max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE))), '
+            mx = one_row(con.execute(f'SELECT max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE))), '
                              f'max(abs(CAST("a{i}" AS DOUBLE) - CAST("b{i}" AS DOUBLE)) / '
                              f'nullif(greatest(abs(CAST("a{i}" AS DOUBLE)), abs(CAST("b{i}" AS DOUBLE))), 0)) '
-                             f'FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"').fetchone()
+                             f'FROM j WHERE NOT no_a AND NOT no_b AND NOT "s{i}"'))
             if not (mx[0] == 0 and name.lower() in cols["exact"]):  # a decimal difference DOUBLE can't show
                 entry |= {"max_abs": _finite(mx[0]), "max_rel": _finite(mx[1])}
         per_column[name] = entry

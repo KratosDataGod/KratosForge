@@ -33,6 +33,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
+from .duckdb_rows import first_row
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
@@ -679,7 +680,7 @@ class LocalSparkSession(SparkSession):
                 name = f"{target.db}.{target.name}" if target.db else target.name
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(query.sql("duckdb"))
+                data = self.conn.sql(_sql.duckdb_sql(query))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -710,7 +711,7 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
-        text = statement.sql("duckdb")
+        text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)
         self.conn.execute(text)
@@ -735,7 +736,7 @@ class LocalSparkSession(SparkSession):
         query = change.source.copy() if not isinstance(change.source, exp.Table) else \
             exp.select("*").from_(change.source.copy())
         self._bind(query)
-        source = _arrow(DataFrame(self.conn.sql(query.sql("duckdb")), self))
+        source = _arrow(DataFrame(self.conn.sql(_sql.duckdb_sql(query)), self))
         target = _columns(change.name)
         if target is None:
             raise ValueError(f"Table {change.name} doesn't exist, so MERGE has nothing to change. Create it first "
@@ -793,7 +794,7 @@ class LocalSparkSession(SparkSession):
                 f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
                 f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
             self._bind(check)
-            duplicate = self.conn.execute(check.sql("duckdb")).fetchone()
+            duplicate = first_row(self.conn.execute(_sql.duckdb_sql(check)))
         finally:
             self.conn.unregister(view)
         if duplicate is not None:

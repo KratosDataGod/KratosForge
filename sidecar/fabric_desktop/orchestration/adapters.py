@@ -41,7 +41,7 @@ class ActivityContext(Protocol):
 
     scope: Scope
 
-    def run_list(self, activities: list[Activity], scope: Scope, label: str) -> str: ...
+    def run_list(self, activities: list[Activity], scope: Scope, label: str, until: float | None = None) -> str: ...
 
     def wait(self, seconds: float) -> None: ...
 
@@ -179,7 +179,10 @@ class Until(LocalAdapter):
         deadline = ctx.clock() + timeout   # timeouts are real time; wait_scale shortens waits only
         for i in range(self.max_iterations):
             scope = ctx.scope.layer()
-            outcome = ctx.run_list(inner, scope, f"iteration {i}")
+            outcome = ctx.run_list(inner, scope, f"iteration {i}", until=deadline)
+            if ctx.clock() >= deadline:  # what was running in this iteration was cancelled at the timeout (#1316)
+                ctx.note(iterations=i + 1)
+                raise ActivityFailed("The Until loop reached its timeout.", "LocalUntilTimeout")
             if outcome == "failed":
                 ctx.note(iterations=i + 1)
                 raise ActivityFailed(f"An activity failed in iteration {i + 1}.", "LocalInnerActivityFailed")

@@ -126,7 +126,7 @@ fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id>
 fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id>             # asks "Run it?", then runs
 ```
 
-Both commands first check this PC and print a line for each: Python 3.11 or later, the Databricks CLI on PATH at 0.205 or later (it is only asked for its version), and the profile in `~/.databrickscfg` with an Azure Databricks workspace address (or the `--host` address). A line marked `NO` says what to install or run. The dry run only reports them; a real run stops there, before signing in or starting anything, until they all pass.
+Both commands first check this PC and print a line for each: Python 3.12 or later, the Databricks CLI on PATH at 0.205 or later (it is only asked for its version), and the profile in `~/.databrickscfg` with an Azure Databricks workspace address (or the `--host` address). A line marked `NO` says what to install or run. The dry run only reports them; a real run stops there, before signing in or starting anything, until they all pass.
 
 Leave out `--cluster` to test only the SQL warehouse. Use `--host <workspace url>` instead of `--profile` to sign in with `databricks auth login --host`. Add `--stop-compute` to stop the warehouse and terminate the cluster afterwards. They are only stopped if they were stopped when the run began, so the test never stops compute someone else was using. Answering "Run it?" (or passing `--yes`) is the confirmation the engines need before they start remote compute.
 

@@ -73,14 +73,17 @@ def _memory_cap() -> int:
 def fingerprint_part(table: pa.Table) -> tuple[int, int, int]:
     """(rows, sum, xor) of a hash of every row: in any order, and parts of a stream add up."""
     import duckdb
+
+    from .duckdb_rows import one_row
+
     if table.num_rows == 0:
         return 0, 0, 0
     con = duckdb.connect()
     try:
         con.register("t", table)
-        rows, total, xor = con.execute(
+        rows, total, xor = one_row(con.execute(
             "SELECT count(*), coalesce(sum(hash(r)::HUGEINT), 0), coalesce(bit_xor(hash(r)), 0) "
-            "FROM (SELECT t AS r FROM t)").fetchone()
+            "FROM (SELECT t AS r FROM t)"))
     finally:
         con.close()
     return int(rows), int(total), int(xor)

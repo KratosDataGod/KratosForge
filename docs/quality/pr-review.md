@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1294 eb48ce4a | Accessibility audit covers Preview screens and common dialogs | PASS 9.2 | Test and report only, merges clean. Merge result: a11y-audit 4/4, and regenerating the report with A11Y_REPORT gives the committed docs/ux/accessibility-audit.md (no diff, ignoring date and version lines). The three new JUDGED contrast ratios recompute as stated (15.52, 5.33, 4.61, 9.63). keyboard.test.cjs passes 4/4 here on both main and the PR, so the owner's local notebook Tab-stop failure is environmental. ui 312/0. |
+
 | 2026-10-31 | #1290 b3fc822c | Dialog keyboard behavior tested in a real browser | PASS 9.2 | Test only, merges clean. Merge result: dialog-keyboard.test.cjs passed 5/5 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Focus moves in and back in a MutationObserver microtask, so it has settled before Playwright's waitFor returns. |
 
 | 2026-10-31 | #1258 c1544a97 | Browser and accessibility test for Report a problem | PASS 9.2 | Test only, merges clean. Merge result: report-problem.test.cjs passed 4/4 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 310/0. Waits are safe because send() awaits the copy and opens the link before closeDialog(), so reading after the dialog detaches sees both. |

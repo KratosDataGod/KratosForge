@@ -696,7 +696,7 @@ def _domain_uses(db: Db, did: str) -> list[str]:
         out += [f"policy {a['policy_id']}" for a in db.rows(
             f"SELECT policy_id FROM {db.t('catalog', 'policy_assignment')} WHERE scope = 'domain' AND target = ?", (did,))]
     if db.exists("catalog", "policy_exception"):
-        today = dt.date.today().isoformat()
+        today = _today().isoformat()  # UTC, as policy reads exceptions
         out += [f"an exception to {e['policy_id']}" for e in db.rows(
             f"SELECT policy_id FROM {db.t('catalog', 'policy_exception')} "
             "WHERE scope = 'domain' AND target = ? AND until_date >= ?", (did, today))]

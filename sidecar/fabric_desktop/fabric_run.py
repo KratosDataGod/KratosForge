@@ -14,6 +14,7 @@ import ast
 import datetime as dt
 import json
 import re
+from collections.abc import Collection
 from typing import Any
 
 from . import magics
@@ -327,6 +328,8 @@ _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
 _UTILS = ("notebookutils", "mssparkutils")
 _UTILS_USE = re.compile(r"(notebookutils|mssparkutils)\." + _UTILS_FABRIC)  # matched at the start of a full name
 _UTILS_STAR = ("fs", "lakehouse", "notebook", "warehouse", "udf", "connections", "credentials", "runtime", "mssparkutils")
+_UTILS_RUN = re.compile(r"(notebookutils|mssparkutils)\.notebook\.(run|runMultiple)\Z")
+_RUN_TEXT = "runs another notebook ({how}), whose cells this check doesn't read"
 _VALUE = "fd_value_"  # stands in SQL text for a part known only at run time
 _SQL_DYNAMIC_TABLE = ("changes table rows with SQL whose table is known only at run time, so the check can't tell "
                       "whether it's this lakehouse's (runs here) or another's (Fabric only)")
@@ -435,7 +438,15 @@ def _sql_texts(node: ast.AST, values: dict[str, list[ast.expr | None]], depth: i
     if (text := _text(node)) is not None:
         return [text]
     if isinstance(node, ast.JoinedStr):
-        return ["".join(str(v.value) if isinstance(v, ast.Constant) else f"{_VALUE}{i}" for i, v in enumerate(node.values))]
+        joined = [""]
+        for i, part in enumerate(node.values):
+            # f"{t}" with t a name given only strings is read as those strings; anything else stays a run-time part.
+            inner = part.value if isinstance(part, ast.FormattedValue) and part.conversion == -1 \
+                and part.format_spec is None else None
+            read = _sql_texts(inner, values, depth + 1) if isinstance(inner, ast.Name) else None
+            options = [str(part.value)] if isinstance(part, ast.Constant) else read or [f"{_VALUE}{i}"]
+            joined = [t + o for t in joined for o in options][:16]
+        return joined
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left = _sql_texts(node.left, values, depth + 1) or [f"{_VALUE}0"]
         right = _sql_texts(node.right, values, depth + 1) or [f"{_VALUE}1"]
@@ -453,6 +464,29 @@ def _sql_texts(node: ast.AST, values: dict[str, list[ast.expr | None]], depth: i
             out += texts
         return out[:16]
     return None
+
+
+def _sessions(values: dict[str, list[ast.expr | None]]) -> set[str]:
+    """The names that stand for the Spark session: ``spark``, and any name every value of which is
+    one of them or a ``SparkSession.builder...getOrCreate()`` call."""
+    names = {"spark"}
+    for _ in range(5):
+        found = {n for n, vals in values.items() if n not in names and vals and all(
+            isinstance(v, ast.Name) and v.id in names or isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute)
+            and v.func.attr == "getOrCreate" for v in vals)}
+        if not found:
+            break
+        names |= found
+    return names
+
+
+def _session_sql(node: ast.Call, sessions: Collection[str]) -> bool:
+    """Whether ``node`` is ``.sql(...)`` on the Spark session, by any of its names."""
+    f = node.func
+    if not isinstance(f, ast.Attribute) or f.attr != "sql":
+        return False
+    return isinstance(f.value, ast.Name) and f.value.id in sessions or \
+        isinstance(f.value, ast.Call) and isinstance(f.value.func, ast.Attribute) and f.value.func.attr == "getOrCreate"
 
 
 def _change_target(sql: str) -> str | None:
@@ -486,7 +520,7 @@ def _sql_where(sql: str, own: str | None) -> str | None:
 
 
 def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[ast.expr | None]],
-                 own: str | None) -> dict[str, list[tuple[int, str]]]:
+                 own: str | None, sessions: Collection[str] = ("spark",)) -> dict[str, list[tuple[int, str]]]:
     """What a Python cell's code says about where it runs, each as (line, text): ``fabric`` (runs in
     Fabric only), ``unknown_local`` (the check can't tell for this PC) and ``unknown`` (it can't tell
     for either place)."""
@@ -513,7 +547,9 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
         elif call in ("__import__", "importlib.import_module", "import_module") and first is not None \
                 and _text(first) is None:
             out["unknown"].append((line, "imports a module named only at run time, which the check can't read"))
-        elif call == "spark.sql":
+        elif (full := _full(node.func, utils)) and _UTILS_RUN.match(full):
+            out["unknown"].append((line, _RUN_TEXT.format(how=full.split(".", 1)[1])))
+        elif _session_sql(node, sessions):
             arg = first if first is not None else next((k.value for k in node.keywords if k.arg == "sqlQuery"), None)
             texts = _sql_texts(arg, values) if arg is not None else None
             if texts is None:
@@ -565,13 +601,14 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             except (SyntaxError, ValueError) as exc:
                 trees[n] = exc if isinstance(exc, SyntaxError) else SyntaxError(str(exc))
     utils, values = _names([t for t in trees.values() if isinstance(t, ast.AST)])
+    sessions = _sessions(values)
     for n, c in enumerate(cells, 1):
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
             continue
         blocked = len(local)
         tree = trees.get(n)
-        read = _read_python(tree, utils, values, own) if isinstance(tree, ast.AST) else None
+        read = _read_python(tree, utils, values, own, sessions) if isinstance(tree, ast.AST) else None
         unknown: list[tuple[int, str]] = []
         if isinstance(tree, SyntaxError):
             unknown = [(tree.lineno or 1, f"isn't Python the check can read (line {tree.lineno or 1}: {tree.msg}), "
@@ -601,7 +638,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE of another lakehouse, or with Preview features off), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
         if read:
-            unknown = read["unknown"]
+            unknown = list(read["unknown"])
+        if language == "python":
+            unknown += [(m.line, _RUN_TEXT.format(how="%run")) for m in magics.find(source) if m.name == "run"]
         if len(local) == blocked and (here := sorted(unknown + (read["unknown_local"] if read else []))):
             local_unknown.append({"cell": n, "text": here[0][1], "code": _line(source, here[0][0])})
         fabric_before = len(fabric)
@@ -620,7 +659,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             fabric.append({"cell": n, "text": "reads or writes a path on this PC, which Fabric can't reach",
                            "code": _snippet(source, m)})
         if len(fabric) == fabric_before and unknown:
-            fabric_unknown.append({"cell": n, "text": unknown[0][1], "code": _line(source, unknown[0][0])})
+            first = min(unknown)
+            fabric_unknown.append({"cell": n, "text": first[1], "code": _line(source, first[0])})
     if not lakehouse:
         fabric.insert(0, {"cell": None, "text": "has no lakehouse attached. A Fabric run reads and writes "
                                                 "through the attached lakehouse.", "code": ""})

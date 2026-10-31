@@ -431,6 +431,18 @@ def test_a_stream_can_be_stopped(local):
     assert e.execute("SELECT 1")["rows"] == [[1]]
 
 
+def test_a_stream_stops_on_cancel_even_when_duckdb_misses_the_interrupt(local):
+    # #1340: the stream checks the cancel flag between batches as well as DuckDB's interrupt.
+    e = local.engine(local.create("Stream flag")["id"])
+    reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", query_id="q2", batch_size=1000)
+    reader.read_next_batch()
+    e._running["q2"]["cancelled"] = True  # as cancel() sets it, without the interrupt
+    with pytest.raises(QueryCancelled):
+        for _ in reader:
+            pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
 def test_closing_a_stream_inside_a_with_block_frees_the_connection(local):
     e = local.engine(local.create("Stream with")["id"])
     with e.execute_reader("SELECT range AS n FROM range(1000000)", batch_size=100) as stream:

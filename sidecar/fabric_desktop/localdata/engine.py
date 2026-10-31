@@ -485,8 +485,9 @@ class LocalEngine:
         or the other (``with engine.execute_reader(...) as stream:`` closes it). ``cancel(query_id)``
         and the time limit stop it mid-stream: reading then raises QueryCancelled or TimeoutError.
         ``stream.reader`` is a pyarrow RecordBatchReader for code that needs one."""
-        query = self._query(sql, dialect, timeout, query_id)
-        result, _run = query.__enter__()
+        query = self._query(sql, dialect, timeout, query_id, lazy=True)
+        result, run = query.__enter__()
+        state = self._running.get(run["query_id"]) or {}
         try:
             if result is None or not result.description:
                 inner = pa.RecordBatchReader.from_batches(pa.schema([]), iter(()))
@@ -500,8 +501,12 @@ class LocalEngine:
 
         def batches():
             try:
-                yield from inner
+                for batch in inner:
+                    if state.get("cancelled") or state.get("timed_out"):  # an interrupt DuckDB missed
+                        raise duckdb.InterruptException("cancelled")
+                    yield batch
             except BaseException:
+                inner.close()  # DuckDB 2.0 keeps the connection busy while a reader is open
                 if not query.__exit__(*sys.exc_info()):
                     raise
             else:
@@ -517,7 +522,8 @@ class LocalEngine:
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
-               confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None):
+               confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None,
+               lazy: bool = False):
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -554,7 +560,7 @@ class LocalEngine:
                                      "with no other statements.")
                 if explain is not None:
                     _one_read(con, statements)
-                result = None
+                result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
                 for i, step in enumerate(statements):
                     if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
                         raise duckdb.InterruptException("cancelled")
@@ -585,6 +591,11 @@ class LocalEngine:
                         result = _analyze(con, step["sql"])
                     elif explain == "plan":
                         result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
+                    elif lazy and i == len(statements) - 1 and step["kind"] == "select":
+                        # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
+                        # every row before the first batch, so a big result filled memory and Stop
+                        # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
+                        result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
                     else:
                         result = con.execute(step["sql"], _bound(con, step["sql"], params))
                     steps.append({"statement": i + 1, "type": step["kind"],

@@ -23,7 +23,7 @@ def _duckdb(spark: str) -> str:
     (f"SELECT array_sort({ARRAY})", [1, 2, 3, None]),             # array_sort: NULL last
 ])
 def test_sorts_put_null_where_spark_does(spark, answer):
-    assert duckdb.sql(_duckdb(spark)).fetchone()[0] == answer
+    assert duckdb.sql(_duckdb(spark)).fetchall()[0][0] == answer
 
 
 def test_array_sort_with_a_comparator_keeps_sqlglots_translation():

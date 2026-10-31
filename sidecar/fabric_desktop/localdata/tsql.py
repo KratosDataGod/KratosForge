@@ -29,6 +29,8 @@ import sqlglot
 from sqlglot import ErrorLevel, exp
 from sqlglot.errors import SqlglotError
 
+from ..sql import KfDuckDB
+
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
 _TEXT = exp.DataType.TEXT_TYPES
@@ -72,7 +74,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _types(tree, schema)
             _functions(tree)
             try:
-                text = tree.sql(dialect="duckdb", unsupported_level=ErrorLevel.RAISE)
+                text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
                 raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
             if text.strip():
@@ -259,7 +261,7 @@ def _converts(tree: exp.Expression) -> None:
     which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict."""
     for node in list(tree.find_all(exp.Convert)):
         try:
-            new = sqlglot.parse_one(node.sql(dialect="duckdb", unsupported_level=ErrorLevel.RAISE), read="duckdb")
+            new = sqlglot.parse_one(node.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE), read="duckdb")
         except SqlglotError as exc:
             raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
         if isinstance(new, (exp.Cast, exp.TryCast)):

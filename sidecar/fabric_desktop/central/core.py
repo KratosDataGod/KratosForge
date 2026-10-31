@@ -1762,6 +1762,20 @@ def switch_landing_reads(db: Db, by: str = "") -> list[dict[str, Any]]:
     return list_landing_zones(db)
 
 
+def _zone_waiting(db: Db, zid: str) -> list[str]:
+    """The sources of waiting source requests that land in this zone (no zone is Shared), so a zone
+    isn't taken away from a request an approver is about to carry out (#1331)."""
+    out = set()
+    for r in db.rows(f"SELECT target, detail FROM {db.t('catalog', 'request')} WHERE kind = 'source' AND status = 'waiting'"):
+        try:
+            zone = zone_key(json.loads(r.get("detail") or "{}").get("zone") or SHARED_ZONE)
+        except (ValueError, AttributeError):  # silent-ok: a request naming no valid zone (or unreadable) lands nowhere
+            continue
+        if zone == zid:
+            out.add(str(r["target"]))
+    return sorted(out)
+
+
 def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
     """Take a zone out of the catalog. Its lakehouse and files stay in Fabric. Refused while a source
     is in it (a source with no zone is in Shared). Platform admins only."""
@@ -1774,6 +1788,12 @@ def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
         used = zone["sources"]
         raise PlatformError(f"{zone['name']} still holds {', '.join(used)}: move {'it' if len(used) == 1 else 'them'} "
                             "to another zone first")
+    waiting = _zone_waiting(db, zid)
+    if waiting:
+        raise PlatformError(f"{zone['name']} is where the waiting source request{'s' if len(waiting) > 1 else ''} for "
+                            f"{', '.join(waiting)} land{'' if len(waiting) > 1 else 's'}: decline "
+                            f"{'them' if len(waiting) > 1 else 'it'}, or wait for {'them' if len(waiting) > 1 else 'it'} "
+                            "to be decided, first")
     db.run(f"DELETE FROM {db.t('catalog', 'landing_zone')} WHERE id = ?", (zid,))
     _audit(db, by, "delete landing zone", zid)
     db.commit()

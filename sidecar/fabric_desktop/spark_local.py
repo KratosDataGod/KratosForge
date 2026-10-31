@@ -33,6 +33,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
+from .duckdb_rows import first_row
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
@@ -793,7 +794,7 @@ class LocalSparkSession(SparkSession):
                 f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
                 f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
             self._bind(check)
-            duplicate = self.conn.execute(_sql.duckdb_sql(check)).fetchone()
+            duplicate = first_row(self.conn.execute(_sql.duckdb_sql(check)))
         finally:
             self.conn.unregister(view)
         if duplicate is not None:
@@ -814,7 +815,22 @@ class LocalSparkSession(SparkSession):
             check_not_null(data, schema)
         # DuckDB's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
         # how Spark infers and checks the schema, which is done above.
-        return super().createDataFrame(data, schema)
+        df = super().createDataFrame(data, schema)
+        inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
+        return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
+
+    def _ints_as_long(self, df: DataFrame) -> DataFrame:
+        """Spark infers every Python int as bigint (LongType); DuckDB 1.x makes an int that fits INTEGER,
+        so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
+        rel = df.relation
+        exprs, changed = [], False
+        for name, kind in zip(rel.columns, rel.types):
+            text = str(kind)
+            wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
+            quoted = '"' + name.replace('"', '""') + '"'
+            changed |= wanted != text
+            exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
+        return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
 
 
 # A DDL schema string has a type after a name ("id int") or a comma; one bare word is a column name.

@@ -3,11 +3,15 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-30 23:42 UTC, main 0c96c9ce.** Covers the PRs merged from #135 to #1191.
+**Product check of 2026-10-31 11:42 UTC, main f3750b9d.** Covers the PRs merged from #135 to #1202.
 
 ## Summary
 
-- 23 PRs merged since the last check's commit (02118fa4), besides the product data PRs.
+- Morning check, 2026-10-31: three more PRs merged. Snowflake functions are checked value by
+  value against Snowflake's docs (PB-117, #1202), a time limit or early Cancel says truthfully
+  whether a remote statement stopped (#1201), and every platform role write leaves an audit row
+  (PB-052, #1200). PB-117 moved to In review in the queue refresh (#1196).
+- Evening check, 2026-10-30: 23 PRs merged after 02118fa4, besides the product data PRs.
 - Acceptance batch 2 (2026-10-30, #1163): the product owner accepted 19 items, 10 of them with
   documented limitations, and approved the changed criteria for PB-031, PB-049 and PB-072.
 - Merged:

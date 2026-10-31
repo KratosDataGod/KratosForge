@@ -86,7 +86,7 @@ def run(job: dict[str, Any]) -> None:
     result = None
     for statement in statements:
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
-        result = con.execute(statement.sql("duckdb"))
+        result = con.execute(sql.duckdb_sql(statement))
 
     out = Path(job["out"])
     rows, batches, last = 0, [], time.monotonic()

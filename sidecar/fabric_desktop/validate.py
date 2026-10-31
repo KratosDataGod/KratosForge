@@ -20,6 +20,7 @@ Reading code can't see calls built at run time; the result says so.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from . import depgraph, envprofile, notebook_cells, proof
@@ -55,9 +56,11 @@ def _is_params(c: dict[str, Any]) -> bool:
 
 
 def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on: str | None = None,
-          observed: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+          observed: dict[str, dict[str, Any]] | None = None,
+          load: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
     """The code checks. ``runs_on`` is where the notebook is set to run: "pc", "fabric", or None
-    when that isn't known (then what stops either place is a warning, not an error)."""
+    when that isn't known (then what stops either place is a warning, not an error). ``load`` reads
+    another notebook's cells by name, so a ``%run`` of a notebook on this PC is checked too."""
     out: list[dict[str, Any]] = []
     graph = depgraph.graph(cells)
     by_n = {info["n"]: info for info in graph["cells"]}
@@ -99,7 +102,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                     "or something defined at run time.", f"Import or define {u['name']} in an earlier cell.", n, cells))
 
     # Where it can run.
-    where = compute_check(cells, lakehouse)
+    where = compute_check(cells, lakehouse, load)
     for side, label in (("local", "this PC"), ("fabric", "Fabric")):
         target = {"local": "pc", "fabric": "fabric"}[side]
         sev = "warning" if runs_on is None else ("error" if runs_on == target else "info")
@@ -147,7 +150,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                                hit["remediation"], n, cells, hit["line"]))
 
     # The clock, the network, other notebooks: things a clean run can't make repeatable.
-    pr = proof.check(cells, lakehouse)
+    pr = proof.check(cells, lakehouse, load)
     for w in pr["warnings"]:
         title, text = _effect(w["text"])
         out.append(finding("warning", "side_effect", f"Cell {w['cell']} {title}", text, "", w["cell"], cells, w.get("line")))

@@ -39,9 +39,6 @@
         {
           "issue": 1110,
           "title": "FS-05 (local engine): cross-check local table maintenance thresholds against skills-for-fabric"
-        },
-        {
-          "story": "PB-014"
         }
       ],
       "backlog": [
@@ -52,9 +49,10 @@
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
       "blockers": [
-        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
+        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)",
+        "PB-014 compatibility analyzer (#1190) waits on Chris's go"
       ],
-      "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
+      "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
       "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
     },
     {
@@ -147,10 +145,20 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "PB-062",
-        "note": "Engine and CLI support bundle with redaction first; the Settings button waits on a mockup. Needs a security read."
+        "issue": 1195,
+        "title": "Declining or withdrawing a partly carried-out request says what was already made in Fabric",
+        "note": "PR #1205 at review."
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1206,
+          "title": "A domain request records what its approval made, so a retry, decline or withdraw knows"
+        },
+        {
+          "issue": 1207,
+          "title": "Workspace access approval records whether it gave, raised or kept the role"
+        }
+      ],
       "backlog": [
         "PB-060",
         "PB-092"
@@ -160,10 +168,11 @@
       ],
       "blockers": [
         "PB-052 tenant verification needs Chris's yes",
-        "Workload pipelines mockup waits on Chris"
+        "Workload pipelines mockup waits on Chris",
+        "PB-062 support bundle (#1177) waits on Chris's go; its Settings button waits on the mockup"
       ],
       "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
-      "next_action": "Support bundle engine and CLI (PB-062), with a test that a planted secret never reaches the zip."
+      "next_action": "#1195 (PR #1205), then #1206 and #1207 on top of it."
     },
     {
       "key": "devex",
@@ -211,6 +220,10 @@
         {
           "issue": 1174,
           "title": "Every engine subprocess call has a timeout, with an AST guard test"
+        },
+        {
+          "issue": 1204,
+          "title": "State files are written whole or not at all, with a guard test"
         }
       ],
       "backlog": [

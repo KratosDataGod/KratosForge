@@ -828,6 +828,76 @@ window_module.Window = Window  # type: ignore[attr-defined]
 window_module.WindowSpec = WindowSpec  # type: ignore[attr-defined]
 
 
+def spark_type_name(dt: Any) -> str:
+    """``dt`` as Spark's ``DataType.simpleString()`` writes it, which is what ``DataFrame.dtypes`` shows:
+    int, timestamp, timestamp_ntz. DuckDB 1.x's Spark API says integer and timestamptz, and DuckDB 2.0
+    says what Spark does, so the engine answers the same on both (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.ArrayType):
+        return f"array<{spark_type_name(dt.elementType)}>"
+    if isinstance(dt, T.MapType):
+        return f"map<{spark_type_name(dt.keyType)},{spark_type_name(dt.valueType)}>"
+    if isinstance(dt, T.StructType):
+        return "struct<" + ",".join(f"{f.name}:{spark_type_name(f.dataType)}" for f in dt.fields) + ">"
+    if isinstance(dt, T.IntegerType):
+        return "int"
+    if isinstance(dt, T.TimestampNTZType):
+        return "timestamp_ntz"
+    if isinstance(dt, T.TimestampType):
+        return "timestamp"
+    return str(dt.simpleString())
+
+
+def _dtypes(self: DataFrame) -> list[tuple[str, str]]:
+    return [(f.name, spark_type_name(f.dataType)) for f in self.schema.fields]
+
+
+def _struct_rows(value: Any, dt: Any) -> Any:
+    """A struct value as Spark's collect() gives it: a Row, also inside arrays and maps. DuckDB 1.x's
+    Spark API gives a dict; DuckDB 2.0's gives a Row (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    from duckdb.experimental.spark.sql.types import Row
+    if value is None:
+        return None
+    if isinstance(dt, T.StructType):
+        if not isinstance(value, dict):
+            return value
+        row = tuple.__new__(Row, [_struct_rows(value.get(f.name), f.dataType) for f in dt.fields])
+        row.__fields__ = [f.name for f in dt.fields]
+        return row
+    if isinstance(dt, T.ArrayType) and isinstance(value, list):
+        return [_struct_rows(v, dt.elementType) for v in value]
+    if isinstance(dt, T.MapType) and isinstance(value, dict):
+        return {k: _struct_rows(v, dt.valueType) for k, v in value.items()}
+    return value
+
+
+def _has_struct(dt: Any) -> bool:
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.StructType):
+        return True
+    if isinstance(dt, T.ArrayType):
+        return _has_struct(dt.elementType)
+    if isinstance(dt, T.MapType):
+        return _has_struct(dt.valueType)
+    return False
+
+
+def _collect_structs_as_rows(collect: Any) -> Any:
+    def collect_rows(self: DataFrame) -> list[Any]:
+        rows = collect(self)
+        fields = self.schema.fields
+        if not any(_has_struct(f.dataType) for f in fields):
+            return rows
+        out = []
+        for r in rows:
+            row = tuple.__new__(type(r), [_struct_rows(v, f.dataType) for v, f in zip(r, fields)])
+            row.__fields__ = list(r.__fields__)
+            out.append(row)
+        return out
+    return collect_rows
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
@@ -841,6 +911,8 @@ def install() -> None:
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
+    DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
+    DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(DataFrame.select)  # type: ignore[method-assign]
     DataFrame.selectExpr = _select_expr  # type: ignore[attr-defined]
     DataFrame.fillna = _fillna  # type: ignore[attr-defined]

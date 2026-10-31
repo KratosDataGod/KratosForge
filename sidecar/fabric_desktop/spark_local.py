@@ -822,11 +822,26 @@ class LocalSparkSession(SparkSession):
         # how Spark infers and checks the schema, which is done above. DuckDB 2.0 checks the schema
         # itself unless verifySchema=False reaches it.
         try:
-            return super().createDataFrame(data, schema, verifySchema=verifySchema)
+            df = super().createDataFrame(data, schema, verifySchema=verifySchema)
         except NotImplementedError:  # DuckDB 1.x: verifySchema=False
             if verifySchema:
                 raise
-            return super().createDataFrame(data, schema)
+            df = super().createDataFrame(data, schema)
+        inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
+        return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
+
+    def _ints_as_long(self, df: DataFrame) -> DataFrame:
+        """Spark infers every Python int as bigint (LongType); DuckDB 1.x makes an int that fits INTEGER,
+        so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
+        rel = df.relation
+        exprs, changed = [], False
+        for name, kind in zip(rel.columns, rel.types):
+            text = str(kind)
+            wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
+            quoted = '"' + name.replace('"', '""') + '"'
+            changed |= wanted != text
+            exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
+        return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
 
 
 # A DDL schema string has a type after a name ("id int") or a comma; one bare word is a column name.

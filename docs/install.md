@@ -128,4 +128,4 @@ cargo run                                                    # needs Rust and th
 
 Builds you make yourself skip the update check and leave the sidecar as you installed it.
 
-To run the sidecar with a Python of your own instead of the app's engine, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there. With it set, the startup check pip-installs the sidecar into that Python instead (it must be 3.11 or later), and leaves an editable (`pip install -e`) install alone.
+To run the sidecar with a Python of your own instead of the app's engine, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there. With it set, the startup check pip-installs the sidecar into that Python instead (it must be 3.12 or later), and leaves an editable (`pip install -e`) install alone.

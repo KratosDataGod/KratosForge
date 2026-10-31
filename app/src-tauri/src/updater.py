@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = "KratosDataGod/KratosForge"
-MIN_PYTHON = (3, 11)
+MIN_PYTHON = (3, 12)
 # Each update channel is a GitHub release: "latest" is replaced by every green build of main,
 # "stable" only when someone promotes a build (the Promote to stable workflow).
 CHANNEL_TAGS = {"stable": "stable", "preview": "latest"}

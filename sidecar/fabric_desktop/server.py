@@ -13,9 +13,11 @@ import logging
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import IO, Any, Callable
 
 from . import audit, rpc_params
@@ -278,9 +280,9 @@ def handle(service: Service, line: str) -> dict:
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            reply = {"id": req_id, "error": _short(secrets(str(exc)))}
+            reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
-            reply = {"id": req_id, "error": _short(secrets(f"{type(exc).__name__}: {exc}"))}
+            reply = {"id": req_id, "error": _short(_home(secrets(f"{type(exc).__name__}: {exc}")))}
     if audit.audited(method):
         seconds = time.monotonic() - started
         _audit(service, method, params, reply, seconds)
@@ -289,6 +291,16 @@ def handle(service: Service, line: str) -> dict:
 
 
 ERROR_CHARS = 4000  # an error quoting a huge input (a 200,000-character name) is cut to this
+
+
+def _home(message: str) -> str:
+    """``message`` with the home folder written as ~, so an error pasted into a ticket or a screenshot
+    doesn't carry the Windows account name. Results keep full paths: the app opens them."""
+    home = Path.home()
+    for form in dict.fromkeys((str(home).replace("\\", "\\\\"), str(home), home.as_posix())):  # repr() doubles \
+        if len(form) > 3:  # never a bare drive or /
+            message = re.sub(re.escape(form) + r"(?![^\\/'\"\s:)])", "~", message, flags=re.IGNORECASE)
+    return message
 
 
 def _short(message: str) -> str:

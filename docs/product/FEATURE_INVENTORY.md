@@ -915,14 +915,14 @@ on quality.
 
 ### FEAT-NB-07
 
-**Where a notebook can run (compute check).** A saved This PC / Fabric choice per notebook and a static check naming the cells that block each side.
+**Where a notebook can run (compute check).** A saved This PC / Fabric choice per notebook and a check that reads each cell's Python (aliased and from-imports, SQL in variables) and names the cells that block each side, or that it can't read (Unknown, never taken as runs here).
 
 - **Pillar and category:** Local development; Local Development and Execution
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook ribbon > Runs on
-- **Evidence:** test: sidecar/tests/test_fabric_compute.py (passed in the 2026-10-22 refresh run at be3e45b); code: sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY no longer lists variableLibrary; test: sidecar/tests/test_notebook.py::test_open_and_save_say_where_the_notebook_can_run (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY lists notebookutils.variableLibrary, which notebookutils_local implements
+- **Evidence:** test: sidecar/tests/test_fabric_compute.py (passed in the 2026-10-22 refresh run at be3e45b); code: sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY no longer lists variableLibrary; test: sidecar/tests/test_notebook.py::test_open_and_save_say_where_the_notebook_can_run (sidecar suite passed in this assessment (656 passed, 2 skipped)); code: sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY lists notebookutils.variableLibrary, which notebookutils_local implements; test: sidecar/tests/test_compute_check_ast.py (30 tests (aliases, Unknown, Prove/validate/advice/risk read the same result); passed on the PB-014 branch, fail on main)
 - **Source:** `sidecar/fabric_desktop/fabric_run.py`, `app/ui/app.js`
-- **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_fabric_compute.py`
+- **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_fabric_compute.py`, `sidecar/tests/test_compute_check_ast.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Regex-based. No 'unknown' outcome.
 - **Pull requests and issues:** [#29](https://github.com/KratosDataGod/KratosForge/pull/29), [#410](https://github.com/KratosDataGod/KratosForge/pull/410)

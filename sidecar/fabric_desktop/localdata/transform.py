@@ -39,6 +39,7 @@ from typing import Any, Callable
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
 from . import delta
 
 __all__ = ["Step", "Transforms"]
@@ -127,7 +128,7 @@ class Transforms:
         try:
             trees = [t for t in sqlglot.parse(step.sql, read=step.dialect) if t is not None]
         except sqlglot.errors.ParseError as exc:
-            raise ValueError(f"Could not read the query: {exc}") from None
+            raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(exc)}") from None
         if len(trees) != 1 or not isinstance(trees[0], exp.Query):
             raise ValueError("A step is one query (SELECT ..., WITH ... SELECT ...), with no other statements; "
                              "its rows become the step's table.")

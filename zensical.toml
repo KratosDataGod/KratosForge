@@ -92,6 +92,7 @@ nav = [
     { "Live testing on your tenant" = "live-testing.md" },
     { "Tenant smoke test" = "product/smoke-test/README.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
+    { "Health thresholds" = "health-thresholds.md" },
     { "Your AI tool" = [
       { "Connect your AI tool" = "ai/README.md" },
       { "Workflows" = "ai/workflows.md" },

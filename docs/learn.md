@@ -33,12 +33,19 @@ A lesson marked **Draft** is still being written and may change.
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
+| LM-10 | QUALIFY: filter on a window function | Snowflake | |
+| LM-11 | MERGE: update, insert and delete in one step | Databricks | |
+| LM-12 | Incremental loads: a watermark that misses nothing | Python & Data Engineering | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
 teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
 where a lesson uses DuckDB's own SQL, it says so.
-Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
-Snowflake, Enterprise Architecture) come in later updates.
+Like every lab, they never read or write OneLake and never publish to Fabric.
+
+The Snowflake, Databricks and Python & Data Engineering paths start with one lesson each. They run on this
+PC in DuckDB too, and say where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse,
+and the MERGE lesson checks the table a MERGE would leave with a read-only SELECT. More lessons, and the
+Enterprise Architecture path, come in later updates.
 
 ## A lesson or lab
 
@@ -81,9 +88,11 @@ Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding
 
-- **Explain** shows why the rule matters, and when it's fine to leave, from the rule's section of the
-  notebook or SQL best-practices guide. That text ships with the app, so it works offline and nothing
-  is sent anywhere.
+- **Explain** shows how important the rule is (Critical, Recommended, Educational or Advanced) and its
+  area, why it matters, what to do, when it's fine to leave, and how to check a change worked, from
+  the rule's section of the notebook or SQL best-practices guide. Importance only explains a rule: its
+  severity and your organization's policies decide what is flagged and required. That text ships with
+  the app, so it works offline and nothing is sent anywhere.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
 - **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It

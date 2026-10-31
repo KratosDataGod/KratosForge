@@ -238,12 +238,33 @@ def test_access_by_email_needs_no_directory_permission(svc, monkeypatch):
     monkeypatch.setattr(type(svc), "fabric", property(lambda self: Fake()))
     svc._auth = Auth()
 
-    svc.access_set_role("ws1", role="Contributor", email="bo@contoso.com")
-    assert posted == [("https://api.powerbi.com/v1.0/myorg/groups/ws1/users",
+    svc.access_set_role(WS_ID, role="Contributor", email="bo@contoso.com")
+    assert posted == [(f"https://api.powerbi.com/v1.0/myorg/groups/{WS_ID}/users",
                        {"emailAddress": "bo@contoso.com", "groupUserAccessRight": "Contributor", "principalType": "User"})]
     assert svc.access_find_person("ANA@contoso.com", workspace_id="ws1")["id"] == "oid-ana"
     with pytest.raises(LookupError, match="object ID"):
         svc.access_find_person("bo@contoso.com", workspace_id="ws1")
+
+
+WS_ID = "11111111-2222-3333-4444-555555555555"
+
+
+@pytest.mark.parametrize("bad", ["ws1", "../admin/groups", f"{WS_ID}/users?x=1", f"{WS_ID}\n", f" {WS_ID}", "", None])
+def test_a_workspace_id_that_isnt_a_guid_never_reaches_a_url(svc, monkeypatch, bad):
+    from fabric_desktop import estate_service
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: pytest.fail("nothing is sent"))
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))
+    with pytest.raises(ValueError, match="workspace id"):
+        svc.access_set_role(bad, role="Viewer", email="bo@contoso.com")
+    with pytest.raises(ValueError, match="workspace id"):
+        svc._add_user_by_email(bad, "bo@contoso.com", "Viewer")
+
+
+@pytest.mark.parametrize("field", ["assignment_id", "principal_id"])
+def test_assignment_and_principal_ids_are_guids_too(svc, monkeypatch, field):
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))
+    with pytest.raises(ValueError, match="id KratosForge can use"):
+        svc.access_set_role(WS_ID, role="Viewer", **{field: "x/../y"})
 
 
 # ---- tests that gate promote

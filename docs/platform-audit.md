@@ -48,7 +48,7 @@ So a revoke's `detail.request` leads back to the request that gave the access.
 | `claim admin` (the first admin of an empty platform), `add admin`, `remove admin` | the person |
 | `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it, and the refusal writes no row |
 
-Every save writes a row too: a domain, source, landing zone, glossary term, shortcut rules, Entra group link or naming, product, project or member, each named by its `action` (`save domain`, `save source`, and so on). So do actions taken from a workload page (`workload <action> <status>`). Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
+Every other change writes a row too, each with its own `action`: `save domain`, `save source`, `save landing zone`, `save term`, `save shortcut rules`, `save Entra group naming`, `link Entra group` and `unlink Entra group`, `publish product`, `add product item` and `remove product item`, `add product term` and `remove product term`, `change project` and `project member`. Keys, shortcuts and the landing zone write theirs as well (for example `stage keys`, `keys live`, `shortcut scan`, `switch landing reads`), and so do actions taken from a workload page (`workload <action> <status>`). Filter on the exact names, not on a prefix. Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
 
 ## Pulling one request's trail
 

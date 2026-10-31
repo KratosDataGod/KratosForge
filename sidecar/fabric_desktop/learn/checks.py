@@ -29,6 +29,7 @@ import duckdb
 
 from .. import notebook_practices
 from ..sqlcompat import practices as sql_practices
+from ..duckdb_rows import one_row
 
 MAX_ROWS = 1_000_000   # a result bigger than this isn't compared row by row
 
@@ -112,12 +113,12 @@ def table_shape(con: duckdb.DuckDBPyConnection, table: str, columns: dict[str, s
             return _no(kind, f"{table}.{name} is {have[name.lower()]}; it should be {typ.upper()}.")
     ident = '"' + table.replace('"', '""') + '"'
     for col in not_null or []:
-        n = con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL').fetchone()[0]  # type: ignore[index]
+        n = one_row(con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL'))[0]  # type: ignore[index]
         if n:
             return _no(kind, f"{table}.{col} has {n:,} empty (NULL) values.")
     if unique:
         key = ", ".join(f'"{c}"' for c in unique)
-        n = con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)").fetchone()[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
         if n:
             return _no(kind, f"{n:,} values of {', '.join(unique)} appear more than once in {table}.")
     return _ok(kind, f"{table} has the columns, types and keys it needs.")
@@ -127,8 +128,8 @@ def integrity(con: duckdb.DuckDBPyConnection, child: str, column: str, parent: s
               parent_column: str | None = None) -> dict[str, Any]:
     kind = "integrity"
     pc = parent_column or column
-    n = con.execute(f'SELECT count(*) FROM "{child}" c WHERE c."{column}" IS NOT NULL AND NOT EXISTS '
-                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")').fetchone()[0]  # type: ignore[index]
+    n = one_row(con.execute(f'SELECT count(*) FROM "{child}" c WHERE c."{column}" IS NOT NULL AND NOT EXISTS '
+                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")'))[0]  # type: ignore[index]
     if n:
         return _no(kind, f"{n:,} rows of {child} have a {column} that {parent} doesn't have.")
     return _ok(kind, f"Every {child} row finds its {parent}.")

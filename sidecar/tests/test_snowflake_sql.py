@@ -388,7 +388,7 @@ def test_ratio_to_report_and_haversine_refuse_shapes_snowflake_does_not_allow(co
 def test_haversine_is_kilometres_on_a_6371_km_sphere_and_reads_columns():
     con = duckdb.connect()
     sql = sf.translate("select haversine(40.7127, -74.0059, 34.0500, -118.2500)").duckdb_sql
-    assert round(con.execute(sql).fetchone()[0], 9) == 3936.385096389  # Snowflake's docs example
+    assert round(con.execute(sql).fetchall()[0][0], 9) == 3936.385096389  # Snowflake's docs example
     con.execute("create table p(a_lat int, a_lon int, b_lat int, b_lon int)")
     con.execute("insert into p values (0, 0, 0, 180), (0, 0, 0, 0), (null, 0, 0, 0)")
     sql = sf.translate("select haversine(a_lat, a_lon, b_lat, b_lon) from p").duckdb_sql

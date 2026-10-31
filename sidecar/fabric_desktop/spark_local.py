@@ -33,6 +33,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
+from .duckdb_rows import first_row
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
@@ -793,7 +794,7 @@ class LocalSparkSession(SparkSession):
                 f"SELECT {group} FROM {view} AS `{sa}` WHERE EXISTS (SELECT 1 FROM {target} AS `{ta}` WHERE "
                 f"{change.on.sql(dialect='spark')}) GROUP BY {group} HAVING count(*) > 1 LIMIT 1", read="spark")
             self._bind(check)
-            duplicate = self.conn.execute(_sql.duckdb_sql(check)).fetchone()
+            duplicate = first_row(self.conn.execute(_sql.duckdb_sql(check)))
         finally:
             self.conn.unregister(view)
         if duplicate is not None:

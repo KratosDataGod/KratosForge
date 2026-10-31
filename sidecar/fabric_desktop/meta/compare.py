@@ -23,6 +23,7 @@ import pyarrow.dataset as pads
 from .. import side_by_side
 from ..verify import DEFAULTS
 from .project import SCD2_COLUMNS, SYSTEM_COLUMNS, Entity
+from ..duckdb_rows import one_row
 
 SAMPLE = 20
 # Above this many rows on either side, compare counts, totals and a checksum instead of every row.
@@ -151,7 +152,7 @@ def _summary(data: pads.Dataset, columns: list[str], numbers: set[str], totals: 
         try:
             con.execute("SET TimeZone = 'UTC'")
             con.register("t", reader)
-            got = con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t").fetchone()
+            got = one_row(con.execute(f"SELECT count(*), {', '.join([row_hash] + sums)} FROM t"))
         finally:
             con.close()
     finally:

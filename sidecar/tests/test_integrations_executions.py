@@ -430,8 +430,8 @@ def test_sql_interrupt_just_before_the_statement_starts_is_repeated(svc, monkeyp
 def test_sandboxed_sql_has_memory_and_thread_limits_it_cant_change(svc):
     con, statement = sql.prepare_sandboxed("SELECT 1 AS a", memory_mb=512, threads=1)
     try:
-        assert con.execute("SELECT current_setting('threads')").fetchone()[0] == 1
-        memory = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+        assert con.execute("SELECT current_setting('threads')").fetchall()[0][0] == 1
+        memory = con.execute("SELECT current_setting('memory_limit')").fetchall()[0][0]
         assert memory.endswith("MiB") and float(memory.split()[0]) < 512, memory  # 512 MB is 488.2 MiB
         with pytest.raises(Exception, match="(?i)lock"):
             con.execute("SET memory_limit = '64GB'")

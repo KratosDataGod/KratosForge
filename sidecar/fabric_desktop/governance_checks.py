@@ -36,6 +36,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 from typing import Any, Callable
+from .duckdb_rows import one_row
 
 SEVERITY_OF = {"critical": "Error", "high": "Error", "medium": "Warning", "low": "Info"}
 LEVEL_OF = {"Error": "high", "Warning": "medium", "Info": "low"}
@@ -228,7 +229,7 @@ def _full_match(pattern: str, text: str) -> bool:
     if _re2 is None:
         _re2 = duckdb.connect()
     try:
-        return bool(_re2.cursor().execute("SELECT regexp_full_match(?, ?)", [text, pattern]).fetchone()[0])
+        return bool(one_row(_re2.cursor().execute("SELECT regexp_full_match(?, ?)", [text, pattern]))[0])
     except duckdb.Error as exc:
         raise ValueError(str(exc).replace("Invalid Input Error: ", "")) from exc
 

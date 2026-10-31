@@ -506,7 +506,7 @@ def test_tpch_data_parts_are_exactly_one_dbgen_and_are_deleted_after(monkeypatch
     one.execute("CALL dbgen(sf=0.5)")
     for table in benchmark.TABLES:
         query = f"SELECT count(*), sum(hash(t)) FROM {table} t"
-        assert ns["con"].execute(query).fetchone() == one.execute(query).fetchone(), table
+        assert ns["con"].execute(query).fetchall() == one.execute(query).fetchall(), table
     work = ns["work"]
     ns["clean_up"]()
     assert not os.path.exists(work)

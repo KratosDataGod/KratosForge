@@ -220,7 +220,7 @@ def test_a_struct_type_with_a_non_nullable_field_is_checked_too(live):
 
 def test_these_frames_leave_no_view_behind(live):
     def views():
-        return live.conn.execute("SELECT count(*) FROM duckdb_views() WHERE NOT internal").fetchone()[0]
+        return live.conn.execute("SELECT count(*) FROM duckdb_views() WHERE NOT internal").fetchall()[0][0]
     before = views()
     for i in range(50):
         df = live.createDataFrame([(i, None, 1.5), (i + 1, "b", None)], ["id", "v", "x"])

@@ -101,7 +101,7 @@ class ValidateMixin:
                                 runs_on: str | None = None) -> dict[str, Any]:
         """The code checks, without running anything. ``runs_on``: "pc" (or "local"), "fabric", or None when not known."""
         out = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed(),  # type: ignore[attr-defined]
-                             load=self._cells_of)  # type: ignore[attr-defined]
+                             **self._checks(name))  # type: ignore[attr-defined]
         return {"name": name, "code": receipts.code_revision(cells), "verdict": validate.verdict(out["findings"], None)} | out
 
     def notebook_cleanup_plan(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
@@ -129,7 +129,7 @@ class ValidateMixin:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")
             static = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed(),  # type: ignore[attr-defined]
-                                    load=self._cells_of)  # type: ignore[attr-defined]
+                                    **self._checks(name))  # type: ignore[attr-defined]
             code = [(n, c) for n, c in enumerate(cells, 1) if notebook_cells.runs(c, skip_fabric_step=True)]
             rid = "validate-" + time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
             record: dict[str, Any] = {

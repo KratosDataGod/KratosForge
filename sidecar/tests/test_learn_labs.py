@@ -38,7 +38,7 @@ def test_every_recorded_defect_is_really_there():
     con = duckdb.connect()
     found = {d["kind"]: d["key"] for d in datasets.generate(con, seed=3)["defects"]}
     assert set(found) == set(datasets.DEFECT_KINDS)
-    one = lambda sql, key: con.execute(sql, [key]).fetchone()[0]  # noqa: E731
+    one = lambda sql, key: con.execute(sql, [key]).fetchall()[0][0]  # noqa: E731
     assert one("SELECT count(*) FROM customers WHERE customer_id = ?", found["duplicate_customer"]) == 2
     assert one("SELECT email IS NULL FROM customers WHERE customer_id = ?", found["missing_email"])
     assert one("SELECT region = lower(region) FROM customers WHERE customer_id = ?", found["region_case"])
@@ -47,7 +47,7 @@ def test_every_recorded_defect_is_really_there():
     assert one("SELECT store_id NOT IN (SELECT store_id FROM stores) FROM orders WHERE order_id = ?", found["orphan_store"])
     clean = duckdb.connect()
     assert datasets.generate(clean, defects=False)["defects"] == []
-    assert clean.execute("SELECT count(*) FROM orders WHERE amount < 0").fetchone()[0] == 0
+    assert clean.execute("SELECT count(*) FROM orders WHERE amount < 0").fetchall()[0][0] == 0
 
 
 # Checks ------------------------------------------------------------------------------------------
@@ -73,7 +73,7 @@ def test_result_matches(con):
 
 def test_the_answer_never_changes_the_data(con):
     checks.result_matches(con, "DELETE FROM t; SELECT 1 AS id, 'a' AS name", reference="SELECT 1 AS id, 'a' AS name")
-    assert con.execute("SELECT count(*) FROM t").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM t").fetchall()[0][0] == 2
 
 
 def test_table_shape_and_integrity(con):
@@ -194,7 +194,8 @@ def test_labs_import_nothing_that_reaches_fabric():
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
                "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", "",
                # fixes.py (GD-02) reads SQL with the compatibility checker's tokens: a parser, no I/O
-               "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules"}
+               "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules",
+               "duckdb_rows"}  # one-row reads from DuckDB (#1341): no I/O of its own
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

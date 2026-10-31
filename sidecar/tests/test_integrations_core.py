@@ -305,3 +305,20 @@ def test_placement_advice_follows_a_run_notebook_too(svc):
     svc.notebooks.save("Main", [{"type": "code", "source": "%run Helpers"}])
     texts = [r["text"] for r in svc.placement_advice("Main")["reasons"] if r["kind"] == "compatibility"]
     assert any("runs Helpers (%run), whose cell 1 uses Fabric notebook utilities" in t for t in texts), texts
+
+
+def test_every_check_reads_a_run_b_file_and_a_notebook_runs_own_lakehouse(svc):
+    """#1288: the service gives the checks this notebook's resources folder and the other notebooks' lakehouses."""
+    from pathlib import Path
+    svc.notebooks.save("Main", [{"type": "code", "source": "%run -b setup.py"},
+                                {"type": "code", "source": "import notebookutils as nu\nnu.notebook.run('Child')"}],
+                       {"workspace_id": "ws", "lakehouse_id": "lh", "name": "Sales"})
+    svc.notebooks.save("Child", [{"type": "code", "source": "df = spark.read.table('dbo.t')"}])
+    builtin = Path(svc.notebooks.resources("Main")) / "builtin"
+    builtin.mkdir(parents=True, exist_ok=True)
+    (builtin / "setup.py").write_text("import notebookutils as nu\nnu.fs.mount('abfss://c@a', '/m')", encoding="utf-8")
+    check = svc.open_notebook("Main")["check"]
+    assert check["local"]["reasons"][0]["text"].startswith("runs setup.py (%run -b), which uses Fabric notebook utilities")
+    assert check["fabric"]["reasons"][0]["text"].startswith("runs Child (notebook.run) in a session of its own")
+    tool = services.validate_notebook(svc, ctx(), name="Main")
+    assert tool["this_pc"]["reasons"] == check["local"]["reasons"] and tool["fabric"]["reasons"] == check["fabric"]["reasons"]

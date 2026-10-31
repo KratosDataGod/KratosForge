@@ -2918,7 +2918,7 @@ async function checkComponents(afterInstall = false) {
     report = await invoke("check_components");
   } catch (err) {
     set("app", "skip", "Needs Python");
-    set("python", "error", `${err} Install Python 3.11 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
+    set("python", "error", `${err} Install Python 3.12 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
     set("sidecar", "skip", "Needs Python");
     if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
     return closeDialog();
@@ -2932,7 +2932,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.12 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2978,7 +2978,7 @@ async function checkComponents(afterInstall = false) {
     help.hidden = false;
   };
 
-  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.11 or later");
+  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
     if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);

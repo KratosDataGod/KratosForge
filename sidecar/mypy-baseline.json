@@ -138,12 +138,6 @@
  "fabric_desktop/engines/databricks_sql.py": {
   "assignment": 1
  },
- "fabric_desktop/engines/dbconnect.py": {
-  "operator": 1
- },
- "fabric_desktop/engines/dbconnect_worker.py": {
-  "attr-defined": 1
- },
  "fabric_desktop/engines/local_python.py": {
   "var-annotated": 1
  },
@@ -286,7 +280,7 @@
   "call-overload": 1,
   "index": 2,
   "misc": 1,
-  "union-attr": 5
+  "union-attr": 4
  },
  "fabric_desktop/localdata/transform.py": {
   "assignment": 1,
@@ -444,7 +438,7 @@
   "union-attr": 1
  },
  "fabric_desktop/orchestration/runner.py": {
-  "union-attr": 5
+  "union-attr": 4
  },
  "fabric_desktop/pipeline_data.py": {
   "arg-type": 2,
@@ -464,9 +458,6 @@
  },
  "fabric_desktop/profiling.py": {
   "arg-type": 3
- },
- "fabric_desktop/proof.py": {
-  "assignment": 1
  },
  "fabric_desktop/prove_service.py": {
   "assignment": 1,
@@ -547,9 +538,8 @@
   "union-attr": 1
  },
  "fabric_desktop/sql.py": {
-  "arg-type": 4,
-  "assignment": 7,
-  "attr-defined": 1,
+  "arg-type": 2,
+  "assignment": 5,
   "return-value": 2,
   "union-attr": 1
  },

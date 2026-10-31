@@ -28,6 +28,7 @@ from typing import Any
 
 import sqlglot
 from duckdb.experimental.spark.sql.dataframe import DataFrame
+from .duckdb_rows import first_row, one_row
 
 SPARK_VERSION = "3.5.0"  # the PySpark API this emulates, as in Fabric runtime 1.3
 
@@ -194,7 +195,7 @@ def _new(df: DataFrame, rel: Any) -> DataFrame:
 
 
 def isEmpty(self: DataFrame) -> bool:  # noqa: N802
-    return self.relation.limit(1).fetchone() is None
+    return first_row(self.relation.limit(1)) is None
 
 
 def tail(self: DataFrame, num: int) -> list[Any]:
@@ -221,18 +222,18 @@ def offset(self: DataFrame, num: int) -> DataFrame:
 
 
 def corr(self: DataFrame, col1: str, col2: str, method: str | None = None) -> float:
-    return self.relation.aggregate(f"corr({_q(col1)}, {_q(col2)})", "").fetchone()[0]
+    return one_row(self.relation.aggregate(f"corr({_q(col1)}, {_q(col2)})", ""))[0]
 
 
 def cov(self: DataFrame, col1: str, col2: str) -> float:
-    return self.relation.aggregate(f"covar_samp({_q(col1)}, {_q(col2)})", "").fetchone()[0]
+    return one_row(self.relation.aggregate(f"covar_samp({_q(col1)}, {_q(col2)})", ""))[0]
 
 
 def approxQuantile(self: DataFrame, col: Any, probabilities: list[float], relativeError: float) -> list[Any]:  # noqa: N802, N803, ARG001
     cols = [col] if isinstance(col, str) else list(col)
     out = []
     for c in cols:
-        row = self.relation.aggregate(", ".join(f"quantile_cont({_q(c)}, {float(p)})" for p in probabilities), "").fetchone()
+        row = one_row(self.relation.aggregate(", ".join(f"quantile_cont({_q(c)}, {float(p)})" for p in probabilities), ""))
         out.append(list(row))
     return out[0] if isinstance(col, str) else out
 

@@ -24,6 +24,7 @@ import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
+from ..duckdb_rows import first_row
 
 D = dt.date
 
@@ -263,7 +264,7 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
         return "untranslated", f"{type(exc).__name__}: {exc}"
     con = con or duckdb.connect()
     try:
-        row = con.execute(translated).fetchone()
+        row = first_row(con.execute(translated))
     except Exception as exc:  # noqa: BLE001 - DuckDB refusing the translated SQL is the outcome
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .engines.databricks_sql_parity import same
+from .duckdb_rows import first_row
 
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
@@ -206,7 +207,7 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
         return "untranslated", translation.first_refusal()
     con = con or duckdb.connect()
     try:
-        row = con.execute(translation.duckdb_sql).fetchone()
+        row = first_row(con.execute(translation.duckdb_sql))
     except duckdb.Error as exc:
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None

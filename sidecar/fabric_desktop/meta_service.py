@@ -91,7 +91,6 @@ def _days(value: Any) -> Any:
         return value
 
 
-
 def _project_folder(path: str) -> Path:
     """A project's folder as the app's folder picker gives it: a full path. A relative one would be
     taken from wherever the engine happened to start (#1173)."""
@@ -99,6 +98,7 @@ def _project_folder(path: str) -> Path:
     if not folder.is_absolute():
         raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
     return folder
+
 
 class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
@@ -136,6 +136,8 @@ class MetaMixin:
 
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
+        if path and not Path(path).is_absolute():  # saved before full paths were required: where it points depends on the start folder
+            raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
             raise NoMetadataProject("No metadata project is open. Create one or open its folder.")
         project = getattr(self, "_meta_project", None)

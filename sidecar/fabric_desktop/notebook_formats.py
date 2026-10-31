@@ -65,6 +65,13 @@ def _magic(source: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
+def _magic_first(source: str) -> str:
+    """``source`` with its cell magic on the first line: the blank lines before a cell magic, and the
+    indent of its line, are dropped, as Jupyter runs it. Any other cell is returned as it is."""
+    rest = source.replace("\r\n", "\n").replace("\r", "\n").lstrip()
+    return rest if _magic(rest) else source
+
+
 def _lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
@@ -118,6 +125,7 @@ def to_fabric_py(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None =
         if c.get("type") == "markdown":
             out += [FABRIC_MARKDOWN, ""] + _prefixed("#", _lines(source))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
         language = _FABRIC_LANGUAGE.get(magic or "", "python")
         out += [FABRIC_PARAMS if _is_params(c) else FABRIC_CELL, ""]
@@ -138,6 +146,7 @@ def to_databricks_py(cells: list[dict[str, Any]]) -> str:
         if c.get("type") == "markdown":
             parts.append("\n".join(_prefixed("# MAGIC", ["%md"] + _lines(source))))
             continue
+        source = _magic_first(source)
         magic = _magic(source)
         lines = _lines(source)
         if magic:
@@ -192,7 +201,7 @@ def databricks_export_notes(cells: list[dict[str, Any]], lakehouse: dict[str, An
             notes.append(_note(n, "dropped", f"The cell's {' and '.join(hidden)} setting: Databricks source doesn't keep it."))
         if c.get("type") != "code":
             continue
-        source = c.get("source", "")
+        source = _magic_first(c.get("source", ""))
         magic = _magic(source)
         if magic and magic not in _DATABRICKS_KNOWN:
             notes.append(_note(n, "check", f"%%{magic} has no Databricks equivalent. The cell is kept as written, "

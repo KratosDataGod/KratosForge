@@ -66,3 +66,12 @@ def test_a_request_naming_no_valid_zone_holds_none(platform):
     platform.call("delete_landing_zone", id="hr")
     platform.call("delete_landing_zone", id="shared")
     assert _zones(platform) == []
+
+
+def test_an_unreadable_request_detail_doesnt_block_zone_deletes(platform):
+    req = _ask(platform, "odd", "hr")
+    with platform._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'request')} SET detail = ? WHERE id = ?", ("{not json", req["id"]))
+        db.conn.commit()
+    platform.call("delete_landing_zone", id="hr")
+    assert "hr" not in _zones(platform)

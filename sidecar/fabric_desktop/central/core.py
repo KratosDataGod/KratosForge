@@ -1742,7 +1742,7 @@ def _zone_waiting(db: Db, zid: str) -> list[str]:
     for r in db.rows(f"SELECT target, detail FROM {db.t('catalog', 'request')} WHERE kind = 'source' AND status = 'waiting'"):
         try:
             zone = zone_key(json.loads(r.get("detail") or "{}").get("zone") or SHARED_ZONE)
-        except (PlatformError, AttributeError):  # silent-ok: a request naming no valid zone lands nowhere
+        except (ValueError, AttributeError):  # silent-ok: a request naming no valid zone (or unreadable) lands nowhere
             continue
         if zone == zid:
             out.add(str(r["target"]))

@@ -43,6 +43,7 @@ class FakeLivy:
         self.cancelled = []
         self.deleted = []
         self.on_poll = None
+        self.error_text = "name 'boom' is not defined"   # what a failing ("boom") statement says
         # What a result statement prints (fabric_spark._result_code), as Spark would for three rows.
         self.result_text = json.dumps({
             "mark": fs.RESULT_MARK, "fields": [["id", "bigint"], ["name", "string"], ["amount", "decimal(10,2)"]],
@@ -53,8 +54,8 @@ class FakeLivy:
         if n in self.cancelled:
             return {"id": n, "state": "cancelled"}
         if "boom" in code:
-            out = {"status": "error", "ename": "NameError", "evalue": "name 'boom' is not defined",
-                   "traceback": ["Traceback..."]}
+            out = {"status": "error", "ename": "NameError", "evalue": self.error_text,
+                   "traceback": ["Traceback...", self.error_text]}
         elif kind == "pyspark" and fs.RESULT_MARK in code:
             out = {"status": "ok", "data": {"text/plain": self.result_text}}
         elif kind == "sql":

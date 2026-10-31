@@ -415,6 +415,8 @@ def stage_keys(db: Db, staging: bool, live: bool = False, by: str = "") -> dict[
     if live:
         _upsert(db, "config", "setting", "name", {"name": KEYS_LIVE, "value": "1"})
         _audit(db, by, "keys live", "keys")
+    else:
+        _audit(db, by, "stage keys" if staging else "unstage keys", "keys")
     db.commit()
     return keys_state(db)
 
@@ -525,6 +527,7 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
             db.run(f"DBCC CHECKIDENT ('keys.{name}', RESEED, {top})")
         else:
             db.conn.executemany(f"INSERT INTO {t} ({name}_sk, {name}_bk, create_date) VALUES (?, ?, ?)", new)
+        _audit(db, by, "import keys", name, {"imported": len(new)})
     db.commit()
     return {"imported": len(new), "already_there": len(rows) - len(new)}
 
@@ -2257,6 +2260,7 @@ def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
         raise PlatformError("Only the person who sent a request can withdraw it")
     db.run(f"UPDATE {db.t('catalog', 'request')} SET status = 'withdrawn', decided_by = ?, decided_at = ? WHERE id = ?",
            (_who(by), _now(), req["id"]))
+    _audit(db, by, f"withdrew {req['kind']}", req["target"], {"request": req["id"], "project": req["project"]})
     db.commit()
     return _request_out(_row(db, "request", "id", req["id"]) or {})
 

@@ -8,9 +8,9 @@ name = "fabric-desktop"
 version = "0.20.0"
 description = "Run data jobs on your own machine and publish Delta tables to Microsoft Fabric OneLake."
 license = "Apache-2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"  # the Python the app ships (ci.yml PYTHON_VERSION); constraints.txt needs it (bokeh 3.10). tests/test_python_version.py
 dependencies = [
-    "duckdb>=1.1",
+    "duckdb>=1.1,<2",  # 2.0 fails 79 engine tests (#1341); tests/test_duckdb_version.py
     "sqlglot>=30.22,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
     "polars>=1.20",
     "pyarrow>=16",

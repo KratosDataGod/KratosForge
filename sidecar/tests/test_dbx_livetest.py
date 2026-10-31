@@ -303,7 +303,7 @@ def test_a_ready_pc_passes_every_check_and_only_asks_the_cli_its_version(tmp_pat
 
 
 @pytest.mark.parametrize("version,stdout,code,cfg,want", [
-    ((3, 10, 9), None, 0, None, "needs 3.11 or later"),
+    ((3, 11, 9), None, 0, None, "needs 3.12 or later"),
     ((3, 12, 0), "Databricks CLI v0.18.0\n", 0, None, "needs 0.205 or later"),
     ((3, 12, 0), "Version 0.17.7\n", 2, None, "old Python databricks-cli"),
     ((3, 12, 0), None, 0, "[other]\nhost = x\n", "no profile named 'kf-test'"),

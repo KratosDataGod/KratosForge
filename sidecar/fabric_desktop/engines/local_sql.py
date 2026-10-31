@@ -44,6 +44,7 @@ import pyarrow as pa
 
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+from ..duckdb_rows import first_row
 
 _T = "unit_tests"
 _LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
@@ -306,7 +307,10 @@ class DuckDBSession(_SqlSession):
                               "or DuckDB SQL.")
         from .. import sql
         statements = _databricks(code) if dialect == "databricks" else sql.parse(code, "spark")
-        return ";\n".join(s.sql(dialect="duckdb") for s in statements)
+        try:
+            return ";\n".join(sql.duckdb_sql(s) for s in statements)
+        except ValueError as exc:
+            raise Unsupported(str(exc)) from None
 
     def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
         if request.dialect == "snowflake":   # translated first, so even a refused cell shows its label
@@ -320,7 +324,7 @@ class DuckDBSession(_SqlSession):
         # Spark's TIMESTAMP is read in the session's time zone, which is UTC in Fabric and Databricks
         # unless a notebook changes it; sqlglot makes it DuckDB's TIMESTAMPTZ, which DuckDB reads in
         # this PC's zone. So translated cells run in UTC, and the cell after gets the zone back.
-        zone = self._con.execute("SELECT current_setting('TimeZone')").fetchone()
+        zone = first_row(self._con.execute("SELECT current_setting('TimeZone')"))
         self._con.execute("SET TimeZone = 'UTC'")
         try:
             return self._execute(code, request)

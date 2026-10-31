@@ -3,6 +3,9 @@ can't follow is Unknown, never taken as runs here."""
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 from fabric_desktop import advisor, proof, risk, validate
 from fabric_desktop.fabric_run import compute_check
@@ -228,8 +231,10 @@ def test_a_chain_deeper_than_the_kernel_runs_is_unknown():
 
 def test_what_the_runner_cant_name_is_still_unknown_with_a_loader():
     load = loader({"Helpers": ["x = 1"]})
-    for source, how in (("%run -b setup.py", "%run"), ("import notebookutils as nu\nnu.notebook.run(name)", "notebook.run"),
-                        ("import notebookutils as nu\nnu.notebook.runMultiple(['Helpers'])", "notebook.runMultiple")):
+    for source, how in (("%run -b setup.py", "%run -b"),  # no resources folder given (#1288 reads it when there is)
+                        ("%run -c setup.py", "%run"),
+                        ("import notebookutils as nu\nnu.notebook.run(name)", "notebook.run"),
+                        ("import notebookutils as nu\nnu.notebook.runMultiple(names)", "notebook.runMultiple")):
         out = compute_check(cells(source), LH, load)
         assert out["local"]["unknown"][0]["text"] == \
             f"runs another notebook ({how}), whose cells this check doesn't read", source
@@ -250,3 +255,116 @@ def test_prove_and_validate_pass_the_loader_on():
              if f["code"] == "runs_on_pc"]
     assert found == [("runs_on_pc", "error", f"It {text}.")]
     assert not [f for f in validate.check(nb, LH, "pc")["findings"] if f["code"] == "runs_on_pc"]  # without it: Unknown
+
+
+# ---- #1288: notebook.run's own lakehouse, runMultiple's named notebooks, %run -b files
+
+def test_run_multiple_follows_every_named_notebook():
+    load = loader({"A": ["x = 1"], "B": ["y = 2", MOUNT]})
+    for source in ("import notebookutils as nu\nnu.notebook.runMultiple(['A', 'B'])",
+                   "import notebookutils as nu\nnu.notebook.runMultiple({'activities': [{'name': 'a', 'path': 'A'}, "
+                   "{'name': 'b', 'path': 'Folder/B.ipynb', 'dependencies': ['a']}]})"):
+        out = compute_check(cells(source), LH, load)
+        assert [r["text"] for r in out["local"]["reasons"]] == [
+            "runs B (notebook.runMultiple), whose cell 2 uses Fabric notebook utilities that need Fabric"], source
+    ok = compute_check(cells("import notebookutils as nu\nnu.notebook.runMultiple(['A'])"), LH, load)
+    assert ok["local"]["status"] == ok["fabric"]["status"] == "ok"
+
+
+@pytest.mark.parametrize("arg", ["names", "['A', name]", "{'activities': [{'name': 'a'}]}", "[]"])
+def test_run_multiple_with_a_name_known_only_at_run_time_is_unknown(arg):
+    out = compute_check(cells(f"import notebookutils as nu\nnu.notebook.runMultiple({arg})"), LH, loader({"A": ["x = 1"]}))
+    assert out["local"]["unknown"][0]["text"] == \
+        "runs another notebook (notebook.runMultiple), whose cells this check doesn't read"
+
+
+def test_a_notebook_run_child_with_no_lakehouse_of_its_own_is_blocked_in_fabric():
+    """notebook.run runs the child in its own session, which in Fabric uses its own lakehouse."""
+    child = {"cells": cells("df = spark.read.table('dbo.t')"), "lakehouse": None}
+    load = lambda name: child  # noqa: E731
+    run = compute_check(cells("import notebookutils as nu\nnu.notebook.run('Child')"), LH, load)
+    assert run["local"]["status"] == "ok"  # on this PC it uses this notebook's lakehouse
+    assert run["fabric"]["reasons"][0]["text"].startswith("runs Child (notebook.run) in a session of its own, "
+                                                          "and Child has no lakehouse attached")
+    shared = compute_check(cells("%run Child"), LH, load)  # %run shares this session and its lakehouse
+    assert shared["fabric"]["status"] == "ok"
+    attached = compute_check(cells("import notebookutils as nu\nnu.notebook.run('Child')"), LH,
+                             lambda name: child | {"lakehouse": LH})
+    assert attached["fabric"]["status"] == "ok"
+    no_tables = compute_check(cells("import notebookutils as nu\nnu.notebook.run('Child')"), LH,
+                              lambda name: {"cells": cells("x = 1"), "lakehouse": None})
+    assert no_tables["fabric"]["status"] == "ok"  # it reads no tables, so it needs no lakehouse
+
+
+@pytest.fixture
+def resources(tmp_path):
+    builtin = tmp_path / "Main.resources" / "builtin"
+    (builtin / "lib").mkdir(parents=True)
+    (builtin / "setup.py").write_text(MOUNT, encoding="utf-8")
+    (builtin / "lib" / "ok.py").write_text("x = 1", encoding="utf-8")
+    (builtin / "fix.sql").write_text("RESTORE TABLE dbo.t TO VERSION AS OF 2", encoding="utf-8")
+    (builtin / "data.csv").write_text("a\n1", encoding="utf-8")
+    return str(tmp_path / "Main.resources")
+
+
+def test_run_b_reads_the_file_from_built_in_resources(resources):
+    blocked = compute_check(cells("%run -b setup.py"), LH, resources=resources)
+    assert blocked["local"]["reasons"][0]["text"] == \
+        "runs setup.py (%run -b), which uses Fabric notebook utilities that need Fabric"
+    assert compute_check(cells("%run -b lib/ok.py"), LH, resources=resources)["local"]["status"] == "ok"
+    sql = compute_check(cells("%run -b fix.sql"), LH, resources=resources)["local"]
+    assert sql["status"] == "blocked" and "RESTORE" in sql["reasons"][0]["text"]
+
+
+@pytest.mark.parametrize("source", ["%run -b missing.py", "%run -b data.csv", "%run -b ../../outside.py",
+                                    "%run -c setup.py"])
+def test_run_b_of_a_file_it_cant_read_is_unknown(resources, source):
+    out = compute_check(cells(source), LH, resources=resources)["local"]
+    assert out["status"] == "unknown", source
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need Developer Mode on Windows")
+def test_run_b_of_a_file_that_links_outside_the_resources_is_unknown(resources, tmp_path):
+    """The kernel refuses such a file (notebook_resources.real_path), so the check doesn't read it."""
+    (tmp_path / "outside.py").write_text("x = 1", encoding="utf-8")
+    os.symlink(tmp_path / "outside.py", os.path.join(resources, "builtin", "link.py"))
+    out = compute_check(cells("%run -b link.py"), LH, resources=resources)
+    for side in ("local", "fabric"):
+        assert out[side]["status"] == "unknown"
+        assert out[side]["unknown"][0]["text"] == ("runs link.py (%run -b), which links outside this notebook's "
+                                                  "resources, so the check can't read it")
+
+
+def test_run_b_in_a_notebook_it_runs_reads_this_notebooks_resources(resources):
+    """The kernel runs a %run notebook in this session, with this notebook's resources folder."""
+    out = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["%run -b setup.py"]}), resources=resources)
+    assert out["local"]["reasons"][0]["text"] == ("runs Helpers (%run), whose cell 1 runs setup.py (%run -b), which uses "
+                                                  "Fabric notebook utilities that need Fabric")
+
+
+@pytest.mark.parametrize("call, status", [
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=True)", "ok"),
+    ("nu.notebook.run('Child', 90, {'useRootDefaultLakehouse': True})", "ok"),
+    ("nu.notebook.run('Child', arguments={'day': '1', 'useRootDefaultLakehouse': True})", "ok"),
+    ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}}]})",
+     "ok"),
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=False)", "blocked"),
+    ("nu.notebook.run('Child', 90, {'day': '1'})", "blocked"),
+    ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=flag)", "unknown"),
+    ("nu.notebook.run('Child', 90, args)", "unknown"),
+    # #1314: only a real True or False decides; "false", 0 or None isn't read as either
+    *[(f"nu.notebook.run('Child', 90, useRootDefaultLakehouse={v})", "unknown") for v in ('"false"', '"true"', "0", "1", "None")],
+    *[(f"nu.notebook.run('Child', 90, {{'useRootDefaultLakehouse': {v}}})", "unknown") for v in ('"false"', "0", "None")],
+    *[(f"nu.notebook.runMultiple({{'activities': [{{'name': 'c', 'path': 'Child', 'args': {{'useRootDefaultLakehouse': {v}}}}}]}})",
+       "unknown") for v in ('"true"', "1", "None")],
+    ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}},"
+     " {'name': 'd', 'path': 'Child'}]})", "blocked"),
+])
+def test_use_root_default_lakehouse_gives_the_child_this_notebooks_lakehouse(call, status):
+    """useRootDefaultLakehouse=True runs the child with the caller's lakehouse, so its own missing one doesn't matter."""
+    child = {"cells": cells("df = spark.read.table('dbo.t')"), "lakehouse": None}
+    out = compute_check(cells(f"import notebookutils as nu\n{call}"), LH, lambda name: child)
+    assert out["fabric"]["status"] == status, out["fabric"]
+    if status == "unknown":
+        assert "useRootDefaultLakehouse" in out["fabric"]["unknown"][0]["text"]
+    assert out["local"]["status"] == "ok"

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .engines.databricks_sql_parity import same
+from .duckdb_rows import first_row
 
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
@@ -140,8 +141,7 @@ CASES: tuple[Case, ...] = (
     _c("TO_TIME", "Conversion", "SELECT to_time('13:45:00')", dt.time(13, 45)),
     _c("DATE_FROM_PARTS", "Date and time", "SELECT date_from_parts(2026, 10, 30)", D(2026, 10, 30)),
     _c("DATE_TRUNC (DATE)", "Date and time", "SELECT date_trunc('month', '2026-03-15'::date)", D(2026, 3, 1)),
-    _c("DATEADD (DATE, month end)", "Date and time", "SELECT dateadd(month, 1, '2026-01-31'::date)", D(2026, 2, 28),
-       "differs", "The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006)."),
+    _c("DATEADD (DATE, month end)", "Date and time", "SELECT dateadd(month, 1, '2026-01-31'::date)", D(2026, 2, 28)),
     _c("ADD_MONTHS (month end)", "Date and time", "SELECT add_months('2026-01-31'::date, 1)", D(2026, 2, 28)),
     _c("LAST_DAY", "Date and time", "SELECT last_day('2026-02-10'::date)", D(2026, 2, 28)),
     _c("DATEDIFF (day)", "Date and time", "SELECT datediff(day, '2026-01-01'::date, '2026-01-31'::date)", 30),
@@ -207,7 +207,7 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
         return "untranslated", translation.first_refusal()
     con = con or duckdb.connect()
     try:
-        row = con.execute(translation.duckdb_sql).fetchone()
+        row = first_row(con.execute(translation.duckdb_sql))
     except duckdb.Error as exc:
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None

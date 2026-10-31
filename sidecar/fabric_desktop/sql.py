@@ -17,7 +17,8 @@ import duckdb
 import pyarrow as pa
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError, TokenError
+from sqlglot.dialects.duckdb import DuckDB
+from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
@@ -159,7 +160,7 @@ def _arity(template: str) -> int:
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
-    return cast(exp.Expression, sqlglot.parse_one(template.format(*(a.sql("duckdb") for a in args)), read="duckdb"))
+    return cast(exp.Expression, sqlglot.parse_one(template.format(*(duckdb_sql(a) for a in args)), read="duckdb"))
 
 
 # sqlglot 30.24 folded SortArray into ArraySort, which then carries asc and nulls_first itself.
@@ -286,7 +287,7 @@ def _strptime_format(node: exp.Expression) -> tuple[str, bool]:
 
 def _as_timestamp(value: exp.Expression) -> str:
     """A date, timestamp or text as a timestamp, as Spark reads one (text that isn't one is NULL)."""
-    return f"TRY_CAST({value.sql('duckdb')} AS TIMESTAMP)"
+    return f"TRY_CAST({duckdb_sql(value)} AS TIMESTAMP)"
 
 
 _SLICE_INDEX_0 = ("The index 0 is invalid. An index shall be either < 0 or > 0 "
@@ -336,11 +337,11 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):
             continue
         name = "first" if isinstance(agg, (exp.First, exp.FirstValue)) else "last"
-        value = agg.this.sql("duckdb")
+        value = duckdb_sql(agg.this)
         if isinstance(ignore.parent, exp.Window):  # sqlglot drops the IGNORE NULLS DuckDB's windows take
             window = ignore.parent.copy()
             window.set("this", exp.column("__fd_ignoring__"))
-            text = window.sql("duckdb").replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
+            text = duckdb_sql(window).replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
             target = ignore.parent
         else:
             text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
@@ -363,10 +364,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             continue
         for key, refused, message in (("start", lambda n: n == 0, _SLICE_INDEX_0),
                                       ("end", lambda n: n < 0, _SLICE_LENGTH)):
-            value = part.args.get(key)
-            if value is None:
+            bound = part.args.get(key)
+            if bound is None:
                 continue
-            v = value.sql("duckdb")
+            v = duckdb_sql(bound)
             try:
                 if not refused(int(v)):
                     continue  # a whole number Spark takes
@@ -379,14 +380,14 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     for item in list(node.find_all(exp.Bracket)):  # element_at: an array's index 0 is refused
         if item.args.get("offset") != 1 or item.args.get("safe") or len(item.expressions) != 1:
             continue
-        v = item.expressions[0].sql("duckdb")
+        v = duckdb_sql(item.expressions[0])
         try:
             if int(v) != 0:
                 continue
         except ValueError:
             pass
         item.set("expressions", [sqlglot.parse_one(
-            f"CASE WHEN {v} = 0 AND typeof({item.this.sql('duckdb')}) LIKE '%[]' "
+            f"CASE WHEN {v} = 0 AND typeof({duckdb_sql(item.this)}) LIKE '%[]' "
             f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
     for between in list(node.find_all(exp.MonthsBetween)):
         later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
@@ -402,7 +403,7 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         swapped = between.replace(sqlglot.parse_one(value, read="duckdb"))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
-        value = unix.this.sql("duckdb")
+        value = duckdb_sql(unix.this)
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
         # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
         parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
@@ -539,6 +540,32 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
+class KfDuckDB(DuckDB):
+    """DuckDB's dialect, with every lambda written as ``LAMBDA x : body``. DuckDB 2.0 refuses the old
+    ``x -> body`` ("Deprecated lambda arrow"); DuckDB 1.3 and later read both. sqlglot before 30.25
+    writes the arrow, including in lambdas it makes itself (initcap), unless a lambda is marked
+    ``colon`` (#1341)."""
+
+    class Generator(DuckDB.Generator):  # type: ignore[misc,valid-type]  # sqlglot sets Generator per dialect at run time
+        def lambda_sql(self, expression: exp.Lambda, arrow_sep: str = "->", wrap: bool = True) -> str:
+            if not expression.args.get("colon"):
+                expression = expression.copy()
+                expression.set("colon", True)
+            return super().lambda_sql(expression, arrow_sep=arrow_sep, wrap=wrap)
+
+
+def duckdb_sql(statement: exp.Expr) -> str:
+    """``statement`` as DuckDB SQL. sqlglot leaves out what DuckDB has no way to say (such as
+    array_sort's comparator) and only logs it, so the query would answer differently from Fabric;
+    here that is a ValueError instead, and nothing runs (#1253)."""
+    try:
+        return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
+    except UnsupportedError as exc:
+        reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
+        raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "
+                         f"{reason} Run it in Fabric, or rewrite that part.") from None
+
+
 def _connect() -> duckdb.DuckDBPyConnection:
     # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
     # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
@@ -575,7 +602,7 @@ def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None 
     except BaseException:
         con.close()
         raise
-    return con, statement.sql("duckdb")
+    return con, duckdb_sql(statement)
 
 
 def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Table:
@@ -591,15 +618,15 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     once the lakehouse tables are registered, so the query can't read local files, load
     extensions or reach the network (external AI tools, integrations/executions.py)."""
     if sandbox:
-        con, statement = prepare_sandboxed(query, dialect)
-        return con, con.execute(statement)
+        con, text = prepare_sandboxed(query, dialect)
+        return con, con.execute(text)
     con = _connect()
     views: dict[str, str] = {}
     result = None
     for statement in parse(query, dialect):
         statement = history_query(statement, con, views)
         bind_tables(statement, con, views, lambda name: is_local(con, name))
-        result = con.execute(statement.sql("duckdb"))
+        result = con.execute(duckdb_sql(statement))
     return con, result
 
 

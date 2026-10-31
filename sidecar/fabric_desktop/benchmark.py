@@ -807,7 +807,7 @@ for table in TABLES:
     con.register(f"_src_{table}", source(table).to_pyarrow_dataset())
     con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM _src_{table}")
     con.unregister(f"_src_{table}")
-rows = con.execute("SELECT count(*) FROM lineitem").fetchone()[0]
+rows = con.execute("SELECT count(*) FROM lineitem").fetchall()[0][0]
 print(f"Loaded {len(TABLES)} tables ({rows:,} order lines) in {timed('load', started):.1f} s")
 '''
 

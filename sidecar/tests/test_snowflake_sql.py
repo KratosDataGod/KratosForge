@@ -330,7 +330,7 @@ def test_date_arithmetic_on_a_plain_timestamp_is_not_a_date_difference(code):
 @pytest.mark.parametrize("code", [
     "select dateadd(day, 1, ts) from t",
     "select date_trunc('month', ts) from t",
-    "select dateadd(year, 1, to_date('2026-01-01'))",
+    "select dateadd(year, 1, d) from t",
 ])
 def test_date_arithmetic_on_what_may_be_a_date_is_a_date_difference(code):
     (report,) = sf.translate(code).statements
@@ -388,9 +388,36 @@ def test_ratio_to_report_and_haversine_refuse_shapes_snowflake_does_not_allow(co
 def test_haversine_is_kilometres_on_a_6371_km_sphere_and_reads_columns():
     con = duckdb.connect()
     sql = sf.translate("select haversine(40.7127, -74.0059, 34.0500, -118.2500)").duckdb_sql
-    assert round(con.execute(sql).fetchone()[0], 9) == 3936.385096389  # Snowflake's docs example
+    assert round(con.execute(sql).fetchall()[0][0], 9) == 3936.385096389  # Snowflake's docs example
     con.execute("create table p(a_lat int, a_lon int, b_lat int, b_lon int)")
     con.execute("insert into p values (0, 0, 0, 180), (0, 0, 0, 0), (null, 0, 0, 0)")
     sql = sf.translate("select haversine(a_lat, a_lon, b_lat, b_lon) from p").duckdb_sql
     got = [r[0] for r in con.execute(sql).fetchall()]
     assert round(got[0], 6) == round(3.141592653589793 * 6371, 6) and got[1] == 0 and got[2] is None
+
+
+@pytest.mark.parametrize("code, want", [
+    ("select dateadd(month, 1, '2026-01-31'::date)", "2026-02-28"),
+    ("select dateadd(year, 1, to_date('2026-01-01'))", "2027-01-01"),
+    ("select timestampadd(week, 1, try_to_date('2026-01-01'))", "2026-01-08"),
+    ("select dateadd(day, 1, current_date) - interval 1 day = current_date", None),
+])
+def test_dateadd_of_a_plain_date_by_a_date_unit_gives_a_date_and_no_note(code, want):
+    """#1319: Snowflake keeps a DATE a DATE; DuckDB's DATE + INTERVAL is a TIMESTAMP, so it's cast back."""
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    con = duckdb.connect()
+    if want is None:
+        assert con.execute(report.duckdb_sql).fetchone()[0] is True
+        assert con.execute(sf.translate("select dateadd(day, 1, current_date)").duckdb_sql).description[0][1] \
+            == "DATE"
+        return
+    (got,) = con.execute(report.duckdb_sql).fetchone()
+    assert type(got).__name__ == "date" and got.isoformat() == want
+
+
+def test_dateadd_of_a_date_by_an_hour_stays_a_timestamp():
+    (report,) = sf.translate("select dateadd(hour, 2, '2026-01-01'::date)").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    (got,) = duckdb.connect().execute(report.duckdb_sql).fetchone()
+    assert got.isoformat() == "2026-01-01T02:00:00"

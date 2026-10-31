@@ -21,6 +21,8 @@ from . import magics
 from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
+# Another notebook by name: its cells, or {"cells", "lakehouse"} (compute_check).
+Loader = Callable[[str], "list[dict[str, Any]] | dict[str, Any]"]
 TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
 
 # A Python (not Spark) notebook in Fabric.
@@ -663,9 +665,8 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
             out["unknown"].append((line, "imports a module named only at run time, which the check can't read"))
         elif (full := _full(node.func, utils)) and _UTILS_RUN.match(full):
             how = full.split(".", 1)[1]
-            name = _text(first) if first is not None and how == "notebook.run" else None
-            if name is not None:
-                out["runs"].append((line, name.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb"), how))
+            if names := _run_names(node, how):
+                out["runs"] += [(line, name, how, root) for name, root in names]
             else:
                 out["unknown"].append((line, _RUN_TEXT.format(how=how)))
         elif _session_sql(node, sessions):
@@ -689,6 +690,59 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
     return out
 
 
+_ROOT = "useRootDefaultLakehouse"
+_UNREAD = object()  # a value the check can't read, where it isn't a literal
+
+
+def _run_names(node: ast.Call, how: str) -> list[tuple[str, bool | None]] | None:
+    """The notebooks ``notebook.run`` or ``runMultiple`` runs, when the call names them in a literal
+    (a name, a list of names, or a DAG whose every activity gives its ``path``), each with whether
+    it runs with this notebook's lakehouse (useRootDefaultLakehouse): True, False, or None when that's
+    known only at run time or isn't a real true or false ("false", 0). None when any notebook is known only at run time."""
+    if not node.args:
+        return None
+    value = _literal(node.args[0])
+    if how == "notebook.run":
+        root = next((k.value for k in node.keywords if k.arg == _ROOT), None)
+        args = next((k.value for k in node.keywords if k.arg == "arguments"), node.args[2] if len(node.args) > 2 else None)
+        flag = _literal(root) if root is not None else _root_in(args)
+        paths = [(value, flag)]
+    elif isinstance(value, (list, tuple)):
+        paths = [(v, False) for v in value]
+    elif isinstance(value, dict) and isinstance(value.get("activities"), list):
+        paths = [(a.get("path"), (a.get("args") or {}).get(_ROOT, False) if isinstance(a.get("args") or {}, dict)
+                  else _UNREAD) if isinstance(a, dict) else (None, False) for a in value["activities"]]
+    else:
+        return None
+    if not paths or not all(isinstance(p, str) and p.strip() for p, _ in paths):
+        return None
+    return [(p.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb"),
+             flag if isinstance(flag, bool) else None) for p, flag in paths]  # only true or false decides (#1314)
+
+
+def _literal(node: ast.AST | None) -> Any:
+    """A literal's value, or _UNREAD."""
+    if node is None:
+        return None
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return _UNREAD
+
+
+def _root_in(args: ast.AST | None) -> Any:
+    """useRootDefaultLakehouse in notebook.run's ``arguments``: False when it isn't there."""
+    if args is None:
+        return False
+    value = _literal(args)
+    if isinstance(value, dict):
+        return value.get(_ROOT, False)
+    if isinstance(args, ast.Dict) and not any(_text(k) == _ROOT for k in args.keys if k is not None) \
+            and None not in args.keys:
+        return False  # a dict whose other values aren't literals, without the key
+    return _UNREAD
+
+
 def _line(source: str, line: int) -> str:
     """Line ``line`` (from 1) of ``source``, short enough to quote."""
     lines = source.split("\n")
@@ -703,7 +757,8 @@ def _snippet(source: str, match: re.Match[str] | None = None) -> str:
 
 
 def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
-                  load: Callable[[str], list[dict[str, Any]]] | None = None, _seen: tuple[str, ...] = ()) -> dict[str, Any]:
+                  load: Loader | None = None, _seen: tuple[str, ...] = (), *,
+                  resources: str | None = None) -> dict[str, Any]:
     """Whether a notebook can run on this PC and in Fabric, and if not, which cells stop it.
 
     Each side is {"ok": bool, "status": "ok" | "blocked" | "unknown", "reasons": [...], "unknown": [...]}.
@@ -713,9 +768,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     as the notebook shows them. ``ok`` is True only when nothing stops it and nothing is unknown:
     Unknown is never taken as runs there. ``status`` is "blocked" when anything stops it.
 
-    ``load`` gives the cells of another notebook on this PC by name, as the kernel's ``%run`` finds
-    it. With it, a notebook the code runs (``%run Name``, ``notebook.run("Name")``) is checked too,
-    and what stops it or is unknown in it is this cell's; without it, that cell is Unknown."""
+    ``load`` gives another notebook on this PC by name, as the kernel's ``%run`` finds it: its cells,
+    or {"cells", "lakehouse"}. With it, a notebook the code runs (``%run Name``, ``notebook.run("Name")``,
+    ``runMultiple`` of literal names) is checked too, and what stops it or is unknown in it is this
+    cell's; without it, that cell is Unknown. ``resources`` is the notebook's resources folder, where
+    ``%run -b file.py`` (or ``.sql``) finds its file, as the kernel does, for the notebooks it runs too."""
     local: list[dict[str, Any]] = []
     fabric: list[dict[str, Any]] = []
     local_unknown: list[dict[str, Any]] = []
@@ -792,19 +849,25 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                         sql_unknown.append((line_magic.line, refused[1]))
         if read:
             unknown = list(read["unknown"])
-        runs: list[tuple[int, str | None, str]] = list(read["runs"]) if read else []
+        runs: list[tuple[int, str | None, str, bool | None]] = list(read["runs"]) if read else []
         if language == "python":
             for magic in magics.find(source):
                 if magic.name == "run":
-                    try:  # %run -b/-c runs a resources file, which the check doesn't read
-                        name = None if _RUN_SCRIPT.match(magic.rest) else _run_target(magic.rest)[0]
+                    how, script = "%run", _RUN_SCRIPT.match(magic.rest)
+                    try:  # %run -b runs a file from the notebook's Built-in resources; -c isn't read
+                        if script is None:
+                            name: str | None = _run_target(magic.rest)[0]
+                        elif {"-c", "--current"} & set(script["flags"].split()):
+                            name = None
+                        else:
+                            how, name = "%run -b", _run_target(script["rest"], keep_path=True)[0]
                     except ValueError:
                         name = None
-                    runs.append((magic.line, name, "%run"))
+                    runs.append((magic.line, name, how, True))  # %run shares this session and lakehouse
         run_block: dict[str, tuple[int, str] | None] = {"local": None, "fabric": None}
         run_unknown: dict[str, list[tuple[int, str]]] = {"local": [], "fabric": []}
-        for line, name, how in sorted(runs, key=lambda r: r[0]):
-            for side, got in _followed(name, how, lakehouse, load, _seen).items():
+        for line, name, how, root in sorted(runs, key=lambda r: r[0]):
+            for side, got in _followed(name, how, lakehouse, load, _seen, resources, root).items():
                 if got and got[0] == "blocked":
                     run_block[side] = run_block[side] or (line, got[1])
                 elif got:
@@ -840,28 +903,77 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
     return {"local": _side(local, local_unknown), "fabric": _side(fabric, fabric_unknown)}
 
 
-def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None,
-              load: Callable[[str], list[dict[str, Any]]] | None, seen: tuple[str, ...]) -> dict[str, tuple[str, str] | None]:
-    """What a cell that runs notebook ``name`` gets from it on each side: ("blocked" or "unknown", text), or None."""
+def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None, load: Loader | None,
+              seen: tuple[str, ...], resources: str | None,
+              root: bool | None = True) -> dict[str, tuple[str, str] | None]:
+    """What a cell that runs notebook ``name`` (or, for ``%run -b``, Built-in file ``name``) gets from
+    it on each side: ("blocked" or "unknown", text), or None."""
     def both(text: str) -> dict[str, tuple[str, str] | None]:
         return {"local": ("unknown", text), "fabric": ("unknown", text)}
-    if name is None or load is None:
+    if name is None or (load is None and how != "%run -b") or (resources is None and how == "%run -b"):
         return both(_RUN_TEXT.format(how=how))
-    if name.lower() in (s.lower() for s in seen) or len(seen) >= MAX_RUN_DEPTH:
+    key = f"builtin/{name}" if how == "%run -b" else name
+    if key.lower() in (s.lower() for s in seen) or len(seen) >= MAX_RUN_DEPTH:
         return both(f"runs {name} ({how}), which runs notebooks in a loop or more than {MAX_RUN_DEPTH} deep, "
                     "so the check stops there")
-    try:
-        cells = load(name)
-    except (OSError, ValueError, KeyError, TypeError):
-        return both(f"runs {name} ({how}), which isn't a notebook on this PC, so the check can't read it")
-    child = compute_check(cells, lakehouse, load, seen + (name,))
+    own_lakehouse: Any = ...  # notebook.run's own lakehouse, when the loader says
+    if how == "%run -b":
+        try:
+            cells = _builtin_cells(name, resources or "")
+        except PermissionError:  # the kernel refuses to run it, so neither side can say
+            return both(f"runs {name} ({how}), which links outside this notebook's resources, so the check "
+                        "can't read it")
+        if cells is None:
+            return both(f"runs {name} ({how}), which isn't a .py or .sql file in this notebook's Built-in "
+                        "resources, so the check can't read it")
+    else:
+        try:
+            got = load(name)  # type: ignore[misc]  # load is set: checked above
+            cells = got["cells"] if isinstance(got, dict) else got
+            if isinstance(got, dict) and "lakehouse" in got:
+                own_lakehouse = got["lakehouse"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return both(f"runs {name} ({how}), which isn't a notebook on this PC, so the check can't read it")
+    # On this PC every notebook it runs uses this one's lakehouse; so does %run in Fabric.
+    child = compute_check(cells, lakehouse, load, seen + (key,), resources=resources)
+    whose = "which" if how == "%run -b" else "whose cell {cell}"
     out: dict[str, tuple[str, str] | None] = {}
     for side in ("local", "fabric"):
         blockers = [r for r in child[side]["reasons"] if r.get("cell")]  # not "no lakehouse": that's this notebook's own
         r = blockers[0] if blockers else (child[side]["unknown"] or [None])[0]
-        out[side] = (("blocked" if blockers else "unknown"), f"runs {name} ({how}), whose cell {r['cell']} {r['text']}") \
-            if r else None
+        out[side] = (("blocked" if blockers else "unknown"),
+                     f"runs {name} ({how}), {whose.format(cell=r['cell'])} {r['text']}") if r else None
+    # notebook.run and runMultiple run it in a session of its own, which in Fabric uses its own lakehouse
+    # unless useRootDefaultLakehouse gives it this one's (``root``).
+    if root is not True and own_lakehouse is None and (out["fabric"] or ("", ""))[0] != "blocked" \
+            and (uses_spark(cells) or uses_local_module(cells)):
+        text = (f"runs {name} ({how}) in a session of its own, and {name} has no lakehouse attached, so in Fabric "
+                "it can't read or write tables")
+        out["fabric"] = ("blocked", text) if root is False else \
+            ("unknown", f"{text}, unless useRootDefaultLakehouse, which is set only at run time, gives it this one's")
     return out
+
+
+def _builtin_cells(file: str, resources: str) -> list[dict[str, Any]] | None:
+    """``%run -b file``'s file as cells (a .py file is one Python cell, a .sql file one %%sql cell),
+    or None when it isn't one in the Built-in resources. PermissionError when a link leads outside
+    them, as the kernel's %run -b refuses (``notebook_resources.real_path``)."""
+    import os
+
+    from . import notebook_resources
+    path = notebook_resources.real_path(f"builtin/{file}", resources) if resources else None
+    kind = os.path.splitext(file)[1].lower()
+    if path is None or kind not in (".py", ".sql") or not os.path.isfile(path) or os.path.getsize(path) > _BUILTIN_MAX:
+        return None
+    try:
+        with open(path, encoding="utf-8-sig") as f:  # Notepad may save a BOM, as the kernel reads it
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return [{"type": "code", "source": text if kind == ".py" else "%%sql\n" + text, "meta": {}}]
+
+
+_BUILTIN_MAX = 1_000_000  # a %run -b file bigger than this is Unknown, not read
 
 
 def _side(reasons: list[dict[str, Any]], unknown: list[dict[str, Any]]) -> dict[str, Any]:

@@ -199,7 +199,7 @@ class SideBySideMixin:
         step = next((n for n, c in enumerate(cells, 1) if is_step(c)), None)
         if step:
             raise ValueError(f"This notebook can't run side by side: Cell {step} {STEP_REFUSED}")
-        check = compute_check(cells, lakehouse_ref, self._cells_of)  # type: ignore[attr-defined]
+        check = compute_check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         for where, label in (("local", "on this PC"), ("fabric", "in Fabric")):
             if check[where]["reasons"]:  # Unknown doesn't stop it: comparing the runs is how to find out
                 reason = check[where]["reasons"][0]

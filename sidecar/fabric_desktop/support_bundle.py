@@ -2,7 +2,8 @@
 
 ``fabric-desktop support-bundle`` writes ``fabric-desktop-support-<time>.zip`` holding:
 
-    about.json      app and engine build, Python, operating system, where each setting comes from
+    about.json      app and engine build, Python, operating system, where each setting comes from,
+                    and the policy file's state (the setting names it sets, never their values)
     sidecar.log     the last lines of the engine's log
     agent.log       the last lines of the headless agent's log, on a server with an agent
     CONTENTS.txt    what is in the zip and what was taken out
@@ -23,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, app_settings
-from .redact import for_support
+from .redact import for_support, secret_key
 
 LOG_LINES = 2000
 
@@ -51,7 +52,7 @@ def about() -> dict[str, Any]:
             value = "Microsoft's Fabric sign-in" if value == app_settings.MICROSOFT_CLIENT_ID else "own app registration"
         elif key == "platform":
             value = sorted(value) if isinstance(value, dict) else []
-        elif key == "support_url":
+        elif key == "support_url" or secret_key(key):  # a connection string is a secret whatever it looks like
             value = "set" if value else ""
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()
@@ -61,16 +62,29 @@ def about() -> dict[str, Any]:
         "python": sys.version.split()[0],
         "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "policy_file": app_settings.policy_path().exists(),
+        "policy": policy_state(settings),
         "settings": summary,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
 
-def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None = None) -> Path:
-    data_dir = data_dir or _data_dir()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    path = out_dir / f"fabric-desktop-support-{stamp}.zip"
+def policy_state(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The policy file's state for support, without a single value from it: whether it applies (or
+    the last copy that could be read stands in), why not, the setting names it sets, and which
+    settings take their value from it now. Only names of real settings are listed; others are counted."""
+    data, reason, from_copy = app_settings._policy_file()
+    settings = settings if settings is not None else app_settings.load()
+    if not app_settings.policy_path().exists():
+        state = "none"
+    else:
+        state = "last_known_good" if from_copy else "unreadable" if reason else "applied"
+    known = [k for k in data if k in app_settings.DEFAULTS]  # an unknown key is free text IT typed: only counted
+    return {"state": state, "problem": reason or "", "sets": sorted(known), "unknown_keys": len(data) - len(known),
+            "from_policy": sorted(k for k, entry in settings.items() if entry.get("source") == "policy")}
+
+
+def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
+    """Each file of the bundle by name, already redacted: what create() writes and preview() shows."""
     files: dict[str, str] = {"about.json": json.dumps(about(), indent=2)}
     logs = {"sidecar.log": data_dir / "sidecar.log"}
     if agent_home:
@@ -86,9 +100,27 @@ def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None 
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
                 "Taken out of every file: tokens, keys, passwords, email addresses, user names in paths,",
                 "and tenant, workspace and item ids. No table data, notebook contents or sign-in cache is included.",
+                "Settings that hold a secret, such as a connection string, show only whether they are set.",
+                "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"
+    return {name: for_support(text) for name, text in files.items()}
+
+
+def preview(data_dir: Path | None = None, agent_home: Path | None = None) -> dict[str, Any]:
+    """What a bundle made now would hold, without writing it: each file's name and size, and the
+    CONTENTS.txt text that says what was taken out. Settings shows this before saving (PB-062)."""
+    files = _files(data_dir or _data_dir(), agent_home)
+    return {"files": [{"name": name, "bytes": len(text.encode("utf-8"))} for name, text in files.items()],
+            "contents": files["CONTENTS.txt"]}
+
+
+def create(out_dir: Path, data_dir: Path | None = None, agent_home: Path | None = None) -> Path:
+    files = _files(data_dir or _data_dir(), agent_home)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    path = out_dir / f"fabric-desktop-support-{stamp}.zip"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, text in files.items():
-            z.writestr(name, for_support(text))
+            z.writestr(name, text)
     return path

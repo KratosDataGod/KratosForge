@@ -11,7 +11,7 @@ type (when the code changes, every second or so) and lists each finding with its
 do, and **Go to cell n, line m**, which selects the cell and puts the cursor on that line.
 **About NB0nn** opens the rule's explanation in [Each rule explained](#each-rule-explained). The button
 shows how many findings there are while the panel is open. Under each finding, **Dismiss** hides it
-for you, and in Guided or Learning guidance **Explain** and **Show example** show its section of this
+for you, and in Professional or Guided guidance **Explain** and **Show example** show its section of this
 page in the panel ([Learn](learn.md#beside-a-finding)).
 
 The panel reads the governance policies in force for the open project (`governance_practice_settings`).
@@ -51,11 +51,22 @@ error. Scala, R and other `%%` cells are skipped, except `%%sql`.
 ## Each rule explained
 
 Each finding in the panel links to its rule here with **About NB0nn**: why the rule exists, an
-example and, where it applies, when the finding is safe to leave.
+example and, where it applies, when the finding is safe to leave. Each rule also has the principle
+behind it, its impact, and how to check the change worked. Under the title are the rule's severity,
+its area and how important it is:
+
+- **Critical**: it can leak a secret, lose data or put wrong data in place. Fix it before the code
+  is shared or scheduled.
+- **Recommended**: sound practice that most code should follow.
+- **Educational**: a habit worth knowing, with little risk when it's skipped.
+- **Advanced**: a tradeoff that needs judgment, where the exceptions matter.
+
+This only explains the rule. The severity, and any policy your organization sets, decide
+what the panel shows and requires.
 
 ### NB001
 
-**Secret written in a cell** · Error · Security
+**Secret written in a cell** · Error · Security · Critical
 
 Why: a key, password or connection string in code is copied into Git, notebook versions, cell
 outputs and anything else that keeps the notebook. Anyone who can read the notebook can use it.
@@ -69,9 +80,15 @@ conn = notebookutils.credentials.getSecret("https://my-vault.vault.azure.net/", 
 
 When it's fine: never in a notebook that is saved or shared. Rotate a secret that was committed.
 
+Principle: Keep secrets out of code, and read them from a vault when the code runs.
+
+Impact: Security. Anyone who can read the notebook, its versions or its Git history can use the secret.
+
+How to check: Best practices shows no NB001, and the Git page's secret check finds nothing before you commit. A secret that was ever committed stays in history, so rotate it.
+
 ### NB002
 
-**Workspace or lakehouse id written in a path** · Warning · Maintenance
+**Workspace or lakehouse id written in a path** · Warning · Maintenance · Recommended
 
 Why: an `abfss://<workspace id>@...` path points at one workspace. When the notebook is promoted to
 Test or Prod, it still reads and writes the Dev lakehouse.
@@ -85,9 +102,15 @@ df = spark.read.table("sales")          # or the default lakehouse's "Tables/sal
 
 When it's fine: a one-off notebook that is never promoted. A parameter is still easier to change.
 
+Principle: Let the environment decide where data lives. Code names tables, not workspaces.
+
+Impact: Reliability. After promotion, Test or Prod reads and writes the Dev lakehouse.
+
+How to check: No path in the notebook holds a workspace or lakehouse id. After you promote it and run it once, the write shows in the Test lakehouse's table history, not Dev's.
+
 ### NB003
 
-**`collect()` or `toPandas()` without a limit** · Warning · Performance
+**`collect()` or `toPandas()` without a limit** · Warning · Performance · Recommended
 
 Why: both bring every row to the driver, one machine. A table that fits today can run the driver out
 of memory next month.
@@ -102,9 +125,15 @@ sample = df.limit(1000).toPandas()                              # or take a samp
 
 When it's fine: the DataFrame is already small by construction, such as the result of an aggregation.
 
+Principle: Move the work to the data, not all the data to one machine.
+
+Impact: Reliability. The driver can run out of memory as the table grows, and the run fails.
+
+How to check: The finding is gone, and the rows brought back are capped by the limit or by the number of groups.
+
 ### NB004
 
-**`display()` of a whole table in a scheduled notebook** · Info · Performance
+**`display()` of a whole table in a scheduled notebook** · Info · Performance · Educational
 
 Why: nobody reads a scheduled run's output, and displaying a whole table makes the run slower and
 its output large. Checked only for notebooks that run on a schedule.
@@ -116,9 +145,15 @@ display(df)
 print(f"{df.count():,} rows written")
 ```
 
+Principle: A scheduled run's output is a log. Keep it short.
+
+Impact: Performance. The run is slower and its saved output is large.
+
+How to check: The scheduled run's output shows a count or a sample, not the whole table.
+
 ### NB005
 
-**CSV or JSON read without a schema** · Warning · Performance
+**CSV or JSON read without a schema** · Warning · Performance · Recommended
 
 Why: inferring a schema reads the files an extra time, and the inferred types change when the files
 do, so a column can turn from a number into a string without warning.
@@ -131,9 +166,15 @@ schema = "order_id INT, order_date DATE, amount DECIMAL(18,2)"
 df = spark.read.option("header", True).schema(schema).csv("Files/orders/")
 ```
 
+Principle: Say what shape you expect the data to have, instead of guessing it from the files.
+
+Impact: Reliability and performance. The files are read an extra time, and a column's type can change without warning.
+
+How to check: `df.printSchema()` shows the types you wrote, on every run.
+
 ### NB006
 
-**`SELECT *` in SQL** · Info · Maintenance
+**`SELECT *` in SQL** · Info · Maintenance · Educational
 
 Why: it reads every column, which costs time on wide tables, and code that depends on column order
 breaks when a column is added or renamed.
@@ -147,9 +188,15 @@ SELECT order_id, order_date, amount FROM sales
 
 When it's fine: a quick look at a table while you explore.
 
+Principle: Ask only for the columns you use.
+
+Impact: Performance on wide tables, and code that breaks when a column is added or renamed.
+
+How to check: The query names its columns, and the result has the columns your code uses, in the order you named them.
+
 ### NB007
 
-**Whole table overwritten** · Info · Performance
+**Whole table overwritten** · Info · Performance · Advanced
 
 Why: an overwrite without `replaceWhere` rewrites every file and makes a full new table version,
 even when only one day changed.
@@ -165,18 +212,30 @@ df.write.mode("overwrite").saveAsTable("sales")
 
 When it's fine: small tables, and full reloads that are meant to replace everything.
 
+Principle: Rewrite only the data that changed.
+
+Impact: Performance and capacity. Every file is rewritten on each run, even when one day changed.
+
+How to check: `DESCRIBE HISTORY` shows the write removed and added only the files of the range you replaced, and a row count outside that range is the same before and after.
+
 ### NB008
 
-**`%pip install` in a scheduled notebook** · Warning · Reliability
+**`%pip install` in a scheduled notebook** · Warning · Reliability · Recommended
 
 Why: the package is installed again on every run. That is slow, and a run fails when the package
 index can't be reached. Checked only for notebooks that run on a schedule.
 
 Do this instead: put the package in a Fabric environment and attach it to the notebook.
 
+Principle: A scheduled run uses the same prepared environment every time.
+
+Impact: Reliability. Each run installs the package again, and fails when the package index can't be reached.
+
+How to check: The notebook has no `%pip` lines, and its attached environment lists the package and its version.
+
 ### NB009
 
-**Package installed without a version** · Warning · Reliability
+**Package installed without a version** · Warning · Reliability · Recommended
 
 Why: a new release of the package can change results or break the notebook, and two runs a week
 apart may not use the same code.
@@ -188,9 +247,15 @@ apart may not use the same code.
 %pip install great-expectations==1.2.3
 ```
 
+Principle: Pin what you depend on, so a run today and a run next month use the same code.
+
+Impact: Reliability. A new release can change results or break the notebook between two runs.
+
+How to check: Every install line names a version (`==1.2.3`), and `%pip show` reports that version.
+
 ### NB010
 
-**Table written inside a loop** · Warning · Performance
+**Table written inside a loop** · Warning · Performance · Recommended
 
 Why: each write makes small files and a new table version. A thousand passes make a thousand
 versions and a slow table.
@@ -205,9 +270,15 @@ from pyspark.sql import DataFrame
 reduce(DataFrame.unionByName, [load(r) for r in regions]).write.mode("append").saveAsTable("sales")
 ```
 
+Principle: Write once per run, not once per item.
+
+Impact: Performance. Each write makes small files and a new table version.
+
+How to check: `DESCRIBE HISTORY` shows one write for the run, and the table gained the same number of rows as before the change.
+
 ### NB011
 
-**`count()` called again and again on one DataFrame** · Info · Performance
+**`count()` called again and again on one DataFrame** · Info · Performance · Educational
 
 Why: every `count()` runs the whole query again. Three counts read the data three times.
 
@@ -219,9 +290,15 @@ n = df.count()
 if n > 0: print(n)
 ```
 
+Principle: Work a value out once and keep it.
+
+Impact: Performance. Each `count()` reads the data again.
+
+How to check: The cell starts one count job for the DataFrame instead of several (the Spark jobs listed under the cell).
+
 ### NB012
 
-**Error caught and ignored** · Warning · Reliability
+**Error caught and ignored** · Warning · Reliability · Recommended
 
 Why: `except ...: pass` hides a failure, so the run reports success while the table is wrong or
 missing.
@@ -239,9 +316,15 @@ except FileNotFoundError:
     print(f"No file for {day}; skipped")   # catch only what you expect, and say so
 ```
 
+Principle: Fail loudly, or handle only the errors you expect and say that you did.
+
+Impact: Reliability. The run reports success while a table is wrong or missing.
+
+How to check: Make the expected error happen once (a missing file, for example) and see the message. Any other error still fails the run.
+
 ### NB018
 
-**Python UDF in Spark code** · Info · Performance
+**Python UDF in Spark code** · Info · Performance · Advanced
 
 Why: a Python UDF sends every row from Spark to a Python process and back, one row at a time. A
 built-in function runs inside Spark and is usually many times faster. When nothing built in fits, a
@@ -257,11 +340,17 @@ df = df.withColumn("name", F.upper("name"))
 ```
 
 Safe to leave: logic no built-in function can express, on a small table.
+Principle: Use the engine's own functions before writing your own.
+
+Impact: Performance. Every row goes to Python and back.
+
+How to check: Run the cell before and after on the same data (Prove, or Side by side) and check the rows match. Compare the measured times of the two runs.
+
 Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
 
 ### NB019
 
-**Spark reads straight from a web address** · Warning · Reliability
+**Spark reads straight from a web address** · Warning · Reliability · Recommended
 
 Why: Spark's readers expect storage paths, so an `http(s)` address fails or reads differently from
 run to run, and the file behind it can change or disappear. A copy in the lakehouse gives every run
@@ -275,11 +364,17 @@ df = spark.read.option("header", True).csv("Files/landing/sales.csv")
 ```
 
 Reading a web address with pandas (`pd.read_csv(url)`) isn't flagged.
+Principle: Land outside data first, then read your own copy.
+
+Impact: Reliability. A read from the web can fail, or read a different file, from one run to the next.
+
+How to check: The read path is under `Files/`, and two runs read the same file.
+
 Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
 
 ### NB020
 
-**`VACUUM` keeps less than 7 days of history** · Warning · Reliability
+**`VACUUM` keeps less than 7 days of history** · Warning · Reliability · Critical
 
 Why: `VACUUM` deletes files that older table versions use. With less than the default 168 hours,
 it can delete files a running query or write still needs, and time travel to those versions stops
@@ -294,6 +389,12 @@ VACUUM sales RETAIN 168 HOURS
 ```
 
 Safe to leave: a table nothing else reads or writes, such as a scratch table in a test.
+Principle: Keep enough history for anything that may still read it.
+
+Impact: Data loss. A running read or write can fail, and time travel to older versions stops working.
+
+How to check: `VACUUM` keeps 168 hours or more, and `DESCRIBE HISTORY` still lists the versions you need.
+
 Source: [Spark data engineering patterns](https://github.com/microsoft/skills-for-fabric/blob/bc42aaf/skills/spark-cli/references/authoring/resources/data-engineering-patterns.md).
 
 ## Settings

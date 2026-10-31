@@ -341,7 +341,7 @@ def test_pyspark_runs_locally_but_scala_rdds_and_merge_stay_in_fabric():
     assert not check["local"]["ok"]
     assert [r["cell"] for r in check["local"]["reasons"]] == [4, 7, 8]
     assert check["local"]["reasons"][2]["code"] == "counts = df.rdd.map(lambda r: r)"
-    assert check["fabric"] == {"ok": True, "reasons": []}
+    assert check["fabric"] == {"ok": True, "status": "ok", "reasons": [], "unknown": []}
 
 
 def test_local_paths_and_no_lakehouse_keep_a_notebook_off_fabric():

@@ -5,7 +5,7 @@ The DuckDB engine runs a Databricks SQL cell by translating it with sqlglot's Da
 documented Databricks built-in function with a sample call and the value Databricks documents for
 it (the examples in Databricks' built-in functions reference, https://learn.microsoft.com/azure/
 databricks/sql/language-manual/sql-ref-functions-builtin-alpha, or worked by hand where the page
-gives none). ``outcome`` is what this version of sqlglot and DuckDB do with it:
+gives none, marked ``# by hand``). ``outcome`` is what this version of sqlglot and DuckDB do with it:
 
     same          runs on this PC and gives the documented value
     differs       runs, but gives another value: check results that use it on the warehouse
@@ -189,6 +189,64 @@ CASES: tuple[Case, ...] = (
     Case('format_number (no decimals)', 'String', 'SELECT format_number(1234567, 0)', '1,234,567', 'same'),
     Case('format_number (half-even)', 'String', 'SELECT format_number(2.5, 0)', '2', 'same'),
     Case('exists (NULL and no match)', 'Array and map', 'SELECT exists(array(1, NULL, 3), x -> x % 2 = 0)', None, 'same'),
+    Case('transform (with index)', 'Array and map', 'SELECT transform(array(1, 2, 3), (x, i) -> x + i)', [1, 3, 5], 'differs', "The lambda's index counts from 1 here and from 0 on Databricks, so a lambda that uses it gives other values."),
+    Case('filter (with index)', 'Array and map', 'SELECT filter(array(0, 2, 3), (x, i) -> x > i)', [2, 3], 'differs', "The lambda's index counts from 1 here and from 0 on Databricks, so a lambda that uses it gives other values."),
+    Case('filter (drop NULLs)', 'Array and map', 'SELECT filter(array(0, NULL, 2, 3, NULL), x -> x IS NOT NULL)', [0, 2, 3], 'same'),
+    Case('exists (looking for NULL)', 'Array and map', 'SELECT exists(array(0, NULL, 2, 3, NULL), x -> x IS NULL)', True, 'same'),
+    Case('forall', 'Array and map', 'SELECT forall(array(1, 2, 3), x -> x % 2 == 0)', False, 'error', 'DuckDB has no forall. NOT exists(arr, x -> NOT (cond)) runs here and answers the same.'),
+    Case('forall (all match)', 'Array and map', 'SELECT forall(array(2, 4, 8), x -> x % 2 == 0)', True, 'error', 'DuckDB has no forall. NOT exists(arr, x -> NOT (cond)) runs here and answers the same.'),
+    Case('forall (NULL and a miss)', 'Array and map', 'SELECT forall(array(1, NULL, 3), x -> x % 2 == 0)', False, 'error', 'DuckDB has no forall. NOT exists(arr, x -> NOT (cond)) runs here and answers the same.'),
+    Case('forall (NULL and no miss)', 'Array and map', 'SELECT forall(array(2, NULL, 8), x -> x % 2 == 0)', None, 'error', 'DuckDB has no forall. NOT exists(arr, x -> NOT (cond)) runs here and answers the same.'),
+    Case('aggregate (finish)', 'Array and map', 'SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10)', 60, 'untranslated', "The finish lambda (fourth argument) isn't translated, so nothing runs. Without it, aggregate and reduce run."),
+    Case('aggregate (struct accumulator)', 'Array and map', "SELECT aggregate(array(1, 2, 3, 4), named_struct('sum', 0, 'cnt', 0), (acc, x) -> named_struct('sum', acc.sum + x, 'cnt', acc.cnt + 1), acc -> acc.sum / acc.cnt)", 2.5, 'untranslated', "The finish lambda (fourth argument) isn't translated, so nothing runs. Without it, aggregate and reduce run."),
+    Case('reduce', 'Array and map', 'SELECT reduce(array(1, 2, 3), 0, (acc, x) -> acc + x)', 6, 'same'),
+    Case('reduce (finish)', 'Array and map', 'SELECT reduce(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10)', 60, 'untranslated', "The finish lambda (fourth argument) isn't translated, so nothing runs. Without it, aggregate and reduce run."),
+    Case('array_sort (comparator)', 'Array and map', 'SELECT array_sort(array(5, 6, 1), (left, right) -> CASE WHEN left < right THEN -1 WHEN left > right THEN 1 ELSE 0 END)', [1, 5, 6], 'untranslated', "A comparator isn't translated, so nothing runs. array_sort without one runs."),
+    Case('array_sort (descending comparator)', 'Array and map', "SELECT array_sort(array('bc', 'ab', 'dc'), (left, right) -> CASE WHEN left IS NULL AND right IS NULL THEN 0 WHEN left IS NULL THEN -1 WHEN right IS NULL THEN 1 WHEN left < right THEN 1 WHEN left > right THEN -1 ELSE 0 END)", ['dc', 'bc', 'ab'], 'untranslated', "A comparator isn't translated, so nothing runs. array_sort without one runs."),
+    Case('zip_with', 'Array and map', 'SELECT zip_with(array(1, 2), array(3, 4), (x, y) -> x + y)', [4, 6], 'error', 'DuckDB has no zip_with.'),
+    Case('zip_with (strings)', 'Array and map', "SELECT zip_with(array('a', 'b', 'c'), array('d', 'e', 'f'), (x, y) -> concat(x, y))", ['ad', 'be', 'cf'], 'error', 'DuckDB has no zip_with.'),
+    Case('map_filter', 'Array and map', 'SELECT map_filter(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v)', {1: 0, 3: -1}, 'error', 'DuckDB has no map_filter.'),
+    Case('transform_keys', 'Array and map', 'SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1)', {2: 1, 3: 2, 4: 3}, 'error', 'DuckDB has no transform_keys.'),
+    Case('transform_keys (key and value)', 'Array and map', 'SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v)', {2: 1, 4: 2, 6: 3}, 'error', 'DuckDB has no transform_keys.'),
+    Case('transform_values', 'Array and map', 'SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1)', {1: 2, 2: 3, 3: 4}, 'error', 'DuckDB has no transform_values.'),
+    Case('transform_values (key and value)', 'Array and map', 'SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v)', {1: 2, 2: 4, 3: 6}, 'error', 'DuckDB has no transform_values.'),
+    Case('map_from_arrays', 'Array and map', "SELECT map_from_arrays(array(1.0, 3.0), array('2', '4'))", {1: '2', 3: '4'}, 'same'),
+    Case('map_concat', 'Array and map', "SELECT map_concat(map(1, 'a', 2, 'b'), map(3, 'c'))", {1: 'a', 2: 'b', 3: 'c'}, 'same'),
+    Case('map_from_entries', 'Array and map', "SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))", {1: 'a', 2: 'b'}, 'same'),
+    Case('map_entries', 'Array and map', "SELECT map_entries(map(1, 'a', 2, 'b'))", [{'key': 1, 'value': 'a'}, {'key': 2, 'value': 'b'}], 'same'),
+    Case('str_to_map', 'Array and map', "SELECT str_to_map('a:1,b:2,c:3', ',', ':')", {'a': '1', 'b': '2', 'c': '3'}, 'error', 'DuckDB has no str_to_map.'),
+    Case('str_to_map (no value)', 'Array and map', "SELECT str_to_map('a')", {'a': None}, 'error', 'DuckDB has no str_to_map.'),
+    Case('element_at (map)', 'Array and map', "SELECT element_at(map(1, 'a', 2, 'b'), 2)", 'b', 'same'),
+    Case('element_at (map, missing key)', 'Array and map', "SELECT element_at(map(1, 'a', 2, 'b'), 3)", None, 'same'),
+    Case('element_at (negative index)', 'Array and map', 'SELECT element_at(array(1, 2, 3), -1)', 3, 'same'),  # by hand: counts from the end
+    Case('try_element_at', 'Array and map', 'SELECT try_element_at(array(1, 2, 3), 5)', None, 'same'),
+    Case('map_contains_key', 'Array and map', "SELECT map_contains_key(map(1, 'a', 2, 'b'), 2)", True, 'error', 'sqlglot swaps the map and the key, so DuckDB refuses it. array_contains(map_keys(m), k) runs.'),
+    Case('map_contains_key (missing key)', 'Array and map', "SELECT map_contains_key(map(1, 'a', 2, 'b'), 3)", False, 'error', 'sqlglot swaps the map and the key, so DuckDB refuses it. array_contains(map_keys(m), k) runs.'),
+    Case('get_json_object (nested)', 'JSON', 'SELECT get_json_object(\'{"a":{"b":"c"}}\', \'$.a.b\')', 'c', 'same'),
+    Case('get_json_object (array index)', 'JSON', 'SELECT get_json_object(\'{"items":["apple","pear"]}\', \'$.items[0]\')', 'apple', 'same'),
+    Case('get_json_object (every element)', 'JSON', 'SELECT get_json_object(\'{"items":[{"n":1},{"n":2}]}\', \'$.items[*].n\')', '[1,2]', 'differs', "A [*] path gives a list of strings here, not the JSON text '[1,2]'."),
+    Case('get_json_object (bracket name)', 'JSON', 'SELECT get_json_object(\'{"first name":"Ada"}\', \'$["first name"]\')', 'Ada', 'same'),
+    Case('get_json_object (no match)', 'JSON', 'SELECT get_json_object(\'{"a":"b"}\', \'$.missing\')', None, 'same'),
+    Case('from_json', 'JSON', 'SELECT from_json(\'{"a":1, "b":0.8}\', \'a INT, b DOUBLE\')', {'a': 1, 'b': 0.8}, 'error', "DuckDB's from_json takes a JSON structure, not a DDL schema, so DuckDB refuses it."),
+    Case('from_json (name case)', 'JSON', 'SELECT from_json(\'{"a":1}\', \'A INT\')', {'A': None}, 'error', "DuckDB's from_json takes a JSON structure, not a DDL schema, so DuckDB refuses it."),
+    Case('to_json (array of structs)', 'JSON', "SELECT to_json(array(named_struct('a', 1, 'b', 2)))", '[{"a":1,"b":2}]', 'same'),
+    Case('to_json (map)', 'JSON', "SELECT to_json(map('a', named_struct('b', 1)))", '{"a":{"b":1}}', 'same'),
+    Case('json_tuple', 'JSON', 'SELECT j.*, \'Spark SQL\' FROM json_tuple(\'{"a":1, "b":2}\', \'a\', \'b\') AS j', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
+    Case('json_tuple (in the select list)', 'JSON', 'SELECT json_tuple(\'{"a":1, "b":2}\', \'a\', \'c\'), \'Spark SQL\'', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
+    Case('schema_of_json', 'JSON', 'SELECT schema_of_json(\'[{"col":0}]\')', 'ARRAY<STRUCT<`col`: BIGINT>>', 'error', 'DuckDB has no schema_of_json.'),
+    Case('lag', 'Window', "SELECT lag(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),
+    Case('lag (default)', 'Window', "SELECT lag(b, 1, 0) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a DESC LIMIT 1", 0, 'same'),  # by hand: no row before, so the default
+    Case('lag (offset 2)', 'Window', "SELECT lag(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),  # by hand: two rows back
+    Case('lead', 'Window', "SELECT lead(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", None, 'same'),
+    Case('lead (default)', 'Window', "SELECT lead(b, 1, -1) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", -1, 'same'),  # by hand: no row after, so the default
+    Case('nth_value', 'Window', "SELECT nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),
+    Case('nth_value (too few rows)', 'Window', "SELECT nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a DESC LIMIT 1", None, 'same'),
+    Case('ntile', 'Window', "SELECT ntile(2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 2, 'same'),
+    Case('percent_rank', 'Window', "SELECT percent_rank() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A1', 3), ('A1', 6), ('A1', 7), ('A1', 7), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 0.8333333333333334, 'same'),
+    Case('cume_dist', 'Window', "SELECT cume_dist() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b LIMIT 1", 0.6666666666666666, 'same'),
+    Case('rank', 'Window', "SELECT rank() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 3, 'same'),
+    Case('dense_rank', 'Window', "SELECT dense_rank() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 2, 'same'),
+    Case('row_number', 'Window', "SELECT row_number() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 3, 'same'),
 )
 
 

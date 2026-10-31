@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +85,10 @@ def _line(source: str, pos: int) -> tuple[int, str]:
     return n, text if len(text) <= 80 else text[:77] + "..."
 
 
-def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict[str, Any]:
-    """Whether a proof can run this notebook, and what it should tell the person first."""
+def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+          load: Callable[[str], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
+    """Whether a proof can run this notebook, and what it should tell the person first. ``load``
+    reads another notebook's cells by name, so a ``%run`` of a notebook on this PC is checked too."""
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
@@ -106,7 +109,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
     if not spark and not uses_local_module(cells):
         add(blockers, None, None, "The notebook doesn't use `from fabric_desktop import lakehouse` or Spark. A proof "
                                   "compares the tables a notebook writes, so there would be nothing to compare.")
-    compat = compute_check(cells, lakehouse)
+    compat = compute_check(cells, lakehouse, load)
     for side, label in (("local", "this PC"), ("fabric", "Fabric")):
         for r in compat[side]["reasons"]:
             if r.get("cell") is None and side == "fabric" and not lakehouse:

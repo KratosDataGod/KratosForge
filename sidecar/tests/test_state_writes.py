@@ -10,7 +10,11 @@ listed below with why writing in place is right there. Appends (``"a"``) are log
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
+
+import pytest
+from test_json_files import write_fails_midway  # noqa: F401
 
 import fabric_desktop
 
@@ -107,3 +111,16 @@ def test_the_check_finds_a_write_in_place(tmp_path, monkeypatch):
                                      "    tmp.write_text('z')\n    tmp.replace(p)\n", encoding="utf-8")
     monkeypatch.setattr(__import__(__name__), "PACKAGE", tmp_path)
     assert _in_place() == ["new.py:save"]
+
+
+def test_a_live_test_ledger_save_cut_short_keeps_the_last_ledger(tmp_path, write_fails_midway):
+    """The ledger is what cleanup reads to delete what a live test made: half of one would leave
+    Fabric items behind with nothing pointing at them."""
+    from fabric_desktop.livetest import Ledger
+    ledger = Ledger(tmp_path / "ledger.json", "run-1", "ws-1", [{"type": "Lakehouse", "id": "lh-1"}])
+    before = json.dumps({"run_id": "run-1", "workspace_id": "ws-1", "created": ledger.created}, indent=2)
+    ledger.path.write_bytes(before.encode("utf-8"))
+    with pytest.raises(OSError):
+        ledger.add(type="Notebook", id="nb-1")
+    assert ledger.path.read_bytes() == before.encode("utf-8")
+    assert Ledger.load(ledger.path).created == [{"type": "Lakehouse", "id": "lh-1"}]

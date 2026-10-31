@@ -527,3 +527,41 @@ def test_one_dropped_livy_poll_neither_fails_the_cell_nor_stops_it():
             raise drops.pop()
     livy.on_poll = drop_once
     assert s.execute(CellRequest("1 + 1", "pyspark")).status == "ok" and livy.cancelled == []
+
+# ---------------------------------------------------------------- truthful cancels (KF-REMOTE-LIMIT, #1198)
+
+
+def _limited(livy):
+    now = [0.0]
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None)
+    return fs.FabricSparkSession(SessionConfig("nb"), client, sleep=lambda x: now.__setitem__(0, now[0] + 60),
+                                 clock=lambda: now[0], max_seconds=300)
+
+
+def test_the_time_limit_says_the_cell_was_stopped_only_when_it_was():
+    livy = FakeLivy(polls=10**6)
+    r = _limited(livy).execute(CellRequest("spark.range(1).count()", "pyspark"))
+    assert "after 5 minutes. The cell was stopped in Fabric." in r.outputs[0]["evalue"]
+    livy = FakeLivy(polls=10**6)
+    s = _limited(livy)
+    _flaky(livy, [403], lambda m, p: p.endswith("/cancel"))
+    evalue = s.execute(CellRequest("spark.range(1).count()", "pyspark")).outputs[0]["evalue"]
+    assert "may still be running" in evalue and "Monitor hub" in evalue
+    assert "was cancelled" not in evalue and "stopped in Fabric" not in evalue and TOKEN not in evalue
+
+
+def test_a_cancel_pressed_while_sending_that_is_refused_says_the_cell_may_still_run():
+    livy = FakeLivy(polls=3)
+    s = open_session(livy)
+    real = livy.request
+
+    def press_cancel_during_submit(method, url, **kw):
+        if method == "POST" and url.endswith("/7/statements"):
+            assert s.cancel() is True  # no statement id yet: execute cancels it once submit returns
+        return real(method, url, **kw)
+    livy.request = press_cancel_during_submit
+    _flaky(livy, [403, 403], lambda m, p: p.endswith("/cancel"))
+    r = s.execute(CellRequest("1 + 1", "pyspark"))
+    evalue = r.outputs[0]["evalue"]
+    assert r.status == "cancelled" and evalue.startswith("Cancelled. The cell may still be running")
+    assert "HTTP 403" not in evalue and TOKEN not in json.dumps(r.as_dict())

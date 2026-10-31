@@ -340,13 +340,15 @@ class FabricSparkSession:
         try:
             reply = self._client.submit(self.id, code, kind)
             self._statement = str(reply.get("id", ""))
-            if self._cancelled:
-                self._client.cancel(self.id, self._statement)
+            if self._cancelled:  # Cancel was pressed while the cell was being sent
+                try:
+                    self._client.cancel(self.id, self._statement)
+                except Exception:  # noqa: BLE001 - a refused cancel must not hide that the cell may still run
+                    raise FabricSparkError(self._abandon(FabricSparkError("Cancelled."))) from None
             while reply.get("state") not in ("available", "error", "cancelled"):
                 if self._clock() - started > self._max_seconds:
-                    self._client.cancel(self.id, self._statement)
-                    raise FabricSparkError(f"The cell was still running after {self._max_seconds / 60:.0f} minutes, "
-                                           "so it was cancelled.")
+                    raise FabricSparkError(self._abandon(FabricSparkError(
+                        f"The cell was still running after {self._max_seconds / 60:.0f} minutes.")))
                 self._sleep(POLL_SECONDS)
                 try:
                     reply = self._client.statement(self.id, self._statement)
@@ -356,7 +358,8 @@ class FabricSparkSession:
             out = {"type": "error", "ename": "FabricSparkError", "evalue": str(exc)}
             if on_output:
                 on_output(out)
-            return CellResult("error", [out], time.perf_counter() - t0, None, self.engine)
+            return CellResult("cancelled" if self._cancelled else "error", [out], time.perf_counter() - t0, None,
+                              self.engine)
         finally:
             self._statement = ""
             self._lock.release()
@@ -386,7 +389,8 @@ class FabricSparkSession:
         return [*note, _table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
 
     def _abandon(self, exc: Exception) -> str:
-        """The failed poll's message, once the statement has been asked to stop: a statement this PC
+        """The failed poll's (or time limit's, or failed Cancel's) message, once the statement has been asked
+        to stop: a statement this PC
         lost track of must not keep the session busy (and using capacity) with no one watching it."""
         problem = str(exc) if isinstance(exc, FabricSparkError) else f"Couldn't check the cell: {type(exc).__name__}."
         try:

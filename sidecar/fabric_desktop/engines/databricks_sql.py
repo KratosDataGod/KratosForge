@@ -361,13 +361,15 @@ class DatabricksSqlSession:
         started = self._clock()
         reply = self._client.submit(body)
         self._statement = str(reply.get("statement_id") or "")
-        if self._cancelled and self._statement:
-            self._client.cancel(self._statement)
+        if self._cancelled and self._statement:  # Cancel was pressed while the statement was being sent
+            try:
+                self._client.cancel(self._statement)
+            except (DatabricksError, DatabricksAuthError):
+                raise DatabricksError(self._abandon("Cancelled.")) from None
         while (reply.get("status") or {}).get("state") not in TERMINAL:
             if self._clock() - started > self._max_seconds:
-                self._client.cancel(self._statement)
-                raise DatabricksError(f"The statement was still running after {self._max_seconds / 60:.0f} minutes, "
-                                      "so it was cancelled on the warehouse.")
+                raise DatabricksError(self._abandon(
+                    f"The statement was still running after {self._max_seconds / 60:.0f} minutes."))
             self._sleep(POLL_SECONDS)
             try:
                 reply = self._client.status(self._statement)
@@ -382,7 +384,8 @@ class DatabricksSqlSession:
         return reply
 
     def _abandon(self, problem: str) -> str:
-        """``problem`` after a failed poll, once the statement has been asked to stop: a statement this
+        """``problem`` (a failed poll, the time limit, a Cancel whose first try failed), once the statement
+        has been asked to stop: a statement this
         PC lost track of must not keep the warehouse busy (and billing) with no one watching it."""
         try:
             self._client.cancel(self._statement)

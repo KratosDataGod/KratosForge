@@ -418,3 +418,12 @@ def test_a_recorded_id_that_isnt_fabrics_never_reaches_fabric_and_doesnt_hold_th
     monkeypatch.setattr(api, "list_items", lambda workspace_id: called.append(workspace_id) or [])
     assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
     assert called == []
+
+
+def test_someone_who_isnt_an_admin_never_hears_of_a_record_kratosforge_cant_read(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    _corrupt(svc, "workspace_id", "../admin/workspaces")
+    who["user"] = DEV
+    with pytest.raises(Exception) as err:
+        svc.platform_delete_source("erp")
+    assert CJ1 not in str(err.value) and "Copy job" not in str(err.value) and "admin" in str(err.value).lower()

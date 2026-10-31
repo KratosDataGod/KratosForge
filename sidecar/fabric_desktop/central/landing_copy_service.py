@@ -167,9 +167,11 @@ class LandingCopyMixin:
         deleting the source would leave the job running on its schedule with nothing in the app that
         names it. Nothing in Fabric is changed. A job that's gone from Fabric no longer holds it."""
         source = core.key_name(name)
+        if not self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
+            # Anyone else is refused by the platform as before, before any request record is read.
+            return super().platform_delete_source(name)  # type: ignore[misc]
         jobs = self._lc_jobs_for(source)
-        if jobs and self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
-            # Anyone else is refused by the platform as before, without hearing about the job.
+        if jobs:
             api = self._rq_fabric()  # type: ignore[attr-defined]
             for job in jobs:
                 try:

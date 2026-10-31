@@ -627,7 +627,7 @@ class LocalEngine:
                                   "kind": f"{change.kind} delta"})
                     continue
                 write = delta.parse_tree(tree, self._is_own)
-                text = "" if write else tree.sql(dialect="duckdb")
+                text = "" if write else delta._duckdb(tree)
                 if write is None and not text.strip():
                     continue
                 if write is None:
@@ -1053,7 +1053,7 @@ class LocalEngine:
             group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
             duplicate = con.execute(
                 f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
-                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {c.on.sql(dialect='duckdb')}) "
+                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {delta._duckdb(c.on)}) "
                 f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1").fetchone()
             if duplicate is not None:
                 raise ValueError(f"More than one source row matches the same row of {name} (source key "

@@ -33,7 +33,7 @@
       "active": {
         "story": "PB-015",
         "issue": 848,
-        "note": "MERGE is PR #933 (needs Chris's go: it runs MERGE on this PC). UPDATE and DELETE come in a second PR."
+        "note": "MERGE merged (#933) and Prove covers MERGE, UPDATE and DELETE (#1157). What's left is the live Prove run (criterion 4): plan at /mnt/project-files/local-exec/pb-015-live-run-plan.md, waiting on Chris's yes."
       },
       "ready": [
         {
@@ -52,7 +52,7 @@
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
       "blockers": [
-        "#933 MERGE on this PC waits on Chris's go"
+        "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#895 PB-094 kernel-process measurements and #913 PB-068 key lookups (PASS, merging); #950 PB-067 cleanup at review",
       "next_action": "Keep PB-015 moving; then PB-014 (compatibility analyzer with an Unknown outcome), engine only."
@@ -73,17 +73,19 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 869,
-        "title": "PB-048 Schedule editing and safer schedule removal"
+        "issue": 1179,
+        "title": "Warehouse Monitoring KQL query retries throttling, 5xx and dropped connections"
       },
       "ready": [
         {
-          "issue": 1109,
-          "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric"
+          "issue": 1178,
+          "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
+          "note": "Starts after #1166 merges."
         },
         {
-          "story": "PB-049",
-          "issue": 920
+          "issue": 1109,
+          "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric",
+          "note": "PR #1176 at review."
         }
       ],
       "backlog": [
@@ -95,11 +97,13 @@
       "dependencies": [],
       "blockers": [
         "PB-002, PB-003, PB-052 and PB-049 live runs wait on Chris's yes for Trial capacity in kf_tenant_test; harnesses are built against fakes (#884, #919, #931)",
-        "#755 WH-16 draft waits on Chris",
-        "#799 staging cleaner held"
+        "#799 staging cleaner held",
+        "#869 PB-048 part 3 (#873, schedules while signed out) waits on Chris: password or S4U, plus a Windows check",
+        "PB-049 (#920), PB-052 (#909) and PB-003 (#887): only the live runs remain, each needs Chris's yes",
+        "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
       "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
-      "next_action": "PB-048 schedule editing, then #1109 (FS-05) and PB-049 part 1; tenant harnesses against fakes until Chris says yes."
+      "next_action": "#1179 (KQL retry), then #1178 once #1166 merges."
     },
     {
       "key": "dbx-snow",
@@ -111,17 +115,13 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1168,
-        "title": "Close the remaining Databricks SQL parity gaps on the DuckDB engine (KF-DBX-SQLGAPS)"
+        "issue": 1198,
+        "title": "The two-hour limit and an early Cancel say truthfully whether the remote statement stopped (KF-REMOTE-LIMIT)"
       },
       "ready": [
         {
-          "issue": 1167,
-          "title": "Databricks SQL warehouse returns whole results, not only the first chunk (KF-DBX-CHUNKS)"
-        },
-        {
-          "story": "PB-117",
-          "issue": 853
+          "issue": 1199,
+          "title": "Snowflake \"translated\" verdicts are checked value by value against Snowflake's documented results (SF-PARITY)"
         }
       ],
       "backlog": [],
@@ -130,10 +130,11 @@
         "Engine picker UI waits on Chris's mockup review"
       ],
       "blockers": [
+        "Snowflake SF-01 sign-in and SF-07 engine wait on Chris's D4 decision",
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#1056 runtimes merged; #1058 live test, #1096 engine picker and #1101 workspace discovery (#1099) passed review",
-      "next_action": "SQL parity gaps (#1168, PR #1180), then whole Databricks SQL results (#1167, PR #1183). The live Databricks run waits on Chris setting up the Databricks CLI on his PC."
+      "last_completed": "#1191 KF-REMOTE-ORPHAN and KF-REMOTE-RETRY (#1188, #1189); #1183 KF-DBX-CHUNKS (#1167); #1180 KF-DBX-SQLGAPS; #853 Snowflake research closed (PB-117 In review)",
+      "next_action": "#1198 remote limit and Cancel truthfulness, then #1199 Snowflake parity values."
     },
     {
       "key": "enterprise",
@@ -176,22 +177,19 @@
         "Run continuous product management"
       ],
       "active": {
-        "story": "PB-096"
+        "issue": 1197,
+        "title": "Browser and accessibility tests for Settings > Integrations",
+        "note": "Depends on #1187."
       },
-      "ready": [
-        {
-          "story": "PB-027",
-          "issue": 878
-        }
-      ],
+      "ready": [],
       "backlog": [
         "PB-087",
         "PB-034"
       ],
       "dependencies": [],
       "blockers": [],
-      "last_completed": "#876 PB-077 docs match the code (merged); #879 PB-070, #885, #901, #917 PB-010 PASS",
-      "next_action": "Run the AI client checklist for each named tool (PB-096); then PB-027."
+      "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
+      "next_action": "#1197 Settings > Integrations browser and accessibility tests; lead files the next ready story."
     },
     {
       "key": "platform",
@@ -205,8 +203,16 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {},
-      "ready": [],
+      "active": {
+        "issue": 1173,
+        "title": "Every engine method returns a typed error for malformed input: no traceback, no internal path, no partial write"
+      },
+      "ready": [
+        {
+          "issue": 1174,
+          "title": "Every engine subprocess call has a timeout, with an AST guard test"
+        }
+      ],
       "backlog": [
         "PB-061"
       ],
@@ -218,7 +224,7 @@
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
       "last_completed": "#1152 PB-098 one list of engine methods (In review); #1154, #1155, #1156, #1164 at PASS with Release management",
-      "next_action": "Fuzz every engine method with malformed input: a typed error, never a traceback or a partial write (lead files the issue)."
+      "next_action": "RPC fuzz test (#1173) once one of #1154, #1155, #1156, #1164 merges; then #1174."
     }
   ],
   "new_stories": {},

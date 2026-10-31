@@ -140,7 +140,10 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
                        "OneLake > Shortcuts if it isn't wanted")
     elif kind == "domain" and made.get("domain_id"):
         name = d.get("name") or req.get("target") or made["domain_id"]
-        if made.get("fabric_domain_id"):
+        if made.get("found"):  # possibly someone else's: no removal advice
+            out.append(f"The domain {name} is in the platform{' and Fabric' if made.get('fabric_domain_id') else ''}: "
+                       "it was there before this request, or approving it made it. Check which before deleting it")
+        elif made.get("fabric_domain_id"):
             out.append(f"The domain {name}, made by this request, is still in Fabric and the platform: delete it in "
                        "Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted")
         else:
@@ -235,10 +238,22 @@ class RequestsMixin:
     def platform_withdraw(self, id: str) -> dict[str, Any]:
         return self._rq_closed(super().platform_withdraw(id))  # type: ignore[misc]
 
-    @staticmethod
-    def _rq_closed(out: dict[str, Any]) -> dict[str, Any]:
-        """A declined or withdrawn request says what its approval already made in Fabric."""
-        left = left_in_fabric(out)
+    def _rq_closed(self, out: dict[str, Any]) -> dict[str, Any]:
+        """A declined or withdrawn request says what its approval already made in Fabric. A domain
+        request whose domain is saved but wasn't recorded on it (its progress record failed, or someone
+        made it since) says it is there, with the careful wording: whose it is isn't known (#1270)."""
+        made, view = (out.get("detail") or {}).get("made") or {}, out
+        if out.get("kind") == "domain" and not made.get("domain_id"):
+            try:
+                have = next((x for x in self.platform_domains() if x.get("id") == out.get("target")), None)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the request is closed either way; this only adds a note
+                _log.info("Couldn't read the domains after closing %s: %s", out.get("id"), describe(exc))
+                have = None
+            if have:  # what the request records is left as it is: this only words the note
+                view = dict(out, detail=dict(out.get("detail") or {}, made={
+                    "domain_id": have["id"], "found": True,
+                    **({"fabric_domain_id": have["fabric_domain"]} if have.get("fabric_domain") else {})}))
+        left = left_in_fabric(view)
         if left:
             out["next"] = [*(out.get("next") or []), *left]
         return out
@@ -266,6 +281,8 @@ class RequestsMixin:
         name = str(d.get("name") or req["target"])
         known = {x["id"]: x for x in self.platform_domains()}  # type: ignore[attr-defined]
         if req["target"] in known:
+            if not (d.get("made") or {}).get("domain_id"):
+                self._rq_domain_found(req, known[req["target"]], known)
             return {}
         parent = known.get(str(d.get("parent_id") or ""))
         in_fabric = not parent or bool(parent.get("fabric_domain"))
@@ -291,6 +308,32 @@ class RequestsMixin:
             return {}
         return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
                          f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric"]}
+
+    def _rq_domain_found(self, req: dict[str, Any], have: dict[str, Any], known: dict[str, Any]) -> None:
+        """A retry finds the domain already saved but not recorded on the request: its progress record
+        failed, or someone made it since the request was sent (#1270). It's this request's when Fabric's
+        domain carries the request's marker, or, for one in the platform only, the approver saved it
+        after the request; otherwise it is recorded as found, so a decline says to check before deleting."""
+        name = str(req["detail"].get("name") or req["target"])
+        fid = str(have.get("fabric_domain") or "")
+        if fid:
+            parent_fid = str((known.get(str(have.get("parent_id") or "")) or {}).get("fabric_domain") or "")
+            try:
+                ours = self._domain_made_by(self._fabric_admin(), request_marker(req), name,  # type: ignore[attr-defined]
+                                            parent_fid) is not None
+            except Exception as exc:  # noqa: BLE001 - unread is recorded as found: the careful wording
+                _log.info("Couldn't read Fabric's domains to tell who made %s: %s", name, describe(exc))
+                ours = False
+        else:
+            try:
+                me = str(self._catalog().call("whoami").get("user") or "").lower()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - unread is recorded as found, as for Fabric above
+                _log.info("Couldn't tell who is approving %s: %s", name, describe(exc))
+                me = ""
+            ours = bool(me) and str(have.get("updated_by") or "").lower() == me \
+                and str(have.get("updated_at") or "") >= str(req.get("requested_at") or "")
+        self._rq_progress(req, {"domain_id": req["target"], **({"fabric_domain_id": fid} if fid else {}),
+                                **({} if ours else {"found": True})})
 
     def _rq_make_workspace(self, req: dict[str, Any], capacity_id: str = "") -> dict[str, Any]:
         d, api = req["detail"], self._rq_fabric()

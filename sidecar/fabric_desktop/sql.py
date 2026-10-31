@@ -22,6 +22,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
+from .duckdb_rows import keep_try_cast
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
 _VIEW_NAMES = itertools.count()
@@ -625,7 +626,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
     # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
-    return con
+    return keep_try_cast(con)
 
 
 def _arrow(result: duckdb.DuckDBPyConnection | None) -> pa.Table:

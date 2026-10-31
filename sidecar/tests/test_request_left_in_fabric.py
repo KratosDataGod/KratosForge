@@ -5,8 +5,10 @@ records it. Fabric and the platform are faked, as in test_request_retries; no te
 import json
 
 import pytest
+import requests
 
 from fabric_desktop.central import requests_service
+from fabric_desktop.central.client import LocalPlatform
 from fabric_desktop.central.requests_service import left_in_fabric
 from fabric_desktop.service import Service
 from test_request_retries import FabricDomains, fail_once, fail_platform_once
@@ -214,3 +216,93 @@ def test_withdrawing_a_half_made_request_tells_the_approvers_on_teams(svc, who, 
     assert [p[0] for p in posts] == ["Withdrawn: New workspace Sales Forecasting - Dev; the workspace it made is still "
                                      "in Fabric"]
     assert "Lee" not in str(posts) and "Forecast models" not in str(posts)  # no admins' names, no reason
+
+
+# --------------------------------------------------------------------------- a domain saved but not recorded (#1270)
+
+
+def domain_saved_not_recorded(svc, who, monkeypatch):
+    fabric = FabricDomains()
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self, write=False: fabric)
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR"})
+    as_user(who, ADMIN)
+    fail_platform_once(monkeypatch, "record_request_progress", "before")
+    with pytest.raises(requests_service.StepError):
+        svc.platform_decide(req["id"], True)
+    assert "made" not in svc.platform_requests("waiting")[0]["detail"] and fabric.created == [("HR", "")]
+    return req, fabric
+
+
+def test_a_retry_records_the_domain_its_failed_record_left_out(svc, who, monkeypatch):
+    req, fabric = domain_saved_not_recorded(svc, who, monkeypatch)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and fabric.created == [("HR", "")]  # nothing made twice
+    assert out["detail"]["made"] == {"domain_id": "hr", "fabric_domain_id": "f-hr"}  # its marker: this request's
+
+
+def test_declining_after_the_record_failed_still_names_the_domain(svc, who, monkeypatch):
+    req, _ = domain_saved_not_recorded(svc, who, monkeypatch)
+    out = svc.platform_decide(req["id"], False)
+    assert out["next"] == ["The domain HR is in the platform and Fabric: it was there before this request, or "
+                           "approving it made it. Check which before deleting it"]
+    assert "made" not in out["detail"]  # the note words what is there; the request records nothing new
+    assert "hr" in {d["id"] for d in svc.platform_domains()}
+
+
+def test_a_domain_someone_else_made_is_recorded_as_found(svc, who, monkeypatch):
+    fabric = FabricDomains()
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self, write=False: fabric)
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR"})
+    as_user(who, ADMIN)
+    fabric.create_admin_domain("HR")  # made by hand in Fabric, with no request's marker
+    svc.platform_save_domain({"id": "hr", "name": "HR", "fabric_domain": "f-hr"})
+    out = svc.platform_decide(req["id"], True)
+    assert out["detail"]["made"] == {"domain_id": "hr", "fabric_domain_id": "f-hr", "found": True}
+
+
+def test_a_platform_only_domain_the_approver_saved_after_the_request_is_theirs(svc, who):
+    svc.platform_save_domain({"name": "Ops"})  # in the platform only, so its subdomains are too
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
+    out = svc.platform_decide(req["id"], True)
+    assert out["detail"]["made"] == {"domain_id": "field"}
+
+
+def _set_domain_updated_at(svc, did, at):
+    """Backdates a saved domain, as if it had been saved long before the request."""
+    with svc._catalog()._db() as db:
+        db.run(f"UPDATE {db.t('catalog', 'domain')} SET updated_at = ? WHERE id = ?", (at, did))
+        db.conn.commit()
+
+
+def test_a_platform_only_domain_saved_before_the_request_was_sent_is_recorded_as_found(svc, who):
+    """Saved by the approver, but before the request: not this request's work, so a decline says to check."""
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
+    _set_domain_updated_at(svc, "field", "2000-01-01T00:00:00+00:00")
+    out = svc.platform_decide(req["id"], True)
+    assert out["detail"]["made"] == {"domain_id": "field", "found": True}
+
+
+def test_a_retry_that_cannot_tell_who_is_approving_records_the_domain_as_found(svc, who, monkeypatch):
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "Field", "", {"name": "Field", "parent_id": "ops"})
+    as_user(who, ADMIN)
+    svc.platform_save_domain({"id": "field", "name": "Field", "parent_id": "ops"})
+    real = LocalPlatform.call
+
+    def call(self, name, **kwargs):
+        if name == "whoami":
+            raise requests.Timeout("whoami timed out")
+        return real(self, name, **kwargs)
+    monkeypatch.setattr(LocalPlatform, "call", call)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and out["detail"]["made"] == {"domain_id": "field", "found": True}

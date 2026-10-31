@@ -93,7 +93,8 @@ def _left(req: dict[str, Any]) -> str:
     if kind == "source" and made.get("copy_job_id"):
         return "; its Copy job is still in the landing workspace" + (", on its schedule" if made.get("schedule_id") else "")
     if kind == "domain" and made.get("domain_id"):
-        return "; the domain it made is still there"
+        return "; the domain may be from it: check before deleting" if made.get("found") \
+            else "; the domain it made is still there"
     if kind == "shortcut" and made.get("shortcut_id"):
         return "; the shortcut may be from it: check before removing" if made.get("found") \
             else "; the shortcut it made is still in OneLake"

@@ -48,10 +48,11 @@ def test_a_decision_goes_to_whoever_asked_and_a_withdrawal_to_the_deciders():
     ("source", {"copy_job_id": "j1", "copy_job_name": "CJ_Landing_crm", "schedule_id": "s1"},
      "; its Copy job is still in the landing workspace, on its schedule"),
     ("domain", {"domain_id": "hr", "fabric_domain_id": "f-hr"}, "; the domain it made is still there"),
+    ("domain", {"domain_id": "hr", "found": True}, "; the domain may be from it: check before deleting"),
     ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x"}, "; the shortcut it made is still in OneLake"),
     ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x", "found": True}, "; the shortcut may be from it: check before removing"),
     ("workspace", {}, ""),
-], ids=["workspace", "gave", "raised", "same", "older", "kept", "copy job", "domain", "shortcut", "found shortcut", "nothing"])
+], ids=["workspace", "gave", "raised", "same", "older", "kept", "copy job", "domain", "found domain", "shortcut", "found shortcut", "nothing"])
 def test_a_closed_request_whose_approval_made_something_says_it_is_still_there_without_names(kind, made, left):
     r = req(kind=kind, target="Sales Prod", detail={"made": made, "principal": {"email": "kim@contoso.com"}})
     gone = validate(notices.request_closed(r | {"status": "withdrawn"}, PRODUCTS))

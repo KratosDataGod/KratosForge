@@ -98,6 +98,8 @@ async function openEngineMenu(anchor, nb) {
     planned.length ? btn("More", "chevronRight", () => showMenu(anchor, [{ info: "Planned, not available in this version" },
       ...planned.map((e) => ({ info: `${e.label}: ${e.planned}` }))]), "tool engine-row", { role: "menuitem" }) : null,
     { info: "Engines on this PC start no Fabric job. Reading or writing OneLake from this PC still uses Fabric capacity." },
+    // GD-05: the decision pattern behind this choice, shipped with the app (learn.js).
+    previewShown() ? { label: "This PC or Fabric? How to choose", icon: "help", action: () => learnPatternDialog("DP-02") } : null,
     ...(onKernel && !where.fabric ? oneLakeWritesMenu(nb) : []),
     onKernel ? { label: "Restart kernel", icon: "restart", action: restartKernel } : null,
   ].filter(Boolean));

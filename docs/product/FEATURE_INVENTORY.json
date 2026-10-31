@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "f3750b9d6564608f0f15d931800990b65b3047a9",
+    "commit": "b3c5b223537fe655426559e62366a05137cec244",
     "date": "2026-10-31",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -26,7 +26,8 @@
       "Product check 2026-10-29 23:42 at 02118fa41572b709dfdfbe9282a0221d777adaf4: the 59 PRs merged after 188d5a93 were linked to their rows and items. The 2026-10-29 KUDP live run is recorded as report evidence on FEAT-AUTH-01, FAB-02 and EXT-05. Other rows were not re-read.",
       "Acceptance batch 2 recorded (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b).",
       "Product check 2026-10-30 23:42 at 0c96c9ce6a6a84651d879288fe3caf7552a250d9: the 23 PRs merged after 02118fa4 (other than the product data PRs) were linked to their rows and items. Other rows were not re-read.",
-      "Product check 2026-10-31 11:42 at f3750b9d6564608f0f15d931800990b65b3047a9: #1200 to #1202 linked to their rows and items. Other rows were not re-read."
+      "Product check 2026-10-31 11:42 at f3750b9d6564608f0f15d931800990b65b3047a9: #1200 to #1202 linked to their rows and items. Other rows were not re-read.",
+      "Product check 2026-10-31 23:42 at b3c5b223537fe655426559e62366a05137cec244: the PRs merged after f3750b9d (#1205 to #1357) were linked to their rows and items by title and changed files. Other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -84,6 +85,13 @@
       "backlog": [
         "PB-002",
         "PB-072"
+      ],
+      "prs": [
+        1210,
+        1254,
+        1274,
+        1338,
+        1342
       ]
     },
     {
@@ -132,7 +140,9 @@
         1089,
         1152,
         1153,
-        1156
+        1156,
+        1208,
+        1214
       ]
     },
     {
@@ -245,7 +255,8 @@
         974,
         987,
         1131,
-        1147
+        1147,
+        1290
       ]
     },
     {
@@ -390,7 +401,11 @@
         926,
         951,
         988,
-        990
+        990,
+        1294,
+        1297,
+        1334,
+        1339
       ],
       "workstream": "Enterprise readiness (FD-139)",
       "next_action": "Fix the automated audit's findings (#905), then run the Narrator and keyboard pass on Windows (PB-063 part 2).",
@@ -606,7 +621,8 @@
         "preview": false
       },
       "prs": [
-        84
+        84,
+        1258
       ],
       "workstream": "Enterprise readiness (FD-131a, FD-138)",
       "next_action": "Fix the user guide, which says it adds the tenant id (it redacts it).",
@@ -652,6 +668,9 @@
       "next_action": "Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062).",
       "backlog": [
         "PB-062"
+      ],
+      "prs": [
+        1177
       ]
     },
     {
@@ -1811,7 +1830,8 @@
         53,
         595,
         902,
-        1044
+        1044,
+        1291
       ],
       "next_action": "Verify the agent's scheduled shortcut check on a tenant (docs/agent.md, Verify on your tenant step 10; PB-053).",
       "backlog": [
@@ -1937,7 +1957,9 @@
         786,
         994,
         999,
-        1027
+        1027,
+        1293,
+        1326
       ],
       "next_action": "#612 SF10 streaming in quality per memory; Direct Lake on zstd is Chris's call (Snappy fallback); verify MERGE on OneLake in the live test (PB-003).",
       "backlog": [
@@ -2094,7 +2116,10 @@
       ],
       "prs": [
         67,
-        115
+        115,
+        1209,
+        1212,
+        1215
       ],
       "workstream": "Prove (FD-110)",
       "next_action": "Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).",
@@ -2203,7 +2228,15 @@
         596,
         1028,
         1054,
-        1157
+        1157,
+        1263,
+        1343,
+        1344,
+        1345,
+        1346,
+        1349,
+        1356,
+        1357
       ]
     },
     {
@@ -2359,7 +2392,8 @@
         517,
         518,
         519,
-        692
+        692,
+        1307
       ]
     },
     {
@@ -2417,7 +2451,13 @@
       ],
       "prs": [
         29,
-        410
+        410,
+        1190,
+        1262,
+        1275,
+        1300,
+        1305,
+        1324
       ],
       "workstream": "Prove (FD-111)",
       "next_action": "AST analyzer with an Unknown outcome (PB-014).",
@@ -2523,7 +2563,8 @@
         "External table changes don't mark cells stale"
       ],
       "prs": [
-        68
+        68,
+        1298
       ],
       "workstream": "Prove",
       "next_action": "Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version.",
@@ -2573,7 +2614,8 @@
         "No launch from a table"
       ],
       "prs": [
-        65
+        65,
+        1332
       ],
       "workstream": "Prove",
       "next_action": "Add the entry point from a lakehouse table (plan Stage 3).",
@@ -2705,7 +2747,9 @@
         134,
         639,
         676,
-        703
+        703,
+        1245,
+        1268
       ],
       "workstream": "SQL development sprint",
       "next_action": "SQL editor rows are tracked by the warehouse program now (WH-08 Messages and Chart merged).",
@@ -2812,7 +2856,8 @@
         771,
         778,
         1035,
-        1157
+        1157,
+        1272
       ],
       "workstream": "Prove",
       "next_action": "Run one proof on the tenant (PB-002); add the column heatmap from plan Stage 3.",
@@ -3109,7 +3154,10 @@
       "limitations": [
         "Deleting an entity leaves its table"
       ],
-      "next_action": "Keep."
+      "next_action": "Keep.",
+      "prs": [
+        1213
+      ]
     },
     {
       "id": "FEAT-META-02",
@@ -3213,7 +3261,10 @@
       ],
       "next_action": "QA-002: replay open and compute change now check the save first (#661).",
       "prs": [
-        661
+        661,
+        1211,
+        1302,
+        1304
       ]
     },
     {
@@ -4009,7 +4060,8 @@
         "PB-084"
       ],
       "prs": [
-        957
+        957,
+        1231
       ]
     },
     {
@@ -4310,6 +4362,10 @@
       "next_action": "Show in the workload page with incidents (PB-047).",
       "backlog": [
         "PB-047"
+      ],
+      "prs": [
+        1176,
+        1232
       ]
     },
     {
@@ -4373,7 +4429,14 @@
         1081,
         1100,
         1112,
-        1200
+        1200,
+        1223,
+        1239,
+        1243,
+        1244,
+        1255,
+        1259,
+        1354
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -4495,7 +4558,12 @@
       "prs": [
         597,
         792,
-        794
+        794,
+        1213,
+        1322,
+        1328,
+        1335,
+        1348
       ]
     },
     {
@@ -4769,7 +4837,8 @@
       ],
       "prs": [
         791,
-        826
+        826,
+        1222
       ]
     },
     {
@@ -4875,7 +4944,8 @@
       ],
       "prs": [
         624,
-        626
+        626,
+        1327
       ]
     },
     {
@@ -5160,7 +5230,8 @@
         127,
         682,
         770,
-        842
+        842,
+        1336
       ],
       "workstream": "Workloads (FD-123)",
       "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
@@ -5212,7 +5283,8 @@
         58,
         579,
         704,
-        735
+        735,
+        1299
       ],
       "next_action": "Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup."
     },
@@ -5367,7 +5439,10 @@
       "prs": [
         89,
         623,
-        629
+        629,
+        1259,
+        1351,
+        1354
       ],
       "workstream": "Enterprise readiness (FD-125)",
       "next_action": "HD-017: the chain notices lines deleted from the end, and the user guide says how to clear a reported gap.",
@@ -5930,7 +6005,8 @@
         991,
         1111,
         1185,
-        1187
+        1187,
+        1230
       ],
       "workstream": "Bring your own AI integration",
       "next_action": "Finish the client checklist on Windows with a Fabric sign-in for each named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
@@ -6256,7 +6332,9 @@
       "prs": [
         350,
         1053,
-        1146
+        1146,
+        1242,
+        1289
       ],
       "workstream": "Notebook development program",
       "next_action": "Implementation review of PR #350; run on a tenant before the Preview tag comes off."
@@ -7096,7 +7174,11 @@
         675,
         684,
         686,
-        791
+        791,
+        1250,
+        1251,
+        1256,
+        1333
       ],
       "workstream": "Local Fabric pipeline execution (ORCH-004)",
       "next_action": "P6 PC schedules for pipelines merged (#791); P5 Copy data and P7 rerun from failure need Chris's go.",
@@ -7402,7 +7484,8 @@
       },
       "prs": [
         327,
-        598
+        598,
+        1186
       ],
       "workstream": "Developer profile",
       "next_action": "Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598."
@@ -7595,7 +7678,21 @@
         1183,
         1191,
         1201,
-        1202
+        1202,
+        1225,
+        1228,
+        1234,
+        1238,
+        1240,
+        1248,
+        1271,
+        1276,
+        1277,
+        1279,
+        1292,
+        1321,
+        1323,
+        1329
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -7684,7 +7781,15 @@
       },
       "prs": [
         605,
-        642
+        642,
+        1205,
+        1241,
+        1265,
+        1267,
+        1308,
+        1309,
+        1351,
+        1353
       ],
       "workstream": "Enterprise governance foundation",
       "limitations": [
@@ -8001,7 +8106,10 @@
         1159,
         1160,
         1161,
-        1162
+        1162,
+        1175,
+        1186,
+        1233
       ],
       "backlog": [
         "PB-119"

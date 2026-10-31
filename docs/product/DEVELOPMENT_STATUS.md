@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-31 11:42 UTC, main f3750b9d.** Covers the PRs merged from #135 to #1202.
+**Product check of 2026-10-31 23:42 UTC, main b3c5b223.** Covers the PRs merged from #135 to #1357.
 
 ## Summary
 
+- Evening check, 2026-10-31: 99 PRs merged after f3750b9d (#1205 to #1357), the full-speed day.
+  Most are hardening and tests. The engine is ready for DuckDB 2.0 (#1341's parts), OneLake reads,
+  writes, shortcut checks and leases wait out throttling, governance requests say what stays in
+  Fabric after a decline or withdrawal, and ten more screens have real-browser tests. Also: the
+  compute check follows %run and notebook.run and reports Unknown (PB-014), support bundle slice 1
+  (PB-062), Learn GD-03, GD-06 and GD-10, and Databricks, Spark and Snowflake SQL that answers as
+  those platforms do. PB-014 and PB-062 are now In progress.
 - Morning check, 2026-10-31: three more PRs merged. Snowflake functions are checked value by
   value against Snowflake's docs (PB-117, #1202), a time limit or early Cancel says truthfully
   whether a remote statement stopped (#1201), and every platform role write leaves an audit row
@@ -30,7 +37,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 15 are Proposed, 25 In progress, 10 In review and 59 Accepted.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 13 are Proposed, 27 In progress, 10 In review and 59 Accepted.
 
 ## Workstreams
 

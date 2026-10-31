@@ -284,6 +284,22 @@ def test_function_app_has_a_function_per_operation_and_compiles():
     assert "function_app.py" in json.dumps(parts)
 
 
+def test_the_definition_lists_every_function_or_fabric_refuses_it():
+    # Fabric answers "Functions is null or empty" to a definition that lists none (live run 2026-10-30)
+    parts = udf.definition("ws", "sql")
+    listed = [f["name"] for f in json.loads(parts["definition.json"])["functions"]]
+    described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
+    assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
+    assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    key_table = next(f for f in described if f["name"] == "ensure_key_table")
+    assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
+        ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
+    assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
+        {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
+    assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
+
+
 # --------------------------------------------------------------------------- the mesh in a project
 
 
@@ -1457,3 +1473,59 @@ def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
     assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
     bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
     assert platform.call("list_seen_shortcuts") == []
+
+
+# --------------------------------------------------------------------------- setup against Fabric's refusals
+
+class _RefusingFabric:
+    """A Fabric that refuses what the live runs saw it refuse (tests/fabric_refusals.py)."""
+
+    def __init__(self):
+        self.items = []
+
+    def list_workspaces(self):
+        return []
+
+    def create_workspace(self, name, capacity_id, description):
+        return {"id": "ws-p", "displayName": name}
+
+    def find_lakehouse(self, ws, name):
+        return None
+
+    def create_lakehouse(self, ws, name, description=""):
+        return {"id": f"lh-{name}"}
+
+    def save_item(self, ws, item_type, name, parts=None, description=""):
+        from tests.fabric_refusals import check_item
+        check_item(item_type, parts)
+        self.items.append((item_type, name))
+        return {"id": f"{item_type}-id", "created": True}
+
+    def save_variable_library(self, ws, name, parts, description=""):
+        return {"id": "vl-id", "created": True}
+
+
+def test_platform_setup_makes_every_item_fabric_accepts(monkeypatch):
+    from fabric_desktop.central import setup as setup_mod
+
+    class Client:
+        def __init__(self, token, ws, fn):
+            pass
+
+        def call(self, op, **kw):
+            return {"created": ["catalog"]} if op == "ensure_schema" else {}
+
+    monkeypatch.setattr(setup_mod, "FabricPlatform", Client)
+    fabric = _RefusingFabric()
+    out = setup_mod.setup(fabric, lambda: "tok", "dev")
+    assert out["ready"], out["steps"]
+    assert ("UserDataFunction", udf.ITEM) in fabric.items
+
+
+def test_the_refusing_fake_refuses_a_udf_with_no_functions():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import UDF_NO_FUNCTIONS, check_item
+    empty = {"definition.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": []})}
+    with pytest.raises(FabricError, match="Functions is null or empty") as err:
+        check_item("UserDataFunction", empty)
+    assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)

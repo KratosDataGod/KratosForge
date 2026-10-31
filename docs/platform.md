@@ -31,6 +31,8 @@ Without a platform in Fabric, the same tables live in a SQLite file on your PC (
 4. Each step reports **done** or **failed**. A failed step says what to do; fix it and choose **Finish or repair**. Every step is safe to run again: what exists is kept.
 5. You become the platform's first **platform admin**. Add the rest of the central team on **Platform > Settings**.
 
+**Finish or repair** turns on public access for each of `UDF_Platform`'s functions, because KratosForge calls them through Fabric's REST API. Calls still need an Entra sign-in and a role on the Platform workspace; no one can call them anonymously. If your tenant blocks public access to items, or allows only Private Link, IT needs to allow it for `UDF_Platform` ([Security](security.md)).
+
 If the step **Platform tables** fails because `UDF_Platform` has no connection to the database, open `UDF_Platform` in Fabric, choose **Manage connections**, add `SQL_Platform` with the alias `platform`, publish, and choose **Finish or repair**.
 
 ## Join it from other PCs

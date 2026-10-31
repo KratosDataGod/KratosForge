@@ -9,6 +9,7 @@ import requests
 from fabric_desktop import cli, leases, livetest
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.mailbox import LocalControl
+from tests.fabric_refusals import check_item
 
 WS = "11111111-1111-1111-1111-111111111111"
 TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
@@ -258,6 +259,7 @@ class ItemFabric(Fabric):
         return {}  # a create can come back without the item
 
     def save_item(self, ws, item_type, name, parts=None, description=""):
+        check_item(item_type, parts)
         if self.bad_pipeline:
             parts = {"pipeline-content.json": '{"properties": {"activities": "not a list"}}'}
         item = self._create(item_type, name, dict(parts or {}))

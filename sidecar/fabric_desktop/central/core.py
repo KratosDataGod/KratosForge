@@ -2329,12 +2329,15 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can take access away")
     # After the role check, so only someone who may take access away learns whether a grant exists.
-    if _row(db, "grant", "id", f"{product_id}|{project}") is None:
+    grant = _row(db, "grant", "id", f"{product_id}|{project}")
+    if grant is None:
         raise PlatformError(f"{project} has no access to {product_id} to take away")
     db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
     if db.exists("catalog", "grant_review"):
         db.run(f"DELETE FROM {db.t('catalog', 'grant_review')} WHERE id = ?", (f"{product_id}|{project}",))
-    _audit(db, by, "revoke access", product_id, {"project": project})
+    # The grant row goes, so its audit row keeps what gave the access (#1352): the request, who and when.
+    given = {"request": grant.get("request_id"), "granted_by": grant.get("granted_by"), "granted_at": grant.get("granted_at")}
+    _audit(db, by, "revoke access", product_id, {"project": project, **{k: v for k, v in given.items() if v}})
     db.commit()
     return list_grants(db, product_id)
 

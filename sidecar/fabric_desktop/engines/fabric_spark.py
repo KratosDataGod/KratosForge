@@ -99,6 +99,14 @@ class FabricSparkError(RuntimeError):
     """Fabric refused or failed a request; the message says what to check."""
 
 
+_UNTRACKED = ("The cell may still run in Fabric, and it can't be followed or cancelled from here: stop the "
+              "engine to end the session.")
+
+
+class NotLivyReply(FabricSparkError):
+    """A 2xx reply that isn't the JSON object Livy documents."""
+
+
 def _checked(value: str, pattern: re.Pattern[str], what: str) -> str:
     if not isinstance(value, str) or not pattern.fullmatch(value):
         raise FabricSparkError(f"That isn't a Fabric {what} ID.")
@@ -146,10 +154,18 @@ class LivyClient:
             raise FabricSparkError((f"Fabric refused the request (HTTP {resp.status_code}). "
                                     + (f"{message} " if message else "") + hint.get(resp.status_code, "")).rstrip()
                                    + (f" Tried {tries} times." if tries > 1 else ""))
-        try:
-            return resp.json() if resp.content else {}
-        except ValueError:
+        if not resp.content:
             return {}
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            # A proxy's sign-in page or a gateway's error page: never read as an empty answer, and its
+            # text isn't repeated (it may echo the request).
+            raise NotLivyReply(f"Fabric answered with something other than the JSON object Livy documents "
+                               f"(HTTP {resp.status_code}). Check the network or proxy between this PC and Fabric.")
+        return body
 
     def create(self, name: str, conf: dict[str, str]) -> dict[str, Any]:
         return self._call("POST", json={"name": name, "conf": conf})
@@ -291,7 +307,10 @@ class FabricSparkSession:
         self._closed = False
         client.stopped = lambda: self._cancelled
         conf = {k: str(v) for k, v in (config.options.get("conf") or {}).items()}
-        created = client.create(f"KratosForge {config.notebook}"[:100], conf)
+        try:
+            created = client.create(f"KratosForge {config.notebook}"[:100], conf)
+        except NotLivyReply:
+            created = {}   # the request reached Fabric's side, so a session may exist: say so below
         self.id = str(created.get("id", ""))
         if not self.id:
             self._closed = True
@@ -330,6 +349,8 @@ class FabricSparkSession:
         whole = request.result_rows > 0
         if whole and request.language != "sql":
             raise Unsupported("Fabric Spark returns whole results for SQL cells only.")
+        if not request.code.strip():
+            raise Unsupported("There's no code in this cell, so nothing was sent to Fabric.")
         code = _result_code(request.code, request.result_rows) if whole else request.code
         kind = "pyspark" if whole else kind
         if not self._lock.acquire(blocking=False):
@@ -338,8 +359,14 @@ class FabricSparkSession:
         started = self._clock()
         t0 = time.perf_counter()
         try:
-            reply = self._client.submit(self.id, code, kind)
+            try:
+                reply = self._client.submit(self.id, code, kind)
+            except NotLivyReply as exc:
+                raise FabricSparkError(f"{exc} {_UNTRACKED}") from None
             self._statement = str(reply.get("id", ""))
+            if not _ID.fullmatch(self._statement):
+                self._statement = ""
+                raise FabricSparkError(f"Fabric took the cell but didn't say which statement it is. {_UNTRACKED}")
             if self._cancelled:  # Cancel was pressed while the cell was being sent
                 try:
                     self._client.cancel(self.id, self._statement)

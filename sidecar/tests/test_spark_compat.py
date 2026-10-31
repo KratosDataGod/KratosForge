@@ -99,9 +99,16 @@ def test_arrays_and_distincts(spark, F):
 
 
 def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, capsys):
-    n = spark.createDataFrame([(2.345,), (0.125,), (1234567.5,)], ["x"])
-    assert rows(n.select(F.format_number("x", 2))) == [("2.34",), ("0.12",), ("1,234,567.50",)]
+    # Java's DecimalFormat, which Spark's format_number uses, rounds a double's exact binary value.
+    n = spark.createDataFrame([(2.345,), (0.125,), (1234567.5,), (2.675,), (-2.345,), (None,)], ["x"])
+    assert rows(n.select(F.format_number("x", 2))) == [("2.35",), ("0.12",), ("1,234,567.50",), ("2.67",),
+                                                       ("-2.35",), (None,)]
     assert rows(n.limit(1).select(F.format_number("x", 0))) == [("2",)]
+    assert rows(spark.createDataFrame([(-0.25,)], ["x"]).select(F.format_number("x", 0))) == [("-0",)]
+    assert rows(spark.createDataFrame([(1234,)], ["n"]).select(F.format_number("n", 1))) == [("1,234.0",)]
+    assert rows(spark.sql("SELECT CAST(0.125 AS DECIMAL(10, 3)) d").select(F.format_number("d", 2))) == [("0.12",)]
+    assert rows(spark.sql("SELECT CAST(1e20 AS DOUBLE) x").select(F.format_number("x", 0))) == [
+        ("100,000,000,000,000,000,000",)]
     F.percentile_approx("x", 0.5, 100)
     F.to_json("x", {"timestampFormat": "yyyy"})
     out = capsys.readouterr().out

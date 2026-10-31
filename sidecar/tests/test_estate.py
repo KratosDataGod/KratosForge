@@ -6,6 +6,7 @@ import types
 
 import polars as pl
 import pytest
+import requests
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import access, costs, maintenance, shortcuts
@@ -265,6 +266,49 @@ def test_assignment_and_principal_ids_are_guids_too(svc, monkeypatch, field):
     monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))
     with pytest.raises(ValueError, match="id KratosForge can use"):
         svc.access_set_role(WS_ID, role="Viewer", **{field: "x/../y"})
+
+
+def _adding(svc, monkeypatch, answers):
+    """Access > add by email against a fake Power BI that gives ``answers`` in turn (a response or an error)."""
+    from fabric_desktop import estate_service, retrying
+    sent = []
+
+    def post(url, json, headers, timeout):
+        sent.append(url)
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: types.SimpleNamespace(post=post))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    svc._auth = types.SimpleNamespace(_token=lambda scopes: "tok")
+    return sent
+
+
+def _answer(status, body=None, headers=None):
+    return types.SimpleNamespace(status_code=status, ok=status < 400, headers=headers or {}, json=lambda: body or {})
+
+
+def test_adding_by_email_waits_out_throttling(svc, monkeypatch):
+    sent = _adding(svc, monkeypatch, [_answer(429, headers={"Retry-After": "1"}), _answer(200)])
+    svc._add_user_by_email(WS_ID, "bo@contoso.com", "Viewer")
+    assert len(sent) == 2
+
+
+@pytest.mark.parametrize("first", [_answer(503), requests.Timeout("read timed out"), requests.ConnectionError("reset")])
+def test_adding_by_email_is_not_sent_twice_when_it_may_have_happened(svc, monkeypatch, first):
+    sent = _adding(svc, monkeypatch, [first, _answer(200)])
+    with pytest.raises(RuntimeError, match="may or may not have added bo@contoso.com.*access list"):
+        svc._add_user_by_email(WS_ID, "bo@contoso.com", "Viewer")
+    assert len(sent) == 1
+
+
+def test_a_refused_add_gives_fabrics_code_not_the_raw_body(svc, monkeypatch):
+    body = {"error": {"code": "InvalidRequest", "message": "The role is not valid"}}
+    _adding(svc, monkeypatch, [_answer(400, body)])
+    with pytest.raises(RuntimeError) as err:
+        svc._add_user_by_email(WS_ID, "bo@contoso.com", "Boss")
+    assert str(err.value) == "Fabric didn't add bo@contoso.com (400: InvalidRequest: The role is not valid)."
 
 
 # ---- tests that gate promote

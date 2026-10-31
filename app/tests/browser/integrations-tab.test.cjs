@@ -71,9 +71,28 @@ function seed() {
   });
 }
 
+// Settings can render again while its data loads, so wait for the tab to finish loading, with its
+// activity rows in, rather than for a heading that a re-render may replace a moment later.
 async function openTab() {
   await page().evaluate(() => { go("home"); state.settingsTab = "integrations"; go("settings"); });
-  await page().getByRole("heading", { name: "Recent activity" }).waitFor({ timeout: 15000 });
+  await page().waitForFunction(() => {
+    const box = document.querySelector(".page.settings .integrations");
+    return box && !box.querySelector(".loading") && box.querySelectorAll("tbody tr").length > 0;
+  }, null, { timeout: 15000 });
+}
+
+// The activity rows in one read, once all `n` are there: a count and a read taken apart can straddle a re-render.
+async function activityRows(n) {
+  const handle = await page().waitForFunction((n) => {
+    const card = [...document.querySelectorAll(".page.settings .integrations section.card")]
+      .find((s) => s.querySelector("h2")?.textContent === "Recent activity");
+    const trs = card ? [...card.querySelectorAll("tbody tr")] : [];
+    return trs.length === n && trs.map((tr) => {
+      const pill = tr.querySelector(".pill-s");
+      return { decision: tr.children[3]?.textContent, result: pill?.textContent, cls: pill?.className, title: pill?.title };
+    });
+  }, n, { timeout: 15000 });
+  return handle.jsonValue();
 }
 
 const activity = () => page().locator("section.card").filter({ has: page().getByRole("heading", { name: "Recent activity" }) });
@@ -96,13 +115,8 @@ after(async () => { if (app) await app.close(); });
 
 test("Recent activity shows each call once, with what was decided and how it ended", { skip }, async () => {
   await openTab();
-  const rows = activity().locator("tbody tr");
   // Eight lines and one used approval with none; the finished approved call shows once: eight rows.
-  assert.strictEqual(await rows.count(), 8);
-  const cells = await rows.evaluateAll((trs) => trs.map((tr) => {
-    const pill = tr.querySelector(".pill-s");
-    return { decision: tr.children[3]?.textContent, result: pill?.textContent, cls: pill?.className, title: pill?.title };
-  }));
+  const cells = await activityRows(8);
   const results = cells.map((c) => c.result);
   for (const want of ["ok", "permission denied", "approval denied", "approval required", "not found", "started", "unfinished"]) {
     assert.ok(results.includes(want), `no ${want} row: ${results.join(", ")}`);

@@ -87,11 +87,13 @@ async function answer(values) {
 // Next: review, then waits for the review step or for the problem the engine gave.
 async function toReview() {
   const n = calls("wizard_preview").length;
+  // A problem still showing from the last try is marked, so only one drawn after this preview counts.
+  await page().evaluate(() => document.querySelector("#dialog-root .dialog .field-error")?.setAttribute("data-before", ""));
   await button("Next: review").click();
   const h = await page().waitForFunction(() => {
     const d = document.querySelector("#dialog-root .dialog");
     const now = d?.querySelector('.wizard-steps [aria-current="step"]')?.textContent;
-    const problem = d?.querySelector(".field-error")?.textContent;
+    const problem = d?.querySelector(".field-error:not([data-before])")?.textContent;
     return now === "3. Review" ? { step: now } : problem ? { step: now, problem } : null;
   }, null, { timeout: 15000 }).catch(() => null);
   assert.ok(h, "the review or a problem showed");

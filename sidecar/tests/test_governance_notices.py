@@ -36,6 +36,35 @@ def test_a_decision_goes_to_whoever_asked_and_a_withdrawal_to_the_deciders():
     assert notices.request_closed(req(), PRODUCTS) is None  # still waiting: nothing to say
 
 
+@pytest.mark.parametrize("kind, made, left", [
+    ("workspace", {"workspace_id": "w1", "admins": ["lee@contoso.com"]}, "; the workspace it made is still in Fabric"),
+    ("workspace_access", {"assigned": True, "change": "gave", "from": ""}, "; the role it gave stays in the workspace"),
+    ("workspace_access", {"assigned": True, "change": "raised", "from": "Viewer"},
+     "; the role it raised stays in the workspace"),
+    ("workspace_access", {"assigned": True, "change": "same", "from": "Member"},
+     "; the role may be from it: check before removing"),
+    ("workspace_access", {"assigned": True}, "; the role may be from it: check before removing"),
+    ("workspace_access", {"assigned": True, "change": "kept", "from": "Admin"}, ""),
+    ("source", {"copy_job_id": "j1", "copy_job_name": "CJ_Landing_crm", "schedule_id": "s1"},
+     "; its Copy job is still in the landing workspace, on its schedule"),
+    ("domain", {"domain_id": "hr", "fabric_domain_id": "f-hr"}, "; the domain it made is still there"),
+    ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x"}, "; the shortcut it made is still in OneLake"),
+    ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x", "found": True}, "; the shortcut may be from it: check before removing"),
+    ("workspace", {}, ""),
+], ids=["workspace", "gave", "raised", "same", "older", "kept", "copy job", "domain", "shortcut", "found shortcut", "nothing"])
+def test_a_closed_request_whose_approval_made_something_says_it_is_still_there_without_names(kind, made, left):
+    r = req(kind=kind, target="Sales Prod", detail={"made": made, "principal": {"email": "kim@contoso.com"}})
+    gone = validate(notices.request_closed(r | {"status": "withdrawn"}, PRODUCTS))
+    assert gone["title"] == f"{notices._title(r)}{left}"
+    declined = validate(notices.request_closed(r | {"status": "declined"}, PRODUCTS))
+    assert declined["title"] == f"{notices._title(r)} (declined){left}"
+    approved = validate(notices.request_closed(r | {"status": "approved"}, PRODUCTS))
+    assert approved["title"] == f"{notices._title(r)} (approved)"  # approved: what it made is what was asked
+    for event in (gone, declined):
+        assert "contoso" not in str(event["title"]) and "CJ_Landing" not in str(event)
+        assert "kim@" not in str(event) and "lee@" not in str(event["title"])
+
+
 def test_shortcut_breaks_and_fixes_become_events_and_a_webhook_in_a_detail_is_redacted():
     changes = [{"kind": "broke", "shortcut_id": "lh-1|Tables/dbo/c", "name": "c", "workspace_name": "Sales Dev",
                 "lakehouse_name": "LH_Silver", "at": "2026-10-21T10:00:00+00:00", "note": f"OneLake answered 404 via {HOOK}"},

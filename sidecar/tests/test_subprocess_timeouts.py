@@ -80,5 +80,20 @@ def test_a_stuck_taskkill_doesnt_hold_the_command_that_ends_a_process(monkeypatc
         raise subprocess.TimeoutExpired(args, kwargs["timeout"])
     monkeypatch.setattr(shell.os, "name", "nt")
     monkeypatch.setattr(shell.subprocess, "run", stuck)
-    shell.end(proc)
+    assert shell.end(proc) is True
     assert seen["timeout"] == shell.TASKKILL_SECONDS and proc.poll() is not None
+
+
+def test_when_taskkill_times_out_the_command_itself_is_still_ended(monkeypatch):
+    """A taskkill that hangs without killing anything used to leave the command running behind a quiet return."""
+    import subprocess
+    import sys
+
+    from fabric_desktop import shell
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+    def stuck(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+    monkeypatch.setattr(shell.os, "name", "nt")
+    monkeypatch.setattr(shell.subprocess, "run", stuck)
+    assert shell.end(proc) is True and proc.poll() is not None

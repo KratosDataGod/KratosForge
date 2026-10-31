@@ -18,7 +18,7 @@ import threading
 import time
 from typing import IO, Any, Callable
 
-from . import audit
+from . import audit, rpc_params
 from .redact import secrets
 from .service import Service
 
@@ -264,24 +264,35 @@ def handle(service: Service, line: str) -> dict:
         req = json.loads(line)
     except json.JSONDecodeError as exc:
         return {"id": None, "error": f"invalid JSON: {exc}"}
+    if not isinstance(req, dict):  # a list or a bare value has no id to answer, but the shell still gets a line
+        return {"id": None, "error": "invalid request: expected an object with id, method and params"}
     req_id, method = req.get("id"), req.get("method")
-    if method not in METHODS:
-        return {"id": req_id, "error": f"unknown method {method!r}"}
+    if not isinstance(method, str) or method not in METHODS:
+        return {"id": req_id, "error": _short(f"unknown method {method!r}")}
     params = req.get("params", {})
     started = time.monotonic()
     try:
-        reply = {"id": req_id, "result": getattr(service, method)(**params)}
+        call = getattr(service, method)
+        rpc_params.check(method, call, params)
+        reply = {"id": req_id, "result": call(**params)}
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            reply = {"id": req_id, "error": secrets(str(exc))}
+            reply = {"id": req_id, "error": _short(secrets(str(exc)))}
         else:
-            reply = {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
+            reply = {"id": req_id, "error": _short(secrets(f"{type(exc).__name__}: {exc}"))}
     if audit.audited(method):
         seconds = time.monotonic() - started
         _audit(service, method, params, reply, seconds)
         _count(service, method, reply, seconds)
     return reply
+
+
+ERROR_CHARS = 4000  # an error quoting a huge input (a 200,000-character name) is cut to this
+
+
+def _short(message: str) -> str:
+    return message if len(message) <= ERROR_CHARS else message[:ERROR_CHARS] + f"… ({len(message) - ERROR_CHARS} more characters)"
 
 
 def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:

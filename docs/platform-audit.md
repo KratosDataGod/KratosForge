@@ -48,7 +48,7 @@ So a revoke's `detail.request` leads back to the request that gave the access.
 | `claim admin` (the first admin of an empty platform), `add admin`, `remove admin` | the person |
 | `delete domain`, `delete source`, `delete landing zone` | what was deleted. Each is refused while something still uses it, and the refusal writes no row |
 
-Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
+Every save writes a row too: a domain, source, landing zone, glossary term, shortcut rules, Entra group link or naming, product, project or member, each named by its `action` (`save domain`, `save source`, and so on). So do actions taken from a workload page (`workload <action> <status>`). Governance policies, exceptions and templates write their own rows (`policy …`, `ended exception`, `policy template …`), described in [Governance](governance.md).
 
 ## Pulling one request's trail
 
@@ -76,4 +76,4 @@ To find a request's id, look it up in `catalog.request` by `target`, `requested_
 
 - Rows written before this release keep their older shape: a sent row without `request`, and a revoke without the grant's fields. Join those on `target` and time.
 - The platform's trail is append-only through its functions but isn't tamper-evident (no hash chain, unlike the app's per-PC log): its integrity rests on who can write to `SQL_Platform`, so keep write access to the Platform workspace for the central team.
-- Reading the platform writes no rows, and neither does a refused change.
+- Reading the platform writes no rows, except the first admin's claim on an empty platform (`claim admin`). A refused change writes none either.

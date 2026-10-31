@@ -127,7 +127,7 @@ function friendlyError(err) {
   if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
-  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
+  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError|Conflict): ([\s\S]*)$/.exec(raw);
   if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" || m[1] === "GitError" ? "" : raw };
   if (/^[A-Z][A-Za-z]*(Error|Exception): /.test(raw)) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };

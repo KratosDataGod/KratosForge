@@ -379,6 +379,21 @@ for (const [name, a] of Object.entries(ACTIONS)) {
   });
 }
 
+// The incident list changed under every try (workloads/incidents.py raises Conflict): the sentence,
+// without the exception's name in front.
+test("a write that keeps losing to other changes says so, without the exception's name", { skip }, async () => {
+  const a = ACTIONS.acknowledge;
+  fail[a.method] = "Conflict: The incident list kept changing while it was being updated; try again.";
+  try {
+    const dialog = await start(a);
+    await dialog.getByRole("button", { name: a.button, exact: true }).click();
+    const handle = await page().waitForFunction(() => { const t = document.getElementById("toast"); return !t.hidden && t.textContent; });
+    assert.strictEqual((await handle.jsonValue()).split("\n")[0], "Not saved: The incident list kept changing while it was being updated; try again.");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.waitFor({ state: "detached" });
+  } finally { delete fail[a.method]; }
+});
+
 test("opening the list and an incident sends no write", { skip }, async () => {
   const from = app.calls.length;
   await listed("prod", "active", 2);

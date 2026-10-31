@@ -598,6 +598,9 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
         if method == "saveAsTable" and fmt is not None and (f := _text(fmt)) is not None and f.lower() != "delta":
             out["fabric"].append((line, sl.TABLE_FORMAT_TEXT.format(f)))
             return
+        if method == "saveAsTable" and fmt is not None and _text(fmt) is None:
+            out["unknown_local"].append((line, "saves a lakehouse table in a format named only at run time, so the "
+                                               "check can't tell whether it's Delta, the only one this PC saves"))
         hit = next((t for k in names_set if (t := sl.writer_option_refusal(k, method))), None)
         if hit:
             out["fabric"].append((line, hit))
@@ -760,9 +763,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
                     sql_unknown.append((1, refused[1]))
         else:
             hit = next(((m, text) for rx, text in refused_code if (m := rx.search(source))), None)
-            if read is None:  # not parsed: the literal spark.sql calls in its text, and refused writer options
-                hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
-                                   if (text := spark_local.writer_option_refusal(m[1], None))), None)
+            # A refused writer option by its name, in any cell: replaceWhere and partitionOverwriteMode are
+            # writer options only, so this also catches a writer held in a variable (w = df.write).
+            hit = hit or next(((m, text) for m in spark_local.REFUSED_OPTION_TEXT.finditer(source)
+                               if (text := spark_local.writer_option_refusal(m[1], None))), None)
+            if read is None:  # not parsed: the literal spark.sql calls in its text
                 hit = hit or next(((m, "changes table rows in place with spark.sql (MERGE, UPDATE or DELETE of another "
                                        "lakehouse, or with Preview features off), which runs in Fabric only")
                                    for m in _SPARK_SQL_LITERAL.finditer(source)

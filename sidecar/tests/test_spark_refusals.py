@@ -89,6 +89,7 @@ def test_what_this_pcs_spark_takes_stays_ok(source):
 @pytest.mark.parametrize("source, words", [
     ("df.write.option(key, 'x').saveAsTable('dbo.t')", "write option named only at run time"),
     ("df = spark.read.format(fmt).load(path)", "format named only at run time"),
+    ("df.write.format(fmt).saveAsTable('dbo.t')", "format named only at run time"),
     ("spark.sql('DROP TABLE IF EXISTS sales')", "runs here for a temp view and in Fabric for a lakehouse table"),
     ("spark.sql(f'DROP TABLE {name}')", "table named only at run time"),
 ])
@@ -136,3 +137,10 @@ def test_a_clean_run_doesnt_ask_to_confirm_what_the_check_cant_read():
     cells = [{"type": "code", "source": "df = spark.read.table('dbo.orders')", "meta": {}},
              {"type": "code", "source": "spark.sql('TRUNCATE TABLE orders')", "meta": {}}]
     assert validate.run_plan(cells, LH, spark=True)["uncontained"] == []
+
+
+def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
+    for source in ("w = df.write\nw.option('replaceWhere', 'd = 1').saveAsTable('dbo.t')",
+                   "w = df.write.mode('overwrite')\nw = w.option('partitionOverwriteMode', 'dynamic')\nw.saveAsTable('dbo.t')"):
+        local = check(source)["local"]
+        assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source

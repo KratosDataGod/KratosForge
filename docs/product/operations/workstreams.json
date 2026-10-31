@@ -71,19 +71,22 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 1179,
-        "title": "Warehouse Monitoring KQL query retries throttling, 5xx and dropped connections"
+        "issue": 1178,
+        "title": "Every Fabric fake refuses what the live runs showed the real API refuses"
       },
       "ready": [
         {
-          "issue": 1178,
-          "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
-          "note": "Starts after #1166 merges."
+          "issue": 1220,
+          "title": "Adding a person to a workspace by email waits out throttling and says plainly when it can't"
+        },
+        {
+          "issue": 1221,
+          "title": "Teams alerts use the shared HTTP session and wait out Teams throttling"
         },
         {
           "issue": 1109,
           "title": "FS-05: cross-check warehouse and Fabric health thresholds against Microsoft's skills-for-fabric",
-          "note": "PR #1176 at review."
+          "note": "Docs page #1176 merging on Chris's go."
         }
       ],
       "backlog": [
@@ -100,8 +103,8 @@
         "PB-049 (#920), PB-052 (#909) and PB-003 (#887): only the live runs remain, each needs Chris's yes",
         "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
-      "last_completed": "#937, #939, #944 REST hardening (PASS, merging after #923); #890 and #892 smoke-test harness",
-      "next_action": "#1179 (KQL retry), then #1178 once #1166 merges."
+      "last_completed": "#1179 KQL Monitoring query retries throttling, 5xx and dropped connections",
+      "next_action": "#1178 fakes match the live API, then #1220 and #1221."
     },
     {
       "key": "dbx-snow",
@@ -113,13 +116,13 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "issue": 1198,
-        "title": "The two-hour limit and an early Cancel say truthfully whether the remote statement stopped (KF-REMOTE-LIMIT)"
+        "issue": 1217,
+        "title": "Snowflake SOUNDEX runs on this PC, and the DATE note fires only where it can apply (SF-FIDELITY-2)"
       },
       "ready": [
         {
-          "issue": 1199,
-          "title": "Snowflake \"translated\" verdicts are checked value by value against Snowflake's documented results (SF-PARITY)"
+          "issue": 1218,
+          "title": "Notebook conversion keeps every cell through Databricks, Fabric and Jupyter round trips (KF-NB-ROUNDTRIP)"
         }
       ],
       "backlog": [],
@@ -131,8 +134,8 @@
         "Snowflake SF-01 sign-in and SF-07 engine wait on Chris's D4 decision",
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#1191 KF-REMOTE-ORPHAN and KF-REMOTE-RETRY (#1188, #1189); #1183 KF-DBX-CHUNKS (#1167); #1180 KF-DBX-SQLGAPS; #853 Snowflake research closed (PB-117 In review)",
-      "next_action": "#1198 remote limit and Cancel truthfulness, then #1199 Snowflake parity values."
+      "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
+      "next_action": "#1217 and #1218 in parallel."
     },
     {
       "key": "enterprise",
@@ -145,15 +148,10 @@
         "Workload management workspace"
       ],
       "active": {
-        "issue": 1195,
-        "title": "Declining or withdrawing a partly carried-out request says what was already made in Fabric",
-        "note": "PR #1205 at review."
+        "issue": 1206,
+        "title": "A domain request records what its approval made, so a retry, decline or withdraw knows"
       },
       "ready": [
-        {
-          "issue": 1206,
-          "title": "A domain request records what its approval made, so a retry, decline or withdraw knows"
-        },
         {
           "issue": 1207,
           "title": "Workspace access approval records whether it gave, raised or kept the role"
@@ -171,8 +169,8 @@
         "Workload pipelines mockup waits on Chris",
         "PB-062 support bundle (#1177) waits on Chris's go; its Settings button waits on the mockup"
       ],
-      "last_completed": "#882 PB-057, #902 PB-053, #914 PB-019, #924 GOV-003 (PASS, waiting on Chris); #934 typed not-set-up error at review",
-      "next_action": "#1195 (PR #1205), then #1206 and #1207 on top of it."
+      "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
+      "next_action": "#1206, then #1207."
     },
     {
       "key": "devex",
@@ -212,20 +210,8 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {
-        "issue": 1173,
-        "title": "Every engine method returns a typed error for malformed input: no traceback, no internal path, no partial write"
-      },
-      "ready": [
-        {
-          "issue": 1174,
-          "title": "Every engine subprocess call has a timeout, with an AST guard test"
-        },
-        {
-          "issue": 1204,
-          "title": "State files are written whole or not at all, with a guard test"
-        }
-      ],
+      "active": {},
+      "ready": [],
       "backlog": [
         "PB-061"
       ],
@@ -236,8 +222,8 @@
         "Rest of PB-072 needs a Stop design mockup",
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#1152 PB-098 one list of engine methods (In review); #1154, #1155, #1156, #1164 at PASS with Release management",
-      "next_action": "RPC fuzz test (#1173) once one of #1154, #1155, #1156, #1164 merges; then #1174."
+      "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
+      "next_action": "Lead files and starts the next two hardening stories."
     }
   ],
   "new_stories": {},

@@ -175,3 +175,15 @@ def test_save_refuses_a_client_id_the_environment_overrides(dirs, monkeypatch):
     assert app_settings.user_path().read_text(encoding="utf-8") == before
     assert app_settings.load()["client_id"] == {"value": APP, "source": "environment"}
     assert app_settings.save({"channel": "stable"})["channel"]["value"] == "stable"  # other settings still save
+
+
+def test_a_subject_level_defaults_to_same_and_a_policy_can_set_it(dirs):
+    """GD-08: SQL and notebook guidance follow learn_mode until set; a level is a preference, so it
+    can be set by the person or by policy like learn_mode."""
+    for key in ("learn_mode_sql", "learn_mode_notebooks"):
+        assert app_settings.load()[key] == {"value": "same", "source": "default"}
+        assert app_settings.save({key: "expert"})[key]["value"] == "expert"
+        with pytest.raises(ValueError):
+            app_settings.save({key: "focus"})
+    dirs.write_text(json.dumps({"learn_mode_sql": "guided"}))
+    assert app_settings.load()["learn_mode_sql"] == {"value": "guided", "source": "policy"}

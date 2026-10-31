@@ -2245,11 +2245,21 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
                                                    "project": req["project"], "request_id": req["id"],
                                                    "granted_by": _who(by), "granted_at": _now()})
     status = "approved" if approve else "declined"
+    what = {"request": req["id"], "project": req["project"]}
+    if not approve and _left(req):
+        what["left"] = _left(req)
     db.run(f"UPDATE {db.t('catalog', 'request')} SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ?",
            (status, _who(by), _now(), str(note or ""), req["id"]))
-    _audit(db, by, f"{status} {req['kind']}", req["target"], {"request": req["id"], "project": req["project"]})
+    _audit(db, by, f"{status} {req['kind']}", req["target"], what)
     db.commit()
     return _request_out(_row(db, "request", "id", req["id"]) or {})
+
+
+def _left(req: dict[str, Any]) -> dict[str, Any]:
+    """The ids of what approving a request made before it was declined or withdrawn, for the audit
+    trail: closing it deletes nothing in Fabric."""
+    made = (req.get("detail") or {}).get("made") or {}
+    return {k: v for k, v in made.items() if k.endswith("_id") or k == "assigned"}
 
 
 def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
@@ -2258,9 +2268,13 @@ def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
         raise PlatformError("Only a waiting request can be withdrawn")
     if req["requested_by"] != _who(by) and not is_admin(db, by):
         raise PlatformError("Only the person who sent a request can withdraw it")
+    req = _request_out(req)
     db.run(f"UPDATE {db.t('catalog', 'request')} SET status = 'withdrawn', decided_by = ?, decided_at = ? WHERE id = ?",
            (_who(by), _now(), req["id"]))
-    _audit(db, by, f"withdrew {req['kind']}", req["target"], {"request": req["id"], "project": req["project"]})
+    what = {"request": req["id"], "project": req["project"]}
+    if _left(req):
+        what["left"] = _left(req)
+    _audit(db, by, f"withdrew {req['kind']}", req["target"], what)
     db.commit()
     return _request_out(_row(db, "request", "id", req["id"]) or {})
 

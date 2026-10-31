@@ -1,0 +1,41 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-11",
+  "kind": "module",
+  "title": "MERGE: update, insert and delete in one step",
+  "path": "databricks",
+  "level": "intermediate",
+  "minutes": 20,
+  "objectives": [
+    "Say what each MERGE clause does: matched, not matched, and deletes",
+    "Work out the table a MERGE leaves behind before running it",
+    "Know why the source needs one row per key"
+  ],
+  "prerequisites": ["LM-03", "LM-05", "LM-07"],
+  "platforms": ["DuckDB", "Databricks (Delta Lake)", "Fabric Lakehouse (Spark SQL)"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "after-the-merge",
+      "prompt": "Write the SELECT that returns customers as the MERGE in the lesson would leave it: customer_id, name and city, smallest customer_id first.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "A FULL OUTER JOIN of customers and changes on customer_id gives every key from both sides, matched or not.",
+        "Where a change matched, its name and city win. Where none did, the customer keeps its own.",
+        "Leave out the keys whose change is a delete. A delete for a customer that isn't there does nothing."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://docs.databricks.com/aws/en/delta/merge",
+           "https://docs.databricks.com/aws/en/sql/language-manual/delta-merge-into"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-31"
+}

@@ -1,5 +1,5 @@
 """HD-051: the Fabric, OneLake, Power BI and admin clients share one pooled session, and one retry
-policy: reads are retried on 429/503, writes are sent once (FileStore writes wait out a 429 first, #1287)."""
+policy: reads are retried on 429/503, writes are sent once (FileStore writes and lease changes wait out a 429 first, #1287 #1315)."""
 
 from __future__ import annotations
 
@@ -122,7 +122,8 @@ def test_onelake_writes_are_sent_once(shared, status):
     sent = transport(shared, status)
     with pytest.raises(requests.HTTPError):
         OneLakeBackend("ws", "lh", token, sleep=no_sleep).create("k", b"{}")
-    assert [m for m, _, _ in sent.sent] == ["PUT"]
+    # A lease change waits out a throttle a few times (#1315): conditional, so it can't take a lease.
+    assert [m for m, _, _ in sent.sent] == ["PUT"] * (3 if status == 429 else 1)
 
 
 def test_filestore_writes_wait_out_throttling(shared):

@@ -44,7 +44,7 @@ from typing import Any, Callable, Iterator, Protocol
 import requests
 
 from . import http_session
-from .onelake import DFS_HOST
+from .onelake import DFS_HOST, _onelake_error
 from .redact import describe
 from .retrying import send_with_retry
 
@@ -195,6 +195,13 @@ class LocalBackend:
             return True
 
 
+# A lease change OneLake throttles (429) did nothing, and every change is conditional, so it is sent
+# again: it can't take a lease from anyone. Waits are short and few, so a long throttle fails while
+# the lease is still held instead of outliving it. A 5xx or a dropped connection is still sent once.
+THROTTLE_ATTEMPTS = 3
+THROTTLE_WAIT_CAP = 5.0
+
+
 class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
@@ -215,33 +222,44 @@ class OneLakeBackend:
     def _headers(self, **extra: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"} | extra
 
+    def _change(self, method: str, send: Callable[[], requests.Response]) -> requests.Response:
+        return send_with_retry(send, method, sleep=lambda s: self._sleep(min(s, THROTTLE_WAIT_CAP)),
+                               attempts=THROTTLE_ATTEMPTS, safe=False)
+
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=self.timeout)
+        what = f"write the lease for {key}"
+        resp = self._change("PUT", lambda: self._http.put(url, params={"resource": "file"},
+                                                          headers=self._headers(**condition), timeout=self.timeout))
         if resp.status_code in (409, 412):
             return None  # it exists already (create), or changed since we read it (replace)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
         etag = resp.headers.get("ETag", "")
-        resp = self._http.patch(url, params={"action": "append", "position": "0"}, data=data,
-                                headers=self._headers(), timeout=self.timeout)
-        resp.raise_for_status()
-        resp = self._http.patch(url, params={"action": "flush", "position": str(len(data))},
-                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout)
+        resp = self._change("PATCH", lambda: self._http.patch(url, params={"action": "append", "position": "0"},
+                                                              data=data, headers=self._headers(), timeout=self.timeout))
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
+        resp = self._change("PATCH", lambda: self._http.patch(
+            url, params={"action": "flush", "position": str(len(data))},
+            headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout))
         if resp.status_code == 412:
             return None  # someone replaced it between our create and flush
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
         return resp.headers.get("ETag", etag)
 
     def create(self, key: str, data: bytes) -> str | None:
         return self._write(key, data, {"If-None-Match": "*"})
 
     def read(self, key: str) -> Stored | None:
-        # Only the read is retried on 429/5xx: the conditional writes report a lost race as None.
+        # A read is retried on 429/5xx; a change only on 429 (_change), and a lost race is None.
         resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout),
                                "GET", sleep=self._sleep)
         if resp.status_code == 404:
             return None
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, f"read the lease for {key}")
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
@@ -252,10 +270,12 @@ class OneLakeBackend:
         return self._write(key, data, {"If-Match": etag})
 
     def delete(self, key: str, etag: str) -> bool:
-        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=self.timeout)
+        resp = self._change("DELETE", lambda: self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}),
+                                                                timeout=self.timeout))
         if resp.status_code in (404, 409, 412):
             return False
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, f"release the lease for {key}")
         return True
 
 

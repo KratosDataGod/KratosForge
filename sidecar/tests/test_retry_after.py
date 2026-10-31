@@ -256,6 +256,44 @@ def test_lease_reads_retry_but_conditional_writes_do_not():
     assert len(session.calls) == 1
 
 
+def test_a_throttled_lease_change_waits_briefly_and_is_sent_again():
+    """#1315: OneLake did nothing on a 429 and every lease change is conditional, so it can't take a
+    lease from anyone. Waits are capped at leases.THROTTLE_WAIT_CAP."""
+    slept = []
+    session = FakeSession([R(429, {"Retry-After": "60"}), R(201, {"ETag": "e0"}), R(202),
+                           R(429, {"Retry-After": "1"}), R(200, {"ETag": "e1"})])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=slept.append)
+    assert backend.create("k", b"{}") == "e1"
+    assert [m for m, _ in session.calls] == ["PUT", "PUT", "PATCH", "PATCH", "PATCH"]
+    assert slept == [5.0, 1]
+
+    session = FakeSession([R(429), R(200)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    assert backend.delete("k", "e1") is True and len(session.calls) == 2
+
+
+def test_a_lease_throttled_on_every_try_fails_without_outliving_the_lease():
+    slept = []
+    session = FakeSession([R(429, {"Retry-After": "60"})] * 3)
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=slept.append)
+    with pytest.raises(requests.HTTPError) as err:
+        backend.replace("k", b"{}", "e1")
+    assert len(session.calls) == 3 and sum(slept) == 10.0
+    assert str(err.value) == "OneLake didn't write the lease for k (429)." and err.value.response.status_code == 429
+
+
+def test_a_lease_that_changed_while_throttled_is_still_lost_not_taken():
+    session = FakeSession([R(429), R(412)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    assert backend.replace("k", b"{}", "stale") is None and len(session.calls) == 2
+
+    session = FakeSession([R(201, {"ETag": "e0"}), R(202), R(503)])
+    backend = OneLakeBackend("ws", "lh", lambda: "tok", session=session, sleep=lambda s: None)
+    with pytest.raises(requests.HTTPError, match="write the lease for k"):
+        backend.create("k", b"{}")
+    assert len(session.calls) == 3  # a 5xx flush is not sent again
+
+
 def test_a_401_gets_a_new_token_once_and_sends_the_request_again_even_a_write():
     tokens = iter(["fresh", "fresher"])
     session = FakeSession([R(401), R(200, body={"id": "lh1"})])

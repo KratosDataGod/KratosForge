@@ -3,6 +3,9 @@ can't follow is Unknown, never taken as runs here."""
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 from fabric_desktop import advisor, proof, risk, validate
 from fabric_desktop.fabric_run import compute_check
@@ -318,6 +321,18 @@ def test_run_b_reads_the_file_from_built_in_resources(resources):
 def test_run_b_of_a_file_it_cant_read_is_unknown(resources, source):
     out = compute_check(cells(source), LH, resources=resources)["local"]
     assert out["status"] == "unknown", source
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need Developer Mode on Windows")
+def test_run_b_of_a_file_that_links_outside_the_resources_is_unknown(resources, tmp_path):
+    """The kernel refuses such a file (notebook_resources.real_path), so the check doesn't read it."""
+    (tmp_path / "outside.py").write_text("x = 1", encoding="utf-8")
+    os.symlink(tmp_path / "outside.py", os.path.join(resources, "builtin", "link.py"))
+    out = compute_check(cells("%run -b link.py"), LH, resources=resources)
+    for side in ("local", "fabric"):
+        assert out[side]["status"] == "unknown"
+        assert out[side]["unknown"][0]["text"] == ("runs link.py (%run -b), which links outside this notebook's "
+                                                  "resources, so the check can't read it")
 
 
 def test_run_b_in_a_notebook_it_runs_reads_this_notebooks_resources(resources):

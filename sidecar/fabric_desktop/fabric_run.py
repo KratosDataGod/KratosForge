@@ -918,7 +918,11 @@ def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None, load
                     "so the check stops there")
     own_lakehouse: Any = ...  # notebook.run's own lakehouse, when the loader says
     if how == "%run -b":
-        cells = _builtin_cells(name, resources or "")
+        try:
+            cells = _builtin_cells(name, resources or "")
+        except PermissionError:  # the kernel refuses to run it, so neither side can say
+            return both(f"runs {name} ({how}), which links outside this notebook's resources, so the check "
+                        "can't read it")
         if cells is None:
             return both(f"runs {name} ({how}), which isn't a .py or .sql file in this notebook's Built-in "
                         "resources, so the check can't read it")
@@ -952,11 +956,12 @@ def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None, load
 
 def _builtin_cells(file: str, resources: str) -> list[dict[str, Any]] | None:
     """``%run -b file``'s file as cells (a .py file is one Python cell, a .sql file one %%sql cell),
-    or None when it isn't one in the Built-in resources."""
+    or None when it isn't one in the Built-in resources. PermissionError when a link leads outside
+    them, as the kernel's %run -b refuses (``notebook_resources.real_path``)."""
     import os
 
     from . import notebook_resources
-    path = notebook_resources.resolve(f"builtin/{file}", resources) if resources else None
+    path = notebook_resources.real_path(f"builtin/{file}", resources) if resources else None
     kind = os.path.splitext(file)[1].lower()
     if path is None or kind not in (".py", ".sql") or not os.path.isfile(path) or os.path.getsize(path) > _BUILTIN_MAX:
         return None

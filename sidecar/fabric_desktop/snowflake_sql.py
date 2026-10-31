@@ -24,7 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, UnsupportedError
 
-RULES_VERSION = "2026.10.1"
+RULES_VERSION = "2026.10.2"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -111,8 +111,10 @@ SFD_TZ = _n("SFD-002", "TIMESTAMP_TZ loses its offset",
             "DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value "
             "is lost.", "Compare instants, not offsets.", f"{_DOCS}/data-types-datetime")
 SFD_DIV = _n("SFD-003", "Division returns DOUBLE",
-             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules.",
-             "Round or cast the result where scale matters.", f"{_DOCS}/operators-arithmetic")
+             "DuckDB returns DOUBLE for /, where Snowflake returns NUMBER with its own scale rules. Dividing by "
+             "zero gives infinity or NULL here, where Snowflake stops with an error.",
+             "Round or cast the result where scale matters; use DIV0 where a zero divisor is expected.",
+             f"{_DOCS}/operators-arithmetic")
 SFD_LTZ = _n("SFD-004", "Local time zone is this PC's",
              "TIMESTAMP_LTZ and CURRENT_TIMESTAMP use this PC's time zone here, not Snowflake's TIMEZONE parameter.",
              "Set the same time zone, or compare in UTC.", f"{_DOCS}/parameters#timezone")
@@ -120,6 +122,16 @@ SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
                  "FLATTEN runs as DuckDB's json_each: rows come back in no set order, KEY is the position for "
                  "array elements (Snowflake gives NULL) and PATH is written differently.",
                  "Add ORDER BY INDEX where order matters.", f"{_DOCS}/functions/flatten")
+
+SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
+              "DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in "
+              "Snowflake; here the result is a TIMESTAMP at midnight. The date is the same.",
+              "Cast the result to DATE where its type matters, such as a join or a written table.",
+              f"{_DOCS}/functions/date_trunc")
+SFD_TYPEOF = _n("SFD-007", "TYPEOF names DuckDB's types",
+                "TYPEOF gives Snowflake's VARIANT type names (INTEGER, VARCHAR, OBJECT...); here it gives "
+                "DuckDB's (JSON for a parsed value).",
+                "Don't branch on TYPEOF's text in code meant for both.", f"{_DOCS}/functions/typeof")
 
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
@@ -380,7 +392,26 @@ def _rewrite_object_construct(statement: exp.Expression) -> None:
             f"to_json(map_from_entries(list_filter([{entries}], x -> x.v IS NOT NULL)))", read="duckdb"))
 
 
+def _rewrite_values(statement: exp.Expression) -> None:
+    """SFX-005: a VALUES list in FROM names its columns COLUMN1, COLUMN2... in Snowflake; DuckDB names
+    them col0, col1..., so a query that reads COLUMN1 would fail. An alias with column names is kept."""
+    for node in list(statement.find_all(exp.Values)):
+        if isinstance(node.parent, exp.Insert) or not node.expressions:
+            continue
+        alias = node.args.get("alias")
+        if alias is not None and alias.columns:
+            continue
+        first = node.expressions[0]
+        width = len(first.expressions) if isinstance(first, exp.Tuple) else 1
+        node.set("alias", exp.TableAlias(this=alias.this if alias is not None else exp.to_identifier("_values"),
+                                         columns=[exp.to_identifier(f"column{i}") for i in range(1, width + 1)]))
+
+
 # ---------------------------------------------------------------- known differences (SFD-*)
+
+_DATE_UNITS = {"YEAR", "YEARS", "Y", "YY", "YYY", "YYYY", "YR", "YRS", "QUARTER", "QUARTERS", "Q", "QTR", "QTRS",
+               "MONTH", "MONTHS", "MM", "MON", "MONS", "WEEK", "WEEKS", "W", "WK", "WEEKOFYEAR", "WOY", "WY",
+               "DAY", "DAYS", "D", "DD", "DAYOFMONTH"}
 
 
 def _differences(statement: exp.Expression) -> list[Note]:
@@ -397,6 +428,11 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_DIV)
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
+    if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS
+           for n in statement.find_all(exp.TimestampTrunc, exp.DateTrunc, exp.DateAdd)):
+        notes.append(SFD_DATE)
+    if any(statement.find_all(exp.Typeof)):
+        notes.append(SFD_TYPEOF)
     return notes
 
 
@@ -412,12 +448,16 @@ CATALOG = (
     ("SFX-003", "Runs only in Snowflake", "TO_VARCHAR and TO_CHAR with a number format."),
     ("SFX-004", "Rewritten", "OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as "
                 "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten."),
+    ("SFX-005", "Rewritten", "A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
+                "its alias names the columns."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
     ("SFD-003", "Runs, with a difference: " + SFD_DIV.title, SFD_DIV.reason),
     ("SFD-004", "Runs, with a difference: " + SFD_LTZ.title, SFD_LTZ.reason),
     ("SFD-005", "Runs, with a difference: " + SFD_FLATTEN.title, SFD_FLATTEN.reason),
+    ("SFD-006", "Runs, with a difference: " + SFD_DATE.title, SFD_DATE.reason),
+    ("SFD-007", "Runs, with a difference: " + SFD_TYPEOF.title, SFD_TYPEOF.reason),
     ("SFN-001", "Runs only in Snowflake", "Streams."),
     ("SFN-002", "Runs only in Snowflake", "Tasks."),
     ("SFN-003", "Runs only in Snowflake", "Dynamic tables (their SELECT can be tried on its own)."),
@@ -458,6 +498,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         flattened = _rewrite_flatten(tree)
         _rewrite_to_char(tree)
         _rewrite_object_construct(tree)
+        _rewrite_values(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

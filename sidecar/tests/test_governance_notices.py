@@ -125,3 +125,14 @@ def test_a_notice_that_cannot_be_built_never_fails_the_decision(svc, monkeypatch
     decided = svc.platform_decide(out["id"], False, "no")
     assert decided["status"] == "declined" and svc.platform_requests("declined")[0]["id"] == out["id"]
     assert decided["problems"][0].startswith("The Teams notice wasn't sent")
+
+
+@pytest.mark.parametrize("length", [10, 150, 199, 300])
+def test_a_long_target_is_cut_but_never_what_is_left_in_fabric(length):
+    r = req(kind="workspace", target="W" * length, detail={"made": {"workspace_id": "w1"}})
+    for status, tail in (("withdrawn", "; the workspace it made is still in Fabric"),
+                         ("declined", " (declined); the workspace it made is still in Fabric")):
+        title = validate(notices.request_closed(r | {"status": status}, PRODUCTS))["title"]
+        assert title.endswith(tail) and len(title) <= notices.TITLE_MAX
+        whole = f"{notices._title(r)}{tail}"
+        assert title == whole if len(whole) <= notices.TITLE_MAX else title.endswith("…" + tail)

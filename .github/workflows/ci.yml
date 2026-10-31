@@ -109,7 +109,7 @@ jobs:
         run: |
           for v in $(python tests/test_sqlglot_version.py); do
             python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/sqlglot-$v" "sqlglot==$v"
-            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto -p no:cacheprovider \
+            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
               -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
           done
 

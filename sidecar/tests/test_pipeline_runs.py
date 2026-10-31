@@ -304,9 +304,56 @@ def test_until_timeout():
 
 def test_fail_and_filter():
     r = run(pipeline(fail("F", message="@concat('bad ', 'thing')", code="E42"))).to_json()
-    assert r["activities"][0]["error"] == {"errorCode": "E42", "message": "bad thing"}
+    assert r["activities"][0]["error"] == {"errorCode": "E42", "message": "bad thing", "failureType": "UserError",
+                                           "target": "F", "details": ""}
     r = run(pipeline(act("Fi", "Filter", items="@range(1, 5)", condition="@greater(item(), 3)"))).to_json()
     assert r["activities"][0]["output"] == {"ItemsCount": 5, "FilteredItemsCount": 2, "Value": [4, 5]}
+
+
+# ORCH-H1 (#1224): a Failed activity's error has the fields Fabric's activity('X').error has.
+ERROR_KEYS = {"errorCode", "message", "failureType", "target", "details"}
+
+
+def errors(r):
+    return {a["name"]: a.get("error") for a in r.to_json()["activities"]}
+
+
+def test_every_kind_of_failure_has_fabrics_error_fields():
+    text = pipeline(fail("F"), setvar("Expr", "v", "@int('x')"), act("C", "Copy", source={}, sink={}),
+                    act("Loop", "ForEach", items="@range(1, 2)", activities=[fail("Inner")]),
+                    act("Slow", "Wait", waitTimeInSeconds=5) | {"policy": {"timeout": "0.00:00:01"}},
+                    variables={"v": {"type": "String"}})
+    found = errors(run(text, wait_scale=1, mocks={"C": {"status": "Failed"}}))
+    for name in ("F", "Expr", "C", "Loop", "Slow"):
+        assert set(found[name]) == ERROR_KEYS and found[name]["target"] == name, (name, found[name])
+        assert found[name]["failureType"] == "UserError" and found[name]["details"] == ""
+
+
+def test_a_catch_branch_reads_failure_type_and_target():
+    text = pipeline(fail("Load", code="E7"),
+                    setvar("Catch", "why", "@concat(activity('Load').error.failureType, ' in ', "
+                           "activity('Load').error.target)", depends=["Load"], conditions=["Failed"]),
+                    variables={"why": {"type": "String"}})
+    r = run(text)
+    assert states(r)["Catch"] == "succeeded" and r.variables["why"] == "UserError in Load"
+
+
+def test_a_mock_sets_its_own_failure_type_and_an_engine_crash_is_a_system_error(monkeypatch):
+    mocks = {"C": {"status": "Failed", "error": {"errorCode": "2011", "message": "no", "failureType": "SystemError"}}}
+    assert errors(run(pipeline(act("C", "Copy", source={}, sink={})), mocks=mocks))["C"]["failureType"] == "SystemError"
+    adapter = default_registry().get("Wait").adapter
+
+    def crash(activity, ctx):
+        raise RuntimeError("bug")
+    monkeypatch.setattr(adapter, "execute", crash)
+    err = errors(run(pipeline(wait("W"))))["W"]
+    assert err == {"errorCode": "LocalAdapterError", "message": "RuntimeError: bug", "failureType": "SystemError",
+                   "target": "W", "details": ""}
+
+
+def test_a_secure_output_failure_still_has_its_error_fields():
+    a = fail("F") | {"policy": {"secureOutput": True}}
+    assert set(errors(run(pipeline(a)))["F"]) == ERROR_KEYS
 
 
 def test_foreach_refuses_more_items_than_fabric_allows():
@@ -330,7 +377,8 @@ def test_mock_failure_and_retries():
     a = act("C", "Copy", source={}, sink={}) | {"policy": {"retry": 2, "retryIntervalInSeconds": 1}}
     r = run(pipeline(a), mocks={"C": {"status": "Failed", "error": {"errorCode": "2200", "message": "no"}}})
     row = r.to_json()["activities"][0]
-    assert row["state"] == "failed" and row["attempts"] == 3 and row["error"] == {"errorCode": "2200", "message": "no"}
+    assert row["state"] == "failed" and row["attempts"] == 3
+    assert row["error"] == {"errorCode": "2200", "message": "no", "failureType": "UserError", "target": "C", "details": ""}
     assert row["executed_by"] == "mock"
 
 
@@ -499,7 +547,8 @@ def test_reference_pipeline_validation_failure():
     r = PipelineRun(load(str(REFERENCE)), mocks=mocks, wait_scale=0).run()
     assert r.state == "failed" and r.variables["status"] == "failed"
     err = next(a for a in r.to_json()["activities"] if a["name"] == "Too few rows")["error"]
-    assert err == {"errorCode": "ROWS_LOW", "message": "Only 0 rows"}
+    assert err == {"errorCode": "ROWS_LOW", "message": "Only 0 rows", "failureType": "UserError", "target": "Too few rows",
+                   "details": ""}
 
 
 def test_reference_pipeline_refused_without_mocks():

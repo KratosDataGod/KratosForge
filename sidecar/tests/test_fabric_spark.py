@@ -43,6 +43,7 @@ class FakeLivy:
         self.cancelled = []
         self.deleted = []
         self.on_poll = None
+        self.error_text = "name 'boom' is not defined"   # what a failing ("boom") statement says
         # What a result statement prints (fabric_spark._result_code), as Spark would for three rows.
         self.result_text = json.dumps({
             "mark": fs.RESULT_MARK, "fields": [["id", "bigint"], ["name", "string"], ["amount", "decimal(10,2)"]],
@@ -53,8 +54,8 @@ class FakeLivy:
         if n in self.cancelled:
             return {"id": n, "state": "cancelled"}
         if "boom" in code:
-            out = {"status": "error", "ename": "NameError", "evalue": "name 'boom' is not defined",
-                   "traceback": ["Traceback..."]}
+            out = {"status": "error", "ename": "NameError", "evalue": self.error_text,
+                   "traceback": ["Traceback...", self.error_text]}
         elif kind == "pyspark" and fs.RESULT_MARK in code:
             out = {"status": "ok", "data": {"text/plain": self.result_text}}
         elif kind == "sql":
@@ -565,3 +566,86 @@ def test_a_cancel_pressed_while_sending_that_is_refused_says_the_cell_may_still_
     evalue = r.outputs[0]["evalue"]
     assert r.status == "cancelled" and evalue.startswith("Cancelled. The cell may still be running")
     assert "HTTP 403" not in evalue and TOKEN not in json.dumps(r.as_dict())
+
+
+# ---------------------------------------------------------------- error paths (KUDP hardening)
+
+
+class _NotJson(Resp):
+    """A reply whose body isn't JSON: a gateway's HTML error page, or a truncated body."""
+
+    def __init__(self, status, text):
+        super().__init__(status)
+        self.content = text.encode()
+
+    def json(self):
+        raise ValueError("not JSON")
+
+
+def test_an_error_page_that_isnt_json_still_says_what_happened_without_its_text():
+    livy = FakeLivy()
+    page = "<html><body>Bad gateway. Bearer " + TOKEN + "</body></html>"
+    livy.request = lambda method, url, **kw: _NotJson(403, page)
+    with pytest.raises(fs.FabricSparkError) as exc:
+        open_session(livy)
+    message = str(exc.value)
+    assert "HTTP 403" in message and "Contributor" in message
+    assert TOKEN not in message and "<html>" not in message
+
+
+def test_a_session_id_from_fabric_that_isnt_an_id_never_goes_into_a_url():
+    livy = FakeLivy()
+    real = livy.request
+    livy.request = lambda method, url, **kw: (Resp(200, {"id": "../../workspaces", "state": "starting"})
+                                              if method == "POST" and url == BASE else real(method, url, **kw))
+    with pytest.raises(fs.FabricSparkError, match="isn't a Fabric session ID"):
+        open_session(livy)
+    assert all(".." not in path for _m, path, _b in livy.calls)
+
+
+def test_a_sql_table_whose_values_dont_share_a_type_is_shown_as_text():
+    livy = FakeLivy()
+    real = livy._result
+
+    def mixed(n):
+        reply = real(n)
+        if livy.statements[n]["kind"] == "sql":
+            reply["output"]["data"]["application/json"]["data"] = [[1, "a"], ["two", {"x": 1}], [None, None]]
+        return reply
+    livy._result = mixed
+    r = open_session(livy).execute(CellRequest("SELECT id, name FROM sales", "sql"))
+    assert r.status == "ok" and r.rows == 3
+    table = r.outputs[-1]
+    assert table["type"] == "table" and table["columns"] == ["id", "name"]
+    assert table["rows"][1][0] == "two" and table["rows"][2] == [None, None]
+
+
+def test_a_marked_looking_reply_without_the_mark_is_an_error_never_a_table():
+    livy = FakeLivy()
+    livy.result_text = json.dumps({"mark": "someone-else@1", "fields": [["id", "bigint"]], "rows": [["1"]]})
+    r = open_session(livy).execute(CellRequest("SELECT 1 AS id", "sql", result_rows=10))
+    assert r.status == "error" and r.table is None and "expected form" in r.outputs[0]["evalue"]
+
+
+def test_a_second_cell_while_one_is_running_is_refused_and_sends_nothing():
+    livy = FakeLivy()
+    s = open_session(livy)
+    before = len(livy.statements)
+    assert s._lock.acquire(blocking=False)
+    try:
+        with pytest.raises(RuntimeError, match="already running"):
+            s.execute(CellRequest("print(1)", "pyspark"))
+    finally:
+        s._lock.release()
+    assert len(livy.statements) == before
+
+
+def test_closing_when_fabric_cant_end_the_session_still_closes_it_here():
+    livy = FakeLivy()
+    s = open_session(livy)
+    real = livy.request
+    livy.request = lambda method, url, **kw: Resp(500, {"message": "down"}) if method == "DELETE" else real(method, url, **kw)
+    s.close()
+    assert s.closed and livy.deleted == []
+    with pytest.raises(SessionClosed):
+        s.execute(CellRequest("1", "python"))

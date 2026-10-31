@@ -201,7 +201,7 @@ class SideBySideMixin:
             raise ValueError(f"This notebook can't run side by side: Cell {step} {STEP_REFUSED}")
         check = compute_check(cells, lakehouse_ref)
         for where, label in (("local", "on this PC"), ("fabric", "in Fabric")):
-            if not check[where]["ok"]:
+            if check[where]["reasons"]:  # Unknown doesn't stop it: comparing the runs is how to find out
                 reason = check[where]["reasons"][0]
                 cell = f"Cell {reason['cell']} " if reason.get("cell") else "It "
                 raise ValueError(f"This notebook can't run {label}: {cell}{reason['text']}.")

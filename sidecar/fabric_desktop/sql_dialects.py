@@ -9,6 +9,7 @@ DuckDB is not the Warehouse engine and a local result would say nothing about Fa
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 DIALECTS: dict[str, dict[str, Any]] = {
@@ -19,6 +20,14 @@ DIALECTS: dict[str, dict[str, Any]] = {
     "duckdb": {"label": "DuckDB (this PC)", "sqlglot": "duckdb", "runs_here": True},
 }
 DEFAULT = "spark"
+# sqlglot underlines the bad token with terminal escape codes; the app shows the text, so they go.
+_ESCAPES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def parse_problem(exc: Exception) -> str:
+    """A sqlglot parse error as plain text for a person: its message and the excerpt, without the
+    terminal escape codes sqlglot puts around the bad token."""
+    return _ESCAPES.sub("", str(exc))
 
 
 def get(dialect: str | None) -> dict[str, Any]:

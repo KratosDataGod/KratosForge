@@ -113,6 +113,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
                 continue  # already said
             c = cells[r["cell"] - 1] if r.get("cell") else None
             add(blockers, r.get("cell"), c, f"can't run on {label}: {r['text']}")
+        for r in compat[side]["unknown"]:  # not a blocker: running both sides is how a proof finds out
+            add(warnings, r["cell"], cells[r["cell"] - 1], f"may not run on {label}: it {r['text']}")
     for n, c in enumerate(cells, 1):
         source = c.get("source") or ""
         if c.get("type") == "markdown" or not source.strip():
@@ -157,8 +159,6 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
     if spark:
         limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
                    "aren't, so a change to them between the runs isn't found.",
-                   "In Fabric, a Spark read whose path is given as an option (option(\"path\", ...).load()) or as a "
-                   "file:/lakehouse/default/... path isn't pinned.",
                    "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
                    "stopped or compared.",
                    "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]

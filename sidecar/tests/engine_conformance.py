@@ -10,7 +10,8 @@ These checks hold the two together, for any adapter, local or remote:
   shapes too.
 - A cell that fails on the engine is an error *output*, not an exception, and never repeats a secret.
 - A cell the descriptor says the engine can't run is refused (``Unsupported``, or an error result);
-  it never comes back ``ok``.
+  it never comes back ``ok``, and a remote engine refuses it without contacting the platform.
+- A whole result with more rows than asked for is an error with no table, never a cut table.
 - ``variables``, ``plan`` and ``catalog`` work when claimed and raise ``Unsupported`` with a reason
   when not. ``cancel`` with nothing running returns False, whatever the claim.
 - ``close()`` frees the session: ``closed`` is true, later cells raise ``SessionClosed``, and closing
@@ -58,6 +59,7 @@ class Harness:
     open_unauthorized: Callable[[Any], Any] | None = None
     contacted: Callable[[], int] | None = None
     # A cell to ask for a whole result, when the engine returns them only for some cells (ok_cell otherwise).
+    # An engine that claims ``result`` gives one that returns at least two rows, so a cut can be checked.
     result_cell: CellRequest | None = None
     # Isolation: leave some state in a session, and say whether a session can see it.
     leave_state: Callable[[Any], None] | None = None
@@ -154,6 +156,7 @@ def check_errors_are_outputs(h: Harness) -> None:
 
 def check_refused_cells(h: Harness) -> None:
     s = h.session()
+    contacted = h.contacted() if h.contacted else None
     for cell in h.refused_cells:
         d = h.descriptor
         unsupported = not d.language(cell.language).available or (
@@ -163,9 +166,12 @@ def check_refused_cells(h: Harness) -> None:
             r = s.execute(cell)
         except Unsupported as exc:
             assert str(exc), f"{h.engine}: Unsupported says why"
-            continue
-        _check_result(h, r, f"a {cell.language} cell")
-        assert r.status != "ok", f"{h.engine}: ran a {cell.language}/{cell.dialect} cell its descriptor says it can't"
+        else:
+            _check_result(h, r, f"a {cell.language} cell")
+            assert r.status != "ok", f"{h.engine}: ran a {cell.language}/{cell.dialect} cell its descriptor says it can't"
+        if h.contacted:
+            assert h.contacted() == contacted, (
+                f"{h.engine}: sent a {cell.language}/{cell.dialect} cell it can't run to the platform")
 
 
 def check_optional_capabilities(h: Harness) -> None:
@@ -214,6 +220,23 @@ def check_result(h: Harness) -> None:
     assert "table" not in r.as_dict(), f"{h.engine}: the result table would be sent to the app"
 
 
+def check_result_never_cut(h: Harness) -> None:
+    """Asking for fewer rows than the result has is an error with no table: never the first rows only."""
+    if not h.descriptor.capability("result").available:
+        return
+    cell = h.result_cell or h.ok_cell
+    whole = h.session().execute(dataclasses.replace(cell, result_rows=10_000))
+    assert whole.status == "ok" and whole.table is not None, f"{h.engine}: claims result but returned no table"
+    n = whole.table.num_rows
+    assert n >= 2, f"{h.engine}: the harness's result cell returns {n} row(s); give one with at least two"
+    r = h.session().execute(dataclasses.replace(cell, result_rows=n - 1))
+    _check_result(h, r, f"a cell asking for {n - 1} of its {n} rows")
+    assert r.status == "error", f"{h.engine}: {n} rows asked as {n - 1} came back {r.status!r}"
+    assert r.table is None, f"{h.engine}: returned a cut table ({r.table.num_rows} rows) instead of an error"
+    assert r.outputs and r.outputs[-1]["type"] == "error" and r.outputs[-1]["evalue"], (
+        f"{h.engine}: a result over the rows asked for ends with an error output that says why")
+
+
 def _plan_code(h: Harness) -> str:
     return h.ok_cell.code if h.ok_cell.language == "sql" else "SELECT 1"
 
@@ -258,6 +281,7 @@ CHECKS: dict[str, Callable[[Harness], None]] = {
     "refused": check_refused_cells,
     "capabilities": check_optional_capabilities,
     "result": check_result,
+    "result_never_cut": check_result_never_cut,
     "idle_cancel": check_idle_cancel,
     "close": check_close,
     "isolation": check_isolation,

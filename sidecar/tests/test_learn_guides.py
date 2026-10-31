@@ -45,7 +45,7 @@ def test_every_rule_has_a_guide_with_a_why():
 def test_a_section_reads_into_fields():
     md = """### SQ999
 
-**Thing** · Warning · Performance
+**Thing** · Warning · Performance · Advanced
 
 Why: one line
 and the next.
@@ -58,14 +58,34 @@ SELECT 2
 ```
 
 When it's fine: rarely.
+Principle: say it once.
+Impact: Performance. Slower.
+How to check: run it twice.
 Source: [x](https://example.com).
 
 ## Next part
 
 Why: not this.
 """
-    assert guides.parse(md) == {"SQ999": {"why": "One line and the next.", "fine": "Rarely.", "instead": "",
+    assert guides.parse(md) == {"SQ999": {"importance": "Advanced", "area": "Performance", "why": "One line and the next.",
+                                          "fine": "Rarely.", "instead": "", "principle": "Say it once.",
+                                          "impact": "Performance. Slower.", "check": "Run it twice.",
                                           "language": "sql", "before": "SELECT 1", "after": "SELECT 2"}}
+
+
+def test_every_rule_has_an_importance_principle_impact_and_check():
+    got = guides.load()
+    for rule in [*notebook_practices.RULES, *practices.RULES]:
+        g = got[rule.id]
+        assert g["importance"] in guides.IMPORTANCE and g["area"] == rule.category, rule.id
+        assert g["principle"] and g["impact"] and g["check"], rule.id
+    assert got["NB001"]["importance"] == "Critical" and got["SQ010"]["importance"] == "Critical"
+
+
+def test_importance_only_explains_and_never_changes_a_rule():
+    """Importance is a label in the guide; the rules' severities stay what the checkers say."""
+    sev = {r.id: r.severity for r in notebook_practices.RULES} | {r.id: r.severity for r in practices.RULES}
+    assert sev["NB001"] == "Error" and sev["SQ010"] == "Warning" and sev["NB020"] == "Warning"
 
 
 # ---- dismissals

@@ -42,7 +42,7 @@ MCP prompt `review_notebook`. Check whether a notebook will run on this PC and i
 
 ```text
 1. Call fabric_desktop_get_notebook for {name}.
-2. Call fabric_desktop_validate_notebook for {name}: which cells can't run on this PC or in Fabric, and why, and its findings (errors, warnings and info, each with the cell and a fix).
+2. Call fabric_desktop_validate_notebook for {name}: which cells can't run on this PC or in Fabric, and why, and its findings (errors, warnings and info, each with the cell and a fix). For each place, read this_pc.status and fabric.status, not ok: "blocked" lists the cells that stop it in reasons, and "unknown" lists the cells the check can't read in unknown (it may still run there; proving it finds out).
 3. Call fabric_desktop_get_notebook_dependencies and fabric_desktop_get_notebook_environment for {name}.
 4. Report the errors first, with the cell number, then warnings, then suggestions. Quote the cell's code when you suggest a change.
 5. Don't run the notebook unless the person asks; running it needs their approval in the app.

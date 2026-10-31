@@ -329,12 +329,19 @@ def test_date_arithmetic_on_a_plain_timestamp_is_not_a_date_difference(code):
 
 @pytest.mark.parametrize("code", [
     "select dateadd(day, 1, ts) from t",
-    "select date_trunc('month', ts::date) from t",
+    "select date_trunc('month', ts) from t",
     "select dateadd(year, 1, to_date('2026-01-01'))",
 ])
 def test_date_arithmetic_on_what_may_be_a_date_is_a_date_difference(code):
     (report,) = sf.translate(code).statements
     assert "SFD-006" in [n.id for n in report.notes]
+
+
+def test_date_trunc_of_a_date_stays_a_date_on_every_sqlglot():
+    """#1252: cast back to DATE here, as Snowflake (and sqlglot 30.25 itself) does, so no SFD-006."""
+    (report,) = sf.translate("select date_trunc('month', ts::date) from t").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    assert report.duckdb_sql.upper().startswith("SELECT CAST(DATE_TRUNC('MONTH', CAST(TS AS DATE)) AS DATE)")
 
 
 def test_a_time_unit_on_date_arithmetic_is_not_a_date_difference():

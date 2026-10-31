@@ -239,6 +239,25 @@ def test_a_databricks_export_lists_md_magic_cells_and_dropped_magic_options():
            [{"type": "markdown", "source": "# Title"}]
 
 
+@pytest.mark.parametrize("source", ["\n\n%%sql\nSELECT 1", "  %%sql\nSELECT 1", "\r\n \t%%sql\nSELECT 1"])
+def test_a_cell_magic_after_blank_lines_or_an_indent_exports_as_that_magic(source):
+    cells = [{"type": "code", "source": source}]
+    databricks = nbf.to_databricks_py(cells)
+    assert databricks == "# Databricks notebook source\n# MAGIC %sql\n# MAGIC SELECT 1\n"
+    fabric = nbf.to_fabric_py(cells)
+    assert "# MAGIC %%sql\n# MAGIC SELECT 1\n" in fabric and '"language": "sparksql"' in fabric
+    for text in (databricks, fabric):
+        assert _back(text) == [("code", "%%sql\nSELECT 1")]
+    notes = nbf.databricks_export_notes(cells)
+    assert [(n["kind"], n["what"].split(" ")[0]) for n in notes] == [("changed", "%%sql")]
+
+
+def test_the_dropped_options_note_reads_the_first_non_blank_line():
+    for source in ("\n%%sql -o result\nSELECT 1", "   %%sql -o result\nSELECT 1"):
+        notes = nbf.databricks_export_notes([{"type": "code", "source": source}])
+        assert [n["kind"] for n in notes] == ["changed", "dropped"] and "(-o result)" in notes[1]["what"]
+
+
 # ---- what .py source can't hold (docs/notebook-import-export.md, "Round trips")
 
 def test_leading_blank_lines_of_a_cell_arent_kept_in_py_source_but_are_in_ipynb():

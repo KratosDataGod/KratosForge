@@ -316,6 +316,10 @@ def test_every_rule_the_code_uses_is_in_the_docs_table():
     "select dateadd(day, 1, ts::timestamp) from t",
     "select date_trunc('day', current_timestamp())",
     "select dateadd(month, 1, to_timestamp('2026-01-01 10:00'))",
+    "select dateadd(day, 1, to_timestamp(s)) from t",
+    "select date_trunc('day', to_timestamp_ntz(s)) from t",
+    "select dateadd(week, 1, try_to_timestamp(s)) from t",
+    "select date_trunc('month', to_timestamp_tz(s)) from t",
     "select date_trunc('week', convert_timezone('UTC', ts)) from t",
 ])
 def test_date_arithmetic_on_a_plain_timestamp_is_not_a_date_difference(code):

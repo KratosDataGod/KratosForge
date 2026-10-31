@@ -423,11 +423,17 @@ _TIMESTAMP_TYPES = {exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ,
                     exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.DATETIME}
 
 
+_TIMESTAMP_FUNCTIONS = {f"{try_}TO_TIMESTAMP{kind}" for try_ in ("", "TRY_") for kind in ("", "_NTZ", "_LTZ", "_TZ")}
+
+
 def _may_be_date(value: exp.Expression | None) -> bool:
-    """False only when the value is plainly a timestamp: a cast to one (TO_TIMESTAMP reads as a cast),
-    CURRENT_TIMESTAMP or CONVERT_TIMEZONE. A column, a literal or anything else may be a DATE."""
+    """False only when the value is plainly a timestamp: a cast to one (TO_TIMESTAMP of a literal reads
+    as a cast), a TO_TIMESTAMP function (and its _NTZ, _LTZ, _TZ and TRY_ forms), CURRENT_TIMESTAMP or
+    CONVERT_TIMEZONE. A column, a literal or anything else may be a DATE."""
     if isinstance(value, (exp.Cast, exp.TryCast)):
         return value.to.this not in _TIMESTAMP_TYPES
+    if isinstance(value, exp.Anonymous) and str(value.this).upper() in _TIMESTAMP_FUNCTIONS:
+        return False
     return not isinstance(value, (exp.CurrentTimestamp, exp.ConvertTimezone))
 
 
@@ -472,7 +478,9 @@ CATALOG = (
                 "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten."),
     ("SFX-005", "Rewritten", "A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
                 "its alias names the columns."),
-    ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits)."),
+    ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
+                "Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that "
+                "case."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),

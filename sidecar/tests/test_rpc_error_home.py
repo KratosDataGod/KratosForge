@@ -45,3 +45,12 @@ def test_an_rpc_error_carries_no_home_folder(tmp_path, monkeypatch):
     svc = Service(root=tmp_path / "app")
     reply = server.handle(svc, json.dumps({"id": 1, "method": "meta_open", "params": {"path": str(tmp_path / "nope")}}))
     assert "error" in reply and str(tmp_path) not in reply["error"] and "~" in reply["error"], reply
+
+
+def test_a_missing_home_folder_leaves_the_error_as_it_was(monkeypatch):
+    """Path.home() raises with no HOME or USERPROFILE; _home runs while answering a failed call, so it
+    must never raise itself."""
+    def no_home(cls):
+        raise RuntimeError("Could not determine home directory.")
+    monkeypatch.setattr(Path, "home", classmethod(no_home))
+    assert server._home("No such file: '/x/y'") == "No such file: '/x/y'"

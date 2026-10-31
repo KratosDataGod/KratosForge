@@ -295,8 +295,12 @@ ERROR_CHARS = 4000  # an error quoting a huge input (a 200,000-character name) i
 
 def _home(message: str) -> str:
     """``message`` with the home folder written as ~, so an error pasted into a ticket or a screenshot
-    doesn't carry the Windows account name. Results keep full paths: the app opens them."""
-    home = Path.home()
+    doesn't usually carry the Windows account name (other text, such as a OneDrive folder or a sign-in
+    name, still can). Results keep full paths: the app opens them."""
+    try:
+        home = Path.home()
+    except (RuntimeError, KeyError, OSError):  # no HOME or USERPROFILE: the error still has to reach the shell
+        return message
     for form in dict.fromkeys((str(home).replace("\\", "\\\\"), str(home), home.as_posix())):  # repr() doubles \
         if len(form) > 3:  # never a bare drive or /
             message = re.sub(re.escape(form) + r"(?![^\\/'\"\s:)])", "~", message, flags=re.IGNORECASE)

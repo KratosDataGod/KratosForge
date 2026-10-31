@@ -8,7 +8,8 @@ import pytest
 
 from fabric_desktop.central import requests_service
 from fabric_desktop.central.requests_service import left_in_fabric
-from test_request_retries import fail_once, fail_platform_once
+from fabric_desktop.service import Service
+from test_request_retries import FabricDomains, fail_once, fail_platform_once
 from test_requests_core_four import ADMIN, DEV, WS, _same_day, as_user, ask_workspace, svc, who  # noqa: F401
 
 
@@ -75,12 +76,18 @@ def test_a_request_with_nothing_made_closes_exactly_as_before(svc, who, close):
     assert "left" not in row["detail"]
 
 
-def test_the_audit_row_keeps_ids_only():
-    """Admins are recorded by sign-in name, so they stay out of the decline's audit row."""
+def test_the_audit_row_keeps_only_the_ids_of_what_was_made():
+    """Admins are recorded by sign-in name, and a workspace's capacity or a Copy job's landing workspace
+    is where things went, not something made, so none of them is in the row."""
     from fabric_desktop.central.core import _left
-    req = {"detail": {"made": {"workspace_id": "w1", "capacity_id": "c1", "admins": ["lee@contoso.com"],
-                               "copy_job_name": "CJ_Landing_crm", "assigned": True}}}
-    assert _left(req) == {"workspace_id": "w1", "capacity_id": "c1", "assigned": True}
+    made = {"workspace_id": "w1", "capacity_id": "c1", "admins": ["lee@contoso.com"], "copy_job_id": "j1",
+            "copy_job_name": "CJ_Landing_crm", "schedule_id": "s1", "assigned": True, "domain_id": "hr",
+            "fabric_domain_id": "f-hr"}
+    left = {kind: _left({"kind": kind, "detail": {"made": made}})
+            for kind in ("workspace", "workspace_access", "source", "domain", "key_table")}
+    assert left == {"workspace": {"workspace_id": "w1"}, "workspace_access": {"assigned": True},
+                    "source": {"copy_job_id": "j1", "schedule_id": "s1"},
+                    "domain": {"domain_id": "hr", "fabric_domain_id": "f-hr"}, "key_table": {}}
 
 
 def test_a_copy_job_left_behind_says_its_schedule_still_runs():
@@ -105,3 +112,35 @@ def test_the_sentences_match_the_decline_confirm():
         "made": {"assigned": True}}}) == [
         "The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving "
         "this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]
+
+
+@pytest.mark.parametrize("parent, in_fabric", [("", True), ("ops", False)], ids=["in fabric", "platform only"])
+def test_declining_a_domain_request_whose_domain_was_saved_says_where_it_is(svc, who, monkeypatch, parent, in_fabric):
+    fabric = FabricDomains()
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self, write=False: fabric)
+    svc.platform_save_domain({"name": "Ops"})
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR", "parent_id": parent})
+    as_user(who, ADMIN)
+    fail_platform_once(monkeypatch, "decide_request", "before")
+    with pytest.raises(Exception, match="decide_request"):
+        svc.platform_decide(req["id"], True)
+    created = list(fabric.created)
+    out = svc.platform_decide(req["id"], False)
+    where = "in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains," \
+        if in_fabric else "in the platform: delete it on Data mesh > Domains"
+    assert out["next"] == [f"The domain HR, made by this request, is still {where} if it isn't wanted"]
+    assert fabric.created == created == ([("HR", "")] if in_fabric else [])  # nothing more in Fabric
+    assert "hr" in {d["id"] for d in svc.platform_domains()}  # and nothing deleted
+    [row] = audited(svc, "declined domain")
+    assert row["detail"]["left"] == ({"domain_id": "hr", "fabric_domain_id": "f-hr"} if in_fabric else {"domain_id": "hr"})
+
+
+def test_a_domain_approval_records_what_it_made(svc, who, monkeypatch):
+    fabric = FabricDomains()
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self, write=False: fabric)
+    as_user(who, DEV)
+    req = svc.platform_request("domain", "HR", "", {"name": "HR"})
+    as_user(who, ADMIN)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and out["detail"]["made"] == {"domain_id": "hr", "fabric_domain_id": "f-hr"}

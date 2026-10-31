@@ -405,8 +405,11 @@ class PipelineRun:
         try:
             final = self._attempts(a, scope, rec)
         except Exception as exc:  # noqa: BLE001 - an adapter bug fails the activity, not the run
-            rec["error"] = {"errorCode": "LocalAdapterError", "message": f"{type(exc).__name__}: {exc}"}
+            rec["error"] = {"errorCode": "LocalAdapterError", "message": f"{type(exc).__name__}: {exc}",
+                            "failureType": "SystemError"}
         finally:
+            if isinstance(rec.get("error"), dict):
+                rec["error"] = {"failureType": "UserError", **rec["error"], "target": a.name, "details": ""}
             with self._cond:
                 rec["state"], rec["status"] = final, FABRIC_STATUS[final]
                 rec["ended"] = _now()
@@ -555,9 +558,10 @@ def _run_mock(mock: Mapping[str, Any], ctx: "_Context") -> Any:
     if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds > 0:
         ctx.wait(seconds)
     if _mock_status(mock) == "failed":
-        error = mock.get("error") if isinstance(mock.get("error"), dict) else {}
+        given = mock.get("error")
+        error: dict[str, Any] = given if isinstance(given, dict) else {}
         raise ActivityFailed(str(error.get("message", "Failed (mock)")), str(error.get("errorCode", "Mock")),
-                             mock.get("output"))
+                             mock.get("output"), str(error.get("failureType", "UserError")))
     return mock.get("output", {})
 
 

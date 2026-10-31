@@ -726,6 +726,9 @@ def register_project(db: Db, project: dict[str, Any], by: str = "") -> dict[str,
     _upsert(db, "catalog", "project", "name", row)
     if "landing" in project:
         _save_readers(db, name, project.get("landing") or {})
+    # Who recorded a project owns it, so the trail says who and when; readers are on the project.
+    _audit(db, by, "change project" if before else "record project", name,
+           {"domain": dom, "subdomain": sub, **({"readers": True} if "landing" in project else {})})
     db.commit()
     return dict(row, domain_request=asked) if asked else row
 
@@ -2259,7 +2262,13 @@ def _left(req: dict[str, Any]) -> dict[str, Any]:
     """The ids of what approving a request made before it was declined or withdrawn, for the audit
     trail: closing it deletes nothing in Fabric."""
     made = (req.get("detail") or {}).get("made") or {}
-    return {k: v for k, v in made.items() if k.endswith("_id") or k == "assigned"}
+    return {k: made[k] for k in _LEFT.get(req.get("kind") or "", ()) if made.get(k)}
+
+
+# What each kind's approval makes, by the keys record_request_progress keeps: a workspace request's
+# capacity_id or a source's landing workspace_id are where things went, not what was made.
+_LEFT = {"workspace": ("workspace_id",), "workspace_access": ("assigned",), "source": ("copy_job_id", "schedule_id"),
+         "domain": ("domain_id", "fabric_domain_id")}
 
 
 def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
@@ -2290,6 +2299,9 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     product = _row(db, "product", "id", product_id) or {}
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can take access away")
+    # After the role check, so only someone who may take access away learns whether a grant exists.
+    if _row(db, "grant", "id", f"{product_id}|{project}") is None:
+        raise PlatformError(f"{project} has no access to {product_id} to take away")
     db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
     if db.exists("catalog", "grant_review"):
         db.run(f"DELETE FROM {db.t('catalog', 'grant_review')} WHERE id = ?", (f"{product_id}|{project}",))

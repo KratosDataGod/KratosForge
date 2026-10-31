@@ -1,0 +1,66 @@
+{
+  "case": "generic_error_handling_first_fails",
+  "source": {
+    "kind": "documented",
+    "url": "https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling",
+    "updated": "2025-07-25",
+    "quote": "The last step, Generic Error Handling, will only run if any of the previous activities fails. It will not run if they all succeed."
+  },
+  "pipeline": {
+    "name": "generic",
+    "properties": {
+      "activities": [
+        {
+          "name": "First",
+          "type": "Fail",
+          "typeProperties": {
+            "message": "boom",
+            "errorCode": "E1"
+          },
+          "dependsOn": []
+        },
+        {
+          "name": "Last",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "First",
+              "dependencyConditions": [
+                "Succeeded"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "ErrorHandling",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "Last",
+              "dependencyConditions": [
+                "Failed",
+                "Skipped"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "parameters": {},
+  "mocks": {},
+  "expected": {
+    "status": null,
+    "activities": {
+      "First": "Failed",
+      "Last": "Skipped",
+      "ErrorHandling": "Succeeded"
+    }
+  }
+}

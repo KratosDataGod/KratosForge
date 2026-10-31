@@ -1,7 +1,9 @@
 """The sqlglot the engine runs on has every expression class the engine names.
 
 sqlglot 30.24 folded ``exp.SortArray`` into ``exp.ArraySort``, so importing sql.py (and with it
-service.py) failed there. pyproject.toml caps sqlglot below 30.24 until sql.py handles both shapes.
+service.py) failed there. sql.py now handles both shapes, so 30.24 is allowed. 30.25 changes how
+Snowflake's LATERAL FLATTEN and DATE_TRUNC are read, so pyproject.toml stops below it until the
+Snowflake path handles that; a newer sqlglot is allowed only after the engine tests pass on it.
 """
 
 from __future__ import annotations
@@ -33,4 +35,6 @@ def test_the_pinned_sqlglot_is_one_pyproject_allows():
     pin = re.search(r"^sqlglot==(\S+)$", (SIDECAR / "constraints.txt").read_text(encoding="utf-8"), re.M).group(1)
     spec = _requirement("sqlglot").specifier
     assert spec.contains(pin), f"constraints.txt pins sqlglot {pin}, outside pyproject's {spec}"
-    assert not spec.contains("30.24.0"), "30.24 has no exp.SortArray: sql.py must handle ArraySort's asc first"
+    for tested in ("30.23.0", "30.24.0"):
+        assert spec.contains(tested), f"sqlglot {tested} passes the engine tests, but pyproject's {spec} refuses it"
+    assert not spec.contains("30.25.0"), "30.25 breaks Snowflake FLATTEN: allow it once those tests pass on it"

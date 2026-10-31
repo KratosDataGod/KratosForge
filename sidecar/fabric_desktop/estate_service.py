@@ -46,8 +46,9 @@ _log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-# An email as Microsoft Entra takes it: one "@", a dotted domain, and no spaces, slashes or URL characters.
-_EMAIL = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
+# An email as Microsoft Entra takes it: one "@", a dotted domain, and no spaces or slashes. A guest's sign-in name
+# has "#EXT#" before the "@"; quote() escapes it in a URL.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+'#-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+")
 
 
 def _guid(value: Any, what: str) -> str:
@@ -440,7 +441,7 @@ class EstateMixin:
         if r.status_code == 404:
             r = send_with_retry(lambda: http.get(
                 "https://graph.microsoft.com/v1.0/users",
-                params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
+                params={"$filter": f"mail eq '{text.replace(chr(39), chr(39) * 2)}'",
                         "$select": "id,displayName,userPrincipalName,mail"},
                 headers=headers, timeout=30), "GET")
             found = (r.json().get("value") or []) if r.ok else []
@@ -451,6 +452,9 @@ class EstateMixin:
             raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {r.text[:200]}")
         else:
             user = r.json()
+        # Only the person whose email was typed gets the role, never a near match the directory returned.
+        if text.lower() not in {(user.get("mail") or "").lower(), (user.get("userPrincipalName") or "").lower()}:
+            raise LookupError(f"No one with the email {text} in your organization.")
         return {"id": user["id"], "name": user.get("displayName") or text,
                 "email": user.get("userPrincipalName") or user.get("mail") or text, "type": "User"}
 

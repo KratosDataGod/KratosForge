@@ -295,6 +295,64 @@ def test_find_person_escapes_the_email_in_the_directory_url(svc, monkeypatch):
     assert asked == ["https://graph.microsoft.com/v1.0/users/o%27brien%2Bkf@contoso.com"]
 
 
+def test_find_person_keeps_an_apostrophe_in_the_directory_filter(svc, monkeypatch):
+    from fabric_desktop import estate_service
+    asked = []
+
+    class Auth:
+        def _token(self, scopes):
+            return "tok"
+
+    def get(url, params, headers, timeout):
+        asked.append((url, params.get("$filter")))
+        if len(asked) == 1:
+            return types.SimpleNamespace(status_code=404, ok=False, json=lambda: {})
+        return types.SimpleNamespace(status_code=200, ok=True, json=lambda: {"value": [
+            {"id": "oid-o", "displayName": "O'Brien", "userPrincipalName": "", "mail": "o'brien@contoso.com"}]})
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: types.SimpleNamespace(get=get))
+    svc._auth = Auth()
+    assert svc.access_find_person("o'brien@contoso.com")["id"] == "oid-o"
+    assert asked[1][1] == "mail eq 'o''brien@contoso.com'"
+
+
+@pytest.mark.parametrize("found", [{"value": [{"id": "oid-x", "mail": "obrien@contoso.com", "userPrincipalName": "obrien@contoso.com"}]},
+                                   {"id": "oid-x", "mail": "", "userPrincipalName": "someone.else@contoso.com"}])
+def test_find_person_refuses_a_directory_answer_for_another_email(svc, monkeypatch, found):
+    from fabric_desktop import estate_service
+    direct = "value" not in found
+
+    class Auth:
+        def _token(self, scopes):
+            return "tok"
+
+    def get(url, params, headers, timeout):
+        if url.endswith("/users") or direct:
+            return types.SimpleNamespace(status_code=200, ok=True, json=lambda: found)
+        return types.SimpleNamespace(status_code=404, ok=False, json=lambda: {})
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: types.SimpleNamespace(get=get))
+    svc._auth = Auth()
+    with pytest.raises(LookupError, match="No one with the email"):
+        svc.access_find_person("o'brien@contoso.com")
+
+
+def test_find_person_takes_a_guest_sign_in_name(svc, monkeypatch):
+    from fabric_desktop import estate_service
+    asked = []
+
+    class Auth:
+        def _token(self, scopes):
+            return "tok"
+
+    def get(url, params, headers, timeout):
+        asked.append(url)
+        return types.SimpleNamespace(status_code=200, ok=True, json=lambda: {"id": "oid-g", "displayName": "Guest",
+                                                                         "userPrincipalName": "X_contoso.com#EXT#@tenant.onmicrosoft.com"})
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: types.SimpleNamespace(get=get))
+    svc._auth = Auth()
+    assert svc.access_find_person("x_contoso.com#EXT#@tenant.onmicrosoft.com")["id"] == "oid-g"
+    assert asked == ["https://graph.microsoft.com/v1.0/users/x_contoso.com%23EXT%23@tenant.onmicrosoft.com"]
+
+
 @pytest.mark.parametrize("field", ["assignment_id", "principal_id"])
 def test_assignment_and_principal_ids_are_guids_too(svc, monkeypatch, field):
     monkeypatch.setattr(type(svc), "fabric", property(lambda self: pytest.fail("Fabric isn't called")))

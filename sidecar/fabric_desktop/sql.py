@@ -263,8 +263,8 @@ def _spark_lambdas(statement: exp.Expression) -> None:
             raise ValueError("get_json_object with a [*] or .* path can't run on this PC the way it runs in "
                              "Databricks (it returns JSON text there), so nothing ran. Run it on the warehouse, or "
                              "read the values with from_json or a path to one element.")
-    for node in list(statement.find_all(exp.Transform, exp.ArrayFilter)):
-        func = node.expression
+    for call in list(statement.find_all(exp.Transform, exp.ArrayFilter)):
+        func = call.expression
         if not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
             continue
         index = func.expressions[1].name.lower()

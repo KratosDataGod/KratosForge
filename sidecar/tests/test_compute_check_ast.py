@@ -151,3 +151,102 @@ def test_sql_on_another_name_for_the_spark_session_is_read_like_spark_sql(source
 def test_sql_on_something_that_isnt_the_spark_session_is_left_alone():
     assert check(f"db.sql({MERGE_KEYS!r})")["local"]["ok"]
     assert check("s = spark\ns = make_db()", f"s.sql({MERGE_KEYS!r})")["local"]["ok"]
+
+
+# ---- #1273: a notebook the code runs is checked too, when it's on this PC
+
+MOUNT = "import notebookutils as nu\nnu.fs.mount('abfss://c@a.dfs.core.windows.net', '/data')"
+
+
+def cells(*sources):
+    return [{"type": "code", "source": s, "meta": {}} for s in sources]
+
+
+def loader(notebooks):
+    def load(name):
+        if name not in notebooks:
+            raise FileNotFoundError(name)
+        return cells(*notebooks[name])
+    return load
+
+
+def test_a_helper_notebook_that_runs_everywhere_keeps_the_notebook_ok():
+    out = compute_check(cells("x = 1", "%run Helpers"), LH, loader({"Helpers": ["def clean(df):\n    return df"]}))
+    for side in ("local", "fabric"):
+        assert out[side] == {"ok": True, "status": "ok", "reasons": [], "unknown": []}, side
+
+
+@pytest.mark.parametrize("source, how", [
+    ("%run Helpers", "%run"),
+    ("%run ./Helpers {\"day\": \"2026-01-01\"}", "%run"),
+    ("import notebookutils as nu\nnu.notebook.run('Helpers', 60)", "notebook.run"),
+    ("from notebookutils import mssparkutils\nmssparkutils.notebook.run('Folder/Helpers.ipynb')", "notebook.run"),
+])
+def test_what_stops_the_helper_on_this_pc_stops_the_cell_that_runs_it(source, how):
+    out = compute_check(cells("x = 1", source), LH, loader({"Helpers": ["y = 2", MOUNT]}))
+    assert out["local"]["status"] == "blocked"
+    assert [(r["cell"], r["text"]) for r in out["local"]["reasons"]] == [
+        (2, f"runs Helpers ({how}), whose cell 2 uses Fabric notebook utilities that need Fabric")]
+    assert out["fabric"]["status"] == "ok"  # mounting is fine in Fabric
+
+
+def test_what_stops_the_helper_in_fabric_stops_the_cell_that_runs_it_in_fabric():
+    out = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["open(r'C:\\data\\sales.csv').read()"]}))
+    assert out["fabric"]["status"] == "blocked" and out["fabric"]["reasons"][0]["cell"] == 1
+    assert out["fabric"]["reasons"][0]["text"].startswith("runs Helpers (%run), whose cell 1 reads or writes a path on this PC")
+
+
+def test_what_the_check_cant_read_in_the_helper_is_unknown_in_the_cell_that_runs_it():
+    out = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["exec(code)"]}))
+    for side in ("local", "fabric"):
+        assert out[side]["status"] == "unknown" and not out[side]["ok"], side
+        assert out[side]["unknown"][0]["cell"] == 1
+        assert out[side]["unknown"][0]["text"].startswith("runs Helpers (%run), whose cell 1 ")
+    sql = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["spark.sql(query)"]}))
+    assert sql["local"]["status"] == "unknown" and sql["fabric"]["status"] == "ok"  # any SQL runs in Fabric
+
+
+def test_a_helper_that_isnt_on_this_pc_is_unknown():
+    out = compute_check(cells("%run Helpers"), LH, loader({}))
+    for side in ("local", "fabric"):
+        assert out[side]["unknown"][0]["text"] == \
+            "runs Helpers (%run), which isn't a notebook on this PC, so the check can't read it", side
+
+
+def test_notebooks_that_run_each_other_in_a_loop_are_unknown_and_the_check_stops():
+    out = compute_check(cells("%run A"), LH, loader({"A": ["%run B"], "B": ["%run A"]}))
+    for side in ("local", "fabric"):
+        assert out[side]["status"] == "unknown"
+        assert "in a loop or more than 5 deep" in out[side]["unknown"][0]["text"]
+
+
+def test_a_chain_deeper_than_the_kernel_runs_is_unknown():
+    chain = {f"N{i}": [f"%run N{i + 1}"] for i in range(8)} | {"N8": ["x = 1"]}
+    out = compute_check(cells("%run N0"), LH, loader(chain))
+    assert out["local"]["status"] == "unknown" and "more than 5 deep" in out["local"]["unknown"][0]["text"]
+
+
+def test_what_the_runner_cant_name_is_still_unknown_with_a_loader():
+    load = loader({"Helpers": ["x = 1"]})
+    for source, how in (("%run -b setup.py", "%run"), ("import notebookutils as nu\nnu.notebook.run(name)", "notebook.run"),
+                        ("import notebookutils as nu\nnu.notebook.runMultiple(['Helpers'])", "notebook.runMultiple")):
+        out = compute_check(cells(source), LH, load)
+        assert out["local"]["unknown"][0]["text"] == \
+            f"runs another notebook ({how}), whose cells this check doesn't read", source
+
+
+def test_the_helpers_own_missing_lakehouse_isnt_the_notebooks():
+    out = compute_check(cells("%run Helpers"), LH, loader({"Helpers": ["x = 1"]}))
+    assert out["fabric"]["ok"]  # the helper has no lakehouse of its own; this notebook's is the one that counts
+    assert compute_check(cells("%run Helpers"), None, loader({"Helpers": ["x = 1"]}))["fabric"]["reasons"][0]["cell"] is None
+
+
+def test_prove_and_validate_pass_the_loader_on():
+    load = loader({"Helpers": [MOUNT]})
+    nb = cells("from fabric_desktop import lakehouse\nlakehouse.write_table(df, 'dbo.out')", "%run Helpers")
+    text = "runs Helpers (%run), whose cell 1 uses Fabric notebook utilities that need Fabric"
+    assert [b["text"] for b in proof.check(nb, LH, load)["blockers"]] == [f"can't run on this PC: {text}"]
+    found = [(f["code"], f["severity"], f["text"]) for f in validate.check(nb, LH, "pc", load=load)["findings"]
+             if f["code"] == "runs_on_pc"]
+    assert found == [("runs_on_pc", "error", f"It {text}.")]
+    assert not [f for f in validate.check(nb, LH, "pc")["findings"] if f["code"] == "runs_on_pc"]  # without it: Unknown

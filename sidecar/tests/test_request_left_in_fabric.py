@@ -53,13 +53,12 @@ def test_withdrawing_a_request_whose_role_was_given_says_the_role_stays(svc, who
     calls = len(svc.api.calls)
     out = svc.platform_withdraw(req["id"])
     assert out["status"] == "withdrawn"
-    [line] = out["next"]
-    assert line.startswith(f"{DEV} keeps the Contributor role (or the higher one they had) in Sales Prod")
-    assert "Manage access" in line
+    assert out["next"] == [f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove "
+                           "it in the workspace's Manage access in Fabric if it isn't wanted"]
     assert len(svc.api.calls) == calls
     assert [r["role"] for r in svc.api.roles[WS] if r["principal"]["id"] == DEV] == ["Contributor"]
     [row] = audited(svc, "withdrew workspace_access")
-    assert row["detail"]["left"] == {"assigned": True}
+    assert row["detail"]["left"] == {"assigned": True, "change": "gave"}
 
 
 @pytest.mark.parametrize("close", ["decline", "withdraw"])
@@ -85,7 +84,7 @@ def test_the_audit_row_keeps_only_the_ids_of_what_was_made():
             "fabric_domain_id": "f-hr"}
     left = {kind: _left({"kind": kind, "detail": {"made": made}})
             for kind in ("workspace", "workspace_access", "source", "domain", "key_table")}
-    assert left == {"workspace": {"workspace_id": "w1"}, "workspace_access": {"assigned": True},
+    assert left == {"workspace": {"workspace_id": "w1"}, "workspace_access": {"assigned": True},  # no change recorded
                     "source": {"copy_job_id": "j1", "schedule_id": "s1"},
                     "domain": {"domain_id": "hr", "fabric_domain_id": "f-hr"}, "key_table": {}}
 
@@ -110,8 +109,8 @@ def test_the_sentences_match_the_decline_confirm():
     assert left_in_fabric({"kind": "workspace_access", "detail": {
         "role": "Contributor", "workspace_name": "Sales Prod", "principal": {"type": "Group", "name": "Sales Engineers"},
         "made": {"assigned": True}}}) == [
-        "The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving "
-        "this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]
+        "The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this "
+        "request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]
 
 
 @pytest.mark.parametrize("parent, in_fabric", [("", True), ("ops", False)], ids=["in fabric", "platform only"])
@@ -144,3 +143,56 @@ def test_a_domain_approval_records_what_it_made(svc, who, monkeypatch):
     as_user(who, ADMIN)
     out = svc.platform_decide(req["id"], True)
     assert out["status"] == "approved" and out["detail"]["made"] == {"domain_id": "hr", "fabric_domain_id": "f-hr"}
+
+
+def half_given(svc, who, monkeypatch, have):
+    """A workspace access approval whose role step ran but whose decision wasn't recorded."""
+    if have:
+        svc.api.roles[WS] = [{"id": "r1", "role": have, "principal": {
+            "id": DEV, "type": "User", "userDetails": {"userPrincipalName": DEV}}}]
+    as_user(who, DEV)
+    req = svc.platform_request("workspace_access", "", "", {"workspace_id": WS, "workspace_name": "Sales Prod",
+                                                             "role": "Contributor"})
+    as_user(who, ADMIN)
+    fail_platform_once(monkeypatch, "decide_request", "before")
+    with pytest.raises(Exception, match="decide_request"):
+        svc.platform_decide(req["id"], True)
+    return req
+
+
+@pytest.mark.parametrize("have, change, line", [
+    (None, "gave", f"{DEV} keeps the Contributor role in Sales Prod that approving this request gave: remove it in "
+                   "the workspace's Manage access in Fabric if it isn't wanted"),
+    ("Viewer", "raised", f"{DEV} keeps the Contributor role in Sales Prod that approving this request raised from "
+                         "Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"),
+    ("Contributor", "same", f"{DEV} has the Contributor role in Sales Prod: they had it before this request, or "
+                            "approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"),
+    ("Admin", "kept", None),
+], ids=["gave", "raised", "same", "kept"])
+def test_declining_after_a_failed_decision_says_exactly_what_changed(svc, who, monkeypatch, have, change, line):
+    req = half_given(svc, who, monkeypatch, have)
+    made = svc.platform_requests("waiting")[0]["detail"]["made"]
+    assert made == {"assigned": True, "change": change, "from": have or ""}
+    out = svc.platform_decide(req["id"], False)
+    assert out.get("next") == ([line] if line else None)
+    [row] = audited(svc, "declined workspace_access")
+    if change == "kept":  # a higher role they had: approving changed nothing, so nothing was left
+        assert "left" not in row["detail"]
+    else:
+        assert row["detail"]["left"] == {"assigned": True, "change": change, **({"from": have} if have else {})}
+    [recorded] = audited(svc, "made for workspace_access request")
+    assert recorded["detail"]["made"]["change"] == change
+
+
+def test_a_retry_after_the_role_was_given_still_records_that_it_was_given(svc, who, monkeypatch):
+    req = half_given(svc, who, monkeypatch, None)
+    out = svc.platform_decide(req["id"], True)  # finds Contributor, the role this approval gave
+    assert out["status"] == "approved" and out["detail"]["made"]["change"] == "gave"
+
+
+def test_a_request_recorded_before_the_change_was_kept_says_to_check_before_removing():
+    old = {"kind": "workspace_access", "detail": {"role": "Member", "workspace_name": "Sales Prod",
+                                                  "principal": {"email": DEV}, "made": {"assigned": True}}}
+    assert left_in_fabric(old) == [f"{DEV} has the Member role or a higher one in Sales Prod: they had it before "
+                                   "this request, or approving it gave it. Check which before removing it in the "
+                                   "workspace's Manage access in Fabric"]

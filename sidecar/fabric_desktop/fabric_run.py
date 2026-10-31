@@ -14,11 +14,11 @@ import ast
 import datetime as dt
 import json
 import re
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any
 
 from . import magics
-from .notebook import configure_report, to_ipynb
+from .notebook import _RUN_SCRIPT, MAX_RUN_DEPTH, _run_target, configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
 TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
@@ -520,11 +520,11 @@ def _sql_where(sql: str, own: str | None) -> str | None:
 
 
 def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[ast.expr | None]],
-                 own: str | None, sessions: Collection[str] = ("spark",)) -> dict[str, list[tuple[int, str]]]:
+                 own: str | None, sessions: Collection[str] = ("spark",)) -> dict[str, list[Any]]:
     """What a Python cell's code says about where it runs, each as (line, text): ``fabric`` (runs in
     Fabric only), ``unknown_local`` (the check can't tell for this PC) and ``unknown`` (it can't tell
-    for either place)."""
-    out: dict[str, list[tuple[int, str]]] = {"fabric": [], "unknown_local": [], "unknown": []}
+    for either place). ``runs`` are the notebooks it runs by a literal name, as (line, name, how)."""
+    out: dict[str, list[Any]] = {"fabric": [], "unknown_local": [], "unknown": [], "runs": []}
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 1)
         if isinstance(node, ast.ImportFrom) and not node.level and node.module and node.module.split(".")[0] in _UTILS:
@@ -548,7 +548,12 @@ def _read_python(tree: ast.AST, utils: dict[str, str], values: dict[str, list[as
                 and _text(first) is None:
             out["unknown"].append((line, "imports a module named only at run time, which the check can't read"))
         elif (full := _full(node.func, utils)) and _UTILS_RUN.match(full):
-            out["unknown"].append((line, _RUN_TEXT.format(how=full.split(".", 1)[1])))
+            how = full.split(".", 1)[1]
+            name = _text(first) if first is not None and how == "notebook.run" else None
+            if name is not None:
+                out["runs"].append((line, name.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb"), how))
+            else:
+                out["unknown"].append((line, _RUN_TEXT.format(how=how)))
         elif _session_sql(node, sessions):
             arg = first if first is not None else next((k.value for k in node.keywords if k.arg == "sqlQuery"), None)
             texts = _sql_texts(arg, values) if arg is not None else None
@@ -579,7 +584,8 @@ def _snippet(source: str, match: re.Match[str] | None = None) -> str:
     return line if len(line) <= 60 else line[:57] + "..."
 
 
-def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict[str, Any]:
+def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+                  load: Callable[[str], list[dict[str, Any]]] | None = None, _seen: tuple[str, ...] = ()) -> dict[str, Any]:
     """Whether a notebook can run on this PC and in Fabric, and if not, which cells stop it.
 
     Each side is {"ok": bool, "status": "ok" | "blocked" | "unknown", "reasons": [...], "unknown": [...]}.
@@ -587,7 +593,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
     enough to tell (code built at run time, SQL whose table is known only then, a cell Python can't
     read). Each is {"cell": n, "text": ..., "code": the line}, cells numbered from 1 among all cells,
     as the notebook shows them. ``ok`` is True only when nothing stops it and nothing is unknown:
-    Unknown is never taken as runs there. ``status`` is "blocked" when anything stops it."""
+    Unknown is never taken as runs there. ``status`` is "blocked" when anything stops it.
+
+    ``load`` gives the cells of another notebook on this PC by name, as the kernel's ``%run`` finds
+    it. With it, a notebook the code runs (``%run Name``, ``notebook.run("Name")``) is checked too,
+    and what stops it or is unknown in it is this cell's; without it, that cell is Unknown."""
     local: list[dict[str, Any]] = []
     fabric: list[dict[str, Any]] = []
     local_unknown: list[dict[str, Any]] = []
@@ -639,9 +649,27 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
         if read:
             unknown = list(read["unknown"])
+        runs: list[tuple[int, str | None, str]] = list(read["runs"]) if read else []
         if language == "python":
-            unknown += [(m.line, _RUN_TEXT.format(how="%run")) for m in magics.find(source) if m.name == "run"]
-        if len(local) == blocked and (here := sorted(unknown + (read["unknown_local"] if read else []))):
+            for magic in magics.find(source):
+                if magic.name == "run":
+                    try:  # %run -b/-c runs a resources file, which the check doesn't read
+                        name = None if _RUN_SCRIPT.match(magic.rest) else _run_target(magic.rest)[0]
+                    except ValueError:
+                        name = None
+                    runs.append((magic.line, name, "%run"))
+        run_block: dict[str, tuple[int, str] | None] = {"local": None, "fabric": None}
+        run_unknown: dict[str, list[tuple[int, str]]] = {"local": [], "fabric": []}
+        for line, name, how in sorted(runs, key=lambda r: r[0]):
+            for side, got in _followed(name, how, lakehouse, load, _seen).items():
+                if got and got[0] == "blocked":
+                    run_block[side] = run_block[side] or (line, got[1])
+                elif got:
+                    run_unknown[side].append((line, got[1]))
+        if len(local) == blocked and (hit_run := run_block["local"]):
+            local.append({"cell": n, "text": hit_run[1], "code": _line(source, hit_run[0])})
+        if len(local) == blocked and (here := sorted(unknown + run_unknown["local"]
+                                                    + (read["unknown_local"] if read else []))):
             local_unknown.append({"cell": n, "text": here[0][1], "code": _line(source, here[0][0])})
         fabric_before = len(fabric)
         if m := _DBUTILS.search(source):
@@ -658,13 +686,39 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         if m := _LOCAL_PATH.search(source):
             fabric.append({"cell": n, "text": "reads or writes a path on this PC, which Fabric can't reach",
                            "code": _snippet(source, m)})
-        if len(fabric) == fabric_before and unknown:
-            first = min(unknown)
+        if len(fabric) == fabric_before and (hit_run := run_block["fabric"]):
+            fabric.append({"cell": n, "text": hit_run[1], "code": _line(source, hit_run[0])})
+        elif len(fabric) == fabric_before and (unknown or run_unknown["fabric"]):
+            first = min(unknown + run_unknown["fabric"])
             fabric_unknown.append({"cell": n, "text": first[1], "code": _line(source, first[0])})
     if not lakehouse:
         fabric.insert(0, {"cell": None, "text": "has no lakehouse attached. A Fabric run reads and writes "
                                                 "through the attached lakehouse.", "code": ""})
     return {"local": _side(local, local_unknown), "fabric": _side(fabric, fabric_unknown)}
+
+
+def _followed(name: str | None, how: str, lakehouse: dict[str, Any] | None,
+              load: Callable[[str], list[dict[str, Any]]] | None, seen: tuple[str, ...]) -> dict[str, tuple[str, str] | None]:
+    """What a cell that runs notebook ``name`` gets from it on each side: ("blocked" or "unknown", text), or None."""
+    def both(text: str) -> dict[str, tuple[str, str] | None]:
+        return {"local": ("unknown", text), "fabric": ("unknown", text)}
+    if name is None or load is None:
+        return both(_RUN_TEXT.format(how=how))
+    if name.lower() in (s.lower() for s in seen) or len(seen) >= MAX_RUN_DEPTH:
+        return both(f"runs {name} ({how}), which runs notebooks in a loop or more than {MAX_RUN_DEPTH} deep, "
+                    "so the check stops there")
+    try:
+        cells = load(name)
+    except (OSError, ValueError, KeyError, TypeError):
+        return both(f"runs {name} ({how}), which isn't a notebook on this PC, so the check can't read it")
+    child = compute_check(cells, lakehouse, load, seen + (name,))
+    out: dict[str, tuple[str, str] | None] = {}
+    for side in ("local", "fabric"):
+        blockers = [r for r in child[side]["reasons"] if r.get("cell")]  # not "no lakehouse": that's this notebook's own
+        r = blockers[0] if blockers else (child[side]["unknown"] or [None])[0]
+        out[side] = (("blocked" if blockers else "unknown"), f"runs {name} ({how}), whose cell {r['cell']} {r['text']}") \
+            if r else None
+    return out
 
 
 def _side(reasons: list[dict[str, Any]], unknown: list[dict[str, Any]]) -> dict[str, Any]:

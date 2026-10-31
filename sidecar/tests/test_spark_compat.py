@@ -184,20 +184,29 @@ def test_create_dataframe_reads_a_ddl_schema_string(live):
     import decimal
     df = live.createDataFrame([(1, "x", decimal.Decimal("1.5"), [1, 2], datetime.date(2026, 1, 2))],
                                "id int, name string, amount decimal(10,2), tags array<int>, day date")
-    assert df.dtypes == [("id", "integer"), ("name", "string"), ("amount", "decimal(10,2)"),
-                         ("tags", "array<integer>"), ("day", "date")]
+    assert df.dtypes == [("id", "int"), ("name", "string"), ("amount", "decimal(10,2)"),
+                         ("tags", "array<int>"), ("day", "date")]
     assert live.createDataFrame([(5,)], "n: bigint").dtypes == [("n", "bigint")]
     assert live.createDataFrame([(5,)], "`my col` long").columns == ["my col"]
     with pytest.raises(ValueError, match="isn't supported on this PC"):
         live.createDataFrame([(1,)], "s geometry")
 
 
+def test_python_ints_are_bigint_as_spark_infers_them(live):
+    df = live.createDataFrame([(1, [2, 3], "x")], ["n", "xs", "s"])
+    assert df.dtypes == [("n", "bigint"), ("xs", "array<bigint>"), ("s", "string")]
+    assert rows(df) == [(1, [2, 3], "x")]
+    assert [t for _n, t in live.createDataFrame([(1,)]).dtypes] == ["bigint"]
+    assert live.createDataFrame([(1,)], "n int").dtypes == [("n", "int")]  # a schema says what it says
+
+
 def test_ddl_schema_reads_structs_comments_and_not_null(live):
     df = live.createDataFrame([((1, ["x"]), 5)],
                               "s STRUCT<a: INT, b: ARRAY<STRING>> COMMENT 'nested, kept', id bigint NOT NULL COMMENT \"key\"")
-    assert df.dtypes == [("s", "struct<a:integer,b:array<string>>"), ("id", "bigint")]
-    assert rows(df) == [({"a": 1, "b": ["x"]}, 5)]
-    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:integer>>")]
+    assert df.dtypes == [("s", "struct<a:int,b:array<string>>"), ("id", "bigint")]
+    [(s, n)] = rows(df)  # a struct comes back as a Row, as Spark's collect() gives it
+    assert type(s).__name__ == "Row" and s.asDict() == {"a": 1, "b": ["x"]} and n == 5
+    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:int>>")]
     assert live.createDataFrame([(1, None)], "id int NOT NULL, name string").count() == 1
     with pytest.raises(ValueError, match="field id: This field is not nullable, but got None"):
         live.createDataFrame([(1, "a"), (None, "b")], "id int NOT NULL, name string")

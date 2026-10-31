@@ -259,7 +259,7 @@ test("Run as shows OK, Expires in N days, Expired, Last token request failed and
 for (const [panel, method, words] of [
   ["agents", "agents_list", /^No agents serve these environments\./],
   ["queue", "queue_list", /^Nothing is running, queued or scheduled in the next day\.$/],
-  ["runas", "run_as_list", /\S/],  // the engine always lists This PC, so this answer only comes from a bare reply
+  ["runas", "run_as_list", /^No places to show\.$/],  // the engine always lists This PC, so this answer only comes from a bare reply
 ]) {
   test(`${panel}: an empty answer shows a plain message`, { skip }, async () => {
     mode[method] = "empty";

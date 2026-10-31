@@ -5667,3 +5667,17 @@ test("declining a workspace access request says whether its approval gave, raise
   assert.deepStrictEqual(left({ assigned: true }),
     ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
 });
+
+// #1260: a shortcut request's decline says the shortcut its approval made is still in OneLake.
+test("declining a shortcut request whose shortcut was made says it is still in OneLake", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
+  assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
+    ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
+    ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
+  assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
+});

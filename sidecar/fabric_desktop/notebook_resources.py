@@ -72,6 +72,32 @@ def resolve(text: str, folder: str | Path) -> str | None:
     return f"{(Path(folder) / BUILTIN).as_posix()}/{rest}"
 
 
+OUTSIDE = "That Built-in file links outside the notebook's resources."
+
+
+def real_path(text: str, folder: str | Path) -> str | None:
+    """Like ``resolve``, but the file's real path once every link is followed (symlinks, Windows
+    junctions and other reparse points), for code that reads or runs the file itself (%run -b,
+    %pip install -r). PermissionError when that path, or the builtin folder itself, is outside the
+    notebook's resources folder, as kratosforge:// links refuse a path that leaves its folder."""
+    path = resolve(text, folder)
+    if path is None:
+        return None
+    resources = os.path.realpath(folder)
+    root = os.path.realpath(Path(folder) / BUILTIN)
+    real = os.path.realpath(path)
+    if not (_within(root, resources) and _within(real, root)):
+        raise PermissionError(OUTSIDE)
+    return real
+
+
+def _within(path: str, root: str) -> bool:
+    try:
+        return os.path.normcase(os.path.commonpath([path, root])) == os.path.normcase(root)
+    except ValueError:  # another drive on Windows
+        return False
+
+
 def _free(base: Path, name: str) -> str:
     stem, dot, ext = name.rpartition(".") if "." in name.lstrip(".") else (name, "", "")
     for n in range(2, 1000):

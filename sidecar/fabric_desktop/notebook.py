@@ -1523,7 +1523,7 @@ class Kernel:
         if not self.resources_dir:
             raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
                                     "under Resources (Built-in) first.")
-        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        path = notebook_resources.real_path(f"builtin/{file}", self.resources_dir)
         if path is None or not os.path.isfile(path):
             raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
         text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM

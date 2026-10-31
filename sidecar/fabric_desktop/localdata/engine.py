@@ -43,7 +43,8 @@ from .. import delta_dml, delta_profile, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
-from ..duckdb_rows import first_row, one_row
+from ..duckdb_rows import first_row, keep_try_cast, one_row
+from ..sql import KfDuckDB
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -260,6 +261,7 @@ class LocalEngine:
                 raise _friendly_open_error(exc, p.database) from None
             # UTC, like Fabric. SET, not connect's config: that tries to download ICU, which fails offline.
             con.execute("SET TimeZone = 'UTC'")
+            keep_try_cast(con)
             con.execute(f"SET temp_directory = {lit(str(p.temp_dir))}")
             # dbo first, as in Fabric's SQL endpoints and SQL Server: CREATE TABLE t makes dbo.t, and
             # dbo.orders can be written orders.
@@ -1058,7 +1060,7 @@ class LocalEngine:
         """The MERGE's source rows, kept in a temporary table so the check below and the merge read
         the same rows, as a stream of Fabric-safe types with column names in the table's case, and
         DuckDB's stream under it, for the caller to close."""
-        query = c.source_sql("duckdb")
+        query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
         keys = delta_dml.equi_keys(c)

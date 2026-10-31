@@ -196,10 +196,11 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
     """(outcome, value) for ``case`` on this PC: the value is DuckDB's answer, or the error text."""
     import duckdb
 
+    from .. import sql
     from .local_sql import _databricks
 
     try:
-        translated = ";\n".join(s.sql(dialect="duckdb") for s in _databricks(case.sql))
+        translated = ";\n".join(sql.duckdb_sql(s) for s in _databricks(case.sql))
     except Exception as exc:  # noqa: BLE001 - any failure to translate is the outcome being measured
         return "untranslated", f"{type(exc).__name__}: {exc}"
     con = con or duckdb.connect()

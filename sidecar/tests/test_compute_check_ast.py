@@ -352,6 +352,11 @@ def test_run_b_in_a_notebook_it_runs_reads_this_notebooks_resources(resources):
     ("nu.notebook.run('Child', 90, {'day': '1'})", "blocked"),
     ("nu.notebook.run('Child', 90, useRootDefaultLakehouse=flag)", "unknown"),
     ("nu.notebook.run('Child', 90, args)", "unknown"),
+    # #1314: only a real True or False decides; "false", 0 or None isn't read as either
+    *[(f"nu.notebook.run('Child', 90, useRootDefaultLakehouse={v})", "unknown") for v in ('"false"', '"true"', "0", "1", "None")],
+    *[(f"nu.notebook.run('Child', 90, {{'useRootDefaultLakehouse': {v}}})", "unknown") for v in ('"false"', "0", "None")],
+    *[(f"nu.notebook.runMultiple({{'activities': [{{'name': 'c', 'path': 'Child', 'args': {{'useRootDefaultLakehouse': {v}}}}}]}})",
+       "unknown") for v in ('"true"', "1", "None")],
     ("nu.notebook.runMultiple({'activities': [{'name': 'c', 'path': 'Child', 'args': {'useRootDefaultLakehouse': True}},"
      " {'name': 'd', 'path': 'Child'}]})", "blocked"),
 ])

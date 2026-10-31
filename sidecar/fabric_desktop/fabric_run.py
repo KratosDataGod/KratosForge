@@ -698,7 +698,7 @@ def _run_names(node: ast.Call, how: str) -> list[tuple[str, bool | None]] | None
     """The notebooks ``notebook.run`` or ``runMultiple`` runs, when the call names them in a literal
     (a name, a list of names, or a DAG whose every activity gives its ``path``), each with whether
     it runs with this notebook's lakehouse (useRootDefaultLakehouse): True, False, or None when that's
-    known only at run time. None when any notebook is known only at run time."""
+    known only at run time or isn't a real true or false ("false", 0). None when any notebook is known only at run time."""
     if not node.args:
         return None
     value = _literal(node.args[0])
@@ -717,7 +717,7 @@ def _run_names(node: ast.Call, how: str) -> list[tuple[str, bool | None]] | None
     if not paths or not all(isinstance(p, str) and p.strip() for p, _ in paths):
         return None
     return [(p.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".ipynb"),
-             flag if isinstance(flag, bool) else None if flag is _UNREAD else bool(flag)) for p, flag in paths]
+             flag if isinstance(flag, bool) else None) for p, flag in paths]  # only true or false decides (#1314)
 
 
 def _literal(node: ast.AST | None) -> Any:

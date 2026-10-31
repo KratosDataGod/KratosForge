@@ -218,6 +218,12 @@ def test_probe_results_mean_what_they_say():
     assert center.health_from_probe(one, 200, 403)["health"] == "unreachable"
     assert center.health_from_probe({"target_type": "ADLS Gen2"}, 200, 403)["health"] == "broken"
     assert center.health_from_probe(one, 200, None, "timeout")["health"] == "not_checked"
+    for busy in (429, 500, 503, 504):  # OneLake busy after the probe's retries: not the shortcut's fault
+        assert center.health_from_probe(one, 200, busy, "ServerBusy") == {
+            "health": "not_checked",
+            "detail": f"OneLake was busy (it answered {busy}), so this wasn't checked. It's checked again next time"}
+    assert center.health_from_probe(one, 200, 404)["health"] == "broken"
+    assert center.health_from_probe(one, 200, 409)["health"] == "broken"
 
 
 def test_risks_find_crossed_environments_and_duplicates():

@@ -156,6 +156,27 @@ def test_probe_reads_at_most_one_entry_and_writes_nothing():
                        "directory": f"{LH}/Files/shortcut"}
 
 
+def test_probe_waits_out_throttling_and_a_busy_onelake():
+    s, t = session([Reply(429, headers={"Retry-After": "1"}), Reply(503), Reply(200, {"paths": []})])
+    waits = []
+    fs = FileStore(lambda: "tok", session=s, sleep=waits.append)
+    assert fs.probe(WS, LH, "Files/shortcut") == (200, "")
+    assert [r.method for r in t.sent] == ["GET"] * 3 and waits[0] == 1
+
+
+def test_probe_gives_its_last_answer_after_a_few_tries():
+    s, t = session([Reply(503, {"error": {"code": "ServerBusy", "message": "busy"}})] * 5)
+    fs = FileStore(lambda: "tok", session=s, sleep=lambda w: None)
+    assert fs.probe(WS, LH, "Files/shortcut") == (503, "ServerBusy busy")
+    assert len(t.sent) == 3  # onelake.PROBE_ATTEMPTS
+
+
+def test_probe_doesnt_repeat_a_404():
+    fs, t = store([Reply(404, {"error": {"code": "PathNotFound", "message": "gone"}})])
+    assert fs.probe(WS, LH, "Files/shortcut") == (404, "PathNotFound gone")
+    assert len(t.sent) == 1
+
+
 def test_list_follows_the_continuation_header_and_only_reads():
     fs, t = store([
         Reply(200, {"paths": [{"name": f"{LH}/Files/b.csv", "contentLength": "3"}]},

@@ -129,6 +129,11 @@ class FileTooBig(ValueError):
         super().__init__(f"{path} is over {max_bytes // (1024 * 1024)} MB, so it wasn't downloaded.")
         self.path, self.max_bytes = path, max_bytes
 
+# How many times a shortcut check asks OneLake before giving its last answer. The Shortcuts page
+# and the agent's watch run 8 checks at once, so each one gives up sooner than a file read does.
+PROBE_ATTEMPTS = 3
+
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
@@ -176,12 +181,14 @@ class FileStore:
     def probe(self, workspace_id: str, lakehouse_id: str, directory: str) -> tuple[int | None, str]:
         """List at most one entry of ``directory``: (HTTP status, message). Reads nothing else and
         writes nothing; through a shortcut it proves Fabric can reach the target. Status None: the
-        request didn't get an answer."""
+        request didn't get an answer. Throttling and 5xx are tried again (PROBE_ATTEMPTS in all)
+        before the last answer is returned."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "false", "maxResults": "1",
                   "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
-        try:
-            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+        try:  # a read: OneLake throttling, a 5xx or a dropped connection is waited out, a few times
+            resp = send_with_retry(lambda: self._http.get(url, params=params, headers=self._headers(), timeout=60),
+                                   "GET", sleep=self._sleep, attempts=PROBE_ATTEMPTS)
         except requests.RequestException as exc:
             return None, str(exc)
         if resp.status_code < 400:

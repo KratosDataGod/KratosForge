@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-10-31 | #1299 f94d33a5 | Monitor > Operations browser tests (Agents, Queue, Run as) | PASS 9.2 | Merges clean. The runas.js empty-state fix uses the same state.query pattern as agents.js and queue.js. Merge result: operations-panels.test.cjs 13/13 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Rows are counted and read in one step, and the RPC check diffs against a baseline taken after the app's startup polls. |
+
 | 2026-10-31 | #1298 a416faeb | Run stale cells tested in a real browser | PASS 9.2 | Test only, merges clean. Merge result: stale-cells.test.cjs 5/5 in 8 of 8 runs, each with two ui.test processes alongside for load. ui 312/0. Sleeps are only grace periods after nothing-should-run checks; all other waits are on state. Writes stay local (an engineHome file and an in-memory DuckDB table). |
 
 | 2026-10-31 | #1294 eb48ce4a | Accessibility audit covers Preview screens and common dialogs | PASS 9.2 | Test and report only, merges clean. Merge result: a11y-audit 4/4, and regenerating the report with A11Y_REPORT gives the committed docs/ux/accessibility-audit.md (no diff, ignoring date and version lines). The three new JUDGED contrast ratios recompute as stated (15.52, 5.33, 4.61, 9.63). keyboard.test.cjs passes 4/4 here on both main and the PR, so the owner's local notebook Tab-stop failure is environmental. ui 312/0. |

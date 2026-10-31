@@ -150,6 +150,47 @@ class LandingCopyMixin:
             self._rq_progress(req, {"schedule_id": made["schedule_id"]})  # type: ignore[attr-defined]
         return made
 
+    # ---- a source isn't deleted while the Copy job that lands it is still in Fabric
+
+    def platform_delete_source(self, name: str) -> list[dict[str, Any]]:
+        """Refuses while a Copy job a request made for this source is still in the landing workspace:
+        deleting the source would leave the job running on its schedule with nothing in the app that
+        names it. Nothing in Fabric is changed. A job that's gone from Fabric no longer holds it."""
+        source = core.key_name(name)
+        jobs = self._lc_jobs_for(source)
+        if jobs and self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
+            # Anyone else is refused by the platform as before, without hearing about the job.
+            api = self._rq_fabric()  # type: ignore[attr-defined]
+            for job in jobs:
+                try:
+                    there = any(i.get("id") == job["id"] for i in api.list_items(job["workspace_id"]))
+                except Exception as exc:
+                    _log.info("Couldn't read the landing workspace for %s's Copy job: %s", source, describe(exc))
+                    raise core.PlatformError(
+                        f"Couldn't check whether {source}'s Copy job {job['name']} is still in the landing "
+                        f"workspace ({describe(exc)}), so the source is kept. Try again when Fabric can be reached"
+                    ) from exc
+                if there:
+                    raise core.PlatformError(
+                        f"{source} has the Copy job {job['name']} in the landing workspace, on its schedule: "
+                        "delete it in Fabric first, then delete the source")
+        return super().platform_delete_source(name)  # type: ignore[misc]
+
+    def _lc_jobs_for(self, source: str) -> list[dict[str, str]]:
+        """The Copy jobs any request for this source recorded making, whatever became of the request:
+        a declined or withdrawn one can have made its job before it stopped."""
+        out, seen = [], set()
+        for r in self._catalog().call("list_requests"):  # type: ignore[attr-defined]
+            m = (r.get("detail") or {}).get("made") or {}
+            jid = str(m.get("copy_job_id") or "")
+            if r.get("kind") != "source" or core.key_name(str(r.get("target") or "")) != source or not jid \
+                    or not m.get("workspace_id") or jid in seen:
+                continue
+            seen.add(jid)
+            out.append({"id": jid, "workspace_id": str(m["workspace_id"]),
+                        "name": str(m.get("copy_job_name") or copyjob_build.job_name(source))})
+        return out
+
     # ---- the landing zone shows which sources a Copy job lands
 
     def platform_landing(self, env: str = "dev") -> dict[str, Any]:

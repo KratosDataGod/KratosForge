@@ -266,3 +266,62 @@ def test_a_long_reason_still_makes_the_copy_job_with_its_marker(svc, who, api):
     description = api.items[0]["description"]
     assert len(description) <= 256 and description.endswith(f" (KratosForge request {req['id']})")
     assert description.startswith("Lands erp in the landing zone.") and other["id"] not in description
+
+
+# --------------------------------------------------------------------------- deleting a source with a Copy job (#1311)
+
+
+def test_a_source_whose_copy_job_is_still_in_fabric_is_not_deleted(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    with pytest.raises(core.PlatformError) as err:
+        svc.platform_delete_source("erp")
+    assert str(err.value) == ("erp has the Copy job CJ_Landing_erp in the landing workspace, on its schedule: "
+                              "delete it in Fabric first, then delete the source")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+    assert [c[0] for c in api.calls] == ["save_item", "create_schedule"]  # nothing changed in Fabric
+    assert "cj-1" in {i["id"] for i in api.items}
+
+
+def test_once_the_copy_job_is_deleted_in_fabric_the_source_deletes(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    api.items.clear()  # an admin deleted CJ_Landing_erp in Fabric
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+def test_a_source_without_a_copy_job_deletes_as_before(svc, who, api):
+    who["user"] = DEV
+    req = svc.platform_request("source", "shopify", "Orders from the shop")
+    who["user"] = ADMIN
+    svc.platform_decide(req["id"], True)
+    api.list_items = None  # Fabric isn't read: there's no job to ask about
+    assert all(s["name"] != "shopify" for s in svc.platform_delete_source("shopify"))
+
+
+def test_a_copy_job_a_withdrawn_request_made_still_holds_the_source(svc, who, api):
+    req = ask(svc, who)
+    api.fail["create_schedule"] = 1
+    with pytest.raises(StepError):
+        svc.platform_decide(req["id"], True)  # the job is made, its schedule isn't
+    svc.platform_save_source({"name": "erp"})
+    svc.platform_decide(req["id"], False, "Not now")
+    with pytest.raises(core.PlatformError, match="has the Copy job CJ_Landing_erp"):
+        svc.platform_delete_source("erp")
+
+
+def test_when_fabric_cant_be_read_the_source_is_kept(svc, who, api, monkeypatch):
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def down(workspace_id):
+        raise RuntimeError("Fabric is unreachable")
+    monkeypatch.setattr(api, "list_items", down)
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job CJ_Landing_erp is still"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+def test_someone_who_isnt_an_admin_is_refused_as_before_without_hearing_of_the_job(svc, who, api):
+    svc.platform_decide(ask(svc, who)["id"], True)
+    who["user"] = DEV
+    with pytest.raises(Exception) as err:
+        svc.platform_delete_source("erp")
+    assert "Copy job" not in str(err.value) and "admin" in str(err.value).lower()

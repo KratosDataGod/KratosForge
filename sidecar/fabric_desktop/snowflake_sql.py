@@ -24,7 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, UnsupportedError
 
-RULES_VERSION = "2026.10.2"
+RULES_VERSION = "2026.10.3"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -125,7 +125,8 @@ SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
 
 SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
               "DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in "
-              "Snowflake; here the result is a TIMESTAMP at midnight. The date is the same.",
+              "Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value "
+              "is or may be a DATE (a column's type isn't known here), not on a TIMESTAMP cast or function.",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
 SFD_TYPEOF = _n("SFD-007", "TYPEOF names DuckDB's types",
@@ -392,6 +393,15 @@ def _rewrite_object_construct(statement: exp.Expression) -> None:
             f"to_json(map_from_entries(list_filter([{entries}], x -> x.v IS NOT NULL)))", read="duckdb"))
 
 
+def _rewrite_soundex(statement: exp.Expression) -> None:
+    """SFX-006: SOUNDEX is American Soundex in Snowflake, as in Spark, so it takes the DuckDB engine's
+    Spark template (#1180)."""
+    from .sql import _ANON_TEMPLATES, _from_template
+
+    for node in list(statement.find_all(exp.Soundex)):
+        node.replace(_from_template(_ANON_TEMPLATES["SOUNDEX"], [node.this]))
+
+
 def _rewrite_values(statement: exp.Expression) -> None:
     """SFX-005: a VALUES list in FROM names its columns COLUMN1, COLUMN2... in Snowflake; DuckDB names
     them col0, col1..., so a query that reads COLUMN1 would fail. An alias with column names is kept."""
@@ -408,6 +418,24 @@ def _rewrite_values(statement: exp.Expression) -> None:
 
 
 # ---------------------------------------------------------------- known differences (SFD-*)
+
+_TIMESTAMP_TYPES = {exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
+                    exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.DATETIME}
+
+
+_TIMESTAMP_FUNCTIONS = {f"{try_}TO_TIMESTAMP{kind}" for try_ in ("", "TRY_") for kind in ("", "_NTZ", "_LTZ", "_TZ")}
+
+
+def _may_be_date(value: exp.Expression | None) -> bool:
+    """False only when the value is plainly a timestamp: a cast to one (TO_TIMESTAMP of a literal reads
+    as a cast), a TO_TIMESTAMP function (and its _NTZ, _LTZ, _TZ and TRY_ forms), CURRENT_TIMESTAMP or
+    CONVERT_TIMEZONE. A column, a literal or anything else may be a DATE."""
+    if isinstance(value, (exp.Cast, exp.TryCast)):
+        return value.to.this not in _TIMESTAMP_TYPES
+    if isinstance(value, exp.Anonymous) and str(value.this).upper() in _TIMESTAMP_FUNCTIONS:
+        return False
+    return not isinstance(value, (exp.CurrentTimestamp, exp.ConvertTimezone))
+
 
 _DATE_UNITS = {"YEAR", "YEARS", "Y", "YY", "YYY", "YYYY", "YR", "YRS", "QUARTER", "QUARTERS", "Q", "QTR", "QTRS",
                "MONTH", "MONTHS", "MM", "MON", "MONS", "WEEK", "WEEKS", "W", "WK", "WEEKOFYEAR", "WOY", "WY",
@@ -428,7 +456,7 @@ def _differences(statement: exp.Expression) -> list[Note]:
         notes.append(SFD_DIV)
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
-    if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS
+    if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS and _may_be_date(n.this)
            for n in statement.find_all(exp.TimestampTrunc, exp.DateTrunc, exp.DateAdd)):
         notes.append(SFD_DATE)
     if any(statement.find_all(exp.Typeof)):
@@ -450,6 +478,9 @@ CATALOG = (
                 "Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten."),
     ("SFX-005", "Rewritten", "A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless "
                 "its alias names the columns."),
+    ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
+                "Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that "
+                "case."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -499,6 +530,7 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_to_char(tree)
         _rewrite_object_construct(tree)
         _rewrite_values(tree)
+        _rewrite_soundex(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

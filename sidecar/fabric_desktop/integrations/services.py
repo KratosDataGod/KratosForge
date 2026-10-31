@@ -186,8 +186,8 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
     from ..proof import check as proof_check
     nb = svc.notebooks.load(name)
     cells, lakehouse = nb["cells"], nb.get("lakehouse")
-    runs = compute_check(cells, lakehouse, svc._cells_of)
-    proof = proof_check(cells, lakehouse, svc._cells_of)
+    runs = compute_check(cells, lakehouse, **svc._checks(name))
+    proof = proof_check(cells, lakehouse, **svc._checks(name))
     out = {"name": name, "this_pc": runs["local"], "fabric": runs["fabric"],
            "proof": {"ok": proof["ok"], "blockers": proof["blockers"], "warnings": proof["warnings"]}}
     try:

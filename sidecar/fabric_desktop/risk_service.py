@@ -186,7 +186,7 @@ class RiskMixin:
             try:
                 nb = self.notebooks.load(w["name"])  # type: ignore[attr-defined]
                 facts["compatibility"] = compute_check(nb.get("cells") or [], nb.get("lakehouse"),
-                                                          self._cells_of)  # type: ignore[attr-defined]
+                                                          **self._checks(w["name"]))  # type: ignore[attr-defined]
             except (OSError, ValueError):
                 facts["compatibility"] = None
         elif w["kind"] == "meta_entity" and action == "run":
@@ -287,6 +287,6 @@ class RiskMixin:
             if row.get("valid") and row.get("kind") == "proof":
                 proofs.append(self.receipt_get(row["id"]))  # type: ignore[attr-defined]
         done = [c for c in self.side_by_side_list(name, 10) if c.get("state") == "done"]  # type: ignore[attr-defined]
-        compat = compute_check(cells, nb.get("lakehouse"), self._cells_of)  # type: ignore[attr-defined]
+        compat = compute_check(cells, nb.get("lakehouse"), **self._checks(name))  # type: ignore[attr-defined]
         return advisor.advise(name, receipts_mod.code_revision(cells)["revision"], compat, proofs, done)
 

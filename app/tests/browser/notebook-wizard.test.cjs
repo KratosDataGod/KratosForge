@@ -8,7 +8,9 @@
 // - a name already taken is refused and the first notebook's file is left as it was
 // - Back keeps the answers, and Cancel writes nothing
 // - axe finds nothing serious on each step
-// Three tests are marked todo: they fail today on problems this test found (see each one's comment).
+// It found three problems, fixed with it in wizard.js: the engine's exception name showed on the step,
+// choosing the same template again after Back emptied the answers, and the review's scrolling cell
+// list couldn't be reached by keyboard.
 //
 // The "Clean a table" template needs no lakehouse: with none attached the notebook says to add one
 // once it opens, and nothing is read until a cell runs, so nothing here reaches Fabric.
@@ -160,11 +162,8 @@ test("an empty required answer or an invalid one keeps the person on the questio
   assert.deepStrictEqual(app.errors, []);
 });
 
-// The engine's sentence reaches the step with the exception's name in front ("ValueError: Name the
-// columns..."): wizardToReview and wizardCreate show String(e) where other pages use friendlyError.
-test("the message on a step doesn't start with the engine's exception name", {
-  skip, todo: "the wizard shows 'ValueError: ...' (wizard.js wizardToReview and wizardCreate don't use friendlyError)",
-}, async () => {
+// The engine's sentence, without its exception name in front ("ValueError: Name the columns...").
+test("the message on a step doesn't start with the engine's exception name", { skip }, async () => {
   await open();
   await pick(CLEAN);
   await answer({ ...ANSWERS, "Columns that identify a row": "" });
@@ -202,11 +201,8 @@ test("Back from the review keeps every answer, and Back to the templates keeps t
   await d.waitFor({ state: "detached" });
 });
 
-// Picking a template sets its answers afresh (wizardTemplates' onclick), so going Back to the
-// templates and choosing the same one again empties every box but the name.
-test("choosing the same template again after Back keeps the answers", {
-  skip, todo: "picking a template resets wizardState.values even when it is the template already chosen",
-}, async () => {
+// Back to the templates and the same one again: what was typed is still there.
+test("choosing the same template again after Back keeps the answers", { skip }, async () => {
   const d = await open();
   await pick(CLEAN);
   await answer(ANSWERS);
@@ -337,12 +333,9 @@ test("the templates and questions steps have no serious axe findings", { skip: a
   assert.deepStrictEqual(app.errors, []);
 });
 
-// The review's cell list scrolls (.wizard-cells, max-height 340px, overflow-y: auto in styles.css)
-// but neither it nor anything in it takes focus, so the keyboard can't scroll it:
-// axe's scrollable-region-focusable (serious).
-test("the review step has no serious axe findings", {
-  skip: axeSkip, todo: "scrollable-region-focusable @ .wizard-cells: the review's scrolling cell list can't be reached by keyboard",
-}, async () => {
+// The review's cell list scrolls (.wizard-cells, max-height 340px), so it takes focus for the
+// keyboard to scroll it (axe's scrollable-region-focusable).
+test("the review step has no serious axe findings", { skip: axeSkip }, async () => {
   const d = await open();
   await pick(CLEAN);
   await answer(ANSWERS);

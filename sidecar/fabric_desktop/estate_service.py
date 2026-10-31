@@ -20,6 +20,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
+from . import jsonfile
 from . import access as access_mod
 from . import capacity as capacity_mod
 from . import costs as costs_mod
@@ -502,7 +503,7 @@ class EstateMixin:
         result = testing_mod.run(project)
         path = self._test_results_file(project)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result, indent=1), encoding="utf-8")
+        jsonfile.write_text(path, json.dumps(result, indent=1))
         return result
 
     def meta_tests(self, run: bool = False) -> dict[str, Any]:

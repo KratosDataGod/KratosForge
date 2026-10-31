@@ -629,6 +629,11 @@ class FabricClient:
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}").json()
 
+    def admin_get_workspace(self, workspace_id: str) -> dict[str, Any]:
+        """A workspace as Fabric's admin API sees it, member or not: {id, name, state, ...}, where state
+        is Active, Deleted or Removing. Fabric administrators only (Tenant.Read.All)."""
+        return self._request("GET", f"/admin/workspaces/{workspace_id}").json()
+
     def list_role_assignments(self, workspace_id: str) -> list[dict[str, Any]]:
         """Workspace roles: [{id, principal: {id, displayName, type, userDetails...}, role}]."""
         return self._paged(f"/workspaces/{workspace_id}/roleAssignments")

@@ -34,7 +34,7 @@ SCHEDULE_JOB_TYPE = "Execute"  # the job type a Copy job runs as (workloads/inve
 
 
 def _gone(exc: FabricError) -> bool:
-    """Fabric says the workspace isn't there: deleted, so nothing in it is either. No access (403) isn't."""
+    """Fabric says the workspace isn't there. No access (403) isn't; the admin API confirms the rest."""
     return exc.status == 404 or exc.code in ("WorkspaceNotFound", "EntityNotFound")
 
 
@@ -171,7 +171,7 @@ class LandingCopyMixin:
                 try:
                     there = any(i.get("id") == job["id"] for i in api.list_items(job["workspace_id"]))
                 except FabricError as exc:
-                    if not _gone(exc):
+                    if not (_gone(exc) and self._lc_workspace_gone(job["workspace_id"])):
                         raise self._lc_unchecked(source, job, exc) from exc
                     there = False  # the landing workspace itself is gone, and its Copy job with it
                 except Exception as exc:
@@ -181,6 +181,22 @@ class LandingCopyMixin:
                         f"{source} has the Copy job {job['name']} in the landing workspace, on its schedule: "
                         "delete it in Fabric first, then delete the source")
         return super().platform_delete_source(name)  # type: ignore[misc]
+
+    def _lc_workspace_gone(self, workspace_id: str) -> bool:
+        """Some tenants answer "not found" to someone who isn't a member, so a 404 alone could leave a
+        running Copy job with no source. Fabric's admin API sees every workspace: gone only when it
+        says so too. Unreadable (not a Fabric admin) is not gone."""
+        try:
+            ws = self._fabric_admin().admin_get_workspace(workspace_id)  # type: ignore[attr-defined]
+        except FabricError as exc:
+            if exc.status == 404 or exc.code in ("WorkspaceNotFound", "EntityNotFound"):
+                return True
+            _log.info("Fabric's admin API couldn't confirm the landing workspace is gone: %s", describe(exc))
+            return False
+        except Exception as exc:  # noqa: BLE001 - unconfirmed keeps the source
+            _log.info("Fabric's admin API couldn't confirm the landing workspace is gone: %s", describe(exc))
+            return False
+        return str(ws.get("state") or "") in ("Deleted", "Removing")
 
     def _lc_unchecked(self, source: str, job: dict[str, str], exc: BaseException) -> core.PlatformError:
         _log.info("Couldn't read the landing workspace for %s's Copy job: %s", source, describe(exc))

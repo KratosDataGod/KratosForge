@@ -334,6 +334,47 @@ def test_once_the_landing_workspace_is_deleted_the_source_deletes(svc, who, api,
     def gone(workspace_id):
         raise FabricError("The requested workspace was not found", code="WorkspaceNotFound", status=404)
     monkeypatch.setattr(api, "list_items", gone)
+    monkeypatch.setattr(type(svc), "_fabric_admin", lambda self, write=False: AdminApi({"state": "Deleted"}))
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+class AdminApi:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def admin_get_workspace(self, workspace_id):
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return dict(self.answer, id=workspace_id)
+
+
+@pytest.mark.parametrize("admin", [
+    {"state": "Active"},  # there, only not for this admin: a non-member's 404
+    "forbidden",          # not a Fabric admin, so it can't be confirmed
+])
+def test_a_not_found_the_admin_api_doesnt_confirm_keeps_the_source(svc, who, api, monkeypatch, admin):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def not_found(workspace_id):
+        raise FabricError("The requested workspace was not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", not_found)
+    answer = FabricError("Forbidden", code="InsufficientPrivileges", status=403) if admin == "forbidden" else admin
+    monkeypatch.setattr(type(svc), "_fabric_admin", lambda self, write=False: AdminApi(answer))
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())
+
+
+def test_the_admin_api_not_finding_the_workspace_either_lets_the_source_go(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def not_found(workspace_id):
+        raise FabricError("not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", not_found)
+    monkeypatch.setattr(type(svc), "_fabric_admin",
+                        lambda self, write=False: AdminApi(FabricError("not found", code="WorkspaceNotFound", status=404)))
     assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
 
 

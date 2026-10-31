@@ -24,7 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import notebook_resources
+from . import jsonfile, notebook_resources
 from .fabric_run import SHIM_MARKER, uses_spark
 from .meta import diff as diff_mod
 from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb
@@ -356,9 +356,8 @@ def delete(shelf: NotebookShelf, name: str, schedules_off: list[str]) -> dict[st
         raise OSError(f"Couldn't keep a copy of {name} in Recently deleted, so it wasn't deleted.")
     place = shelf.place_of(name)
     kept_until = (now + dt.timedelta(days=KEEP_DAYS)).isoformat()
-    (trash / f"{tid}.json").write_text(json.dumps({"id": tid, "name": name, "place": place, "deleted_at": now.isoformat(),
-                                                   "kept_until": kept_until, "schedules": schedules_off}),
-                                       encoding="utf-8")
+    jsonfile.write_text(trash / f"{tid}.json", json.dumps({"id": tid, "name": name, "place": place, "deleted_at": now.isoformat(),
+                                                                "kept_until": kept_until, "schedules": schedules_off}))
     src.unlink()
     # Its resources folder (notebook_resources) isn't moved or deleted: it stays beside where the
     # notebook was, and the notebook restored under its name, or a new one, picks it up again.

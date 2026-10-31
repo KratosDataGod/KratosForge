@@ -22,7 +22,7 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import fabric_step, maintenance, notebook_files, profiling, retrying, semantic
+from . import fabric_step, jsonfile, maintenance, notebook_files, profiling, retrying, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
 from .errors import NotSetUp
 from .fabric_api import FabricClient, FabricError
@@ -73,7 +73,7 @@ class CloudMixin:
 
     def _write_fabric_runs(self, runs: list[dict[str, Any]]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        self.fabric_runs_file.write_text("".join(json.dumps(r) + "\n" for r in runs[-500:]), encoding="utf-8")
+        jsonfile.write_text(self.fabric_runs_file, "".join(json.dumps(r) + "\n" for r in runs[-500:]))
 
     def _log_fabric_run(self, record: dict[str, Any]) -> dict[str, Any]:
         record = {"status": "NotStarted", "started_at": _now(), "finished_at": None, "message": ""} | record
@@ -653,7 +653,7 @@ class CloudMixin:
             known = {"hash": digest, "runner_id": runner_id, "at": _now(), "version": project.version}
             state[key] = known
             self.root.mkdir(parents=True, exist_ok=True)
-            self._bundles_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            jsonfile.write_text(self._bundles_file, json.dumps(state, indent=2))
         return {"workspace_id": ws, "meta_lakehouse_id": meta_id, "runner_id": known["runner_id"]}
 
     def _check_runnable(self, project: Any, store: Any) -> None:

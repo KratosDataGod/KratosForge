@@ -745,11 +745,20 @@ def _pipeline(args: argparse.Namespace) -> int:
 
 
 def _pipeline_schedule(args: argparse.Namespace) -> int:
-    pairs = lambda items: dict(item.partition("=")[::2] for item in items)  # noqa: E731
+    def pairs(items: list[str], flag: str) -> dict[str, str]:
+        bad = [item for item in items if "=" not in item]
+        if bad:
+            raise ValueError(f"{flag} takes NAME=VALUE (got {bad[0]!r})")
+        return dict(item.partition("=")[::2] for item in items)
+
     try:
-        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else {}
-        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param),
-                  "mocks": mocks, "notebooks": pairs(args.notebook), "sql_projects": pairs(args.sql_project),
+        mocks = {}
+        if args.mocks:
+            with open(args.mocks, encoding="utf-8") as f:
+                mocks = json.load(f)
+        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param, "--param"),
+                  "mocks": mocks, "notebooks": pairs(args.notebook, "--notebook"),
+                  "sql_projects": pairs(args.sql_project, "--sql-project"),
                   "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace or ""}
         schedule = ({"kind": "cron", "every_minutes": args.every_minutes} if args.every_minutes else
                     {"kind": "weekly" if args.weekday else "daily", "times": args.at, "weekdays": args.weekday})

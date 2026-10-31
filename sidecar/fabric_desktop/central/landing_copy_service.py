@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..fabric_api import FabricError
 from ..fabric_run import schedule_configuration
 from ..redact import describe
 from ..orchestration import copyjob_build
@@ -30,6 +31,11 @@ _log = logging.getLogger(__name__)
 
 COPY_JOB_TYPE = "CopyJob"
 SCHEDULE_JOB_TYPE = "Execute"  # the job type a Copy job runs as (workloads/inventory.py); unverified on a tenant
+
+
+def _gone(exc: FabricError) -> bool:
+    """Fabric says the workspace isn't there: deleted, so nothing in it is either. No access (403) isn't."""
+    return exc.status == 404 or exc.code in ("WorkspaceNotFound", "EntityNotFound")
 
 
 class LandingCopyMixin:
@@ -164,17 +170,23 @@ class LandingCopyMixin:
             for job in jobs:
                 try:
                     there = any(i.get("id") == job["id"] for i in api.list_items(job["workspace_id"]))
+                except FabricError as exc:
+                    if not _gone(exc):
+                        raise self._lc_unchecked(source, job, exc) from exc
+                    there = False  # the landing workspace itself is gone, and its Copy job with it
                 except Exception as exc:
-                    _log.info("Couldn't read the landing workspace for %s's Copy job: %s", source, describe(exc))
-                    raise core.PlatformError(
-                        f"Couldn't check whether {source}'s Copy job {job['name']} is still in the landing "
-                        f"workspace ({describe(exc)}), so the source is kept. Try again when Fabric can be reached"
-                    ) from exc
+                    raise self._lc_unchecked(source, job, exc) from exc
                 if there:
                     raise core.PlatformError(
                         f"{source} has the Copy job {job['name']} in the landing workspace, on its schedule: "
                         "delete it in Fabric first, then delete the source")
         return super().platform_delete_source(name)  # type: ignore[misc]
+
+    def _lc_unchecked(self, source: str, job: dict[str, str], exc: BaseException) -> core.PlatformError:
+        _log.info("Couldn't read the landing workspace for %s's Copy job: %s", source, describe(exc))
+        return core.PlatformError(
+            f"Couldn't check whether {source}'s Copy job {job['name']} is still in the landing "
+            f"workspace ({describe(exc)}), so the source is kept. Try again when Fabric can be reached")
 
     def _lc_jobs_for(self, source: str) -> list[dict[str, str]]:
         """The Copy jobs any request for this source recorded making, whatever became of the request:

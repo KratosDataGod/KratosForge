@@ -325,3 +325,25 @@ def test_someone_who_isnt_an_admin_is_refused_as_before_without_hearing_of_the_j
     with pytest.raises(Exception) as err:
         svc.platform_delete_source("erp")
     assert "Copy job" not in str(err.value) and "admin" in str(err.value).lower()
+
+
+def test_once_the_landing_workspace_is_deleted_the_source_deletes(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def gone(workspace_id):
+        raise FabricError("The requested workspace was not found", code="WorkspaceNotFound", status=404)
+    monkeypatch.setattr(api, "list_items", gone)
+    assert all(s["name"] != "erp" for s in svc.platform_delete_source("erp"))
+
+
+def test_no_access_to_the_landing_workspace_keeps_the_source(svc, who, api, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    svc.platform_decide(ask(svc, who)["id"], True)
+
+    def denied(workspace_id):
+        raise FabricError("Forbidden", code="InsufficientPrivileges", status=403)
+    monkeypatch.setattr(api, "list_items", denied)
+    with pytest.raises(core.PlatformError, match="Couldn't check whether erp's Copy job"):
+        svc.platform_delete_source("erp")
+    assert any(s["name"] == "erp" for s in svc.platform_sources())

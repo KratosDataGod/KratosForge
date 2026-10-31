@@ -6,7 +6,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks, settleForAxe } = require("./harness.cjs");
 
 let axeSource = null;
 try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
@@ -99,6 +99,7 @@ test("Compare runs both versions read-only and shows same rows and measured time
 });
 
 test("the preview has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+  await settleForAxe(page());
   await page().addScriptTag({ content: axeSource });
   const found = await page().evaluate(async () => {
     const r = await window.axe.run(document.querySelector(".sql-compat"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });

@@ -189,4 +189,28 @@ async function startupReads(app) {
   }
 }
 
-module.exports = { playwright, openApp, sqlRunMocks, startupReads };
+// axe-core, when installed (the axe tests skip without it).
+let axeSource = null;
+try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed */ }
+
+// Resolves once every animation that ends has ended; endless ones (a spinner) don't hold it up.
+function animationsDone(page) {
+  return page.waitForFunction(() => document.getAnimations()
+    .every((a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity));
+}
+
+// The serious and critical axe findings in `scope` (a CSS selector), as "rule @ targets" lines.
+// Dialogs and panels fade in (motion.js), and axe judges contrast on the colors as drawn, so a check
+// taken mid-way sees text that is still faded (#1297, #1337). So motion is off and every animation
+// that ends has ended before axe looks.
+async function axeFindings(page, scope, { tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } = {}) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await animationsDone(page);
+  if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.addScriptTag({ content: axeSource });
+  return page.evaluate(async ([scope, tags]) => {
+    const r = await window.axe.run(document.querySelector(scope), { runOnly: tags });
+    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+  }, [scope, tags]);
+}
+
+module.exports = { playwright, openApp, sqlRunMocks, startupReads, axeSource, axeFindings, animationsDone };

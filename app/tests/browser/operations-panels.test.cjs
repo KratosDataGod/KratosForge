@@ -8,11 +8,7 @@
 // serious on each panel.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
-const { playwright, openApp, startupReads } = require("./harness.cjs");
-
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
+const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -299,15 +295,9 @@ test("only the three list methods reach the engine while these panels are open",
 });
 
 test("axe finds nothing serious on Agents, Queue and Run as", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
-  // Reduced motion: a panel fading in would be judged on its half-drawn colors.
-  await page().emulateMedia({ reducedMotion: "reduce" });
-  await page().addScriptTag({ content: axeSource });
   for (const [panel, n] of [["agents", 4], ["queue", 9], ["runas", 7]]) {
     await rows(panel, n);
-    const found = await page().evaluate(async () => {
-      const r = await window.axe.run(document.querySelector(".page.monitor"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-      return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-    });
+    const found = await axeFindings(page(), ".page.monitor");
     assert.deepStrictEqual(found, [], panel);
   }
 });

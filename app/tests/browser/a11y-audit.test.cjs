@@ -7,7 +7,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, animationsDone } = require("./harness.cjs");
 
 let axeSource = null;
 try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: skip */ }
@@ -232,6 +232,7 @@ async function audit(page, target, scheme) {
   await target.open(page);
   if (target.ready) await page.waitForSelector(target.ready);
   await settle(page);  // the page's own calls answer
+  await animationsDone(page);  // axe judges contrast as drawn: nothing still fading in (#1337)
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const axeOut = await page.evaluate(async ([scope, tags]) => {

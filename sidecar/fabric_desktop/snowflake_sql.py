@@ -24,7 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, UnsupportedError
 
-RULES_VERSION = "2026.10.3"
+RULES_VERSION = "2026.10.4"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -437,6 +437,41 @@ def _rewrite_values(statement: exp.Expression) -> None:
                                          columns=[exp.to_identifier(f"column{i}") for i in range(1, width + 1)]))
 
 
+def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
+    """SFX-007: RATIO_TO_REPORT(x) OVER (PARTITION BY p) is x over the partition's sum, and null when x is
+    null or the sum is 0. Snowflake's docs say an ORDER BY in the window doesn't change the result, so it's
+    dropped; a window frame isn't allowed there."""
+    for node in list(statement.find_all(exp.Window)):
+        func = node.this
+        if not (isinstance(func, exp.Anonymous) and str(func.this).upper() == "RATIO_TO_REPORT"):
+            continue
+        if len(func.expressions) != 1 or node.args.get("spec") is not None:
+            raise _Untranslatable(_refuse("SFX-007", "RATIO_TO_REPORT", "Only RATIO_TO_REPORT(expr) OVER "
+                                          "(PARTITION BY ...) is rewritten.", f"{_DOCS}/functions/ratio_to_report"))
+        value = _duck(func.expressions[0])
+        partition = node.args.get("partition_by") or []
+        over = f"PARTITION BY {', '.join(_duck(p) for p in partition)}" if partition else ""
+        node.replace(sqlglot.parse_one(f"(({value}) / NULLIF(SUM({value}) OVER ({over}), 0))", read="duckdb"))
+
+
+_EARTH_RADIUS_KM = 6371
+
+
+def _rewrite_haversine(statement: exp.Expression) -> None:
+    """SFX-008: HAVERSINE(lat1, lon1, lat2, lon2) is the great-circle distance in kilometres on a sphere of
+    radius 6,371 km; that radius reproduces the docs example (3936.385096389 km, New York to Los Angeles)."""
+    for node in list(statement.find_all(exp.Anonymous)):
+        if str(node.this).upper() != "HAVERSINE":
+            continue
+        if len(node.expressions) != 4:
+            raise _Untranslatable(_refuse("SFX-008", "HAVERSINE", "HAVERSINE takes four numbers.",
+                                          f"{_DOCS}/functions/haversine"))
+        lat1, lon1, lat2, lon2 = (f"radians(CAST({_duck(a)} AS DOUBLE))" for a in node.expressions)
+        node.replace(sqlglot.parse_one(
+            f"(2 * {_EARTH_RADIUS_KM} * asin(sqrt(power(sin(({lat2} - {lat1}) / 2), 2) + "
+            f"cos({lat1}) * cos({lat2}) * power(sin(({lon2} - {lon1}) / 2), 2))))", read="duckdb"))
+
+
 # ---------------------------------------------------------------- known differences (SFD-*)
 
 _TIMESTAMP_TYPES = {exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
@@ -502,6 +537,11 @@ CATALOG = (
     ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
                 "Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that "
                 "case."),
+    ("SFX-007", "Rewritten", "RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's "
+                "sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't "
+                "change the result."),
+    ("SFX-008", "Rewritten", "HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius "
+                "6,371 km."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -553,6 +593,8 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
         _rewrite_object_construct(tree)
         _rewrite_values(tree)
         _rewrite_soundex(tree)
+        _rewrite_ratio_to_report(tree)
+        _rewrite_haversine(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

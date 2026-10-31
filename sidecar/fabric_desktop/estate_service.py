@@ -45,7 +45,14 @@ from .retrying import send_with_retry
 _log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
-_GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+def _guid(value: Any, what: str) -> str:
+    """An id that goes into a Fabric or Power BI URL: a GUID and nothing else, or ValueError."""
+    if not isinstance(value, str) or not _GUID.fullmatch(value):
+        raise ValueError(f"That isn't a {what} id KratosForge can use.")
+    return value
 
 
 def _who(service: Any) -> str:
@@ -366,6 +373,10 @@ class EstateMixin:
         given by email: Power BI's workspace API takes one, so no directory permission is needed."""
         if role and role not in access_mod.ROLES:
             raise ValueError(f"role must be one of {', '.join(access_mod.ROLES)}")
+        _guid(workspace_id, "workspace")
+        for value, what in ((assignment_id, "role assignment"), (principal_id, "person, group or app")):
+            if value:
+                _guid(value, what)
         fabric = self.fabric  # type: ignore[attr-defined]
         if assignment_id and role:
             fabric.update_role_assignment(workspace_id, assignment_id, role)
@@ -380,6 +391,7 @@ class EstateMixin:
         return {"ok": True}
 
     def _add_user_by_email(self, workspace_id: str, email: str, role: str) -> None:
+        _guid(workspace_id, "workspace")
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
@@ -407,7 +419,7 @@ class EstateMixin:
         (Fabric lists them with their IDs), and only then in the directory (Microsoft Graph),
         which needs a permission Microsoft's sign-in app may not have."""
         text = (text or "").strip()
-        if _GUID.match(text):
+        if _GUID.fullmatch(text):
             return {"id": text, "name": text, "email": "", "type": "Group"}
         if "@" not in text:
             raise ValueError("Type a person's email, or a group's or app's object ID.")

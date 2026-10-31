@@ -120,6 +120,14 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
         runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
         out.append(f"The Copy job {name}, made by this request, is still in the landing workspace{runs}: "
                    "delete it there if it isn't wanted")
+    elif kind == "domain" and made.get("domain_id"):
+        name = d.get("name") or req.get("target") or made["domain_id"]
+        if made.get("fabric_domain_id"):
+            out.append(f"The domain {name}, made by this request, is still in Fabric and the platform: delete it in "
+                       "Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted")
+        else:
+            out.append(f"The domain {name}, made by this request, is still in the platform: delete it on "
+                       "Data mesh > Domains if it isn't wanted")
     return out
 
 
@@ -256,7 +264,9 @@ class RequestsMixin:
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
         marker = request_marker(req)
-        _, adopted = self._rq_step(step, create)
+        saved, adopted = self._rq_step(step, create)
+        fabric_id = next((str(x.get("fabric_domain") or "") for x in saved or [] if x.get("id") == req["target"]), "")
+        self._rq_progress(req, {"domain_id": req["target"], **({"fabric_domain_id": fabric_id} if fabric_id else {})})
         if adopted:
             return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
         if in_fabric or parent is None:

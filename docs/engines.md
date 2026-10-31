@@ -89,11 +89,11 @@ The same session rules apply as for any DuckDB cell (no files, extensions or net
 shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
-and DuckDB versions, and from 119 function checks against Snowflake's documented values (below);
+and DuckDB versions, and from 124 function checks against Snowflake's documented values (below);
 each is a test.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
-Rules 2026.10.3.
+Rules 2026.10.4.
 
 | Id | What | Applies to |
 | --- | --- | --- |
@@ -103,6 +103,8 @@ Rules 2026.10.3.
 | SFX-004 | Rewritten | OBJECT_CONSTRUCT drops a pair whose value is SQL NULL and keeps JSON null, as Snowflake does. OBJECT_CONSTRUCT(*) isn't rewritten. |
 | SFX-005 | Rewritten | A VALUES list in FROM gets Snowflake's column names COLUMN1, COLUMN2..., unless its alias names the columns. |
 | SFX-006 | Rewritten | SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that case. |
+| SFX-007 | Rewritten | RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't change the result. |
+| SFX-008 | Rewritten | HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius 6,371 km. |
 | SFX-000 | Runs only in Snowflake | Anything else sqlglot can't write for DuckDB. |
 | SFD-001 | Runs, with a difference: Unquoted names keep their case | Snowflake stores an unquoted name in upper case (MyCol becomes MYCOL); DuckDB keeps it as typed. |
 | SFD-002 | Runs, with a difference: TIMESTAMP_TZ loses its offset | DuckDB stores TIMESTAMP_TZ as TIMESTAMPTZ, an instant, so the offset Snowflake keeps with each value is lost. |
@@ -133,17 +135,15 @@ with the value Snowflake's SQL reference documents for it. A function that answe
 always labelled as a difference when it runs, never as translated.
 
 <!-- Generated from snowflake_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
-Of 119 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
+Of 124 checks on commonly used Snowflake functions, against the values Snowflake's SQL reference documents (no Snowflake account was used), these don't answer the same way on this PC.
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
 | `/ (by zero)` | Numeric | Different result | Snowflake stops with a division-by-zero error; here it gives infinity (SFD-003). Use DIV0. |
 | `DATEADD (DATE, month end)` | Date and time | Different result | The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006). |
 | `TYPEOF` | Semi-structured | Different result | It names DuckDB's type (JSON), not Snowflake's VARIANT type (SFD-007). |
-| `RATIO_TO_REPORT` | Aggregate | Doesn't run | DuckDB has no RATIO_TO_REPORT; write x / SUM(x) OVER () instead. |
-| `HAVERSINE` | Geospatial | Doesn't run | DuckDB has no HAVERSINE outside its spatial extension, which this PC's sessions don't load. |
 
-These 114 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `SOUNDEX`, `SOUNDEX (same code for similar names)`, `SOUNDEX (adjacent same codes)`, `SOUNDEX (first letter's code)`, `SOUNDEX (H between same codes)`, `SOUNDEX (padded with zeros)`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `DATE_TRUNC (DATE)`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `IS_NULL_VALUE`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `APPROX_COUNT_DISTINCT`, `STDDEV_SAMP`.
+These 121 checks answer as Snowflake documents: `IFF`, `NVL`, `NVL2 (NULL)`, `NVL2 (value)`, `IFNULL`, `NULLIF`, `ZEROIFNULL`, `NULLIFZERO`, `DIV0`, `DIV0NULL`, `DECODE`, `DECODE (NULL matches NULL)`, `EQUAL_NULL`, `COALESCE`, `GREATEST`, `GREATEST (any NULL)`, `LEAST (any NULL)`, `CONCAT (any NULL)`, `|| (NULL)`, `CONCAT_WS (any NULL)`, `SPLIT_PART`, `SPLIT_PART (negative part)`, `SPLIT_PART (part 0)`, `SPLIT`, `STRTOK`, `REGEXP_SUBSTR`, `REGEXP_COUNT`, `REGEXP_REPLACE (every match)`, `REGEXP_LIKE (whole string)`, `RLIKE (whole string)`, `LEFT`, `RIGHT`, `LENGTH`, `LEN`, `UPPER`, `INITCAP`, `TRIM`, `LTRIM (characters)`, `LPAD`, `REPLACE`, `REVERSE`, `REPEAT`, `SPACE`, `INSERT`, `CONTAINS`, `STARTSWITH`, `ENDSWITH`, `POSITION`, `CHARINDEX`, `SUBSTR`, `TRANSLATE`, `ASCII`, `CHR`, `EDITDISTANCE`, `SOUNDEX`, `SOUNDEX (same code for similar names)`, `SOUNDEX (adjacent same codes)`, `SOUNDEX (first letter's code)`, `SOUNDEX (H between same codes)`, `SOUNDEX (padded with zeros)`, `MD5`, `SHA2 (256 by default)`, `ABS`, `CEIL`, `FLOOR`, `ROUND (half away from zero)`, `ROUND (negative half)`, `TRUNC`, `MOD (negative dividend)`, `% (modulo)`, `SQUARE`, `SQRT`, `POWER`, `SIGN`, `BITAND`, `TO_NUMBER (scale 0)`, `TRY_TO_NUMBER`, `TRY_CAST`, `TO_VARCHAR`, `TO_BOOLEAN`, `TO_DATE`, `TO_DATE (format)`, `TO_TIME`, `DATE_FROM_PARTS`, `DATE_TRUNC (DATE)`, `ADD_MONTHS (month end)`, `LAST_DAY`, `DATEDIFF (day)`, `DATEDIFF (month boundary)`, `TIMESTAMPDIFF (hour)`, `TIMEADD`, `TIME_SLICE`, `DAYOFWEEK (Sunday is 0)`, `YEAR`, `HOUR`, `DATE_PART`, `MONTHNAME`, `DAYNAME`, `PARSE_JSON path`, `ARRAY_SIZE`, `ARRAY_CONTAINS`, `ARRAY_TO_STRING`, `ARRAY_SLICE`, `ARRAY_CAT`, `OBJECT_KEYS`, `IS_NULL_VALUE`, `LISTAGG`, `ARRAY_AGG`, `COUNT_IF`, `MEDIAN`, `BOOLOR_AGG`, `ANY_VALUE`, `APPROX_COUNT_DISTINCT`, `STDDEV_SAMP`, `RATIO_TO_REPORT`, `RATIO_TO_REPORT (docs example)`, `RATIO_TO_REPORT (null value)`, `RATIO_TO_REPORT (sum is 0)`, `RATIO_TO_REPORT (by partition)`, `HAVERSINE`, `HAVERSINE (docs example)`.
 
 ## Databricks SQL warehouse (Preview)
 

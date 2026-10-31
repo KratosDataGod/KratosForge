@@ -109,8 +109,8 @@ def test_the_sentences_match_the_decline_confirm():
     assert left_in_fabric({"kind": "workspace_access", "detail": {
         "role": "Contributor", "workspace_name": "Sales Prod", "principal": {"type": "Group", "name": "Sales Engineers"},
         "made": {"assigned": True}}}) == [
-        "The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving "
-        "this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]
+        "The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this "
+        "request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]
 
 
 @pytest.mark.parametrize("parent, in_fabric", [("", True), ("ops", False)], ids=["in fabric", "platform only"])
@@ -165,8 +165,8 @@ def half_given(svc, who, monkeypatch, have):
                    "the workspace's Manage access in Fabric if it isn't wanted"),
     ("Viewer", "raised", f"{DEV} keeps the Contributor role in Sales Prod that approving this request raised from "
                          "Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"),
-    ("Contributor", "same", f"{DEV} keeps the Contributor role (or the higher one they had) in Sales Prod from "
-                            "approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"),
+    ("Contributor", "same", f"{DEV} has the Contributor role in Sales Prod: they had it before this request, or "
+                            "approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"),
     ("Admin", "kept", None),
 ], ids=["gave", "raised", "same", "kept"])
 def test_declining_after_a_failed_decision_says_exactly_what_changed(svc, who, monkeypatch, have, change, line):
@@ -190,9 +190,9 @@ def test_a_retry_after_the_role_was_given_still_records_that_it_was_given(svc, w
     assert out["status"] == "approved" and out["detail"]["made"]["change"] == "gave"
 
 
-def test_a_request_recorded_before_the_change_was_kept_still_declines_with_the_careful_sentence():
+def test_a_request_recorded_before_the_change_was_kept_says_to_check_before_removing():
     old = {"kind": "workspace_access", "detail": {"role": "Member", "workspace_name": "Sales Prod",
                                                   "principal": {"email": DEV}, "made": {"assigned": True}}}
-    assert left_in_fabric(old) == [f"{DEV} keeps the Member role (or the higher one they had) in Sales Prod from "
-                                   "approving this request: remove it in the workspace's Manage access in Fabric "
-                                   "if it isn't wanted"]
+    assert left_in_fabric(old) == [f"{DEV} has the Member role or a higher one in Sales Prod: they had it before "
+                                   "this request, or approving it gave it. Check which before removing it in the "
+                                   "workspace's Manage access in Fabric"]

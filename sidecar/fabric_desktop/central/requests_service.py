@@ -119,9 +119,12 @@ def left_in_fabric(req: dict[str, Any]) -> list[str]:
         elif made.get("change") == "raised" and made.get("from"):
             out.append(f"{whom} keeps the {role} role in {ws} that approving this request raised from "
                        f"{made['from']}: set it back in the workspace's Manage access in Fabric if it isn't wanted")
-        else:  # the same role was there, or a request recorded before #1207: this approval may have given it
-            out.append(f"{whom} keeps the {role} role (or the higher one they had) in {ws} from approving this "
-                       "request: remove it in the workspace's Manage access in Fabric if it isn't wanted")
+        else:
+            # The same role was there (they had it, or a retry found what this approval gave), or a request
+            # recorded before #1207: say both, so no one removes access a person had before asking.
+            higher = " or a higher one" if made.get("change") != "same" else ""
+            out.append(f"{whom} has the {role} role{higher} in {ws}: they had it before this request, or approving it "
+                       "gave it. Check which before removing it in the workspace's Manage access in Fabric")
     elif kind == "source" and made.get("copy_job_id"):
         name = made.get("copy_job_name") or made["copy_job_id"]
         runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""

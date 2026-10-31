@@ -5625,7 +5625,7 @@ test("declining or withdrawing a partly carried-out request says what is still i
   assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
     ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
-    ["The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+    ["The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
   assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
     ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
   for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
@@ -5662,7 +5662,8 @@ test("declining a workspace access request says whether its approval gave, raise
   assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
     ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
   assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
-  const careful = ["dev@contoso.com keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"];
-  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }), careful);
-  assert.deepStrictEqual(left({ assigned: true }), careful, "a request recorded before #1207");
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }),
+    ["dev@contoso.com has the Contributor role in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ assigned: true }),
+    ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
 });

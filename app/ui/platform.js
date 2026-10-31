@@ -988,7 +988,8 @@ function leftInFabric(r) {
     const role = d.role || "role", ws = d.workspace_name || d.workspace_id || "the workspace";
     if (made.change === "gave") return [`${whom} keeps the ${role} role in ${ws} that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted`];
     if (made.change === "raised" && made.from) return [`${whom} keeps the ${role} role in ${ws} that approving this request raised from ${made.from}: set it back in the workspace's Manage access in Fabric if it isn't wanted`];
-    return [`${whom} keeps the ${role} role (or the higher one they had) in ${ws} from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted`];
+    // The same role was there, or a request recorded before #1207: say both, so no one removes access they had before.
+    return [`${whom} has the ${role} role${made.change === "same" ? "" : " or a higher one"} in ${ws}: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric`];
   }
   if (r.kind === "source" && made.copy_job_id) {
     return [`The Copy job ${made.copy_job_name || made.copy_job_id}, made by this request, is still in the landing workspace${made.schedule_id ? " and its daily schedule still runs it" : ""}: delete it there if it isn't wanted`];

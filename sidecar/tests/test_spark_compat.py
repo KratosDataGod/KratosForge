@@ -109,6 +109,11 @@ def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, c
     assert rows(spark.sql("SELECT CAST(0.125 AS DECIMAL(10, 3)) d").select(F.format_number("d", 2))) == [("0.12",)]
     assert rows(spark.sql("SELECT CAST(1e20 AS DOUBLE) x").select(F.format_number("x", 0))) == [
         ("100,000,000,000,000,000,000",)]
+    big = spark.sql("SELECT CAST(1e25 AS DECIMAL(38, 2)) d, CAST(10 AS HUGEINT) ** 30 h, CAST(1e19 AS DECIMAL(38, 2)) e")
+    # From 1e20 a number prints through a double, as before: no failure, but digits past 17 aren't exact.
+    [(d, e, h)] = rows(big.select(F.format_number("d", 2), F.format_number("e", 1), F.format_number("h", 0)))
+    assert d.startswith("10,000,000,000,000,000,") and d.endswith(".00") and len(d) == len("10,000,000,000,000,000,000,000,000.00")
+    assert e == "10,000,000,000,000,000,000.0" and h.startswith("1,000,000,000,000,000,") and len(h) == 31 + 10  # 10**30: 31 digits
     F.percentile_approx("x", 0.5, 100)
     F.to_json("x", {"timestampFormat": "yyyy"})
     out = capsys.readouterr().out

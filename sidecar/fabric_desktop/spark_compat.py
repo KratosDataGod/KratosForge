@@ -262,8 +262,12 @@ def format_number(col: Any, d: int) -> Column:
     if not 0 <= d <= 18:
         return _sql(f"printf('%,.{max(d, 0)}f', {x})")
     exact = f"CAST(printf('%.20f', CAST({x} AS DOUBLE)) AS DECIMAL(38, 20))"
-    return _sql(f"CASE WHEN typeof({x}) NOT IN ('DOUBLE', 'FLOAT') THEN {_half_even(f'CAST({x} AS DECIMAL(38, 18))', d)} "
-                f"WHEN abs({x}) < 1e17 THEN {_half_even(exact, d)} ELSE printf('%,.{d}f', {x}) END")
+    # Beyond the exact decimals (a double from 1e17, any other number from 1e20) DuckDB's own rounding
+    # prints it, as before.
+    big = f"printf('%,.{d}f', round_even({x}, {d}))"
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE WHEN abs({x}) < 1e17 THEN "
+                f"{_half_even(exact, d)} ELSE {big} END) WHEN abs({x}) < 1e20 THEN "
+                f"{_half_even(f'CAST({x} AS DECIMAL(38, 18))', d)} ELSE {big} END")
 
 
 def _half_even(v: str, d: int) -> str:

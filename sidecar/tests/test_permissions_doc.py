@@ -17,8 +17,9 @@ API = {
     "https://vault.azure.net": "Azure Key Vault",
 }
 # A delegated scope as code writes it: https://<resource>/<Permission>, where the permission is
-# user_impersonation or a Name.Read(Write).All style name. /.default isn't a permission of its own.
-SCOPE = re.compile(r"[\"'](https://[a-z0-9.\-]+(?:/powerbi/api)?)/(user_impersonation|[A-Z][A-Za-z]*(?:\.[A-Z][A-Za-z]*)*\.All)[\"']")
+# user_impersonation or a dotted name (Item.ReadWrite.All, User.Read, Mail.Send). /.default isn't
+# a permission of its own.
+SCOPE = re.compile(r"[\"'](https://[a-z0-9.\-]+(?:/powerbi/api)?)/(user_impersonation|[A-Z][A-Za-z]*(?:\.[A-Z][A-Za-z]*)+)[\"']")
 ROW = re.compile(r"^\| ([^|]+?) \| `([^`]+)` \|", re.M)
 
 
@@ -57,3 +58,11 @@ def test_the_scan_finds_every_scope_sign_in_knows():
     for s in scopes:
         resource, permission = s.rsplit("/", 1)
         assert (API[resource], permission) in code, s
+
+
+def test_a_scope_that_does_not_end_in_all_is_found_too():
+    text = 'X = ["https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Mail.Send"]\n' \
+           'Y = ["https://storage.azure.com/user_impersonation", "https://api.fabric.microsoft.com/.default"]'
+    assert set(SCOPE.findall(text)) == {("https://graph.microsoft.com", "User.Read"),
+                                        ("https://graph.microsoft.com", "Mail.Send"),
+                                        ("https://storage.azure.com", "user_impersonation")}

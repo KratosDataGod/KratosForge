@@ -28,6 +28,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from urllib.parse import urlparse
 
 from .. import connprofiles, redact
 from .runtimes import DRIVE, trusted_cli
@@ -43,12 +44,13 @@ class DatabricksAuthError(RuntimeError):
 
 
 def check_host(host: str) -> str:
-    """``host`` without a trailing slash, when it is an Azure Databricks workspace address."""
+    """``https://<workspace host>`` in lower case, when ``host`` is an Azure Databricks workspace
+    address: one form however it was written, so two addresses of one workspace compare equal."""
     host = (host or "").rstrip("/")
     found = connprofiles._host_problems({"cloud": "azure", "host": host}, "host")
     if not host or found:
         raise DatabricksAuthError(found[0] if found else "The connection has no workspace address (host).")
-    return host
+    return "https://" + (urlparse(host).hostname or "")
 
 
 def resolve_secret(ref: str, environ: Mapping[str, str] | None = None) -> str:

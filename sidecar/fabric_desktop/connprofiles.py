@@ -175,9 +175,16 @@ def _host_problems(conn: dict[str, Any], where: str) -> list[str]:
     host = conn.get("host") or ""
     if not host:
         return []  # chosen later, from discovery
-    url = urlparse(host)
-    if url.scheme != "https" or not (url.hostname or "").endswith(suffix) or url.path not in ("", "/") \
-            or url.username or url.password or url.query:
+    url, port = None, None
+    if isinstance(host, str) and host.isprintable() and not any(c.isspace() or c == "#" for c in host):
+        try:
+            url = urlparse(host)
+            port = url.port
+        except ValueError:      # a port that isn't a number, a bracket left open
+            url = None
+    if url is None or url.scheme != "https" or not (url.hostname or "").endswith(suffix) \
+            or url.path not in ("", "/") or url.username or url.password or url.query or url.fragment \
+            or port not in (None, 443):
         return [f"{where}.host must be the workspace address, like https://adb-1234567890123456.7{suffix}"]
     return []
 

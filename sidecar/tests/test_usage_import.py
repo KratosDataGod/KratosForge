@@ -256,14 +256,19 @@ def recent_ops():
     return HEAD + f"\nSales Dev,Notebook,nb_sales,Notebook run,{stamp(dt.timedelta(seconds=5))},{stamp(dt.timedelta(minutes=4))},Succeeded,ana@contoso.com,235,1880.5,0.6,Billable,op-1\n"
 
 
+# recent_ops() writes month first. On days 1 to 12 the dates read both ways, and the preview rightly
+# asks which (main went red on 1 November), so the order is given as a person would choose it.
+MDY = {"date_order": "mdy"}
+
+
 def test_service_preview_saves_nothing_and_import_keeps_a_local_copy(svc):
-    p = svc.usage_preview("timepoint.csv", recent_ops())
+    p = svc.usage_preview("timepoint.csv", recent_ops(), MDY)
     assert p["ready"] and "rows" not in p and not (svc.root / "usage_imports").exists()
-    saved = svc.usage_import("timepoint.csv", recent_ops())
+    saved = svc.usage_import("timepoint.csv", recent_ops(), MDY)
     assert saved["rows"] == 1 and saved["file_name"] == "timepoint.csv" and saved["id"].startswith("u-")
     assert svc.usage_imports()[0]["id"] == saved["id"]
     with pytest.raises(ValueError, match="already imported"):
-        svc.usage_import("again.csv", recent_ops())
+        svc.usage_import("again.csv", recent_ops(), MDY)
     rec = svc.usage_reconciliation(7)
     assert rec["matched"]["runs"] == 1 and rec["matched"]["estimated"]["classification"] == ms.ESTIMATED
     report = svc.cost_report(7)

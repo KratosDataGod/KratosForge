@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .git import cli
-from . import vscode_setup
+from . import jsonfile, vscode_setup
 from .git.cli import GitError
 from .git import capacity_files, platform_files, scopes
 from .git.ops import Operations
@@ -84,7 +84,7 @@ class GitMixin:
         self.git_repos_file.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.git_repos_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, self.git_repos_file)
+        jsonfile.replace(tmp, self.git_repos_file)
 
     def _git_remember(self, repo: Repository) -> None:
         with self._git_lock():

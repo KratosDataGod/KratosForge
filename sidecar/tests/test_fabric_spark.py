@@ -649,3 +649,80 @@ def test_closing_when_fabric_cant_end_the_session_still_closes_it_here():
     assert s.closed and livy.deleted == []
     with pytest.raises(SessionClosed):
         s.execute(CellRequest("1", "python"))
+
+
+# ---------------------------------------------------------------- a token that expires mid-run (#1438)
+
+NEW_TOKEN = TOKEN + "x"
+
+
+class ExpiringLivy(FakeLivy):
+    """Refuses the old token with a 401 after `expire_after` calls; takes whichever token is current."""
+
+    def __init__(self, expire_after=0, always_401=False):
+        super().__init__()
+        self.expire_after, self.always_401, self.seen = expire_after, always_401, []
+
+    def request(self, method, url, headers=None, timeout=None, json=None):
+        token = headers["Authorization"].removeprefix("Bearer ")
+        self.seen.append(token)
+        if self.always_401 or (token == TOKEN and len(self.seen) > self.expire_after):
+            return Resp(401, {"message": "token expired"})
+        return super().request(method, url, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=timeout,
+                               json=json)
+
+
+def test_a_401_gets_a_fresh_token_once_and_carries_on():
+    livy = ExpiringLivy(expire_after=1)
+    refreshes = []
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None,
+                           refresh=lambda: refreshes.append(1) or NEW_TOKEN)
+    client.session("7")
+    assert client.session("7")["id"] == "7"
+    assert livy.seen == [TOKEN, TOKEN, NEW_TOKEN] and refreshes == [1]
+
+
+@pytest.mark.parametrize("refresh", [None, lambda: TOKEN, lambda: "", lambda: (_ for _ in ()).throw(RuntimeError())])
+def test_without_a_new_token_a_401_is_sent_once_and_says_sign_in(refresh):
+    livy = ExpiringLivy()
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None, refresh=refresh)
+    with pytest.raises(fs.FabricSparkError) as err:
+        client.session("7")
+    assert "HTTP 401" in str(err.value) and "Sign in again." in str(err.value) and len(livy.seen) == 1
+
+
+def test_a_second_401_with_the_new_token_is_not_tried_a_third_time():
+    livy = ExpiringLivy(always_401=True)
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None, refresh=lambda: NEW_TOKEN)
+    with pytest.raises(fs.FabricSparkError) as err:
+        client.session("7")
+    assert "HTTP 401" in str(err.value) and livy.seen == [TOKEN, NEW_TOKEN]
+    assert NEW_TOKEN not in str(err.value)
+
+
+def test_a_long_livy_message_stays_one_bounded_line():
+    livy = FakeLivy(refuse=400)
+    real = livy.request
+
+    def request(method, url, **kw):
+        real(method, url, **kw)
+        return Resp(400, {"message": "bad\nrequest\r\n\x1b[31m" + "y" * 2000})
+    livy.request = request
+    client = fs.LivyClient(lambda: TOKEN, WS, LH, livy, sleep=lambda s: None)
+    with pytest.raises(fs.FabricSparkError) as err:
+        client.session("7")
+    text = str(err.value)
+    assert "\n" not in text and "\r" not in text and "\x1b" not in text
+    assert "bad request" in text and "…" in text and len(text) < 300 + 200
+
+
+def test_the_service_hands_spark_its_refresh(monkeypatch):
+    from fabric_desktop.engines_service import EnginesMixin
+
+    class Svc(EnginesMixin):
+        auth = type("A", (), {"fabric_token": lambda self: TOKEN})()
+
+        def _refreshed(self, scopes):
+            return lambda: NEW_TOKEN
+    adapter = Svc()._engine_adapter(registry.FABRIC_SPARK.id)
+    assert adapter._refresh() == NEW_TOKEN and adapter._token() == TOKEN

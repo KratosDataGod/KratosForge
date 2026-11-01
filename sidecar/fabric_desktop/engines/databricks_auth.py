@@ -109,7 +109,12 @@ def credman_text(blob: bytes, target: str) -> str:
     some tools save UTF-8. A UTF-16 secret of ASCII holds NUL bytes, so a blob with none (past its
     terminating NULs) that reads as UTF-8 is UTF-8: read as UTF-16 it would become other characters,
     a wrong secret. A blob that is neither is refused rather than guessed, and the error never
-    quotes it."""
+    quotes it.
+
+    Bytes alone can't always tell the two apart: a UTF-16 secret made only of characters whose
+    code units hold no zero byte (most CJK text, for example "中中") is also valid UTF-8 and is
+    read as UTF-8. Such a secret is a different string here than the one saved, so the sign-in it
+    feeds fails rather than succeeding with the wrong value; save it as UTF-8 instead."""
     text = None
     bare = blob.rstrip(b"\x00")   # without the terminating NULs some tools store with the secret
     if b"\x00" not in bare:
@@ -215,7 +220,8 @@ def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | N
         data = json.loads(done.stdout)
     except (TypeError, ValueError):
         data = None
-    if not isinstance(data, dict) or not isinstance(data.get("access_token", ""), str):
+    # A missing or null token is the CLI saying it has none: the provider says "gave no access token".
+    if not isinstance(data, dict) or not isinstance(data.get("access_token") or "", str):
         raise DatabricksAuthError("The Databricks CLI's answer wasn't the JSON it documents. "
                                   "Update the CLI (0.205 or later).")
     return data.get("access_token") or "", _expiry(data.get("expiry"))
@@ -261,8 +267,8 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     # A lifetime that is infinite, NaN or not positive would keep a token forever or fetch one on every call.
     if seconds is not None and not (math.isfinite(seconds) and seconds > 0):
         raise refused
-    if not isinstance(data.get("access_token", ""), str):
-        raise refused   # str() of an object would send its text as the bearer token
+    if not isinstance(data.get("access_token") or "", str):
+        raise refused   # str() of an object would send its text as the bearer token; null is no token
     return data.get("access_token") or "", (clock() + seconds) if seconds is not None else None
 
 

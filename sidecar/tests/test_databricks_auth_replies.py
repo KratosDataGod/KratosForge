@@ -53,8 +53,9 @@ def test_a_cli_answer_that_isnt_the_documented_object_asks_for_a_newer_cli(cli, 
     assert SECRET not in str(exc.value)
 
 
-def test_a_cli_answer_with_no_token_gives_an_empty_one_the_provider_refuses(cli):
-    p = dba.TokenProvider(HOST, lambda: dba._cli_token(["--host", HOST], cli(stdout="{}")), "oauth-u2m")
+@pytest.mark.parametrize("stdout", ["{}", json.dumps({"access_token": None}), json.dumps({"access_token": ""})])
+def test_a_cli_answer_with_no_token_gives_an_empty_one_the_provider_refuses(cli, stdout):
+    p = dba.TokenProvider(HOST, lambda: dba._cli_token(["--host", HOST], cli(stdout=stdout)), "oauth-u2m")
     with pytest.raises(dba.DatabricksAuthError, match="gave no access token"):
         p.token()
 
@@ -88,6 +89,13 @@ def test_a_token_that_isnt_text_is_refused_never_sent_as_its_repr(token):
     with pytest.raises(dba.DatabricksAuthError, match="didn't answer with the OAuth token") as exc:
         m2m({"access_token": token, "expires_in": 3600})
     assert SECRET not in str(exc.value)
+
+
+@pytest.mark.parametrize("body", [{}, {"access_token": None, "expires_in": 3600}])
+def test_a_reply_with_no_token_gives_an_empty_one_the_provider_refuses(body):
+    p = dba.TokenProvider(HOST, lambda: m2m(body), "oauth-m2m")
+    with pytest.raises(dba.DatabricksAuthError, match="gave no access token"):
+        p.token()
 
 
 def test_a_reply_with_no_lifetime_is_kept_until_it_fails():

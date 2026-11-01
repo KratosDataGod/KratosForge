@@ -379,7 +379,8 @@ class ShortcutMixin:
                    f"{str(source.get('path') or '').strip('/')}").lower()
             try:
                 products = center.port_index(self._catalog().call("list_products"))  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - the shortcut shows without its data product
+                _log.warning("Couldn't read the catalog's data products for a shortcut: %s", describe(exc))
                 products = {}
             out["product"] = products.get(key)
         return out
@@ -451,7 +452,8 @@ class ShortcutMixin:
             try:
                 api.create_shortcut(workspace_id, item_id, path, name, current["rest_target"])
                 again = "It was put back as it was."
-            except Exception:  # noqa: BLE001
+            except Exception as back:  # noqa: BLE001 - recorded as removed; the reply says to Recreate it
+                _log.warning("Repointing a shortcut failed and putting it back failed too: %s", describe(back))
                 self._sc_log("removed", ref, before, None, "Repoint failed and the old shortcut couldn't be put back")
                 again = "Putting it back failed too: use Recreate on Shortcuts > Changes."
             self._all_shortcuts = None

@@ -93,7 +93,7 @@ def spark_fixes(statement: exp.Expression) -> exp.Expression:
     """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
-    return _spark_functions(spark_substring(_spark_dates(_spark_names(statement))))
+    return _spark_functions(_spark_json(spark_substring(_spark_dates(_spark_names(statement)))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -390,6 +390,164 @@ def _spark_lambdas(statement: exp.Expression) -> None:
             else:
                 target = ident
             target.replace(exp.paren(exp.Sub(this=ident.copy(), expression=exp.Literal.number(1))))
+
+
+_T = exp.DataType.Type
+_JSON_INTS = {_T.TINYINT: "TINYINT", _T.SMALLINT: "SMALLINT", _T.INT: "INTEGER", _T.BIGINT: "BIGINT"}
+_JSON_NUMBER = "json_type({v}) IN ('BIGINT', 'UBIGINT', 'DOUBLE')"
+
+
+def _from_json_value(v: str, dtype: exp.DataType, depth: int) -> str:
+    """DuckDB SQL reading the JSON value ``v`` into ``dtype`` as Spark's JSON reader does: a whole
+    number for an integer type, any number for DOUBLE and DECIMAL, true/false for BOOLEAN, a string
+    for DATE and TIMESTAMP, anything for STRING (an object or array as its JSON text); a value
+    that doesn't fit is NULL. A type it can't read is refused."""
+    t = dtype.this
+    if t in _JSON_INTS:
+        return f"CASE WHEN json_type({v}) IN ('BIGINT', 'UBIGINT') THEN TRY_CAST(({v})::VARCHAR AS {_JSON_INTS[t]}) END"
+    if t in (_T.DOUBLE, _T.FLOAT):
+        # Spark's allowNonNumericNumbers (on by default) also reads these strings.
+        name = "DOUBLE" if t == _T.DOUBLE else "FLOAT"
+        return (f"CASE WHEN {_JSON_NUMBER.format(v=v)} THEN TRY_CAST(({v})::VARCHAR AS {name}) "
+                f"WHEN json_type({v}) = 'VARCHAR' THEN CASE ({v}) ->> '$' WHEN 'NaN' THEN 'NaN'::{name} "
+                f"WHEN '+INF' THEN 'Infinity'::{name} WHEN '+Infinity' THEN 'Infinity'::{name} "
+                f"WHEN 'Infinity' THEN 'Infinity'::{name} WHEN '-INF' THEN '-Infinity'::{name} "
+                f"WHEN '-Infinity' THEN '-Infinity'::{name} END END")
+    if t == _T.DECIMAL:
+        # A number, or a string read as Spark's en-US decimal parser reads it (commas dropped);
+        # either rounds half-up to the scale, and too many digits is NULL.
+        params = [int(p.name) for p in dtype.expressions] or [10]
+        precision, scale = params[0], (params[1] if len(params) > 1 else 0)
+        return (f"CASE WHEN {_JSON_NUMBER.format(v=v)} THEN "
+                f"TRY_CAST(({v})::VARCHAR AS DECIMAL({precision}, {scale})) "
+                f"WHEN json_type({v}) = 'VARCHAR' AND ({v}) ->> '$' <> '' THEN "
+                f"TRY_CAST(REPLACE(({v}) ->> '$', ',', '') AS DECIMAL({precision}, {scale})) END")
+    if t in (_T.TEXT, _T.VARCHAR):
+        return f"CASE json_type({v}) WHEN 'VARCHAR' THEN ({v}) ->> '$' WHEN 'NULL' THEN NULL ELSE ({v})::VARCHAR END"
+    if t == _T.BOOLEAN:
+        return f"CASE WHEN json_type({v}) = 'BOOLEAN' THEN ({v})::VARCHAR = 'true' END"
+    if t == _T.DATE:
+        return f"CASE WHEN json_type({v}) = 'VARCHAR' THEN TRY_CAST(({v}) ->> '$' AS DATE) END"
+    if t == _T.TIMESTAMPTZ:  # Databricks' TIMESTAMP
+        # An offset in the text is honoured, as Spark does; text without one is read in the
+        # session time zone.
+        # A whole number is seconds since 1970-01-01 UTC, as Spark reads it.
+        return (f"CASE WHEN json_type({v}) = 'VARCHAR' THEN TRY_CAST(({v}) ->> '$' AS TIMESTAMPTZ) "
+                f"WHEN json_type({v}) IN ('BIGINT', 'UBIGINT') THEN TRY(TO_TIMESTAMP(({v})::VARCHAR::BIGINT)) END")
+    if t == _T.ARRAY and len(dtype.expressions) == 1:
+        element = f"fj_e{depth}"
+        inner = _from_json_value(element, dtype.expressions[0], depth + 1)
+        return f"CASE WHEN json_type({v}) = 'ARRAY' THEN LIST_TRANSFORM(CAST({v} AS JSON[]), {element} -> {inner}) END"
+    if t == _T.STRUCT:
+        return f"CASE WHEN json_type({v}) = 'OBJECT' THEN {_from_json_struct(v, dtype, depth)} END"
+    raise ValueError(f"from_json can't read a {dtype.sql('databricks')} field on this PC, so nothing ran. "
+                     "Read it as STRING and convert it, or run the query on Databricks.")
+
+
+def _json_fields(dtype: exp.DataType) -> list[tuple[str, exp.DataType]]:
+    fields = []
+    for field in dtype.expressions:
+        if not isinstance(field, exp.ColumnDef) or not isinstance(field.args.get("kind"), exp.DataType):
+            raise ValueError("from_json's schema here must name each field with its type, so nothing ran.")
+        name = field.name
+        if not name or '"' in name or "\\" in name:
+            raise ValueError(f"from_json can't read the field {name!r} on this PC (a field name with a quote "
+                             "or backslash), so nothing ran.")
+        fields.append((name, field.args["kind"]))
+    if not fields:
+        raise ValueError("from_json's schema has no fields, so nothing ran.")
+    return fields
+
+
+def _sql_string(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _from_json_struct(v: str, dtype: exp.DataType, depth: int) -> str:
+    """A struct with Spark's field names; each key is matched case-sensitively, as Spark does. Spark
+    keeps the last of a repeated key and DuckDB's json_extract the first, so an object that repeats
+    one of the schema's keys stops with a message rather than answering differently."""
+    names = "[" + ", ".join(_sql_string(name) for name, _ in _json_fields(dtype)) + "]"
+    keys = f"LIST_FILTER(json_keys({v}), fj_k{depth} -> LIST_CONTAINS({names}, fj_k{depth}))"
+    return (f"CASE WHEN LEN({keys}) <> LIST_UNIQUE({keys}) THEN ERROR('from_json was given a JSON object that "
+            "repeats a key of its schema; Databricks keeps the last value and this PC can''t, so nothing ran. "
+            f"Remove the repeated key.') ELSE " + _from_json_fields(v, dtype, depth) + " END")
+
+
+def _from_json_fields(v: str, dtype: exp.DataType, depth: int) -> str:
+    return "{" + ", ".join(
+        f"{_sql_string(name)}: " + _from_json_value(f"json_extract({v}, {_sql_string(chr(36) + '.' + chr(34) + name + chr(34))})",
+                                                    kind, depth)
+        for name, kind in _json_fields(dtype)) + "}"
+
+
+def _from_json_template(schema: exp.Expression) -> str:
+    """DuckDB SQL for Spark's from_json(text, schema) with ``fj_arg0`` standing for the text. NULL or
+    blank text gives NULL; text that isn't JSON gives a struct of NULLs (Spark's PERMISSIVE mode)."""
+    if not (isinstance(schema, exp.Literal) and schema.is_string):
+        raise ValueError("from_json's schema must be written out as text (such as 'a INT, b STRING') to run on "
+                         "this PC, so nothing ran.")
+    ddl = schema.name.strip()
+    try:
+        try:
+            dtype = exp.DataType.build(ddl, dialect="databricks")
+        except (ParseError, TokenError, ValueError):
+            dtype = exp.DataType.build(f"STRUCT<{ddl}>", dialect="databricks")
+    except (ParseError, TokenError, ValueError) as exc:
+        raise ValueError(f"from_json's schema {ddl!r} couldn't be read here, so nothing ran.") from exc
+    if dtype.this == _T.STRUCT:
+        nulls = "{" + ", ".join(f"{_sql_string(name)}: CAST(NULL AS {duckdb_sql(kind)})"
+                                for name, kind in _json_fields(dtype)) + "}"
+        body = (f"CASE WHEN fj_j IS NULL THEN {nulls} "
+                "WHEN json_type(fj_j) = 'ARRAY' THEN error('from_json with a struct schema was given a JSON array, "
+                "which this PC does not read the way Databricks does. Use an ARRAY<STRUCT<...>> schema.') "
+                f"WHEN json_type(fj_j) = 'OBJECT' THEN {_from_json_struct('fj_j', dtype, 0)} ELSE {nulls} END")
+    elif dtype.this == _T.ARRAY:
+        body = _from_json_value("fj_j", dtype, 0)
+    else:
+        raise ValueError(f"from_json reads a STRUCT or ARRAY schema on this PC, not {dtype.sql('databricks')}, "
+                         "so nothing ran.")
+    return ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], fj_t -> CASE WHEN fj_t IS NULL OR TRIM(fj_t) = '' THEN NULL "
+            f"ELSE (LIST_TRANSFORM([TRY_CAST(fj_t AS JSON)], fj_j -> {body}))[1] END))[1]")
+
+
+# str_to_map(text, pairDelim, keyValueDelim): both delimiters are regular expressions, as in Spark;
+# each pair splits at its first key-value delimiter, and a pair without one is a key with NULL.
+_STR_TO_MAP = ("(LIST_TRANSFORM([{'s': CAST(fj_arg0 AS VARCHAR), 'p': CAST(fj_arg1 AS VARCHAR), "
+               "'k': CAST(fj_arg2 AS VARCHAR)}], fj_m -> CASE WHEN fj_m.s IS NULL OR fj_m.p IS NULL OR fj_m.k IS NULL "
+               "THEN NULL ELSE MAP_FROM_ENTRIES(LIST_TRANSFORM(STRING_SPLIT_REGEX(fj_m.s, fj_m.p), fj_q -> "
+               "{'k': CASE WHEN REGEXP_MATCHES(fj_q, fj_m.k) THEN REGEXP_EXTRACT(fj_q, '(?s)^(.*?)(?:' || fj_m.k || ')', 1) "
+               "ELSE fj_q END, 'v': CASE WHEN REGEXP_MATCHES(fj_q, fj_m.k) "
+               "THEN REGEXP_REPLACE(fj_q, '(?s)^.*?(?:' || fj_m.k || ')', '') END})) END))[1]")
+
+
+def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
+    """``template`` read as DuckDB SQL, with the person's own argument nodes put in place of fj_arg0,
+    fj_arg1... Each argument sits outside every lambda in the template, so no name in it can be taken
+    for one of the template's, and it is still rewritten by the later passes."""
+    tree = cast(exp.Expression, sqlglot.parse_one(template, read="duckdb"))
+    for column in list(tree.find_all(exp.Column)):
+        if column.name.startswith("fj_arg") and not column.table:
+            column.replace(args[int(column.name[6:])].copy())
+    return tree
+
+
+def _spark_json(statement: exp.Expression) -> exp.Expression:
+    """from_json with a written-out schema and str_to_map, which DuckDB doesn't have, written in DuckDB
+    SQL that answers as Spark does (#1404). Anything this can't read exactly is refused."""
+    for node in reversed(list(statement.find_all(exp.FromJson, exp.StrToMap))):
+        if isinstance(node, exp.FromJson):
+            if node.args.get("options") is not None:
+                raise ValueError("from_json options (the third argument) aren't read on this PC, so nothing ran. "
+                                 "Run the query on Databricks, or leave the options out.")
+            replacement = _with_args(_from_json_template(node.expression), [node.this])
+        else:
+            replacement = _with_args(_STR_TO_MAP, [node.this, node.args.get("pair_delim") or exp.Literal.string(","),
+                                                   node.args.get("key_value_delim") or exp.Literal.string(":")])
+        if node is statement:
+            return replacement
+        node.replace(replacement)
+    return statement
 
 
 def _spark_dates(statement: exp.Expression) -> exp.Expression:

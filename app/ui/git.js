@@ -791,10 +791,13 @@ async function gitOpenCommit(commit) {
   render();
 }
 
+// The row isn't a button itself: it holds the Open button, and a button can't hold another (axe
+// nested-interactive). The file's name is the button that shows its changes; a click anywhere else
+// on the row does the same.
 function gitFileList(files, base, target) {
-  return h("div", {}, files.map((f) => h("div", { class: `git-file${gitPage.selected?.path === f.path && gitPage.selected.target === target ? " on" : ""}`, role: "button", tabindex: "0",
+  return h("div", {}, files.map((f) => h("div", { class: `git-file${gitPage.selected?.path === f.path && gitPage.selected.target === target ? " on" : ""}`,
     onclick: () => { gitPage.selected = { path: f.path, group: "commit", base, target }; gitPage.diff = null; render(); gitLoadDiff(); } },
-    h("span", { class: "git-name" }, f.path), h("b", { class: `git-mark ${f.state.replace(" ", "-")}` }, GIT_MARK[f.state] || "M"),
+    h("button", { class: "git-name", title: `Show the changes to ${f.path}` }, f.path), h("b", { class: `git-mark ${f.state.replace(" ", "-")}` }, GIT_MARK[f.state] || "M"),
     h("span", { class: "git-actions" }, f.state !== "deleted" ? h("button", { class: "tool small", title: "Open this version (read-only)", "aria-label": `Open ${f.path} at this commit`,
       onclick: (e) => { e.stopPropagation(); gitShowVersion(target, f.path); } }, icon("open", 14)) : null))));
 }

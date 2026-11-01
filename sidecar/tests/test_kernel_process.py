@@ -103,6 +103,7 @@ def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marke
         assert proc.stdout.closed and not proc.stdin.closed
     finally:
         kernel._send_lock.release()
+        proc.stdin.close()  # left to the garbage collector by the app; the test closes it
     assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]
 
 

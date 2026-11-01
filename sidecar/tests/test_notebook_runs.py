@@ -118,3 +118,16 @@ def test_refresh_status_asks_only_about_this_notebooks_open_runs(svc, monkeypatc
     svc.notebook_runs("Daily sales", refresh=True)
     assert asked == ["j1"], "nothing still going: Fabric isn't asked"
     assert svc.fabric_runs(10, refresh=False)[1]["status"] == "NotStarted", "the other notebook's run is untouched"
+
+
+def test_a_failure_reason_from_fabric_is_kept_as_one_line_without_a_token(svc, monkeypatch):
+    _fabric(svc, started_at="2026-10-20T07:00:00+00:00")
+    token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJlLXNpZ25hdHVyZQ"
+
+    class Fabric:
+        def job_instance(self, ws, item, job):
+            return {"status": "Failed", "failureReason": {"message": f"Out of memory\nBearer {token}\n" + "z" * 3000}}
+
+    monkeypatch.setattr(Service, "_quiet_fabric", lambda self: Fabric())
+    message = svc.notebook_runs("Daily sales", refresh=True)[0]["message"]
+    assert message.startswith("Out of memory Bearer [removed]") and "\n" not in message and len(message) <= 1000

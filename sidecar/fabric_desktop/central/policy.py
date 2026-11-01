@@ -51,6 +51,7 @@ import json
 import uuid
 from typing import Any
 
+from ..redact import one_line
 from .core import (OPERATIONS, REQUEST_HOOKS, SCHEMA_HOOKS, Db, PlatformError, _audit, _column, _columns, _names, _now, _row,
                    _today, _upsert, _who, domain_id, is_admin, require_admin)
 
@@ -160,6 +161,7 @@ def _choice(value: Any, allowed: tuple[str, ...] | list[str], what: str) -> str:
 
 
 def _param(name: str, spec: Any) -> dict[str, Any]:
+    name = one_line(name, 80)  # a key from the policy's file, shown in each message below
     if not isinstance(spec, dict) or "value" not in spec:
         raise PlatformError(f"parameter {name} needs a value, like {{\"value\": 40, \"stricter\": \"lower\"}}")
     value, stricter = spec["value"], spec.get("stricter", "fixed")

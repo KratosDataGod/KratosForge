@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..jsonfile import write_text
+from ..redact import one_line
 
 if TYPE_CHECKING:
     from .project import Project
@@ -145,7 +146,7 @@ def _load_dir(folder: Path, key: str) -> tuple[dict[str, tuple[dict, Path]], lis
             continue
         name = spec.get(key) or p.stem
         if name != p.stem:
-            errors.append(f"{folder.name}/{p.name}: file name must match its {key} ({name})")
+            errors.append(f"{folder.name}/{p.name}: file name must match its {key} ({one_line(name, 80)})")
         out[name] = (spec, p)
     return out, errors
 

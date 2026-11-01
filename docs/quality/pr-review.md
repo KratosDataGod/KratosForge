@@ -12,6 +12,8 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-11-01 | #1414 749e0870 | Item preview browser tests; focus returns and Escape closes the panel | PASS 9.2 | Merges clean. closePreview() finds the redrawn row by data-preview, and clickable rows already get tabIndex 0 in h(). The capture-phase Escape handler stands aside for dialogs, menus, palette, activity, How it works and Fabric full screen. Merge result: item-preview.test.cjs 8/8 in 5 of 5 runs, each with two ui.test processes running for load. a11y-audit 4/4 and keyboard 4/4 here, so the owner's a11y-audit failure is local to their sandbox. ui 314/0. |
+
 | 2026-11-01 | #1405 cd38149f | Variable history, watches and hidden state warning browser tests | PASS 9.2 | Test only, merges clean. run() waits for the debug-done counter and an idle kernel, so the no-warning checks read settled state. Merge result: variable-history.test.cjs 5/5 in 6 of 6 runs, each with two ui.test processes running for load. ui 314/0. |
 
 | 2026-11-01 | #1403 c561a995 | OneLake catalog grouping browser tests and group header focus fix | PASS 9.2 | Merges clean. drawGroups' toggle puts focus back on the redrawn header found by data-group. Group keys are unique (env:, sol: and parent|env, from catalog-groups.js). Merge result: catalog-groups.test.cjs 10/10 in 6 of 6 runs, each with two ui.test processes running for load. ui 314/0. The two environment-word groupings are product calls, flagged in the PR body. |

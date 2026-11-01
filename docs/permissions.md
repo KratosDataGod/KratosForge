@@ -84,6 +84,8 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `Tenant.ReadWrite.All` | Creating a domain or subdomain in Fabric (**New domain** on **Data mesh > Domains**, with **Also create it in Fabric** ticked). Only works for a Fabric administrator; leave it out if no Fabric administrator creates domains from KratosForge | Optional, when a Fabric administrator creates a domain in Fabric |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, putting one on a capacity, workspace roles (also by email), including when approving a workspace or workspace access request | At first sign-in |
 
+This table is every delegated permission the app can ask for: a test fails the build when the code asks for one it doesn't list, or the table lists one no code asks for.
+
 `notebookutils.credentials.getToken` in a notebook asks for a token for the API the notebook names, and nothing more. For `kusto`, add **Azure Data Explorer** `user_impersonation`; for a resource URL, add that API's delegated permission. Leave them out if no notebook asks.
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.

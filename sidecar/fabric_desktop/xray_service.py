@@ -268,13 +268,28 @@ class XRayMixin:
         return out
 
     def xray_optimize(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
-                      lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
-        """Fabric's table maintenance (OPTIMIZE with V-Order, then VACUUM) on one table."""
+                      lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "",
+                      risk_id: str = "") -> dict[str, Any]:
+        """Fabric's table maintenance (OPTIMIZE with V-Order, then VACUUM) on one table.
+
+        The risk check is run again first (FINOPS-004): blocked is refused, and going ahead past
+        warnings needs ``risk_id``, the id of the assessment the person saw, and is recorded the way
+        risk_acknowledge records it. A pass or an unknown result records nothing."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        current = self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, False)
+        if current["result"] == risk.BLOCKED:
+            raise PermissionError("A blocked run can't be started: " + current["summary"])
+        ack = None
+        if current["result"] == risk.WARNING:
+            if current["id"] != risk_id:
+                raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
+            ack = self._risk_ack_record(current, risk_id)  # type: ignore[attr-defined]
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
+        if ack:
+            self._risk_ack_write(ack)  # type: ignore[attr-defined]
         self._xray_mark_submitted(finding_id, job_id, workspace_id, lakehouse_id)
         return self._log_fabric_run({"kind": "Table maintenance", "name": f"{lakehouse_name} {label}".strip(),  # type: ignore[attr-defined]
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
@@ -286,6 +301,13 @@ class XRayMixin:
         Fabric: the policy, the sign-in and the workspace's capacity. Read only."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        return {"keep_days": days, "why": why,
+                "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
+                                                 workspace_name, refresh)}
+
+    def _xray_optimize_risk(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None,
+                            lakehouse_name: str, workspace_name: str, refresh: bool) -> dict[str, Any]:
+        """The risk check for starting Optimize on one table in Fabric; a failure in it is an unknown result."""
         label = f"{schema}.{table}" if schema else table
         reads: list[str] = []
         facts: dict[str, Any] = {
@@ -302,7 +324,7 @@ class XRayMixin:
         except Exception as exc:  # noqa: BLE001 - the check is advice; the confirm still shows
             assessed = {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
                         "needs_acknowledgement": False, "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
-        return {"keep_days": days, "why": why, "risk": assessed}
+        return assessed
 
     def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                             lakehouse_name: str = "") -> dict[str, Any]:

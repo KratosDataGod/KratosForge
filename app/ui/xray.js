@@ -223,27 +223,29 @@ function vacuumArgs(f) {
 }
 
 // Optimize one table: say what runs in Fabric and the risk check (FINOPS-004) first. Blocked has
-// no Optimize button; warnings need the box ticked when the settings ask for it.
+// no Optimize button; warnings need the box ticked when the settings ask for it. The engine checks
+// again on start: it refuses blocked or changed findings and records going ahead past warnings.
 async function optimizeDialog(f, box, res, refresh = false) {
   const label = f.schema ? `${f.schema}.${f.table}` : f.table;
   const body = h("div", { class: "wl-confirm" }, h("p", { class: "muted-text" }, `Checking ${label} and its capacity...`));
   const start = btn("Optimize", "sync", async () => {
     if (ack && !ack.querySelector("input").checked) { toast("Tick \"I've looked at these\" first, or cancel.", true); return; }
     start.disabled = true;
-    const r = await attempt(() => rpc("xray_optimize", vacuumArgs(f)), "Optimize not started");
+    const r = await attempt(() => rpc("xray_optimize", { ...vacuumArgs(f), risk_id: risk?.id || "" }), "Optimize not started");
     if (!r) { start.disabled = false; return; }
     closeDialog();
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Optimizing ${label} in Fabric. Follow it in Monitor.`, false, { log: true });
     redrawXray(box, res);
   }, "tool primary");
-  let ack = null;
+  let ack = null, risk = null;
   start.disabled = true;
   showDialog(`Optimize ${label}?`, body, [btn("Cancel", null, closeDialog, "tool outline"), start]);
   const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
   const p = await attempt(() => rpc("xray_optimize_check", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh }),
     "Could not check the table");
   if (!p) { closeDialog(); return; }
+  risk = p.risk;
   ack = riskAckBox(p.risk);
   body.replaceChildren(
     h("p", { class: "text" }, `Optimize runs in Fabric as a table maintenance job on ${label}, and uses capacity. `,

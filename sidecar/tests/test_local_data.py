@@ -426,9 +426,37 @@ def test_a_stream_can_be_stopped(local):
     reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", query_id="q1", batch_size=1000)
     reader.read_next_batch()
     assert e.cancel("q1")
-    with pytest.raises((QueryCancelled, Exception)):
+    with pytest.raises(QueryCancelled):  # pyarrow's reader reports an interrupt mid-stream as OSError
         for _ in reader:
             pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+def test_a_stream_past_its_time_limit_says_so(local):
+    e = local.engine(local.create("Stream limit")["id"])
+    reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", timeout=0.5, batch_size=1000)
+    reader.read_next_batch()
+    with pytest.raises(TimeoutError, match="longer than 0.5 seconds"):
+        for _ in reader:
+            pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["whole result", "stream"])
+def test_a_query_duckdb_stops_by_itself_is_not_called_cancelled(local, stream):
+    """When one of DuckDB's threads fails it stops the others, and now and then reports that stop in
+    place of the failure. Nobody pressed Stop, so the person is told to run it again for the error,
+    not that it was cancelled (a whole result) or "INTERRUPT Error" (a stream, through pyarrow)."""
+    e = local.engine(local.create("Stopped alone")["id"])
+    e.execute("SELECT 1")  # opens the connection
+    threading.Timer(0.3, e._con.interrupt).start()  # as DuckDB stops itself: no cancel, no time limit
+    with pytest.raises(RuntimeError, match="part of the query failed") as caught:
+        if stream:
+            for _ in e.execute_reader("SELECT range AS n FROM range(10000000000)", batch_size=1000):
+                pass
+        else:
+            e.execute("SELECT count(*) FROM range(10000000000) a")
+    assert not isinstance(caught.value, QueryCancelled)
     assert e.execute("SELECT 1")["rows"] == [[1]]
 
 
@@ -532,7 +560,8 @@ def test_a_reader_that_fails_part_way_is_still_closed(local):
         local_engine._collect(result, 10, True)
     assert closed == [True]
     e = local.engine(local.create("Fails late")["id"])
-    with pytest.raises(Exception, match="late failure"):
+    # DuckDB reports its own stop in place of the failure now and then (about 1 run in 100 under load).
+    with pytest.raises(Exception, match="late failure|part of the query failed"):
         e.execute("SELECT CASE WHEN range < 200000 THEN range ELSE error('late failure') END AS n "
                   "FROM range(250000)", limit=10)
     assert e.execute("SELECT 42 AS answer")["rows"] == [[42]]

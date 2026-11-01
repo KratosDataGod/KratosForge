@@ -7,7 +7,10 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
-- Morning check, 2026-11-01: 103 PRs merged after b3c5b223 (#1381 to #1523), all hardening and tests.
+- Acceptance, 2026-11-01: the product owner accepted PB-027, PB-096, PB-098, PB-116, PB-117 and
+  PB-118, three of them with documented limitations. PB-098's criterion now reads "a test fails
+  when lists meant to agree disagree".
+- Morning check, 2026-11-01: 103 PRs merged after b3c5b223 (#1359 to #1523), all hardening and tests.
   The remaining screens and their writes have real-browser tests, and several gained the danger or
   risk-check confirm they lacked. Databricks sign-in, profiles and discovery refuse replies that
   aren't the documented ones. More engine readers work on DuckDB 2.0, and CI runs on it, though 2.0
@@ -44,7 +47,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 13 are Proposed, 27 In progress, 10 In review and 59 Accepted.
+- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 13 are Proposed, 27 In progress, 4 In review and 65 Accepted.
 
 ## Workstreams
 
@@ -67,7 +70,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 10 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 4 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

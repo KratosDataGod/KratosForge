@@ -282,3 +282,12 @@ def test_undo_runs_only_for_a_change_its_author_could_make(svc):
     with pytest.raises(RuntimeError, match="can be undone"):
         svc.shortcut_undo(added["id"])
     assert next(s for s in svc.api.items["lh-1"] if s["name"] == "customer")["target"] == GOLD
+
+
+def test_readers_gap_counts_readers_the_target_leaves_out():
+    """#1423: Access lists a shortcut whose readers see it empty, so its gap is how many they are."""
+    here = [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]
+    out = center.readers_gap(here, [{"id": "u1"}], "identity")
+    assert (out["gap"], out["target"], [m["id"] for m in out["missing"]]) == (2, 1, ["u2", "u3"])
+    assert out["text"] == "2 of 3 see it empty: they have no access to the target"
+    assert center.readers_gap(here, here, "identity")["gap"] == 0

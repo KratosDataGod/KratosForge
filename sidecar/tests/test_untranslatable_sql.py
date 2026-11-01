@@ -15,6 +15,9 @@ from fabric_desktop.engines.local_sql import DuckDBSession
 
 PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 COMPARATOR = "SELECT array_sort(array(3, 1, 2), (l, r) -> r - l) AS a"
+# array_sort's comparator runs on the SQL paths since #1413; approx_count_distinct's accuracy is still
+# an argument sqlglot drops.
+DROPPED = "SELECT approx_count_distinct(x, 0.1) AS a FROM VALUES (1), (2) AS t(x)"
 
 # DuckDB SQL written with sqlglot's default, which logs and drops what it can't write. Each one
 # writes something that isn't run as the person's query.
@@ -30,10 +33,10 @@ def _literal(node: ast.expr) -> bool:
     return ast.unparse(node.func) in ("exp.Literal.string", "exp.convert")
 
 
-def test_array_sort_with_a_comparator_is_refused_not_sorted_ascending():
+def test_an_argument_sqlglot_drops_is_refused_not_left_out():
     with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric, so nothing ran: "
-                                         "DuckDB's (ARRAY|LIST)_SORT does not support a comparator"):
-        sql.run(COMPARATOR)
+                                         "Argument 'accuracy' is not supported"):
+        sql.run(DROPPED)
 
 
 def test_a_query_that_translates_exactly_still_runs():
@@ -42,8 +45,8 @@ def test_a_query_that_translates_exactly_still_runs():
 
 def test_a_databricks_cell_on_the_duckdb_engine_is_refused_the_same_way():
     session = DuckDBSession.__new__(DuckDBSession)
-    with pytest.raises(Unsupported, match="does not support a comparator"):
-        session._sql(COMPARATOR, "databricks")
+    with pytest.raises(Unsupported, match="Argument 'accuracy' is not supported"):
+        session._sql(DROPPED, "databricks")
 
 
 def test_a_pyspark_expression_is_refused_the_same_way():

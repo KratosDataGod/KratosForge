@@ -2176,7 +2176,9 @@ def _count(n: Any) -> str:
 
 def _preview(value: Any) -> str:
     module = type(value).__module__
-    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")):
+    # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
+    # gone), so it shows as its repr, as _columns leaves it unexpanded.
+    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")) and type(value).__name__ != "LazyFrame":
         cols = getattr(value, "columns", None)
         if cols is not None:
             names = list(cols)

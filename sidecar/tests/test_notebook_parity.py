@@ -346,6 +346,23 @@ def test_variable_explorer_does_not_call_a_users_iter_or_sizeof_or_plan_a_lazy_f
     assert k.namespace["calls"] == []
 
 
+def test_a_lazy_frame_is_listed_without_reading_its_files():
+    # Its column names would come from resolving the plan: a scan reads its file for them, and one
+    # whose file is gone made the whole Variables pane fail.
+    import warnings
+    k = Kernel()
+    k.run("import polars as pl, os, tempfile\n"
+          "p = os.path.join(tempfile.mkdtemp(), 'a.csv')\n"
+          "with open(p, 'w') as f:\n"
+          "    f.write('a,b\\n1,2\\n')\n"
+          "gone = pl.scan_csv(p)\n"
+          "os.remove(p)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        rows = {r["name"]: r for r in k.variables()}
+    assert rows["gone"]["value"].startswith("<LazyFrame") and not rows["gone"]["expandable"]
+
+
 def test_a_paused_frames_locals_carry_memory_but_never_open_from_the_namespace():
     k = Kernel()
     k.run("items = ['global']")

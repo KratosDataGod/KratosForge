@@ -22,7 +22,6 @@ import decimal
 import json
 import logging
 import math
-import os
 import random
 import threading
 import uuid
@@ -36,6 +35,7 @@ import pyarrow as pa
 
 from .redact import describe
 from .duckdb_rows import one_row
+from . import jsonfile
 
 _log = logging.getLogger(__name__)
 
@@ -521,7 +521,7 @@ class Frames:
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
                 else:
                     write_xlsx(table, sink)
-            os.replace(partial, target)  # over the empty file that reserved the name
+            jsonfile.replace(partial, target)  # over the empty file that reserved the name
         except BaseException:
             with_suppressed_unlink(partial)
             raise

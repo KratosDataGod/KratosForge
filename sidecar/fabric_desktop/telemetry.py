@@ -205,9 +205,18 @@ def envelope(conn: str, payload: dict[str, Any]) -> dict[str, Any]:
             "data": {"baseType": "EventData", "baseData": {"ver": 2, "name": payload["name"], "properties": props}}}
 
 
-def _post(conn: str, envelopes: list[dict[str, Any]]) -> None:
-    import requests
+def _post(conn: str, envelopes: list[dict[str, Any]], sleep: Callable[[float], None] | None = None) -> None:
+    """Send the reports through the shared session. A 429 is waited out (Application Insights took
+    nothing); anything else is sent once, since a report it may have taken would be counted twice,
+    and the days stay queued for the next try."""
+    import time
+
+    from . import http_session
+    from .retrying import send_with_retry
 
     endpoint = parse_connection_string(conn).get("ingestionendpoint", "https://dc.services.visualstudio.com").rstrip("/")
-    resp = requests.post(f"{endpoint}/v2/track", json=envelopes, timeout=15)
-    resp.raise_for_status()
+    http = http_session.session()
+    resp = send_with_retry(lambda: http.post(f"{endpoint}/v2/track", json=envelopes, timeout=15), "POST",
+                           sleep=sleep or time.sleep, safe=False)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"The usage report wasn't sent ({resp.status_code}); it waits for the next try.")

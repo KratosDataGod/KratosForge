@@ -164,3 +164,33 @@ def test_error_kind_never_carries_the_message():
     assert telemetry.error_kind("bronze.orders: tests failed") == "Error"
     assert telemetry.error_kind("SalesProd: not allowed") == "Error"  # a name, not an exception's kind
     assert telemetry.error_kind("") == "Error"
+
+
+def _ingestion(monkeypatch, *statuses):
+    import types
+
+    from fabric_desktop import http_session
+    sent = []
+    answers = list(statuses)
+
+    def post(url, json, timeout):
+        sent.append(url)
+        return types.SimpleNamespace(status_code=answers.pop(0), headers={"Retry-After": "0"}, close=lambda: None)
+    monkeypatch.setattr(http_session, "session", lambda: types.SimpleNamespace(post=post))
+    return sent
+
+
+def test_the_report_goes_through_the_shared_session_and_waits_out_throttling(monkeypatch):
+    from fabric_desktop import telemetry
+    sent = _ingestion(monkeypatch, 429, 200)
+    telemetry._post(CONN, [{"name": "x"}], sleep=lambda s: None)
+    assert len(sent) == 2 and sent[0].endswith("/v2/track")
+
+
+def test_a_failed_report_is_sent_once_and_says_so_plainly(monkeypatch):
+    from fabric_desktop import telemetry
+    sent = _ingestion(monkeypatch, 503, 200)
+    with pytest.raises(RuntimeError) as err:
+        telemetry._post(CONN, [{"name": "x"}], sleep=lambda s: None)
+    assert len(sent) == 1
+    assert str(err.value) == "The usage report wasn't sent (503); it waits for the next try."

@@ -148,15 +148,18 @@ def _where(exc: configparser.Error) -> str:
     return (" (line " + ", ".join(map(str, lines)) + ")") if lines else ""
 
 
+# The ~/.databrickscfg keys that hold a sign-in of the profile's own.
+PROFILE_SECRETS = ("token", "client_secret", "azure_client_secret", "password")
+
+
 def check_profile_host(name: str, section: Mapping[str, str], host: str) -> None:
     """A CLI profile's sign-in goes only to the workspace the profile names. One for another workspace
-    is refused, and so is one that keeps its own token or client secret but names no workspace: the
-    SDK would pair that secret with whichever host it is given."""
+    is refused, and so is one that keeps a secret of its own (PROFILE_SECRETS) but names no workspace."""
     own = section.get("host")
     if own:
         if check_host(own) != host:
             raise DatabricksAuthError(f"The CLI profile {name!r} is for another workspace than this connection.")
-    elif section.get("token") or section.get("client_secret"):
+    elif any(section.get(key) for key in PROFILE_SECRETS):
         raise DatabricksAuthError(f"The CLI profile {name!r} keeps a sign-in but names no workspace. Add "
                                   f"host = {host} to it in ~/.databrickscfg, so it only signs in there.")
 

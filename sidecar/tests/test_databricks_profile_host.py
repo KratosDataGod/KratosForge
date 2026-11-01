@@ -13,7 +13,8 @@ from fabric_desktop.engines import dbconnect as dbc
 HOST = "https://adb-1234567890123456.7.azuredatabricks.net"
 CONN = {"platform": "databricks", "host": HOST, "credential": {"method": "cli-profile", "profile": "dev"}}
 SECRETS = {"pat": "token = t0ken", "service-principal": "client_id = a\nclient_secret = s3cret",
-           "secret-only": "client_secret = s3cret"}
+           "secret-only": "client_secret = s3cret", "azure-client-secret": "azure_client_secret = s3cret",
+           "password": "username = u\npassword = s3cret"}
 
 
 @pytest.fixture

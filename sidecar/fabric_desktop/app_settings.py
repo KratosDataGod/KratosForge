@@ -136,6 +136,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonfile
+from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -374,7 +375,7 @@ def policy_problems() -> list[str]:
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
-            problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
         elif key in INTEGRATION_KEYS:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":

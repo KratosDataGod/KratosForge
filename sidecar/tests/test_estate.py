@@ -595,3 +595,28 @@ def test_read_variable_library_rest_calls():
     assert s.calls[1][0] == "POST" and s.calls[1][1].endswith("/items/v9/getDefinition")
     c, s = client([Resp(200, {"value": []})])
     assert c.read_variable_library("ws", "VL_App") is None
+
+
+def test_a_graph_error_is_one_short_line_without_a_token(svc, monkeypatch):
+    from fabric_desktop import estate_service
+    from fabric_desktop.central import entra_service
+    token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJlLXNpZ25hdHVyZQ"
+    body = f"gateway\nBearer {token}\n" + "z" * 900
+
+    class Auth:
+        def _token(self, scopes):
+            return "tok"
+
+    def get(url, params=None, headers=None, timeout=None):
+        return types.SimpleNamespace(status_code=502, ok=False, text=body, json=lambda: {})
+    for module in (estate_service, entra_service):
+        monkeypatch.setattr(module.http_session, "session", lambda: types.SimpleNamespace(get=get))
+    monkeypatch.setattr(estate_service, "send_with_retry", lambda send, method, **k: send(), raising=False)
+    monkeypatch.setattr(entra_service, "send_with_retry", lambda send, method, **k: send(), raising=False)
+    svc._auth = Auth()
+    for call in (lambda: svc.access_find_person("someone@contoso.com"), lambda: svc._graph("/groups")):
+        with pytest.raises(RuntimeError) as e:
+            call()
+        text = str(e.value)
+        assert text.startswith("Microsoft Graph answered 502: gateway Bearer [removed]"), text
+        assert "\n" not in text and token not in text and len(text) < 260

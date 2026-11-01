@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 import requests
 from urllib3.util import parse_url
 
-from . import http_session
+from . import http_session, redact
 from .onelake import error_code
 from .paging import Pages, PagingError
 from .retrying import retry_after, send_with_retry
@@ -68,12 +68,9 @@ _PART_MAX = 300  # characters of one message part Fabric sent
 
 
 def _part(value: Any) -> str:
-    """One message part from Fabric as part of one line: control characters and newlines folded to
-    spaces, cut to _PART_MAX, without a trailing full stop (the caller adds one)."""
-    text = " ".join("".join(c if c.isprintable() else " " for c in str(value or "")).split())
-    if len(text) > _PART_MAX:
-        text = text[:_PART_MAX - 1].rstrip() + "…"
-    return text.rstrip(".")
+    """One message part from Fabric as part of one line: credentials removed, control characters and
+    newlines folded to spaces, cut to _PART_MAX, without a trailing full stop (the caller adds one)."""
+    return redact.one_line(value or "", _PART_MAX).rstrip(".")
 
 
 def _request_id(value: Any) -> str:

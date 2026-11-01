@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 
 from ..jsonfile import write_text
+from ..redact import one_line
 
 if TYPE_CHECKING:
     from .project import Entity, Project
@@ -144,7 +145,7 @@ def load_key_tables(root: Path) -> tuple[dict[str, KeyTable], list[str]]:
             continue
         name = spec.get("name") or p.stem
         if p.stem != name:
-            errors.append(f"keys/{p.name}: file name must match its name ({name})")
+            errors.append(f"keys/{p.name}: file name must match its name ({one_line(name, 80)})")
         tables[name] = KeyTable(name, spec, p)
     return tables, errors
 

@@ -187,11 +187,13 @@ def _no_reserved_names(statement: exp.Expression) -> None:
     a plain message instead (#1371). Checked once, on the statement as written, before any rewrite, so
     a rewrite's own kf_ names inside another rewritten call are never mistaken for the person's."""
     for call in statement.find_all(exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.Soundex, exp.Exists,
-                                   exp.Reduce, exp.Anonymous):
+                                   exp.Reduce, exp.ArraySort, exp.Anonymous):
         if isinstance(call, exp.Anonymous) and str(call.this).upper() not in _KF_TEMPLATED:
             continue
         if isinstance(call, exp.Exists) and not isinstance(call.expression, exp.Lambda):
             continue   # EXISTS (SELECT ...) is a subquery, not the rewritten exists(array, x -> ...)
+        if isinstance(call, exp.ArraySort) and not isinstance(call.args.get("expression"), exp.Lambda):
+            continue   # array_sort without a comparator isn't wrapped in lambdas
         if isinstance(call, exp.Reduce) and call.args.get("finish") is None:
             continue   # aggregate without finish is left as sqlglot writes it
         for ident in call.find_all(exp.Identifier):
@@ -205,6 +207,12 @@ def _bind(func: exp.Lambda, values: tuple[str, ...]) -> str:
     """DuckDB SQL for ``func``'s body with each of its arguments bound to the DuckDB SQL in ``values``.
     The values name only the rewrite's own kf_ arguments, and a person's kf_ names were refused first
     (_no_reserved_names), so neither can hide the other."""
+    func = func.copy()
+    names = {param.name.lower() for param in func.expressions}
+    # Quoted, so an argument named like a DuckDB keyword (left, right) still reads as a name.
+    for ident in [*func.expressions, *func.this.find_all(exp.Identifier)]:
+        if isinstance(ident, exp.Identifier) and ident.name.lower() in names:
+            ident.set("quoted", True)
     text = duckdb_sql(func.this)
     for param, value in reversed(list(zip(func.expressions, values))):
         text = f"(LIST_TRANSFORM([{value}], {duckdb_sql(param)} -> {text}))[1]"
@@ -245,6 +253,28 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
         return None
     text = _REDUCE_FINISH.format(duckdb_sql(node.this), duckdb_sql(node.args["initial"]),
                                  _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
+    return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
+
+
+# array_sort(a, (left, right) -> ...) as Spark's stable sort with that comparator: each element's place
+# is the number of elements that compare less than it plus the earlier ones that compare equal ({1} is
+# the bound comparator; an element is never compared with itself). A NULL comparison is refused, as
+# Spark refuses it. Every pair is compared, so the work grows with the square of the array's length:
+# fine for the arrays a row usually holds, slow past a few thousand elements (about 1.5 s for 2,000).
+_ARRAY_SORT_BY = ("(LIST_TRANSFORM([{0}], kf_l -> CASE WHEN kf_l IS NULL THEN NULL ELSE LIST_TRANSFORM(LIST_SORT("
+                  "LIST_TRANSFORM(kf_l, (kf_x, kf_i) -> {{'r': LEN(LIST_FILTER(LIST_FILTER(RANGE(1, LEN(kf_l) + 1), "
+                  "kf_k -> kf_k <> kf_i), kf_j -> "
+                  "(LIST_TRANSFORM([{1}], kf_c -> CASE WHEN kf_c IS NULL THEN ERROR('array_sort''s comparator returned "
+                  "NULL, which Databricks refuses. Make it return -1, 0 or 1 for every pair, NULLs included.') "
+                  "ELSE kf_c < 0 OR (kf_c = 0 AND kf_j < kf_i) END))[1])), 'v': kf_x}})), kf_y -> kf_y.v) END))[1]")
+
+
+def _array_sort_by(node: exp.Expression) -> exp.Expression | None:
+    """array_sort with a comparator of two arguments as DuckDB SQL (#1413); None for any other sort."""
+    func = node.args.get("expression") if isinstance(node, exp.ArraySort) else None
+    if not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
+        return None
+    text = _ARRAY_SORT_BY.format(duckdb_sql(node.this), _bind(func, ("kf_l[kf_j]", "kf_x")))
     return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
 
 
@@ -298,6 +328,8 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
             node.replace(_from_template("ARRAY_CONTAINS(MAP_KEYS({0}), {1})", [node.this, node.args["key"]]))
         elif isinstance(node, exp.DayOfWeek):
             node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
+        elif isinstance(node, _SORTS) and (sorted_by := _array_sort_by(node)) is not None:
+            node.replace(sorted_by)
         elif isinstance(node, _SORTS):
             nulls_first = _sort_nulls_first(node)
             if nulls_first is not None:

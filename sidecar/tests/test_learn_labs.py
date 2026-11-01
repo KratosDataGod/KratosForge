@@ -97,12 +97,16 @@ def test_no_findings():
     assert not checks.no_findings("try:\n    x()\nexcept Exception:\n    pass\n", ["NB012"], language="python")["passed"]
 
 
-def _clock(baseline: float, mine: float, runs: int = 3):
-    """A fake clock: the baseline's runs take ``baseline`` seconds each, then the learner's ``mine``."""
+def _clock(baseline, mine, runs: int = 3):
+    """A fake clock for runs that take turns, baseline first. ``baseline`` and ``mine`` are seconds
+    per run: one number for every run, or a list with one per run."""
+    base = baseline if isinstance(baseline, list) else [baseline] * runs
+    own = mine if isinstance(mine, list) else [mine] * runs
     times, t = [], 0.0
-    for d in [baseline] * runs + [mine] * runs:
-        times += [t, t + d]
-        t += d
+    for b, m in zip(base, own):
+        for d in (b, m):
+            times += [t, t + d]
+            t += d
     return iter(times).__next__
 
 
@@ -113,6 +117,19 @@ def test_faster_than_needs_the_same_answer_and_the_factor(con):
     assert not slow["passed"] and "The goal is 2×" in slow["detail"]
     wrong = checks.faster_than(con, "SELECT 1 AS id", "SELECT id FROM t", factor=2, clock=_clock(9.0, 1.0))
     assert not wrong["passed"] and "same answer" in wrong["detail"]
+
+
+def test_faster_than_is_not_failed_by_a_busy_pc(con):
+    # The PC was busy for most of the learner's runs (LAB-02 measured 1.83× on a shared Windows CI
+    # runner): each query's fastest run is compared, so pauses that only add time don't count.
+    busy = checks.faster_than(con, "SELECT id FROM t", "SELECT id FROM t", factor=2, runs=5,
+                              clock=_clock([3.0, 3.1, 3.0, 3.2, 3.0], [2.5, 1.0, 2.6, 2.4, 1.1], runs=5))
+    assert busy["passed"], busy["detail"]
+    assert busy["measured"] == {"seconds": 1.0, "baseline_seconds": 3.0, "speedup": 3.0}
+    # A query that is never twice as fast still fails, however its runs vary.
+    close = checks.faster_than(con, "SELECT id FROM t", "SELECT id FROM t", factor=2, runs=5,
+                               clock=_clock([3.0, 3.5, 3.0, 4.0, 3.0], [1.6, 2.5, 1.7, 1.6, 3.0], runs=5))
+    assert not close["passed"] and close["measured"]["speedup"] == 1.88
 
 
 def test_defects_found(con):

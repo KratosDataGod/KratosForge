@@ -266,7 +266,7 @@ async function vacuumDialog(f, box, res) {
     f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
     redrawXray(box, res);
-  }, "tool primary");
+  }, "tool danger-solid");
   vacuumBtn.disabled = true;
   showDialog(`Vacuum ${label}`, body, [btn("Cancel", null, closeDialog, "tool outline"), vacuumBtn]);
   const { workspace_id, lakehouse_id, table, schema, lakehouse_name } = vacuumArgs(f);
@@ -300,7 +300,7 @@ function vacuumAll(findings, box, res) {
   showDialog(`Vacuum ${findings.length} tables`, h("p", { class: "text" },
     "Each table is vacuumed in Fabric as its own table maintenance job. Each keeps the history it promises: at least 7 days, ",
     "or its layer's Keep history days, or its own retention setting, whichever is longest."),
-  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool primary")]);
+  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool danger-solid")]);
 }
 
 function xrayLakehouses(rows) {
@@ -359,7 +359,8 @@ async function adoptDialog(r) {
     h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["", "Table", "Entity", "Key", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, plan.tables.map((t) => h("tr", { "data-table": t.table, "data-schema": t.schema || "" },
-        h("td", {}, h("input", { type: "checkbox", checked: t.ok && !t.exists ? true : null, disabled: t.ok ? null : true })),
+        h("td", {}, h("input", { type: "checkbox", checked: t.ok && !t.exists ? true : null, disabled: t.ok ? null : true,
+          "aria-label": `Adopt ${t.schema ? `${t.schema}.${t.table}` : t.table}` })),
         h("td", {}, h("span", { class: "mono" }, t.schema ? `${t.schema}.${t.table}` : t.table),
           t.columns ? h("div", { class: "muted-text small" }, `${t.columns.length} columns`) : null),
         h("td", {}, t.ok ? h("input", { class: "name", value: t.exists ? `${t.name}_adopted` : t.name, "aria-label": "Entity name" }) : null),

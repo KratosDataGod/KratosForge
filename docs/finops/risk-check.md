@@ -15,6 +15,8 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 
 A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 
+**Schedules > Run now** for a Fabric item in a workspace this app doesn't work in isn't checked either, because the check covers only the workloads it lists. Its confirm says so.
+
 The engine itself **reports only**: starting a run (`workload_act`) doesn't check it, and results say `"enforced": false`. A run started another way, such as from an AI tool or the local API, isn't stopped by a blocked result. The dialogs above are where a block stops a run.
 
 ## Results

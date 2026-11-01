@@ -34,10 +34,25 @@ function qprofileText(p) {
     ...(p.more_steps ? [`${p.more_steps} more steps not listed`] : [])].join("\n");
 }
 
+// Learn from execution (GD-04): what this profile measured that a best-practice rule explains, from
+// the engine (learn/evidence.py). A note appears only when the numbers show it; most profiles have none.
+// Professional and Guided add the rule's principle, Guided its lesson; Expert keeps the measured line.
+function qprofileNotes(p) {
+  if (!p.notes?.length || !previewShown()) return null;
+  const mode = learnMode("notebooks");
+  return h("div", { class: "qprofile-notes" },
+    h("b", {}, "What this profile shows"),
+    ...p.notes.map((n) => h("div", { class: "qprofile-note", "data-rule": n.rule_id },
+      h("p", {}, h("span", { class: "badge" }, "Measured"), " ", n.text),
+      mode !== "expert" && n.principle ? h("p", { class: "muted-text small" }, `The principle: ${n.principle}`) : null,
+      h("div", { class: "row" }, docLink(n.url, `About ${n.rule_id}`), mode === "guided" ? learnFindingLink(n.rule_id, "notebooks") : null))),
+    h("span", { class: "muted-text small" }, "Measured in this run on this PC. Fabric's Spark may plan the query differently."));
+}
+
 function renderQueryProfile(o) {
   const q = o.qprofile ||= { data: null, busy: false, error: null, gone: false };
   const box = h("div", { class: "qprofile" });
-  const redraw = () => box.replaceChildren(...draw());
+  const redraw = () => box.replaceChildren(...draw().filter(Boolean));  // replaceChildren would write a null as "null"
   const run = () => {
     q.busy = true; q.error = null; redraw();
     rpc("notebook_frame_query_profile", { frame: o.frame }).then((p) => {
@@ -77,6 +92,7 @@ function renderQueryProfile(o) {
       h("div", { class: "out-table-scroll" }, h("table", {},
         h("thead", {}, h("tr", {}, h("th", {}, "Step"), h("th", { class: "n" }, "Rows"), h("th", { class: "n" }, "Time"), h("th", {}, "Share of time"))),
         h("tbody", {}, rows))),
+      qprofileNotes(p),
       h("div", { class: "more" }, (p.more_steps ? `${p.more_steps} more steps aren't listed. ` : "") +
         "Steps are DuckDB's, the engine that runs spark on this PC, so they won't match Fabric's Spark UI one for one. Hover a step to see its details.")];
   };

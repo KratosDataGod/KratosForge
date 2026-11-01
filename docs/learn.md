@@ -133,6 +133,13 @@ improve your development skills?** with the three levels and Professional picked
 level you picked; **Skip** keeps Professional. Either way it isn't asked again, and choosing another
 level with **Learning guidance** answers it too. It isn't asked when an organization policy sets it.
 
+### Under a Query profile
+
+A notebook result's **Query profile** notes what the run measured that a best-practice rule
+explains, such as a scan that read 3,000,000 rows to keep 369,600 because its filter wraps the column
+in `year()`. Each note links **About** its rule, and appears only when the profile shows it
+([Notebooks](notebooks.md)).
+
 ## In your profile
 
 When every check of an exercise passes in a published lesson or lab, it is recorded in your

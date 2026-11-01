@@ -1315,8 +1315,9 @@ def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
                 leaf_rows += rows
             if len(steps) < PROFILE_NODES:
                 details = {k: str(v) for k, v in extra.items() if v not in ("", None)}
-                steps.append({"depth": depth, "name": name, "rows": rows, "seconds": round(seconds, 6),
-                              "details": details})
+                steps.append({"depth": depth, "name": name, "rows": rows,
+                              "rows_scanned": int(first(node, "operator_rows_scanned", "rows_scanned") or 0),
+                              "seconds": round(seconds, 6), "details": details})
             else:
                 steps.append({})  # counted, not listed
             depth += 1

@@ -2243,6 +2243,9 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .qprofile-stat b { font-size: 18px; }
 .qprofile-bar { display: inline-block; height: 10px; vertical-align: middle; background: var(--accent); }
 .qprofile tr.slowest td { background: var(--accent-soft); }
+.qprofile-notes { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--border-soft); border-radius: 4px; }
+.qprofile-note { display: flex; flex-direction: column; gap: 4px; }
+.qprofile-note p { margin: 0; }
 .qprofile-flag { margin-left: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border: 1px solid var(--brand-orange); border-radius: 3px; }
 
 /* Shared notebook sessions (sessions.js). */

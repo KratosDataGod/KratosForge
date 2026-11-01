@@ -22,6 +22,7 @@ from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -739,9 +740,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
         """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
-        profiler, step by step (rows, time, share of the total). Reads only."""
+        profiler, step by step (rows, time, share of the total). Reads only. ``notes`` are what the
+        profile measured that a best-practice rule explains (learn/evidence.py, GD-04)."""
         try:
-            return self.kernel.frame_query_profile(frame=frame)
+            profile = self.kernel.frame_query_profile(frame=frame)
+            if not profile.get("gone"):
+                profile["notes"] = evidence.notes(profile)
+            return profile
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}

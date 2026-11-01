@@ -274,7 +274,9 @@ def _shape_problems(data: Any) -> list[str]:
         section = data.get(key)
         for env, mapping in (section.items() if isinstance(section, dict) else ()):
             if mapping is not None and not isinstance(mapping, dict):
-                out.append(f"{key}.{env} must be an object.")
+                # Only a known environment is named: any other key is the file's own text.
+                out.append(f"{key}.{env} must be an object." if env in ENVIRONMENTS
+                           else f"{key} has an entry that isn't an object.")
     execution = data.get("execution")
     if isinstance(execution, dict) and execution.get("budget") is not None and not isinstance(execution["budget"], dict):
         out.append("execution.budget must be an object.")

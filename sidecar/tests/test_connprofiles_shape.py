@@ -68,3 +68,10 @@ def test_shape_problems_are_listed_with_secret_problems_and_never_repeat_a_value
     assert any("token must be a reference" in f for f in found)
     assert "connections[0].credential must be an object." in found
     assert not any("plain-value-123" in f for f in found)
+
+
+@pytest.mark.parametrize("key", ["staging", "dapi" + "0123456789abcdef" * 2, "x\nconnections[9] forged", "a" * 500])
+@pytest.mark.parametrize("section", ["environments", "deploy"])
+def test_an_unknown_environment_key_is_never_repeated_in_a_shape_problem(section, key):
+    found = cp._shape_problems(profile(**{section: {key: "not an object"}}))
+    assert found == [f"{section} has an entry that isn't an object."]

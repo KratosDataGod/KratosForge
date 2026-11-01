@@ -20,6 +20,7 @@ from fabric_desktop.integrations.registry import default_registry as capability_
 from fabric_desktop.orchestration import load, loads
 from fabric_desktop.orchestration.activities import default_registry
 from fabric_desktop.orchestration.evaluate import FUNCTIONS, ExpressionError, Scope, evaluate
+from fabric_desktop.orchestration.adapters import ActivityFailed
 from fabric_desktop.orchestration.runner import PipelineRun, RunRefused
 from fabric_desktop.orchestration.runs import KEEP, RunStore
 from fabric_desktop.pipeline_service import PipelineMixin, PipelineRunMixin
@@ -424,6 +425,77 @@ def test_policy_timeout():
     a = act("C", "Copy", source={}, sink={}) | {"policy": {"timeout": "0.00:00:01"}}
     r = run(pipeline(a), mocks={"C": {"seconds": 100}}, wait_scale=0.05)
     assert r.to_json()["activities"][0]["error"]["errorCode"] == "LocalActivityTimeout" and r.seconds < 1.5
+
+
+class _SlowReads:
+    """A lakehouse reader whose Lookup and Get Metadata block until released (#1368)."""
+
+    def __init__(self):
+        self.release = threading.Event()
+
+    def check(self, a):
+        return []
+
+    def _slow(self, a, props):
+        self.release.wait(30)
+        return {"firstRow": {"n": 1}}
+
+    lookup = metadata = _slow
+
+    def script(self, a, props, cancelled, deadline):
+        return {}
+
+
+def _read(name, typ="Lookup"):
+    extra = {"fieldList": ["columnCount"]} if typ == "GetMetadata" else {"source": {}}
+    return act(name, typ, datasetSettings={"type": "LakehouseTable"}, **extra)
+
+
+@pytest.mark.parametrize("typ", ["Lookup", "GetMetadata"])
+def test_a_slow_lakehouse_read_stops_at_its_policy_timeout(typ):
+    data = _SlowReads()
+    started = time.monotonic()
+    r = PipelineRun(loads(pipeline(_read("R", typ) | {"policy": {"timeout": "0.00:00:01"}})), data=data).run()
+    data.release.set()
+    assert time.monotonic() - started < 5
+    assert r.state == "failed" and r.to_json()["activities"][0]["error"]["errorCode"] == "LocalActivityTimeout"
+
+
+def test_a_slow_lakehouse_read_stops_at_an_until_timeout():
+    data = _SlowReads()
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[_read("R")]))
+    started = time.monotonic()
+    r = PipelineRun(loads(text), data=data).run()
+    data.release.set()
+    assert time.monotonic() - started < 5
+    acts = {a["name"]: a for a in r.to_json()["activities"]}
+    assert acts["U"]["error"]["errorCode"] == "LocalUntilTimeout" and acts["R"]["state"] == "cancelled"
+
+
+def test_cancel_stops_a_slow_lakehouse_read():
+    data = _SlowReads()
+    r = PipelineRun(loads(pipeline(_read("R"), wait("After", depends=["R"]))), data=data)
+    t = threading.Thread(target=r.run)
+    t.start()
+    time.sleep(0.3)
+    r.cancel()
+    t.join(5)
+    data.release.set()
+    assert not t.is_alive() and r.state == "cancelled"
+    assert states(r) == {"R": "cancelled", "After": "cancelled"}
+
+
+def test_a_lakehouse_read_that_returns_or_fails_in_time_is_unchanged():
+    class Reads(_SlowReads):
+        def lookup(self, a, props):
+            return {"firstRow": {"n": 2}}
+
+        def metadata(self, a, props):
+            raise ActivityFailed("no table", "LocalDataNotFound")
+
+    r = PipelineRun(loads(pipeline(_read("L"), _read("M", "GetMetadata"))), data=Reads()).run()
+    acts = {a["name"]: a for a in r.to_json()["activities"]}
+    assert acts["L"]["output"] == {"firstRow": {"n": 2}} and acts["M"]["error"]["errorCode"] == "LocalDataNotFound"
 
 
 def test_secure_output_is_hidden():

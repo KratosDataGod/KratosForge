@@ -65,10 +65,7 @@ def _check_id(vid: str) -> str:
 
 
 def _write(path: Path, record: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(record), encoding="utf-8")
-    jsonfile.replace(tmp, path)
+    jsonfile.write_text(path, json.dumps(record))
 
 
 def _read(path: Path) -> dict[str, Any] | None:

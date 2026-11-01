@@ -25,6 +25,7 @@ import polars as pl
 from ..optimize import schema
 from ..optimize.shared import record_id, timestamp
 from ..redact import secrets
+from .. import jsonfile
 
 S = pl.String
 TABLES_V1: dict[str, dict[str, pl.DataType]] = {
@@ -106,7 +107,4 @@ class Sent:
         seen = set(known)
         known += [i for i in ids if i not in seen]
         data[lakehouse_id] = known[-KEEP_SENT:]
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.replace(self.path)
+        jsonfile.write_text(self.path, json.dumps(data))

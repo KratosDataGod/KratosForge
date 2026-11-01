@@ -561,6 +561,53 @@ def test_cancel_stops_a_child_nothing_waits_on():
     assert r.to_json()["activities"][0]["child_run"]["state"] == "cancelled"
 
 
+def test_until_timeout_stops_a_child_pipeline():
+    """#1370: at an Until's timeout, a child pipeline in its iteration is stopped and the Execute Pipeline
+    is cancelled, rather than the loop waiting for the child to end."""
+    slow = pipeline(wait("Slow", 30), name="slow")
+    call = act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"})
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[call]))
+    started = time.monotonic()
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    assert time.monotonic() - started < 10
+    assert r.state == "failed" and _inner(r, "U")["error"]["errorCode"] == "LocalUntilTimeout"
+    row = _inner(r, "Call")
+    assert row["state"] == "cancelled" and "error" not in row
+    assert row["child_run"]["state"] == "cancelled"
+    assert row["child_run"]["activities"][0]["state"] == "cancelled"
+
+
+def test_execute_pipeline_policy_timeout_stops_its_child_but_not_the_run():
+    slow = pipeline(wait("Slow", 30), name="slow")
+    call = act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}) | {"policy": {"timeout": "0.00:00:01"}}
+    text = pipeline(call, wait("Sibling", 2), setvar("After", "v", "x", depends=["Sibling"]),
+                    variables={"v": {"type": "String"}})
+    started = time.monotonic()
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    assert time.monotonic() - started < 10
+    row = _inner(r, "Call")
+    assert row["state"] == "failed" and row["error"]["errorCode"] == "LocalActivityTimeout"
+    assert row["child_run"]["state"] == "failed" and row["child_run"]["stop_reason"] == "timed_out"
+    assert row["child_run"]["activities"][0]["state"] == "cancelled"
+    # The other branch isn't stopped: the run isn't cancelled, it fails on the Execute Pipeline alone.
+    assert _inner(r, "Sibling")["state"] == "succeeded" and _inner(r, "After")["state"] == "succeeded"
+    assert r.variables["v"] == "x" and r.state == "failed" and r.stop_reason == "" and not r.cancelled
+
+
+def test_cancel_stops_a_child_pipeline_waited_on():
+    slow = pipeline(wait("Slow", 60), name="slow")
+    r = PipelineRun(loads(pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}))),
+                    children={"slow": loads(slow)})
+    t = threading.Thread(target=r.run)
+    t.start()
+    time.sleep(0.5)  # the child's Wait is running
+    r.cancel()
+    t.join(10)
+    assert not t.is_alive() and r.state == "cancelled"
+    row = r.to_json()["activities"][0]
+    assert row["state"] == "cancelled" and row["child_run"]["state"] == "cancelled"
+
+
 def test_child_needing_fabric_refuses_the_parent():
     child = pipeline(act("C", "Copy", source={}, sink={}), name="c")
     with pytest.raises(RunRefused, match="In child pipeline c"):

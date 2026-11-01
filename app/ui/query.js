@@ -679,7 +679,7 @@ function renderQuery() {
     onclick: () => showPane("practices") });
   // The findings to show (learn.js): dismissed ones leave the list and the counts; a rule a policy names stays.
   function practiceSplit(r) {
-    const ctx = { where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat(), fix: fixActions };
+    const ctx = { subject: "sql", where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat(), fix: fixActions };
     const { shown, hidden } = learnSplitFindings(r?.findings, ctx.where, ctx.required);
     const counts = Object.fromEntries(["Error", "Warning", "Info"].map((s) => [s, shown.filter((f) => f.severity === s).length]));
     return { ctx, shown, hidden, counts };

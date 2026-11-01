@@ -249,9 +249,54 @@ def snowflake_host(account: str) -> str:
     return f"https://{account.lower().replace('_', '-')}.snowflakecomputing.com"
 
 
+_SECTIONS = ("defaults", "local", "environments", "runtime", "deploy", "execution", "data_access", "validation")
+_TEXT_FIELDS = ("id", "platform", "label", "host", "cloud", "account", "tenant_id")
+
+
+def _shape_problems(data: Any) -> list[str]:
+    """Where ``data`` isn't shaped like a profile at all (a list where an object goes, a number for
+    an address): a hand-edited or imported file says so instead of failing the check part way."""
+    if not isinstance(data, dict):
+        return ["A profile is a JSON object."]
+    out = [f"{key} must be text." for key in ("id", "name", "kind", "description")
+           if data.get(key) is not None and not isinstance(data[key], str)]
+    conns = data.get("connections")
+    if conns is not None and not isinstance(conns, list):
+        out.append("connections must be a list.")
+        conns = []
+    for i, conn in enumerate(conns or []):
+        where = f"connections[{i}]"
+        if not isinstance(conn, dict):
+            out.append(f"{where} must be an object.")
+            continue
+        for key in ("credential", "compute", "workspace"):
+            if conn.get(key) is not None and not isinstance(conn[key], dict):
+                out.append(f"{where}.{key} must be an object.")
+        for key in _TEXT_FIELDS:
+            if conn.get(key) is not None and not isinstance(conn[key], str):
+                out.append(f"{where}.{key} must be text.")
+    for key in _SECTIONS:
+        if data.get(key) is not None and not isinstance(data[key], dict):
+            out.append(f"{key} must be an object.")
+    for key in ("environments", "deploy"):
+        section = data.get(key)
+        for env, mapping in (section.items() if isinstance(section, dict) else ()):
+            if mapping is not None and not isinstance(mapping, dict):
+                # Only a known environment is named: any other key is the file's own text.
+                out.append(f"{key}.{env} must be an object." if env in ENVIRONMENTS
+                           else f"{key} has an entry that isn't an object.")
+    execution = data.get("execution")
+    if isinstance(execution, dict) and execution.get("budget") is not None and not isinstance(execution["budget"], dict):
+        out.append("execution.budget must be an object.")
+    return out
+
+
 def problems(data: dict[str, Any]) -> list[str]:
     """Every reason ``data`` (normalized or not) isn't a valid profile; empty when it is."""
     out = secret_problems(data)
+    shape = _shape_problems(data)
+    if shape:
+        return out + shape
     p = normalize(data)
     if p.get("schema") not in SUPPORTED_SCHEMAS:
         out.append(f"Profile schema {p.get('schema')} is newer than this app knows ({SCHEMA}). Update KratosForge.")
@@ -383,6 +428,9 @@ def import_(document: dict[str, Any], existing_ids: set[str] | None = None) -> d
     if found:
         raise ProfileError(found)
     p = copy.deepcopy(document.get("profile") or {})
+    shape = _shape_problems(p)
+    if shape:
+        raise ProfileError(shape)
     p["id"] = "p-" + uuid.uuid4().hex[:12]
     while existing_ids and p["id"] in existing_ids:
         p["id"] = "p-" + uuid.uuid4().hex[:12]

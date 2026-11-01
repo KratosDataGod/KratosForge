@@ -115,6 +115,11 @@ def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, c
                      "CAST(123456789012345.67 AS DOUBLE) k")
     assert rows(edge.select(*(F.format_number(c, 2) for c in "mnaijk"))) == [(
         "9,223,372,036,854,775,807.00", "-9,223,372,036,854,775,808.00", "NaN", "∞", "-∞", "123,456,789,012,345.67")]
+    # Past a double's own digits Java pads its shortest digits with zeros, and prints a whole double
+    # from 2**53 to 2**62 exactly (#1358).
+    long = spark.createDataFrame([(585541422640.3867,), (-1.03375e18,), (9007199254740994.0,), (-0.0,)], ["x"])
+    assert rows(long.select(F.format_number("x", 5))) == [("585,541,422,640.38670",), ("-1,033,750,000,000,000,000.00000",),
+                                                          ("9,007,199,254,740,994.00000",), ("-0.00000",)]
     # From 1e20 a number prints through a double, as before: no failure, but digits past 17 aren't exact.
     [(d, e, h)] = rows(big.select(F.format_number("d", 2), F.format_number("e", 1), F.format_number("h", 0)))
     assert d.startswith("10,000,000,000,000,000,") and d.endswith(".00") and len(d) == len("10,000,000,000,000,000,000,000,000.00")

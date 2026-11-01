@@ -13,13 +13,12 @@ Kinds (the names content.CHECK_KINDS lists):
     integrity       every row of a child table finds its parent (no orphans)
     no_findings     the learner's code has no finding of the named best-practice rules
     faster_than     the learner's query gives the reference answer at least ``factor`` times faster than
-                    the baseline: median of ``runs`` runs each after one to warm up, on this PC
+                    the baseline: fastest of ``runs`` runs each, taking turns after one to warm up, on this PC
     defects_found   a query listing the keys the learner flagged finds every seeded defect of the kinds
 """
 
 from __future__ import annotations
 
-import statistics
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -155,18 +154,20 @@ def faster_than(con: duckdb.DuckDBPyConnection, sql: str, baseline: str, factor:
     if not same["passed"]:
         return _no(kind, f"Speed counts only with the same answer. {same['detail']}")
 
-    def median(q: str) -> float:
-        _rows(con, q)   # once to warm up: the first run also reads the data from disk
-        times = []
-        for _ in range(max(1, runs)):
+    # Turn about, and keep each query's fastest run: on a busy PC (another program, a shared CI
+    # runner) a pause only ever adds time, and taking turns spreads a slow spell over both queries,
+    # so a correct answer isn't failed by what else the PC was doing.
+    _rows(con, baseline)   # once each to warm up: the first run also reads the data from disk
+    _rows(con, sql)
+    fastest = [float("inf"), float("inf")]
+    for _ in range(max(1, runs)):
+        for i, q in enumerate((baseline, sql)):
             start = clock()
             _rows(con, q)
-            times.append(clock() - start)
-        return statistics.median(times)
-
-    base, mine = median(baseline), median(sql)
+            fastest[i] = min(fastest[i], clock() - start)
+    base, mine = fastest
     speedup = base / mine if mine > 0 else float("inf")
-    detail = (f"{speedup:.1f}× faster: {mine:.2f} s against {base:.2f} s (median of {runs} runs on this PC). "
+    detail = (f"{speedup:.1f}× faster: {mine:.2f} s against {base:.2f} s (fastest of {runs} runs each, taking turns, on this PC). "
               "Fabric timings differ; this is measured here only.")
     measured = {"seconds": round(mine, 4), "baseline_seconds": round(base, 4), "speedup": round(speedup, 2) if mine > 0 else None}
     out = _ok(kind, detail) if speedup >= factor else _no(kind, f"{detail} The goal is {factor:g}×.")

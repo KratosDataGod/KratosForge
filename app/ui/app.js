@@ -1314,7 +1314,7 @@ async function renderWorkspaces() {
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
-        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
+        title: previewing ? `Preview ${it.displayName}` : null, "data-preview": previewing ? previewKey(target) : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
@@ -1732,13 +1732,18 @@ async function renderOneLake() {
   function drawGroups(groups, body, itemRow, depth = 0) {
     groups.forEach((g, i) => {
       const open = cp.groupOpen.has(g.key) ? cp.groupOpen.get(g.key) : depth > 0 || i === 0;
-      const toggle = () => { cp.groupOpen.set(g.key, !open); draw(); };
+      // The table is drawn afresh, so focus goes back to this header (a keyboard user stays put).
+      const toggle = () => {
+        cp.groupOpen.set(g.key, !open);
+        draw();
+        [...list.querySelectorAll(".group-head")].find((b) => b.dataset.group === g.key)?.focus();
+      };
       const wsCount = new Set(g.rows.map((r) => r.workspace_id)).size;
       const bits = [`${g.rows.length} item${g.rows.length === 1 ? "" : "s"}`];
       if (!g.env) bits.unshift(`${wsCount} workspace${wsCount === 1 ? "" : "s"}`);
       if (g.children && g.children.every((c) => c.env === "none")) bits.push("no environment");
       body.push(h("tr", { class: `group-row depth-${depth}` }, h("td", { colspan: 8 },
-        h("button", { class: "group-head", "aria-expanded": String(open), onclick: toggle },
+        h("button", { class: "group-head", "aria-expanded": String(open), "data-group": g.key, onclick: toggle },
           icon(open ? "chevronDown" : "chevronRight", 14),
           g.env ? envPill(g.env, true) : null,
           h("span", { class: "group-label" }, g.env && depth > 0 ? (g.workspaces || []).join(", ") : g.env ? "" : g.label),
@@ -1974,6 +1979,7 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
             title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
             onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
             ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
@@ -2002,6 +2008,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js

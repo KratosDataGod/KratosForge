@@ -26,9 +26,10 @@ def test_sorts_put_null_where_spark_does(spark, answer):
     assert duckdb.sql(_duckdb(spark)).fetchall()[0][0] == answer
 
 
-def test_array_sort_with_a_comparator_keeps_sqlglots_translation():
-    out = _duckdb("SELECT array_sort(a, (l, r) -> r - l) FROM t")
-    assert "NULLS" not in out.upper()
+def test_array_sort_with_a_comparator_is_sorted_by_the_comparator_not_a_nulls_rule():
+    # #1413: the comparator decides where NULL goes, so no NULLS FIRST/LAST rule is added.
+    out = _duckdb("SELECT array_sort(a, (l, r) -> r - l) FROM t").upper()
+    assert "NULLS FIRST" not in out and "NULLS LAST" not in out and "KF_C < 0" in out
 
 
 def test_sort_array_with_a_column_for_the_order_is_left_alone():

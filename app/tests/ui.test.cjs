@@ -271,6 +271,20 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+// friendlyError returns { text, details, cancelled }, so a call used as text shows "[object Object]".
+test("friendlyError's result is never used as text", () => {
+  const misused = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const m of src.matchAll(/friendlyError\([^()]*\)(?![.\w])/g)) {
+      const start = src.lastIndexOf("\n", m.index) + 1;
+      if (/(?:const|let) \w+ = $/.test(src.slice(start, m.index)) || /function $/.test(src.slice(start, m.index))) continue;
+      misused.push(`${name}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepStrictEqual(misused, []);
+});
+
 // Accessibility (FD-139): checks that need no browser.
 test("every icon-only button has a name a screen reader can say", () => {
   const missing = [];
@@ -4504,7 +4518,7 @@ function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
   const { node } = chartsHarness(null);
   const calls = [];
-  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: String(e?.message ?? e), details: "" }), previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
     renderOutput: (o) => node("pre", {}, o.text || o.type),
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4840,7 +4854,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };

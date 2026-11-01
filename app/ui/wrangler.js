@@ -68,7 +68,7 @@ function renderWrangler(o, cell) {
   if (w.data) draw(w.data);
   else {
     rpc("notebook_frame_wrangle", { frame: o.frame, steps: w.steps, name: w.name || "df" })
-      .then((d) => { if (!d.gone) w.data = d; draw(d); }, (err) => { preview.textContent = `Could not preview: ${friendlyError(err)}`; });
+      .then((d) => { if (!d.gone) w.data = d; draw(d); }, (err) => { preview.textContent = `Could not preview: ${friendlyError(err).text}`; });
   }
   return box;
 }

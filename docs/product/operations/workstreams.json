@@ -37,8 +37,17 @@
       },
       "ready": [
         {
-          "issue": 1288,
-          "title": "Hardening: the compute check reads notebook.run's own lakehouse, runMultiple's named notebooks, and %run -b Python files"
+          "issue": 1368,
+          "title": "Local pipelines: Lookup and Get Metadata stop at their policy timeout and on cancel"
+        },
+        {
+          "issue": 1370,
+          "title": "Local pipelines: an Until's timeout and an Execute Pipeline's policy timeout stop its child pipeline"
+        },
+        {
+          "issue": 1393,
+          "title": "Local pipelines: a ForEach inside an Until stops starting iterations at the Until's timeout",
+          "note": "Built as #1399."
         }
       ],
       "backlog": [
@@ -51,8 +60,8 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
-      "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; #1288 next, and file the next engine hardening stories."
+      "last_completed": "#1324 (#1314) useRootDefaultLakehouse Unknown; #1333 (#1316) Until and policy timeouts; #1305 (#1288); #1300 (#1286)",
+      "next_action": "Keep PB-015 moving; land #1368, #1370 and #1393, and file the next hardening stories."
     },
     {
       "key": "fabric",
@@ -70,15 +79,19 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "issue": 1178,
-        "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
-        "note": "Built as #1246; merges after #1166."
+        "issue": 1407,
+        "title": "[PB-HD] Fabric API errors stay one bounded line whatever Fabric sends"
       },
       "ready": [
         {
+          "issue": 1178,
+          "title": "Every Fabric fake refuses what the live runs showed the real API refuses",
+          "note": "Built as #1246; merges after #1166."
+        },
+        {
           "issue": 1165,
           "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")",
-          "note": "Fixed by #1166, PASS, with Release management."
+          "note": "Fixed by #1166, with Release management."
         }
       ],
       "backlog": [
@@ -95,8 +108,8 @@
         "PB-049 (#920), PB-052 (#909) and PB-003 (#887): only the live runs remain, each needs Chris's yes",
         "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
-      "last_completed": "#1179 KQL Monitoring query retries throttling, 5xx and dropped connections",
-      "next_action": "Land #1166 and #1246; file the next Fabric hardening stories."
+      "last_completed": "#1377 (#1366) Key Vault secret errors; #1378 (#1367) mailbox listing errors; #1326 (#1313); #1327 (#1315)",
+      "next_action": "#1407; land #1166 and #1246; file the next hardening stories."
     },
     {
       "key": "dbx-snow",
@@ -107,8 +120,20 @@
       "members": [
         "Snowflake local-first development (to be opened)"
       ],
-      "active": {},
-      "ready": [],
+      "active": {
+        "issue": 1413,
+        "title": "[DBX-FIDELITY-4] array_sort with a comparator lambda runs on this PC"
+      },
+      "ready": [
+        {
+          "issue": 1404,
+          "title": "[DBX-FIDELITY-3] from_json with a DDL schema and str_to_map run on this PC"
+        },
+        {
+          "issue": 1419,
+          "title": "[DBX-HARDEN-1] array_sort with a comparator refuses arrays over 10,000 elements"
+        }
+      ],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -118,8 +143,8 @@
         "Snowflake SF-01 sign-in and SF-07 engine wait on Chris's D4 decision",
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
-      "next_action": "File and start the next Databricks and Snowflake fidelity or hardening stories."
+      "last_completed": "#1380 (#1369) Fabric Spark previews; #1385 (#1371) higher-order functions; #1388 (#1372) Snowflake TYPEOF; #1329 (#1325)",
+      "next_action": "#1413, #1404 and #1419 in parallel."
     },
     {
       "key": "enterprise",
@@ -132,20 +157,28 @@
         "Workload management workspace"
       ],
       "active": {
-        "issue": 1261,
-        "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric",
-        "note": "Built as #1267, with Release management."
+        "issue": 1409,
+        "title": "[HD] Engine HTTPS trusts the Windows certificate store, so networks that inspect HTTPS work",
+        "note": "P1 for Fortune 100 networks."
       },
       "ready": [
         {
-          "issue": 1269,
-          "title": "[HD] A long request target never cuts off what a notice says is left in Fabric",
-          "note": "Built as #1308 (stacked on #1267), in review."
+          "issue": 1376,
+          "title": "[HD] Support bundles leave out guest sign-in names, tenant domains and OneDrive organization names",
+          "note": "Built as #1379, with Release management."
         },
         {
-          "issue": 1270,
-          "title": "[HD] A domain approval retried after its progress record failed still records the domain it made",
-          "note": "Built as #1309 (stacked on #1267), in review."
+          "issue": 1391,
+          "title": "[HD] Support bundles and problem reports leave out SharePoint tenant names and the owner in a OneDrive web address",
+          "note": "Built as #1392, stacked on #1379."
+        },
+        {
+          "issue": 1408,
+          "title": "[HD] A test keeps the delegated permissions list complete"
+        },
+        {
+          "issue": 1417,
+          "title": "[HD] A test keeps the platform's audit trail append-only"
         }
       ],
       "backlog": [
@@ -160,8 +193,8 @@
         "Workload pipelines mockup waits on Chris",
         "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
-      "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "Land #1267, #1308 and #1309; file the next hardening stories."
+      "last_completed": "#1387 (#1386) internal hosts left out of support bundles; #1351, #1353, #1354 audit trail",
+      "next_action": "#1409 first (P1); land #1379 and #1392; then #1408 and #1417."
     },
     {
       "key": "devex",
@@ -179,15 +212,37 @@
         "title": "Accessibility audit covers Preview screens and common dialogs",
         "note": "Five screens merged in #1294; the engine picker dialog follows #1184."
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1396,
+          "title": "Item preview side panel tested in a real browser",
+          "note": "Built as #1414."
+        },
+        {
+          "issue": 1397,
+          "title": "Variable history, watches and hidden state tested in a real browser"
+        },
+        {
+          "issue": 1422,
+          "title": "Source control branches, discard and undo the pull tested in a real browser"
+        },
+        {
+          "issue": 1423,
+          "title": "OneLake shortcuts: create, delete, undo and requests tested in a real browser"
+        },
+        {
+          "issue": 1424,
+          "title": "Prove this notebook: start, cancel, result and receipt tested in a real browser"
+        }
+      ],
       "backlog": [
         "PB-087",
         "PB-034"
       ],
       "dependencies": [],
       "blockers": [],
-      "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
-      "next_action": "File and start the next browser, accessibility or test stories."
+      "last_completed": "#1390 (#1374), #1394 (#1373), #1395 (#1375), #1403 (#1398): 59 browser tests and real focus and error-text fixes",
+      "next_action": "Land #1405 and #1414; build #1397, #1422, #1423 and #1424."
     },
     {
       "key": "platform",
@@ -201,7 +256,11 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {},
+      "active": {
+        "issue": 1341,
+        "title": "Engine: DuckDB 2.0 readiness, so the engine suite passes on 2.0 before the pin moves",
+        "note": "Split into cause-group PRs; the pin stays below 2.0."
+      },
       "ready": [],
       "backlog": [
         "PB-061"
@@ -213,8 +272,8 @@
         "Rest of PB-072 needs a Stop design mockup",
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
-      "next_action": "File and start the next two hardening stories."
+      "last_completed": "#1359 (#1358) format_number; #1339 (#1337) axe waits; #1349, #1356, #1363 (parts of #1341)",
+      "next_action": "#1341 by cause group; file other platform hardening."
     }
   ],
   "new_stories": {},

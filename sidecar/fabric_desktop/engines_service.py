@@ -85,7 +85,10 @@ class EnginesMixin:
     def _engine_adapter(self, engine_id: str) -> Any:
         if engine_id == registry.FABRIC_SPARK.id:
             from .engines.fabric_spark import FabricSparkAdapter
-            return FabricSparkAdapter(token=lambda: self.auth.fabric_token())  # type: ignore[attr-defined]
+            from .auth import FABRIC_SCOPES
+            refreshed = getattr(self, "_refreshed", None)  # Service's: a new token after a 401, when it can
+            return FabricSparkAdapter(token=lambda: self.auth.fabric_token(),  # type: ignore[attr-defined]
+                                      refresh=refreshed(FABRIC_SCOPES) if callable(refreshed) else None)
         return registry.adapter(engine_id)
 
     def _profiles(self) -> connprofiles.ProfileStore:

@@ -39,7 +39,7 @@ from typing import Any, Callable
 import sqlglot
 from sqlglot import exp
 
-from .. import sql_dialects
+from .. import jsonfile, sql_dialects
 from . import delta
 
 __all__ = ["Step", "Transforms"]
@@ -361,6 +361,4 @@ def _now() -> str:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    jsonfile.write_text(path, json.dumps(data, indent=2))

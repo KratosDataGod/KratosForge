@@ -263,3 +263,60 @@ def test_a_secret_name_with_a_trailing_newline_is_refused():
     assert out["outputs"][-1]["ename"] == "ValueError", out
     from fabric_desktop.notebookutils_local import vault_url
     assert vault_url("MyVault") == "https://myvault.vault.azure.net"
+
+
+class _KvResp:
+    def __init__(self, status, body=None):
+        self.status_code, self._body, self.headers = status, body, {"Retry-After": "0"}
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no JSON")
+        return self._body
+
+    def close(self):
+        pass
+
+
+def _kv(monkeypatch, *answers):
+    import types
+
+    from fabric_desktop import http_session, retrying
+    sent = []
+    queue = list(answers)
+
+    def get(url, **kw):
+        sent.append(url)
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+    monkeypatch.setattr(http_session, "session", lambda: types.SimpleNamespace(get=get))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    return sent
+
+
+def test_a_missing_secret_says_which_one_without_the_url(monkeypatch):
+    _kv(monkeypatch, _KvResp(404, {"error": {"code": "SecretNotFound", "message": "A secret with (name/id) pw was not found"}}))
+    out = Kernel(token=lambda audience: "tok").run("notebookutils.credentials.getSecret('kv', 'pw')")
+    err = out["outputs"][-1]
+    assert err["ename"] == "HTTPError"
+    assert err["evalue"].startswith("Key Vault https://kv.vault.azure.net has no secret named 'pw'")
+    assert "/secrets/" not in err["evalue"] and "api-version" not in err["evalue"]
+
+
+def test_a_vault_that_keeps_throttling_says_so(monkeypatch):
+    sent = _kv(monkeypatch, _KvResp(429))
+    out = Kernel(token=lambda audience: "tok").run("notebookutils.credentials.getSecret('kv', 'pw')")
+    assert "is throttling requests" in out["outputs"][-1]["evalue"] and len(sent) > 1  # waited out first
+
+
+def test_other_key_vault_refusals_give_the_status_and_code(monkeypatch):
+    _kv(monkeypatch, _KvResp(400, {"error": {"code": "BadParameter", "message": "secret value: hunter2"}}))
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    evalue = out["outputs"][-1]["evalue"]
+    assert evalue == "Key Vault https://kv.vault.azure.net couldn't list its secrets (400: BadParameter)."
+    assert "hunter2" not in evalue  # Key Vault's message is never shown
+
+
+def test_an_odd_key_vault_error_code_isnt_shown(monkeypatch):
+    _kv(monkeypatch, _KvResp(400, {"error": {"code": "X" * 500 + "\n injected"}}))
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    assert out["outputs"][-1]["evalue"] == "Key Vault https://kv.vault.azure.net couldn't list its secrets (400)."

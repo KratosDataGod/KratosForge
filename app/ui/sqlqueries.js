@@ -30,18 +30,25 @@ function whQueries(ref, actions) {
     await sqlLoadQueries();
     sqlPage.whRedraw?.();
   }
+  // The filter stays in the page; only the list under it is redrawn, so a redraw (each letter
+  // typed, a save elsewhere) never takes the focus from the filter.
+  const list = h("div");
+  box.append(filter, list);
   function draw() {
     if (sqlQueries.state === "idle" || sqlQueries.state === "loading") {
-      box.replaceChildren(h("div", { class: "tree-row muted" }, "Reading saved queries..."));
+      filter.hidden = true;
+      list.replaceChildren(h("div", { class: "tree-row muted" }, "Reading saved queries..."));
       return;
     }
     if (sqlQueries.state === "failed") {
-      box.replaceChildren(h("div", { class: "output error wh-note" }, `Could not list saved queries: ${sqlQueries.error}`),
+      filter.hidden = true;
+      list.replaceChildren(h("div", { class: "output error wh-note" }, `Could not list saved queries: ${sqlQueries.error}`),
         btn("Try again", "sync", async () => { await sqlLoadQueries(); sqlPage.whRedraw?.(); }, "tool outline small"));
       return;
     }
+    filter.hidden = false;
     const term = (sqlPage.whQueryFilter || "").trim().toLowerCase();
-    const rows = [filter];
+    const rows = [];
     for (const place of sqlQueries.places) {
       const qs = sqlQueries.queries.filter((q) => q.place === place.id
         && (!term || `${q.title} ${q.description} ${q.warehouse}`.toLowerCase().includes(term)));
@@ -60,7 +67,7 @@ function whQueries(ref, actions) {
     }
     rows.push(...sqlQueries.notes.map((n) => h("p", { class: "muted-text wh-note" }, n)),
       h("p", { class: "muted-text wh-note" }, "Shared queries are files in a Git repository's sql-queries folder: commit them in Source control."));
-    box.replaceChildren(...rows);
+    list.replaceChildren(...rows);
   }
   // The page may have been drawn again while the list was read: redraw whatever is showing now.
   if (sqlQueries.state === "idle") sqlLoadQueries().then(() => sqlPage.whRedraw?.());

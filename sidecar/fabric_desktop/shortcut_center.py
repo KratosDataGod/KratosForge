@@ -242,7 +242,7 @@ def readers_gap(here: list[dict[str, Any]], there: list[dict[str, Any]] | None, 
     else:
         ids_there = {r["id"] for r in there}
         missing = [r for r in here if r["id"] not in ids_there]
-        out |= {"target": len(ids_here & ids_there), "gap": 0, "missing": missing[:50],
+        out |= {"target": len(ids_here & ids_there), "gap": len(missing), "missing": missing[:50],
                 "text": "Matches" if not missing else
                 f"{len(missing)} of {len(ids_here)} see it empty: they have no access to the target"}
     return out

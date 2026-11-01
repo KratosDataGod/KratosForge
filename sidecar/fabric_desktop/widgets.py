@@ -882,9 +882,9 @@ def interact(__interact_f: Callable[..., Any] | None = None, **kwargs: Any) -> A
     return show(__interact_f)
 
 
-def _interact_manual(__interact_f: Callable[..., Any] | None = None, **kwargs: Any) -> Any:
+def _interact_manual(__interact_f: Callable[..., Any] | None = None, __manual_name: str = "", **kwargs: Any) -> Any:
     def show(f: Callable[..., Any]) -> Callable[..., Any]:
-        box = interactive(f, {"manual": True}, **kwargs)
+        box = interactive(f, {"manual": True, "manual_name": __manual_name}, **kwargs)
         if registry.show is not None:
             registry.show(box)
         f.widget = box  # type: ignore[attr-defined]
@@ -892,7 +892,16 @@ def _interact_manual(__interact_f: Callable[..., Any] | None = None, **kwargs: A
     return show if __interact_f is None else show(__interact_f)
 
 
-interact.options = lambda **opts: (lambda f=None, **kw: (_interact_manual if opts.get("manual") else interact)(f, **kw))  # type: ignore[attr-defined]
+def _options(**opts: Any) -> Callable[..., Any]:
+    """``interact.options(manual=True, manual_name="Go")``: the button is named as asked, as in ipywidgets."""
+    def apply(f: Callable[..., Any] | None = None, **kw: Any) -> Any:
+        if opts.get("manual"):
+            return _interact_manual(f, str(opts.get("manual_name") or ""), **kw)
+        return interact(f, **kw)
+    return apply
+
+
+interact.options = _options  # type: ignore[attr-defined]
 interact_manual = _interact_manual
 
 

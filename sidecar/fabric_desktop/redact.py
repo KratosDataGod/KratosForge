@@ -53,7 +53,17 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.
 _SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey", "connectionstring", "authorization")
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+# A guest's sign-in name carries "#EXT#" before the "@" (name_home.com#EXT#@tenant.onmicrosoft.com).
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+# The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.
+_TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
+# contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
+_SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
+# a site or team name often carries the organization's: /sites/ContosoFinance
+_SHAREPOINT_SITE = re.compile(r"(?i)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)[^/\s\"'<>?#]+")
+# a OneDrive web address names its owner: /personal/ann_contoso_com/
+_ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
+_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
 _WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})([^\\/\"'<>\r\n]+)")
@@ -75,9 +85,15 @@ def secret_key(name: object) -> bool:
 
 
 def for_support(text: str) -> str:
-    """``text`` safe to paste into a public issue: no secrets, emails, user names in paths or ids."""
+    """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), the tenant's
+    onmicrosoft.com and SharePoint names, the organization on OneDrive folders, user names in paths or ids."""
     text = secrets(text)
     text = _EMAIL.sub("[email]", text)
+    text = _TENANT_DOMAIN.sub(r"[tenant]\1", text)
+    text = _SHAREPOINT_HOST.sub(r"[tenant]\1\2", text)
+    text = _SHAREPOINT_SITE.sub(r"\1[site]", text)
+    text = _ONEDRIVE_PERSONAL.sub(r"\1[user]", text)
+    text = _ONEDRIVE_ORG.sub(r"\1[organization]", text)
     text = _WIN_USER_PATH.sub(r"\1[user]", text)
     text = _UNIX_USER_PATH.sub(r"\1[user]", text)
     return _GUID.sub("[id]", text)

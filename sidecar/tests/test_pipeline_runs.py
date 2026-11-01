@@ -20,6 +20,7 @@ from fabric_desktop.integrations.registry import default_registry as capability_
 from fabric_desktop.orchestration import load, loads
 from fabric_desktop.orchestration.activities import default_registry
 from fabric_desktop.orchestration.evaluate import FUNCTIONS, ExpressionError, Scope, evaluate
+from fabric_desktop.orchestration.adapters import ActivityFailed
 from fabric_desktop.orchestration.runner import PipelineRun, RunRefused
 from fabric_desktop.orchestration.runs import KEEP, RunStore
 from fabric_desktop.pipeline_service import PipelineMixin, PipelineRunMixin
@@ -173,15 +174,33 @@ def test_independent_activities_run_in_parallel_up_to_max_parallel():
     text = pipeline(act("M1", "Copy", source={}, sink={}), act("M2", "Copy", source={}, sink={}))
     mocks = {"M1": {"seconds": 0.3}, "M2": {"seconds": 0.3}}
 
-    def took(max_parallel):
-        t = time.monotonic()
-        run(text, mocks=mocks, wait_scale=1, max_parallel=max_parallel)
-        return time.monotonic() - t
+    class Slots:  # the run's slots, counting how many activities hold one at once
+        def __init__(self, n):
+            self.inner, self.lock, self.held, self.most = threading.BoundedSemaphore(n), threading.Lock(), 0, 0
 
-    # Compare the two runs with each other, not with a fixed limit, so a slow CI machine can't flake
-    # it: both carry the same overhead, and only one-at-a-time waits out the second 0.3 s mock.
-    both, one = took(2), took(1)
-    assert one >= 0.55 and one - both >= 0.15, (both, one)
+        def acquire(self, timeout=None):
+            if not self.inner.acquire(timeout=timeout):
+                return False
+            with self.lock:
+                self.held += 1
+                self.most = max(self.most, self.held)
+            return True
+
+        def release(self):
+            with self.lock:
+                self.held -= 1
+            self.inner.release()
+
+    def most_at_once(max_parallel):
+        r = PipelineRun(loads(text), mocks=mocks, wait_scale=1, max_parallel=max_parallel)
+        r._slots = slots = Slots(max_parallel)
+        assert r.run().state == "succeeded"
+        return slots.most
+
+    # Count the activities running at once, not the wall clock: a loaded Windows runner once took
+    # 0.55 s for the parallel run, which a bound on elapsed time can't tell from one at a time.
+    assert most_at_once(2) == 2
+    assert most_at_once(1) == 1
 
 
 @pytest.mark.parametrize("conditions,parent_fails,expected", [
@@ -332,6 +351,19 @@ def test_an_outer_until_timeout_stops_an_inner_until_and_its_retry_wait():
     assert _inner(r, "Inner")["state"] == "cancelled" and _inner(r, "Flaky")["state"] == "cancelled"
 
 
+def test_a_foreach_inside_an_until_starts_no_iterations_after_the_timeout():
+    """#1393: a ForEach doesn't start (and record) its remaining iterations once the Until's timeout passes."""
+    each = act("Each", "ForEach", items="@range(0, 1000)", isSequential=True, activities=[wait("W", 2)])
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[each]))
+    started = time.monotonic()
+    r = run(text, wait_scale=1)
+    assert time.monotonic() - started < 10
+    rows = r.to_json()["activities"]
+    assert _inner(r, "U")["error"]["errorCode"] == "LocalUntilTimeout" and _inner(r, "Each")["state"] == "cancelled"
+    waits = [a for a in rows if a["name"] == "W"]
+    assert len(waits) == 1 and waits[0]["state"] == "cancelled"
+
+
 def test_an_activitys_own_policy_timeout_inside_an_until_still_fails_it():
     slow = wait("Slow", 30) | {"policy": {"timeout": "0.00:00:01"}}
     text = pipeline(act("U", "Until", expression="@false", timeout="0.01:00:00", activities=[slow]))
@@ -424,6 +456,77 @@ def test_policy_timeout():
     a = act("C", "Copy", source={}, sink={}) | {"policy": {"timeout": "0.00:00:01"}}
     r = run(pipeline(a), mocks={"C": {"seconds": 100}}, wait_scale=0.05)
     assert r.to_json()["activities"][0]["error"]["errorCode"] == "LocalActivityTimeout" and r.seconds < 1.5
+
+
+class _SlowReads:
+    """A lakehouse reader whose Lookup and Get Metadata block until released (#1368)."""
+
+    def __init__(self):
+        self.release = threading.Event()
+
+    def check(self, a):
+        return []
+
+    def _slow(self, a, props):
+        self.release.wait(30)
+        return {"firstRow": {"n": 1}}
+
+    lookup = metadata = _slow
+
+    def script(self, a, props, cancelled, deadline):
+        return {}
+
+
+def _read(name, typ="Lookup"):
+    extra = {"fieldList": ["columnCount"]} if typ == "GetMetadata" else {"source": {}}
+    return act(name, typ, datasetSettings={"type": "LakehouseTable"}, **extra)
+
+
+@pytest.mark.parametrize("typ", ["Lookup", "GetMetadata"])
+def test_a_slow_lakehouse_read_stops_at_its_policy_timeout(typ):
+    data = _SlowReads()
+    started = time.monotonic()
+    r = PipelineRun(loads(pipeline(_read("R", typ) | {"policy": {"timeout": "0.00:00:01"}})), data=data).run()
+    data.release.set()
+    assert time.monotonic() - started < 5
+    assert r.state == "failed" and r.to_json()["activities"][0]["error"]["errorCode"] == "LocalActivityTimeout"
+
+
+def test_a_slow_lakehouse_read_stops_at_an_until_timeout():
+    data = _SlowReads()
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[_read("R")]))
+    started = time.monotonic()
+    r = PipelineRun(loads(text), data=data).run()
+    data.release.set()
+    assert time.monotonic() - started < 5
+    acts = {a["name"]: a for a in r.to_json()["activities"]}
+    assert acts["U"]["error"]["errorCode"] == "LocalUntilTimeout" and acts["R"]["state"] == "cancelled"
+
+
+def test_cancel_stops_a_slow_lakehouse_read():
+    data = _SlowReads()
+    r = PipelineRun(loads(pipeline(_read("R"), wait("After", depends=["R"]))), data=data)
+    t = threading.Thread(target=r.run)
+    t.start()
+    time.sleep(0.3)
+    r.cancel()
+    t.join(5)
+    data.release.set()
+    assert not t.is_alive() and r.state == "cancelled"
+    assert states(r) == {"R": "cancelled", "After": "cancelled"}
+
+
+def test_a_lakehouse_read_that_returns_or_fails_in_time_is_unchanged():
+    class Reads(_SlowReads):
+        def lookup(self, a, props):
+            return {"firstRow": {"n": 2}}
+
+        def metadata(self, a, props):
+            raise ActivityFailed("no table", "LocalDataNotFound")
+
+    r = PipelineRun(loads(pipeline(_read("L"), _read("M", "GetMetadata"))), data=Reads()).run()
+    acts = {a["name"]: a for a in r.to_json()["activities"]}
+    assert acts["L"]["output"] == {"firstRow": {"n": 2}} and acts["M"]["error"]["errorCode"] == "LocalDataNotFound"
 
 
 def test_secure_output_is_hidden():
@@ -559,6 +662,53 @@ def test_cancel_stops_a_child_nothing_waits_on():
     t.join(10)
     assert not t.is_alive() and r.state == "cancelled"
     assert r.to_json()["activities"][0]["child_run"]["state"] == "cancelled"
+
+
+def test_until_timeout_stops_a_child_pipeline():
+    """#1370: at an Until's timeout, a child pipeline in its iteration is stopped and the Execute Pipeline
+    is cancelled, rather than the loop waiting for the child to end."""
+    slow = pipeline(wait("Slow", 30), name="slow")
+    call = act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"})
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[call]))
+    started = time.monotonic()
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    assert time.monotonic() - started < 10
+    assert r.state == "failed" and _inner(r, "U")["error"]["errorCode"] == "LocalUntilTimeout"
+    row = _inner(r, "Call")
+    assert row["state"] == "cancelled" and "error" not in row
+    assert row["child_run"]["state"] == "cancelled"
+    assert row["child_run"]["activities"][0]["state"] == "cancelled"
+
+
+def test_execute_pipeline_policy_timeout_stops_its_child_but_not_the_run():
+    slow = pipeline(wait("Slow", 30), name="slow")
+    call = act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}) | {"policy": {"timeout": "0.00:00:01"}}
+    text = pipeline(call, wait("Sibling", 2), setvar("After", "v", "x", depends=["Sibling"]),
+                    variables={"v": {"type": "String"}})
+    started = time.monotonic()
+    r = run(text, children={"slow": loads(slow)}, wait_scale=1)
+    assert time.monotonic() - started < 10
+    row = _inner(r, "Call")
+    assert row["state"] == "failed" and row["error"]["errorCode"] == "LocalActivityTimeout"
+    assert row["child_run"]["state"] == "failed" and row["child_run"]["stop_reason"] == "timed_out"
+    assert row["child_run"]["activities"][0]["state"] == "cancelled"
+    # The other branch isn't stopped: the run isn't cancelled, it fails on the Execute Pipeline alone.
+    assert _inner(r, "Sibling")["state"] == "succeeded" and _inner(r, "After")["state"] == "succeeded"
+    assert r.variables["v"] == "x" and r.state == "failed" and r.stop_reason == "" and not r.cancelled
+
+
+def test_cancel_stops_a_child_pipeline_waited_on():
+    slow = pipeline(wait("Slow", 60), name="slow")
+    r = PipelineRun(loads(pipeline(act("Call", "ExecutePipeline", pipeline={"referenceName": "slow"}))),
+                    children={"slow": loads(slow)})
+    t = threading.Thread(target=r.run)
+    t.start()
+    time.sleep(0.5)  # the child's Wait is running
+    r.cancel()
+    t.join(10)
+    assert not t.is_alive() and r.state == "cancelled"
+    row = r.to_json()["activities"][0]
+    assert row["state"] == "cancelled" and row["child_run"]["state"] == "cancelled"
 
 
 def test_child_needing_fabric_refuses_the_parent():

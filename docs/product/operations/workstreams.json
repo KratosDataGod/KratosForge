@@ -55,7 +55,7 @@
       "blockers": [
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
-      "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
+      "last_completed": "#1324 (#1314) useRootDefaultLakehouse Unknown; #1333 (#1316) Until and policy timeouts; #1305 (#1288); #1300 (#1286)",
       "next_action": "Keep PB-015 moving; build #1368 and #1370 in parallel, and file the next hardening stories."
     },
     {
@@ -107,7 +107,7 @@
         "PB-049 (#920), PB-052 (#909) and PB-003 (#887): only the live runs remain, each needs Chris's yes",
         "#1166 live 401/403 check and Run B of #849 wait on Chris's card"
       ],
-      "last_completed": "#1179 KQL Monitoring query retries throttling, 5xx and dropped connections",
+      "last_completed": "#1326 (#1313) one-line OneLake read errors; #1291 (#1285) and #1293 (#1287) throttling",
       "next_action": "Land #1166 and #1246; file the next Fabric hardening stories."
     },
     {
@@ -119,8 +119,20 @@
       "members": [
         "Snowflake local-first development (to be opened)"
       ],
-      "active": {},
-      "ready": [],
+      "active": {
+        "issue": 1371,
+        "title": "[DBX-FIDELITY-2] zip_with, map_filter, transform_keys, transform_values and aggregate's finish run on this PC"
+      },
+      "ready": [
+        {
+          "issue": 1369,
+          "title": "[FS-HARDEN-2] Fabric Spark SQL previews never pad, cut or merge columns"
+        },
+        {
+          "issue": 1372,
+          "title": "[SF-FIDELITY-5] Snowflake TYPEOF gives Snowflake's VARIANT type names on this PC"
+        }
+      ],
       "backlog": [],
       "dependencies": [
         "Snowflake code waits on its ADRs and Chris's go",
@@ -130,8 +142,8 @@
         "Snowflake SF-01 sign-in and SF-07 engine wait on Chris's D4 decision",
         "Databricks live runs need a workspace and Chris's yes"
       ],
-      "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
-      "next_action": "Land #1329; file and start the next fidelity and hardening stories."
+      "last_completed": "#1329 (#1325) lambda index and JSON paths; #1321 (#1319); #1323 (#1320); #1279 (#1278)",
+      "next_action": "#1371, #1369 and #1372 in parallel."
     },
     {
       "key": "enterprise",
@@ -157,8 +169,8 @@
         "Workload pipelines mockup waits on Chris",
         "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
-      "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "Land #1309, #1335, #1348, #1351, #1353 and #1354; continue the audit-trail pass (access reviews, role changes, support bundle)."
+      "last_completed": "#1309 (#1270), #1335 (#1331), #1348 (#1347), #1351 (#1350), #1353 (#1352); #1354 audit trail docs page",
+      "next_action": "Continue the audit-trail pass (access reviews, role changes, support bundle) and file real gaps as stories."
     },
     {
       "key": "devex",
@@ -176,15 +188,28 @@
         "title": "Accessibility audit covers Preview screens and common dialogs",
         "note": "Five screens merged in #1294; the engine picker dialog follows #1184."
       },
-      "ready": [],
+      "ready": [
+        {
+          "issue": 1373,
+          "title": "Entity compare, last release and roll back tested in a real browser"
+        },
+        {
+          "issue": 1374,
+          "title": "Schema drift, quarantine replay and freshness promises tested in a real browser"
+        },
+        {
+          "issue": 1375,
+          "title": "Notebook Clean view, Query profile and the warehouse Plan view tested in a real browser"
+        }
+      ],
       "backlog": [
         "PB-087",
         "PB-034"
       ],
       "dependencies": [],
       "blockers": [],
-      "last_completed": "#1185 PB-096 AI client checklist (#1171): In review, waiting for Chris's acceptance; its sign-in steps need his PC",
-      "next_action": "File and start the next browser, accessibility or test stories."
+      "last_completed": "#1290 (#1283), #1294 (#1284 part), #1298 (#1295), #1299 (#1296), #1297, #1302, #1304",
+      "next_action": "#1373, #1374 and #1375 in parallel; #1284's last screen after #1184."
     },
     {
       "key": "platform",
@@ -203,12 +228,7 @@
         "title": "Engine: DuckDB 2.0 readiness, so the engine suite passes on 2.0 before the pin moves",
         "note": "Split into cause-group PRs; the pin stays below 2.0."
       },
-      "ready": [
-        {
-          "issue": 1358,
-          "title": "format_number: doubles printed past their ~17 significant digits differ from Spark"
-        }
-      ],
+      "ready": [],
       "backlog": [
         "PB-061"
       ],
@@ -219,7 +239,7 @@
         "Rest of PB-072 needs a Stop design mockup",
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
-      "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
+      "last_completed": "#1359 (#1358) format_number; #1339 (#1337) axe waits; #1349, #1356, #1363 (parts of #1341)",
       "next_action": "#1341 by cause group; file other platform hardening."
     }
   ],

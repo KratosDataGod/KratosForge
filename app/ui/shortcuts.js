@@ -615,7 +615,9 @@ function scChangeList(changes, after, showWhere) {
   const undo = async (c) => {
     const what = { removed: `Recreate shortcut ${c.name} in ${c.lakehouse_name}, pointing at ${scDefText(c.before)}?`,
       repointed: `Point ${c.name} back at ${scDefText(c.before)}?`, added: `Remove shortcut ${c.name} from ${c.lakehouse_name}? The data it points at isn't touched.` }[c.kind];
-    if (!(await confirmDialog(c.kind === "removed" ? "Recreate shortcut" : "Undo change", what, c.kind === "removed" ? "Recreate" : "Undo"))) return;
+    // Undoing an added shortcut removes it from OneLake, and undoing a repoint removes it and makes it again.
+    if (!(await confirmDialog(c.kind === "removed" ? "Recreate shortcut" : "Undo change", what, c.kind === "removed" ? "Recreate" : "Undo",
+      { danger: c.kind !== "removed" }))) return;
     const res = await attempt(() => rpc("shortcut_undo", { change_id: c.id }), "Not undone");
     if (!res) return;
     toast(c.kind === "removed" ? `Recreated ${c.name}` : `Undid the change to ${c.name}`, !!res.problems?.length, { log: true });
@@ -709,21 +711,28 @@ async function shortcutDialog(mode, opts = {}) {
   };
   const targetWs = () => lakehouses.find((x) => x.item_id === targetLh.value)?.workspace_name || "";
   let timer = null;
+  let checked = null;  // the rules check for what the dialog shows now, once it has started
+  let seq = 0;
+  const runPreflight = async () => {
+    const l = host();
+    if (!l) return;
+    const n = ++seq;
+    // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
+    const v = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
+      target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
+    if (n !== seq) return;  // a newer check, of what the dialog shows now, answers instead
+    verdict = v;
+    fill(notice,
+      verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
+        : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
+      verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
+    primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
+    primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
+  };
   const preflight = () => {
     clearTimeout(timer);
-    timer = setTimeout(async () => {
-      const l = host();
-      if (!l) return;
-      // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
-      verdict = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
-        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
-      fill(notice,
-        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
-          : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
-        verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
-      primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
-      primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
-    }, 250);
+    checked = null;
+    timer = setTimeout(() => { checked = runPreflight(); }, 250);
   };
   const sync = () => {
     folderField.hidden = where.value !== "Files";
@@ -763,6 +772,12 @@ async function shortcutDialog(mode, opts = {}) {
   const submit = async () => {
     const l = host();
     if (!l) return;
+    // Nothing is made or asked for before the rules have answered for what the dialog shows: a click
+    // before the check answered waits for it, and stops when the answer changed what the button does.
+    if (!checked) { clearTimeout(timer); checked = runPreflight(); }
+    const shown = primary.lastChild.textContent;
+    await checked;
+    if (primary.disabled || primary.lastChild.textContent !== shown) return;
     const common = { workspace_id: l.workspace_id, item_id: l.item_id, source: src(), lakehouse_name: l.name,
       workspace_name: l.workspace_name, target_workspace_name: targetWs() };
     if (mode === "repoint") {

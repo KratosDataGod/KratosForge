@@ -227,3 +227,24 @@ def test_a_read_that_fails_fails_the_activity_with_secrets_removed(svc, monkeypa
     r = start(svc, pipeline(lookup("L", table_ds("orders"))))
     error = by_name(r)["L"]["error"]
     assert error["errorCode"] == "LocalDataReadFailed" and "secretpart" not in error["message"]
+
+
+def test_lookup_and_get_metadata_use_onelakes_short_read_limits(svc, monkeypatch):
+    """#1448: a OneLake read for a Lookup or Get Metadata gives up within about a minute when offline,
+    with #1303's read_storage_options, not the upload limits that retry for up to 30 minutes."""
+    import deltalake
+
+    from fabric_desktop import onelake
+    real, seen = deltalake.DeltaTable, []
+
+    def table(uri, *args, storage_options=None, **kw):
+        seen.append(storage_options)
+        return real(uri, *args, **kw)
+
+    root, _ = svc._proof_location(LS)
+    monkeypatch.setattr(svc, "_proof_location", lambda ref: (root, lambda: onelake.storage_options("tok")))
+    monkeypatch.setattr(deltalake, "DeltaTable", table)
+    r = start(svc, pipeline(lookup("First", table_ds("orders")), metadata("Meta", table_ds("orders"), ["columnCount"])))
+    assert r["state"] == "succeeded", r
+    assert len(seen) == 2 and all(o == onelake.read_storage_options("tok") for o in seen)
+    assert all(o["retry_timeout"] == onelake.READ_RETRY_TIMEOUT and o["bearer_token"] == "tok" for o in seen)

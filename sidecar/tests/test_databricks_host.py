@@ -37,3 +37,20 @@ def test_a_profile_written_in_another_case_is_the_same_workspace(tmp_path):
     conn = {"platform": "databricks", "host": HOST + "/", "credential": {"method": "cli-profile", "profile": "dev"}}
     provider = dba.provider_for(conn, cfg_path=cfg, http=object())
     assert provider.host == HOST and provider.token() == "t0ken"
+
+
+@pytest.mark.parametrize("host", [
+    "https://evil.com%23.azuredatabricks.net", "https://adb-1%2e7.azuredatabricks.net",
+    "https://adb_1.7.azuredatabricks.net", "https://-adb.7.azuredatabricks.net", "https://adb-.7.azuredatabricks.net",
+    "https://adb..azuredatabricks.net", "https://.azuredatabricks.net", "https://azuredatabricks.net",
+    "https://adb-1.7.azuredatabricks.net%00", "https://adb-1.7.azure~databricks.net", "https://ädb-1.azuredatabricks.net",
+])
+def test_a_host_label_with_anything_but_letters_digits_and_hyphens_is_refused(host):
+    with pytest.raises(dba.DatabricksAuthError, match="must be the workspace address"):
+        dba.check_host(host)
+
+
+@pytest.mark.parametrize("host", ["https://adb-1234567890123456.7.azuredatabricks.net",
+                                  "https://adb-1.azuredatabricks.net", "https://contoso-prod.azuredatabricks.net"])
+def test_workspace_hosts_of_letters_digits_and_hyphens_still_pass(host):
+    assert dba.check_host(host) == host

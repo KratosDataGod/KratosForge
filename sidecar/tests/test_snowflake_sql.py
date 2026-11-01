@@ -421,3 +421,73 @@ def test_dateadd_of_a_date_by_an_hour_stays_a_timestamp():
     assert "SFD-006" not in [n.id for n in report.notes]
     (got,) = duckdb.connect().execute(report.duckdb_sql).fetchone()
     assert got.isoformat() == "2026-01-01T02:00:00"
+
+
+# ---------------------------------------------------------------- TYPEOF (SFX-009, #1372)
+
+
+@pytest.mark.parametrize("code, want", [
+    # The rows of Snowflake's TYPEOF page.
+    ("select typeof(parse_json('null'))", "NULL_VALUE"),
+    ("select typeof(null::variant)", None),
+    ("select typeof(parse_json('true'))", "BOOLEAN"),
+    ("select typeof(parse_json('-17'))", "INTEGER"),
+    ("select typeof(parse_json('123.12'))", "DECIMAL"),
+    ("select typeof(parse_json('1.912e2'))", "DOUBLE"),
+    ("""select typeof(parse_json('"Om ara pa ca na dhih"  '))""", "VARCHAR"),
+    ("select typeof(parse_json('[-1, 12, 289, 2188, false,]'))", "ARRAY"),
+    ("""select typeof(parse_json('{ "x" : "abc", "y" : false, "z": 10} '))""", "OBJECT"),
+    ("select typeof('check in'::variant)", "VARCHAR"),
+    ("select typeof(to_variant('2024-01-17 19:00:00.000'::timestamp))", "TIMESTAMP_NTZ"),
+    # PARSE_JSON's own rules for numbers: an exponent is DOUBLE; past NUMBER(38, 37) is DOUBLE.
+    ("select typeof(parse_json('1E2'))", "DOUBLE"),
+    ("select typeof(parse_json('18446744073709551615'))", "INTEGER"),
+    ("select typeof(parse_json('9' || repeat('0', 37)))", "INTEGER"),
+    ("select typeof(parse_json('9' || repeat('0', 38)))", "DOUBLE"),
+    ("select typeof(parse_json('0.' || repeat('1', 37)))", "DECIMAL"),
+    ("select typeof(parse_json('0.' || repeat('1', 38)))", "DOUBLE"),
+    ("select typeof(try_parse_json('not json'))", None),
+    # Typed values.
+    ("select typeof(1)", "INTEGER"),
+    ("select typeof(1.5)", "DECIMAL"),
+    ("select typeof(7::number(10, 0))", "INTEGER"),
+    ("select typeof(1.5::float)", "DOUBLE"),
+    ("select typeof(true)", "BOOLEAN"),
+    ("select typeof('2026-01-01'::date)", "DATE"),
+    ("select typeof('10:00'::time)", "TIME"),
+])
+def test_typeof_gives_snowflakes_names_and_no_note_where_they_are_exact(code, want):
+    (report,) = sf.translate(code).statements
+    assert report.verdict == "translated", report.notes
+    assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
+
+
+def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
+    con = duckdb.connect()
+    con.execute("create table j(v json)")
+    con.execute("""insert into j values ('null'), ('true'), ('-17'), ('"s"'), ('[1]'), ('{"a": 1}'), (null),"""
+                """ ('99999999999999999999'), ('123.12'), ('1.912e2')""")
+    (report,) = sf.translate("select typeof(v) from j").statements
+    assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-007"]
+    got = [r[0] for r in con.execute(report.duckdb_sql).fetchall()]
+    # A fraction or an exponent in a column: DuckDB may have written it again, so it isn't named.
+    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER",
+                   "DECIMAL or DOUBLE", "DECIMAL or DOUBLE"]
+
+
+@pytest.mark.parametrize("code, want", [
+    ("""select typeof(parse_json('{"a": 1.912e2}'):a)""", "DECIMAL or DOUBLE"),  # DuckDB writes 191.2
+    ("""select typeof(parse_json('{"a": 10}'):a)""", "INTEGER"),
+    ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
+])
+def test_typeof_never_gives_a_confident_wrong_name(code, want):
+    (report,) = sf.translate(code).statements
+    assert "SFD-007" in [n.id for n in report.notes]
+    assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
+
+
+def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
+    sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
+    assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
+    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()

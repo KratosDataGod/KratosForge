@@ -18,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from .. import jsonfile
 
 SERVER_NAME = "fabric-desktop"
 TOOLS = {
@@ -69,7 +70,7 @@ def _write_script(path: Path, command: str) -> Path:
     if not path.exists() or path.read_text(encoding="utf-8", errors="replace") != text:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(text, encoding="utf-8", newline="")
-        os.replace(tmp, path)
+        jsonfile.replace(tmp, path)
         if os.name != "nt":
             path.chmod(0o755)
     return path

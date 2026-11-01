@@ -22,6 +22,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Any
+from . import jsonfile
 
 MAX_FILES = 100
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -171,7 +172,7 @@ class Resources:
             except FileExistsError:
                 raise ValueError(f"A resource file named {new_name!r} already exists.") from None
         try:
-            os.replace(src, dest)
+            jsonfile.replace(src, dest)
         except OSError:
             if not same_file:
                 dest.unlink(missing_ok=True)

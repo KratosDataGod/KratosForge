@@ -314,3 +314,9 @@ def test_other_key_vault_refusals_give_the_status_and_code(monkeypatch):
     evalue = out["outputs"][-1]["evalue"]
     assert evalue == "Key Vault https://kv.vault.azure.net couldn't list its secrets (400: BadParameter)."
     assert "hunter2" not in evalue  # Key Vault's message is never shown
+
+
+def test_an_odd_key_vault_error_code_isnt_shown(monkeypatch):
+    _kv(monkeypatch, _KvResp(400, {"error": {"code": "X" * 500 + "\n injected"}}))
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    assert out["outputs"][-1]["evalue"] == "Key Vault https://kv.vault.azure.net couldn't list its secrets (400)."

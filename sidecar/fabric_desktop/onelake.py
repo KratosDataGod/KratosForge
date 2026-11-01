@@ -86,6 +86,16 @@ def read_storage_options(token: str) -> dict[str, str]:
                                      "retry_timeout": READ_RETRY_TIMEOUT, "max_retries": READ_MAX_RETRIES}
 
 
+_CODE = re.compile(r"[A-Za-z0-9_.]{1,64}")
+
+
+def error_code(value: object) -> str:
+    """A service's error code fit for a one-line message: letters, digits, "_" and "." only, at most
+    64 of them. Anything else (an odd or hostile reply) gives "", so it can't grow or bend the line."""
+    text = str(value or "")
+    return text if _CODE.fullmatch(text) else ""
+
+
 def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
     """A refused OneLake request as one line: what didn't happen, the status and OneLake's error code
     (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``). The path
@@ -99,6 +109,7 @@ def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
     if isinstance(body, dict):
         err = body.get("error")
         code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
+    code = error_code(code)
     return requests.HTTPError(f"OneLake didn't {what} ({resp.status_code}{': ' + code if code else ''}).",
                               response=resp)
 

@@ -351,6 +351,19 @@ def test_an_outer_until_timeout_stops_an_inner_until_and_its_retry_wait():
     assert _inner(r, "Inner")["state"] == "cancelled" and _inner(r, "Flaky")["state"] == "cancelled"
 
 
+def test_a_foreach_inside_an_until_starts_no_iterations_after_the_timeout():
+    """#1393: a ForEach doesn't start (and record) its remaining iterations once the Until's timeout passes."""
+    each = act("Each", "ForEach", items="@range(0, 1000)", isSequential=True, activities=[wait("W", 2)])
+    text = pipeline(act("U", "Until", expression="@false", timeout="0.00:00:01", activities=[each]))
+    started = time.monotonic()
+    r = run(text, wait_scale=1)
+    assert time.monotonic() - started < 10
+    rows = r.to_json()["activities"]
+    assert _inner(r, "U")["error"]["errorCode"] == "LocalUntilTimeout" and _inner(r, "Each")["state"] == "cancelled"
+    waits = [a for a in rows if a["name"] == "W"]
+    assert len(waits) == 1 and waits[0]["state"] == "cancelled"
+
+
 def test_an_activitys_own_policy_timeout_inside_an_until_still_fails_it():
     slow = wait("Slow", 30) | {"policy": {"timeout": "0.00:00:01"}}
     text = pipeline(act("U", "Until", expression="@false", timeout="0.01:00:00", activities=[slow]))

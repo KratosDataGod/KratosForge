@@ -100,7 +100,7 @@ function channelLabel() {
 // ---------- Report a problem ----------
 
 // Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses (a guest's too),
-// tenant domains, the organization on OneDrive folders, the Windows user name in paths, and tenant,
+// the tenant's onmicrosoft.com and SharePoint names, the organization on OneDrive folders, the Windows user name in paths, and tenant,
 // workspace and item ids. The same rules as the engine's
 // redact.py; both are tested against app/tests/redact-cases.json.
 function redactReport(text, level = "support") {
@@ -124,6 +124,9 @@ function redactReport(text, level = "support") {
     .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
+    .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+/gi, "$1[site]")
+    .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");

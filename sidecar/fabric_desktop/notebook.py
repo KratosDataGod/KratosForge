@@ -1636,9 +1636,14 @@ class Kernel:
         """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
         memory it holds and whether variable_detail can open it."""
         hidden = self._hidden(name, value)
-        return {"name": name, "type": type(value).__name__, "size": _size(value),
-                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
-                "expandable": not hidden and _expandable(value)}
+        kind = type(value).__name__
+        try:
+            return {"name": name, "type": kind, "size": _size(value),
+                    "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                    "expandable": not hidden and _expandable(value)}
+        except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
+            return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
+                    "memory": None, "expandable": False}
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -2176,7 +2181,9 @@ def _count(n: Any) -> str:
 
 def _preview(value: Any) -> str:
     module = type(value).__module__
-    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")):
+    # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
+    # gone), so it shows as its repr, as _columns leaves it unexpanded.
+    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")) and type(value).__name__ != "LazyFrame":
         cols = getattr(value, "columns", None)
         if cols is not None:
             names = list(cols)

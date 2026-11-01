@@ -242,12 +242,23 @@ class ProcessKernel:
                 slot.update({k: v for k, v in message.items() if k in ("result", "error")})
                 slot["done"].set()
         code = proc.wait()
+        self._close_pipes(proc)
         if proc is self._proc:
             self._gone(f"The notebook's Python process stopped (exit code {code}), so variables were cleared. "
                        "The next cell starts a fresh one." if not self._ended else self._ended)
         for slot in list(self._waiting.values()):
             slot.setdefault("error", {"type": "KernelGone", "message": "The notebook's Python process stopped."})
             slot["done"].set()
+
+    def _close_pipes(self, proc: subprocess.Popen[str]) -> None:
+        """Close the ended process's pipes: Popen leaves them to the garbage collector, and the app
+        starts a process per notebook restart, so each one left two handles open until then. Under
+        the send lock, so a request being written gets KernelGone, not a pipe closed mid-write."""
+        with self._send_lock:
+            for pipe in (proc.stdin, proc.stdout):
+                if pipe is not None:
+                    with contextlib.suppress(OSError):  # flushing stdin to a process that's gone
+                        pipe.close()
 
     def _memory(self, proc: subprocess.Popen[str], pid: int) -> int:
         """Bytes the kernel uses with every process below it, so a cell can't get past the limit by

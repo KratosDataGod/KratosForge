@@ -604,10 +604,18 @@ class LocalEngine:
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
-            except duckdb.InterruptException:
+            except (duckdb.InterruptException, OSError) as exc:
+                # An interrupt while a result streams comes out of pyarrow's reader as OSError.
+                if isinstance(exc, OSError) and not str(exc).startswith("INTERRUPT Error"):
+                    raise
                 if state["timed_out"]:
                     raise TimeoutError(f"The query ran longer than {timeout:g} seconds and was stopped.") from None
-                raise QueryCancelled("The query was cancelled.") from None
+                if state["cancelled"]:
+                    raise QueryCancelled("The query was cancelled.") from None
+                # Nobody stopped it. When one of DuckDB's threads fails, it stops the others, and now and
+                # then it reports that stop in place of the failure.
+                raise RuntimeError("DuckDB stopped the query part way through without saying why. This "
+                                   "usually means part of the query failed: run it again to see the error.") from None
             finally:
                 if timer:
                     timer.cancel()

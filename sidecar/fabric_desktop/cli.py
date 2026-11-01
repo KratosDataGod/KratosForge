@@ -798,6 +798,8 @@ def _print_fabric_differences(found: list[dict]) -> None:
 
 
 def _pipeline_run(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
     from .orchestration import load
     from .orchestration.definition import DefinitionError
     from .orchestration.runner import PipelineRun, RunRefused
@@ -808,7 +810,7 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         for item in args.child:
             key, _, path = item.partition("=")
             children[key] = load(path)
-        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else None
+        mocks = json.loads(Path(args.mocks).read_text(encoding="utf-8")) if args.mocks else None
     except (DefinitionError, OSError, ValueError) as exc:
         print(f"error: {exc}")
         return 2

@@ -151,3 +151,38 @@ def test_a_close_failure_is_logged_without_a_secret_it_carried(manager, caplog):
     with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
         manager.close("nb")
     assert "Closing a local-duckdb session failed" in caplog.text and token not in caplog.text
+
+
+def test_a_close_failure_is_logged_on_one_line(manager, caplog):
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = _Stuck("first line\nINFO forged: all good\r\n  last")
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        manager.close("nb")
+    (record,) = [r for r in caplog.records if "Closing a" in r.getMessage()]
+    assert record.getMessage().endswith("(RuntimeError): first line INFO forged: all good last")
+    assert "\n" not in record.getMessage() and "\r" not in record.getMessage()
+
+
+def test_a_remote_session_that_couldnt_close_is_noted_once_for_the_person(manager):
+    manager.remote.fail = False
+    manager.switch("nb", "fake-remote", target="wh-1", authorization=OK)
+    manager._notebooks["nb"].sessions["fake-remote"] = _Stuck()
+    manager.switch("nb", "local-duckdb", decision="close")
+    assert manager.engine_of("nb") == "local-duckdb"
+    assert manager.notes("nb") == ["Couldn't close the Fake remote session. It ends on its own after its idle "
+                                   "timeout, and may use compute or capacity until then."]
+    assert manager.notes("nb") == []
+
+
+def test_a_local_session_that_couldnt_close_is_noted_without_the_capacity_line(manager):
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = _Stuck()
+    manager.close("nb")
+    assert manager.notes("nb") == ["Couldn't close the DuckDB (this PC) session."]
+
+
+def test_a_clean_switch_or_close_has_no_notes(manager):
+    manager.switch("nb", "local-duckdb")
+    manager.switch("nb", "local-sqlite", decision="close")
+    manager.close("nb")
+    assert manager.notes("nb") == []

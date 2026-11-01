@@ -27,16 +27,6 @@ DECISIONS = ("close", "keep")
 _log = logging.getLogger(__name__)
 
 
-def _close(session: EngineSession, engine: str) -> None:
-    """Close a session the notebook has already let go of. A failure is logged, never raised: the
-    switch or close it belongs to has already happened, so an error would say otherwise."""
-    try:
-        session.close()
-    except Exception as exc:  # noqa: BLE001 - logged; the caller's step already succeeded
-        _log.warning("Closing a %s session failed (%s): %s", engine, type(exc).__name__,
-                     redact.secrets(str(exc))[:300])
-
-
 class SwitchNeeded(RuntimeError):
     """The notebook already has a session on another engine; the caller must decide what happens to it."""
 
@@ -57,6 +47,7 @@ class SessionManager:
         self._on_usage = on_usage
         self._lock = threading.Lock()
         self._notebooks: dict[str, _Notebook] = {}
+        self._notes: dict[str, list[str]] = {}
 
     def engine_of(self, notebook: str) -> str | None:
         nb = self._notebooks.get(notebook)
@@ -107,7 +98,7 @@ class SessionManager:
             nb.engine = engine
             nb.sessions[engine] = session
             if old is not None:
-                _close(old, t["from"])
+                self._close(notebook, t["from"], old)
             return session
 
     def check(self, notebook: str, request: CellRequest) -> dict[str, Any]:
@@ -137,7 +128,31 @@ class SessionManager:
         with self._lock:
             nb = self._notebooks.pop(notebook, None)
         for engine, session in (nb.sessions.items() if nb else ()):
-            _close(session, engine)
+            self._close(notebook, engine, session)
+
+    def notes(self, notebook: str) -> list[str]:
+        """What the person should know from the last switch or close of ``notebook`` (a session that
+        couldn't be closed), each said once."""
+        with self._lock:
+            return self._notes.pop(notebook, [])
+
+    def _close(self, notebook: str, engine: str, session: EngineSession) -> None:
+        """Close a session the notebook has already let go of. A failure is logged and kept as a note
+        (notes()), never raised: the switch or close it belongs to has already happened."""
+        try:
+            session.close()
+        except Exception as exc:  # noqa: BLE001 - logged and noted; the caller's step already succeeded
+            detail = " ".join(redact.secrets(str(exc)).split())[:300]
+            _log.warning("Closing a %s session failed (%s): %s", engine, type(exc).__name__, detail)
+            try:
+                desc = self._adapter_for(engine).describe()
+                label, remote = desc.label, desc.remote
+            except (KeyError, ValueError):
+                label, remote = engine, False
+            note = f"Couldn't close the {label} session."
+            if remote:
+                note += " It ends on its own after its idle timeout, and may use compute or capacity until then."
+            self._notes.setdefault(notebook, []).append(note)
 
     def close_all(self) -> None:
         for notebook in list(self._notebooks):

@@ -64,8 +64,14 @@ class _Job:
         self.status = status
         self.result: dict[str, Any] = {}
         self.error = ""
+        self.notes: list[str] = []
         self.started = time.monotonic()
         self.done = threading.Event()
+
+
+def _with_notes(out: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+    """``out`` with ``notes`` (a session that couldn't be closed, say) when there are any."""
+    return out | {"notes": list(notes)} if notes else out
 
 
 class EnginesMixin:
@@ -294,7 +300,7 @@ class EnginesMixin:
             mgr.close(notebook)
             self._engine_choice.pop(notebook, None)
             self._engine_jobs.pop(notebook, None)
-            return {"engine": KERNEL, "status": "ready"}
+            return _with_notes({"engine": KERNEL, "status": "ready"}, mgr.notes(notebook))
         desc = registry.get(engine)
         if not desc.adapter:
             raise ValueError(f"{desc.label} can't run cells in this version. {desc.planned}")
@@ -331,6 +337,7 @@ class EnginesMixin:
             try:
                 mgr.switch(notebook, engine, decision if current not in (None, engine) else None,
                            SessionConfig(notebook, options=config_options), target, authorization)
+                job.notes = mgr.notes(notebook)
                 job.status = "ready"
             except Exception as exc:  # noqa: BLE001 - the person reads it from engine_state
                 job.status, job.error = "error", redact.secrets(str(exc))
@@ -351,7 +358,7 @@ class EnginesMixin:
         out = dict(choice) | {"status": status}
         if job and job.error:
             out["error"] = job.error
-        return out
+        return _with_notes(out, job.notes if job else [])
 
     # ---- running cells
 
@@ -403,7 +410,8 @@ class EnginesMixin:
 
     def engine_close(self, notebook: str) -> dict[str, Any]:
         """Close the notebook's engine sessions (kept ones too); it goes back to Python (this PC)."""
-        self._engine_manager().close(notebook)
+        mgr = self._engine_manager()
+        mgr.close(notebook)
         self._engine_choice.pop(notebook, None)
         self._engine_jobs.pop(notebook, None)
-        return {"engine": KERNEL, "status": "ready"}
+        return _with_notes({"engine": KERNEL, "status": "ready"}, mgr.notes(notebook))

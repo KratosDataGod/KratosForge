@@ -163,3 +163,26 @@ def test_cell_requests_follow_the_cells_magic():
     assert es.cell_request("%sql\nSELECT 1").code == "SELECT 1"
     assert es.cell_request("df = spark.range(3)").language == "pyspark"
     assert es.cell_request("x = 1").language == "python"
+
+
+class _Stuck:
+    closed = False
+
+    def close(self):
+        raise RuntimeError("worker wouldn't stop")
+
+
+def test_a_session_that_couldnt_close_is_noted_in_the_close_and_switch_results(tmp_path):
+    svc = Svc(tmp_path)
+    svc.engine_select("nb", "local-duckdb")
+    assert wait_ready(svc, "nb")["status"] == "ready"
+    mgr = svc._engine_manager()
+    mgr._notebooks["nb"].sessions["local-duckdb"] = _Stuck()
+    svc.engine_select("nb", "local-sqlite", decision="close")
+    state = wait_ready(svc, "nb")
+    assert state["status"] == "ready" and state["notes"] == ["Couldn't close the DuckDB (this PC) session."]
+    mgr._notebooks["nb"].sessions["local-sqlite"] = _Stuck()
+    out = svc.engine_close("nb")
+    assert out == {"engine": "local-python", "status": "ready",
+                   "notes": ["Couldn't close the SQLite (this PC) session."]}
+    assert svc.engine_close("nb") == {"engine": "local-python", "status": "ready"}

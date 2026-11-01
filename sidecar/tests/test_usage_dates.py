@@ -65,3 +65,25 @@ W,Notebook,c,Run,10/16/2026 2:00 PM,,Succeeded,,1,7,0,Billable,x3
     p = usage.read(text, "export.csv", None, now=NOW)
     assert {s["reason"] for s in p["skipped"]} == {"The start time can't be read", "The end time can't be read"}
     assert p["to_import"] == 1 and p["rows"][0]["item"] == "c"
+
+
+FOCUS = ("ChargePeriodStart,ChargePeriodEnd,SkuMeter,ConsumedQuantity,ConsumedUnit,BilledCost,BillingCurrency,"
+         "ResourceId,ResourceName,ChargeCategory,PricingCategory\n")
+FOCUS_ROW = ("{start},{end},Power BI Capacity Usage CU,10,Hours,1.80,USD,"
+             "/subscriptions/s1/resourceGroups/rg/providers/Microsoft.Fabric/capacities/contosof64,ContosoF64,Usage,"
+             "Standard\n")
+
+
+@pytest.mark.parametrize("end", ["12/31/9999", "9999-12-31T00:00:00Z", "soon"])
+def test_a_cost_row_whose_end_cant_be_read_is_skipped_not_given_a_made_up_day(end):
+    text = FOCUS + FOCUS_ROW.format(start="2026-10-15T00:00:00Z", end=end) + \
+        FOCUS_ROW.format(start="2026-10-15T00:00:00Z", end="2026-10-16T00:00:00Z")
+    p = usage.read(text, "export.csv", None, now=NOW)
+    assert [s["reason"] for s in p["skipped"]] == ["The end date can't be read"] and p["to_import"] == 1
+    assert p["rows"][0]["cost"]["period"]["end"] == "2026-10-16T00:00:00+00:00"
+
+
+def test_a_cost_row_with_no_end_is_still_one_day():
+    text = FOCUS + FOCUS_ROW.format(start="2026-10-15T00:00:00Z", end="")
+    p = usage.read(text, "export.csv", None, now=NOW)
+    assert p["skipped"] == [] and p["rows"][0]["cost"]["period"]["end"] == "2026-10-16T00:00:00+00:00"

@@ -95,8 +95,10 @@ class CostManagement(Provider):
         if start is None:
             return "No date" if not cells.get("start") else "The date can't be read"
         end = reader.when(cells.get("end", ""), ctx.date_order, ctx.tz) if cells.get("end") else None
+        if cells.get("end") and end is None:
+            return "The end date can't be read"
         if end is None:
-            end = start + dt.timedelta(days=1)  # a cost details row is one day
+            end = start + dt.timedelta(days=1)  # a cost details row (no end column) is one day
         if end <= start:
             return "Ends before it starts"
         meter, unit = cells.get("meter", "").strip(), cells.get("unit", "").strip()

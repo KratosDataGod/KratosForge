@@ -98,3 +98,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# DuckDB 2.0 warns when Arrow is read from an executed (DB-API) result, which copies every row once
+# more; the engine reads relations there (duckdb_rows.for_arrow, #1489), and a new reader that doesn't
+# fails the 2.0 run.
+filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]

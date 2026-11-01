@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .discovery import Source
+from .. import jsonfile
 
 SCHEMA = "local-project@1"
 STORAGE = ("persistent", "memory")
@@ -173,7 +174,7 @@ def _write_json(path: Path, data: Any) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        os.replace(tmp, path)
+        jsonfile.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.unlink(tmp)

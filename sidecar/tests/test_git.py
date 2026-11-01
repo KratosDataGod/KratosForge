@@ -646,3 +646,62 @@ def test_service_clone_is_added_to_the_list_and_notebooks_show_their_branch(tmp_
     info = svc.git_notebook_info("Sales")
     assert info["branch"] == "main" and info["state"] == "untracked" and info["path"] == "Sales.ipynb"
     assert svc.git_path_info(str(tmp_path / "elsewhere.txt")) is None
+
+
+def test_a_failed_clone_leaves_no_read_only_git_files_behind(tmp_path, monkeypatch):
+    """Windows refuses to delete a read-only file, and Git keeps its objects and packs read-only: the
+    cleanup after a failed clone makes them writable, so the next clone to that folder can start."""
+    import os
+    import stat
+
+    from fabric_desktop.git.ops import remove_clone
+
+    dest = tmp_path / "half-cloned"
+    pack = dest / ".git" / "objects" / "pack" / "pack-1.pack"
+    pack.parent.mkdir(parents=True)
+    pack.write_bytes(b"PACK")
+    (dest / "README.md").write_text("x")
+    os.chmod(pack, stat.S_IREAD)
+    real = os.unlink
+
+    def like_windows(path, *, dir_fd=None):  # Windows checks the link's own attributes, not its target's
+        if not os.stat(path, dir_fd=dir_fd, follow_symlinks=False).st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        real(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", like_windows)
+    shutil_left = tmp_path / "ignored"
+    shutil_left.mkdir()
+    (shutil_left / "p.pack").write_bytes(b"PACK")
+    os.chmod(shutil_left / "p.pack", stat.S_IREAD)
+    import shutil
+    shutil.rmtree(shutil_left, ignore_errors=True)
+    assert shutil_left.exists(), "the stand-in refuses read-only files, as Windows does"
+    remove_clone(dest)
+    assert not dest.exists()
+
+
+def test_a_failed_clone_cleanup_never_changes_what_a_link_in_it_points_at(tmp_path):
+    """A link in the half-made clone may point outside it: the cleanup removes the link and leaves
+    the file it points at as it was, read-only."""
+    import os
+    import stat
+
+    from fabric_desktop.git import ops
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    os.chmod(outside, stat.S_IREAD)
+    dest = tmp_path / "half-cloned"
+    dest.mkdir()
+    link = dest / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("this account can't make symlinks")
+    before = stat.S_IMODE(outside.stat().st_mode)
+    ops._writable_then_retry(os.unlink, str(link), PermissionError(13, "Access is denied"))
+    assert stat.S_IMODE(outside.stat().st_mode) == before and link.is_symlink()  # the link was left alone
+    ops.remove_clone(dest)
+    assert not dest.exists()
+    assert outside.read_text() == "keep" and stat.S_IMODE(outside.stat().st_mode) == before

@@ -22,7 +22,7 @@ from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
-from .duckdb_rows import keep_try_cast
+from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
 _VIEW_NAMES = itertools.count()
@@ -261,7 +261,14 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
 # the bound comparator; an element is never compared with itself). A NULL comparison is refused, as
 # Spark refuses it. Every pair is compared, so the work grows with the square of the array's length:
 # fine for the arrays a row usually holds, slow past a few thousand elements (about 1.5 s for 2,000).
-_ARRAY_SORT_BY = ("(LIST_TRANSFORM([{0}], kf_l -> CASE WHEN kf_l IS NULL THEN NULL ELSE LIST_TRANSFORM(LIST_SORT("
+# DuckDB doesn't honour an interrupt inside one row's list, so an array of more than
+# _ARRAY_SORT_BY_LIMIT (3,000) elements is refused, keeping a row to a few seconds (#1419).
+_ARRAY_SORT_BY_LIMIT = 3_000
+_ARRAY_SORT_BY = ("(LIST_TRANSFORM([{0}], kf_l -> CASE WHEN kf_l IS NULL THEN NULL WHEN LEN(kf_l) > "
+                  f"{_ARRAY_SORT_BY_LIMIT} THEN ERROR('array_sort with a comparator sorts up to "
+                  f"{_ARRAY_SORT_BY_LIMIT:,} elements on this PC, and this array has more, so nothing ran. Use "
+                  "array_sort or sort_array without a comparator, or run it on Databricks.') "
+                  "ELSE LIST_TRANSFORM(LIST_SORT("
                   "LIST_TRANSFORM(kf_l, (kf_x, kf_i) -> {{'r': LEN(LIST_FILTER(LIST_FILTER(RANGE(1, LEN(kf_l) + 1), "
                   "kf_k -> kf_k <> kf_i), kf_j -> "
                   "(LIST_TRANSFORM([{1}], kf_c -> CASE WHEN kf_c IS NULL THEN ERROR('array_sort''s comparator returned "
@@ -1068,7 +1075,7 @@ def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None 
 def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Table:
     """Run a statement from ``prepare_sandboxed``. ``con.interrupt()`` from another thread stops it
     (duckdb.InterruptException); an interrupt sent before DuckDB starts the statement is lost."""
-    return _arrow(con.execute(statement))
+    return _arrow(for_arrow(con, statement))
 
 
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
@@ -1079,14 +1086,19 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     extensions or reach the network (external AI tools, integrations/executions.py)."""
     if sandbox:
         con, text = prepare_sandboxed(query, dialect)
-        return con, con.execute(text)
+        return con, for_arrow(con, text)
     con = _connect()
     views: dict[str, str] = {}
     result = None
-    for statement in parse(query, dialect):
+    statements = parse(query, dialect)
+    for i, statement in enumerate(statements):
         statement = history_query(statement, con, views)
         bind_tables(statement, con, views, lambda name: is_local(con, name))
-        result = con.execute(duckdb_sql(statement))
+        text = duckdb_sql(statement)
+        if i == len(statements) - 1:
+            result = for_arrow(con, text)
+        else:
+            run_through(con, text)
     return con, result
 
 
@@ -1108,7 +1120,7 @@ class Stream:
         self._con, result = _execute(query, dialect, sandbox)
         reader = None
         if result is not None and result.description:
-            reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)
+            reader = arrow_reader(result, batch_rows)
         self._reader = reader
         self.schema: pa.Schema | None = self._reader.schema if self._reader is not None else None
 

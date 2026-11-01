@@ -268,10 +268,10 @@ def test_a_notebook_keeps_its_fabric_item_by_recorded_id_after_a_rename(svc, mon
     scan(svc, monkeypatch)
     rows = by_name(everything(svc))
     load = svc.workload_detail(model.notebook_id("Load"))
-    assert load["link"]["how"] == "recorded" and load["link"]["item_id"] == "nb1"
+    assert load["link"]["how"] == "recorded" and load["link"]["item_id"] == "nb1" and load["link"]["kept"] is True
     assert "Renamed in Fabric" not in rows  # shown inside the notebook, not twice
     other = svc.workload_detail(model.notebook_id("Other"))
-    assert other["link"]["how"] == "name match"
+    assert other["link"]["how"] == "name match" and other["link"]["kept"] is False
     assert any(f["kind"] == "identity" for f in other["findings"])
     dup = svc.workload_detail(model.notebook_id("Dup"))
     assert dup["link"]["item_id"] == "nb3"  # its own workspace's item only
@@ -280,6 +280,20 @@ def test_a_notebook_keeps_its_fabric_item_by_recorded_id_after_a_rename(svc, mon
     assert svc.workload_detail(model.notebook_id("Load v2"))["link"]["item_id"] == "nb1"
     svc.workload_link("Other", "ws1", "nb2", "Sales Dev")
     assert svc.workload_detail(model.notebook_id("Other"))["link"]["how"] == "manual"
+
+
+def test_only_a_kept_link_is_kept_a_run_or_a_name_finds_the_item_again():
+    """Unlink forgets a link only from the link table, so only that one says kept (#1475 follow-up)."""
+    ws = {"workspace": {"workspace_id": "ws1"}}
+    kept = {"Load": {"workspace_id": "ws1", "workspace_name": "Sales Dev", "item_id": "nb1", "how": "manual"}}
+    runs = [{"kind": "Notebook run", "name": "Load", "item_id": "nb9", "workspace_id": "ws1", "started_at": "t"}]
+    items = [{"workspace_id": "ws1", "type": "Notebook", "displayName": "Load", "id": "nb7"}]
+    link = inventory.notebook_link("Load", ws, kept, runs, items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb1", "manual", True)
+    link = inventory.notebook_link("Load", ws, {}, runs, items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb9", "from a run", False)
+    link = inventory.notebook_link("Load", ws, {}, [], items)
+    assert (link["item_id"], link["how"], link["kept"]) == ("nb7", "name match", False)
 
 
 def test_publishing_records_the_item_id(svc, monkeypatch):

@@ -43,7 +43,7 @@ from .. import delta_dml, delta_profile, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
-from ..duckdb_rows import first_row, keep_try_cast, one_row
+from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
 from ..sql import KfDuckDB
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
@@ -494,8 +494,7 @@ class LocalEngine:
             if result is None or not result.description:
                 inner = pa.RecordBatchReader.from_batches(pa.schema([]), iter(()))
             else:
-                reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-                inner = reader_of(max(1, int(batch_size)))
+                inner = arrow_reader(result, max(1, int(batch_size)))
         except BaseException:
             if not query.__exit__(*sys.exc_info()):
                 raise
@@ -571,21 +570,21 @@ class LocalEngine:
                     if step["write"] is not None and step["write"].mode == "table":
                         summary = self._make_table(con, step["write"], params)
                         run["write"] = summary
-                        result = con.execute('SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
-                                             [summary["table"], summary["rows"]])
+                        result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                                           [summary["table"], summary["rows"]])
                     elif step["write"] is not None:
                         summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
                         run["write"] = summary
-                        result = con.execute(
-                            'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
+                        result = for_arrow(
+                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_written',
                             [summary["table"], summary["mode"], summary["version"], summary["rows"]])
                     elif step["change"] is not None:
                         summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
                                                confirm=confirm)
                         run["change"] = summary
-                        result = con.execute(
-                            'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                        result = for_arrow(
+                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
                             [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
                              summary["rows_updated"], summary["rows_deleted"]])
@@ -598,8 +597,10 @@ class LocalEngine:
                         # every row before the first batch, so a big result filled memory and Stop
                         # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
                         result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
+                    elif i == len(statements) - 1:
+                        result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
                     else:
-                        result = con.execute(step["sql"], _bound(con, step["sql"], params))
+                        run_through(con, step["sql"], _bound(con, step["sql"], params))
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
@@ -909,11 +910,10 @@ class LocalEngine:
             out["version"] = current.version()
 
         _only_reads(con, w.query)  # before anything runs, dry run or not
-        result = con.execute(w.query, _bound(con, w.query, params))
-        if not result.description:
+        result = for_arrow(con, w.query, _bound(con, w.query, params))
+        if result is None or not result.description:
             raise ValueError("The query returns no rows to write.")
-        reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-        reader = reader_of(_WRITE_BATCH)
+        reader = arrow_reader(result, _WRITE_BATCH)
         positional = current is not None and not w.replace and w.by_position
         incoming = delta.fabric_schema(reader.schema, names=not positional)
         target, schema_mode, by_position = incoming, None, False
@@ -1077,9 +1077,7 @@ class LocalEngine:
                                  f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "
                                  "Keep one source row per key, for example with QUALIFY row_number() OVER "
                                  "(PARTITION BY key ORDER BY ...) = 1.")
-        result = con.execute(f"SELECT * FROM temp.{q(source_table)}")
-        reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-        reader = reader_of(_WRITE_BATCH)
+        reader = arrow_reader(for_arrow(con, f"SELECT * FROM temp.{q(source_table)}"), _WRITE_BATCH)
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
@@ -1513,8 +1511,7 @@ def _chain(first: pa.RecordBatch, rest: Any) -> Any:
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     if result is None or not result.description:
         return {"columns": [], "rows": [], "row_count": 0, "truncated": False}
-    reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-    reader = reader_of(min(max(limit, 1), 10_000) if limit else 10_000)
+    reader = arrow_reader(result, min(max(limit, 1), 10_000) if limit else 10_000)
     kept: list[pa.RecordBatch] = []
     have = total = 0
     truncated = False
@@ -1528,6 +1525,7 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
             truncated = True
             if not count:
                 break
+    reader.close()  # on DuckDB 2.0 a reader stopped early keeps the connection busy
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],

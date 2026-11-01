@@ -225,8 +225,21 @@ def _dump(path):
         conn.close()
 
 
+_OPENED: list[sqlite3.Connection] = []
+
+
+@pytest.fixture(autouse=True)
+def _close_catalog_connections():
+    """Close what _db opens, so no test leaves the catalog file open (Windows keeps it locked)."""
+    yield
+    while _OPENED:
+        _OPENED.pop().close()
+
+
 def _db(path):
-    return core.Db(sqlite3.connect(path), "sqlite")
+    conn = sqlite3.connect(path)
+    _OPENED.append(conn)
+    return core.Db(conn, "sqlite")
 
 
 def _unlisted(operations):

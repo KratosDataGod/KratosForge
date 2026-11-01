@@ -38,14 +38,15 @@ class OddReply(ValueError):
 
 
 _TEXT_MAX = 200   # characters of one name or state from the workspace
+_ERROR_MAX = 600  # characters of one part's error in the summary (sign-in errors carry a hint)
 
 
-def _text(value: Any) -> str:
+def _text(value: Any, limit: int = _TEXT_MAX) -> str:
     """A name, id or state from the workspace as one line of plain text: control characters (a
     newline, a terminal escape) folded to spaces, so a name can't add lines to the summary or recolor
-    a terminal, and cut to _TEXT_MAX."""
+    a terminal, and cut to ``limit`` characters (_TEXT_MAX)."""
     line = " ".join("".join(c if c.isprintable() else " " for c in str(value or "")).split())
-    return line if len(line) <= _TEXT_MAX else line[:_TEXT_MAX - 1].rstrip() + "…"
+    return line if len(line) <= limit else line[:limit - 1].rstrip() + "…"
 
 
 def _minutes(value: Any) -> int:
@@ -181,7 +182,8 @@ def summary_lines(result: dict[str, Any]) -> list[str]:
         part = parts[name]
         if not part["ok"]:
             how = "skipped" if part.get("skipped") else "couldn't read"
-            lines.append(f"{labels[name]}: {how}: {part['error']}")
+            # An error can quote the workspace's own message: one bounded line, like a name.
+            lines.append(f"{labels[name]}: {how}: {_text(part['error'], _ERROR_MAX)}")
             continue
         value = part["value"]
         if name == "identity":

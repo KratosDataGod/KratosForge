@@ -555,7 +555,7 @@ def _rewrite_typeof(statement: exp.Expression) -> None:
         json_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _JSON_NAMES.items())
         type_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _TYPEOF_NAMES.items())
         template = (f"SELECT CASE WHEN _kf_v IS NULL THEN NULL "
-                    f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(CAST(_kf_v AS JSON)) {json_case} "
+                    f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(TRY_CAST(_kf_v AS JSON)) {json_case} "
                     f"ELSE {number} END "
                     f"WHEN regexp_full_match(typeof(_kf_v), 'DECIMAL\\([0-9]+,0\\)') THEN 'INTEGER' "
                     f"WHEN typeof(_kf_v) LIKE 'DECIMAL(%' THEN 'DECIMAL' "

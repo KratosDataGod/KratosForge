@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 import requests
 
-from . import http_session
+from . import http_session, redact
 from .paging import Pages
 from .retrying import send_with_retry
 
@@ -236,15 +236,18 @@ class FileStore:
             resp = send_with_retry(lambda: self._http.get(url, params=params, headers=self._headers(), timeout=60),
                                    "GET", sleep=self._sleep, attempts=PROBE_ATTEMPTS)
         except requests.RequestException as exc:
-            return None, str(exc)
+            return None, redact.one_line(exc)
         if resp.status_code < 400:
             return resp.status_code, ""
         try:
-            err = resp.json().get("error") or {}
-            message = f"{err.get('code', '')} {err.get('message', '')}".strip()
+            body = resp.json()
+            err = (body.get("error") if isinstance(body, dict) else None) or {}
+            if not isinstance(err, dict):
+                err = {"message": err}
+            message = f"{err.get('code', '')} {err.get('message', '')}"
         except ValueError:
-            message = resp.text[:300]
-        return resp.status_code, message
+            message = resp.text
+        return resp.status_code, redact.one_line(message)
 
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path,
                  max_bytes: int | None = None) -> Path:

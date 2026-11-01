@@ -161,6 +161,13 @@ def test_a_kf_column_outside_any_rewritten_call_still_runs():
     assert con.execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 2
 
 
+
+def test_a_kf_name_in_an_exists_subquery_still_runs():
+    """EXISTS (SELECT ...) is a subquery, not the rewritten exists(array, x -> ...), so a kf_ name
+    in it is the person's own and runs as on main (#1400 review)."""
+    con = duckdb.connect()
+    statements = _databricks("SELECT 1 WHERE EXISTS (SELECT kf_x FROM (SELECT 1 AS kf_x) WHERE kf_x = 1)")
+    assert con.execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 1
 @pytest.mark.parametrize("query, want", [
     ("SELECT array_distinct(array_except(array(1, 2, 2, 3), array(2)))", [1, 3]),
     ("SELECT aggregate(zip_with(array(1, 2), array(10, 20), (x, y) -> x + y), 0, (acc, v) -> acc + v, acc -> acc * 2)",

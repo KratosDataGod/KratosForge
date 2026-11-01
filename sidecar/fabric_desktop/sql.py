@@ -190,6 +190,8 @@ def _no_reserved_names(statement: exp.Expression) -> None:
                                    exp.Reduce, exp.Anonymous):
         if isinstance(call, exp.Anonymous) and str(call.this).upper() not in _KF_TEMPLATED:
             continue
+        if isinstance(call, exp.Exists) and not isinstance(call.expression, exp.Lambda):
+            continue   # EXISTS (SELECT ...) is a subquery, not the rewritten exists(array, x -> ...)
         if isinstance(call, exp.Reduce) and call.args.get("finish") is None:
             continue   # aggregate without finish is left as sqlglot writes it
         for ident in call.find_all(exp.Identifier):

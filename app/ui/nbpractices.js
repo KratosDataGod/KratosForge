@@ -142,7 +142,7 @@ function practicesContent(nb) {
     body.append(h("p", { class: "muted-text" }, "Checking..."));
   } else {
     // Dismissed findings (learn.js) leave the list and the counts; a rule a policy names stays.
-    const ctx = { where: `${nb.place?.root || "notebooks"}/${nb.name}`, required: (id) => !!p.settings?.[id]?.enabled, redraw: () => drawPractices(nb) };
+    const ctx = { subject: "notebooks", where: `${nb.place?.root || "notebooks"}/${nb.name}`, required: (id) => !!p.settings?.[id]?.enabled, redraw: () => drawPractices(nb) };
     const { shown, hidden } = learnSplitFindings(p.rows, ctx.where, ctx.required);
     p.shown = shown.length;
     const counts = Object.fromEntries(PRACTICE_SEVERITIES.map((s) => [s, shown.filter((f) => f.severity === s).length]));

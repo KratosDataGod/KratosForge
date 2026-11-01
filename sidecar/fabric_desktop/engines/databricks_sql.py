@@ -274,7 +274,7 @@ class Client:
             body = resp.json()
         except ValueError:
             body = {}
-        message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+        message = redact.one_line(body.get("message") or "") if isinstance(body, dict) else ""
         code = str(body.get("error_code") or "") if isinstance(body, dict) else ""
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
             (f"{message} " if message else "") + refusal_hint(resp.status_code, path, code)
@@ -390,7 +390,7 @@ class DatabricksSqlSession:
         state = reply["status"]["state"]
         if state == "FAILED":
             err = reply["status"].get("error") or {}
-            raise DatabricksError(redact.secrets(str(err.get("message") or "The statement failed on the warehouse.")))
+            raise DatabricksError(redact.one_line(err.get("message") or "The statement failed on the warehouse.", 1000))
         if state != "SUCCEEDED":
             raise DatabricksError("Cancelled.")
         return reply

@@ -602,7 +602,7 @@ class FabricClient:
                 if state == "Succeeded":
                     break
                 if state == "Failed":
-                    raise FabricError(f"Fabric's tenant scan failed: {status.get('error') or 'no reason given'}")
+                    raise FabricError(f"Fabric's tenant scan failed: {_part(status.get('error') or 'no reason given')}")
                 if n == polls - 1:
                     raise FabricError("Fabric's tenant scan didn't finish in time. Scan again in a few minutes.")
                 self._sleep(poll_seconds)

@@ -107,7 +107,9 @@ def one_line(text: Any, limit: int = 300) -> str:
     """``text`` as it goes into a message: credential-shaped values removed, control characters and
     line breaks folded to single spaces, and cut to ``limit`` characters, so text from a file or a
     reply can't carry a token or start a line of its own."""
-    folded = " ".join("".join(c if c.isprintable() else " " for c in secrets(str(text))).split())
+    # Removed again once folded: a control character between a keyword and its value hides the pair
+    # from the first pass, and folding joins them.
+    folded = secrets(" ".join("".join(c if c.isprintable() else " " for c in secrets(str(text))).split()))
     return folded if len(folded) <= limit else folded[:limit - 1] + "…"
 
 

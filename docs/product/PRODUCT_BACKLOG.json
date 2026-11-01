@@ -5491,7 +5491,8 @@
       "evidence": [
         "Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main",
         "Story KF-FABRIC-SPARK in the orchestration plan (#864)",
-        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)"
+        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)",
+        "Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -5596,7 +5597,8 @@
       "capability": "A loss report on every Databricks import and export, extending the existing converter.",
       "evidence": [
         "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)",
-        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4"
+        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4",
+        "Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept"
       ],
       "features": [
         "FEAT-NB-26",

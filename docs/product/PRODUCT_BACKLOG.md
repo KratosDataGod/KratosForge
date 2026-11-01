@@ -400,7 +400,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.
 - **Proposed capability:** A loss report on every Databricks import and export, extending the existing converter.
-- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4
+- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4; Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept
 - **Inventory features:** [FEAT-NB-26](FEATURE_INVENTORY.md#feat-nb-26), [FEAT-NB-12](FEATURE_INVENTORY.md#feat-nb-12)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-DBX-LOSS-REPORT)
@@ -779,7 +779,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.
 - **Proposed capability:** A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.
-- **Current-state evidence:** Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main; Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)
+- **Current-state evidence:** Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main; Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md); Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-FABRIC-SPARK)

@@ -770,14 +770,20 @@ async function shortcutDialog(mode, opts = {}) {
     if (scHere()) render();
   };
   const submit = async () => {
-    const l = host();
-    if (!l) return;
+    if (!host()) return;
     // Nothing is made or asked for before the rules have answered for what the dialog shows: a click
     // before the check answered waits for it, and stops when the answer changed what the button does.
-    if (!checked) { clearTimeout(timer); checked = runPreflight(); }
+    // An edit while it waits starts a newer check, so it waits for that one too, and sends what the
+    // dialog shows once the last check has answered.
     const shown = primary.lastChild.textContent;
-    await checked;
+    for (let p = null; p !== checked || !checked;) {
+      if (!checked) { clearTimeout(timer); checked = runPreflight(); }
+      p = checked;
+      await p;
+    }
     if (primary.disabled || primary.lastChild.textContent !== shown) return;
+    const l = host();
+    if (!l) return;
     const common = { workspace_id: l.workspace_id, item_id: l.item_id, source: src(), lakehouse_name: l.name,
       workspace_name: l.workspace_name, target_workspace_name: targetWs() };
     if (mode === "repoint") {

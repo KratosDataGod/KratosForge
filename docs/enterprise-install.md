@@ -113,6 +113,10 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 
 The list comes from the hosts named in the source code. Notebooks run on the PC, so any host their own code calls is reached from the PC too. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 
+### Proxies and HTTPS inspection
+
+The engine uses the proxy Windows is set to (Internet Options), or `HTTPS_PROXY` when it's set. If your network inspects HTTPS, it re-signs each site with your company's root certificate. The engine checks certificates against the Windows certificate store, so once that root certificate is in Windows (as it is for Edge), sign-in and the calls to Fabric, OneLake, Graph and Databricks work. To add another certificate file on top, set `REQUESTS_CA_BUNDLE` to it. If a certificate is still refused, the error starts with "HTTPS was refused because the server's certificate isn't trusted on this PC" and says what to do. Delta table reads and writes (delta-rs), DuckDB extensions and the warehouse driver make their own HTTPS connections, which this setting doesn't change, so confirm them on a pilot PC behind the proxy.
+
 ## Uninstall
 
 Remove the packaged app, which deletes the exe. Each user's `%LOCALAPPDATA%\FabricDesktop` (engine, notebooks, settings, sign-in cache) stays until you remove it; a cleanup script can delete it at sign-out. Schedules on a PC live in Windows Task Scheduler under the `FabricDesktop` folder and should be removed first. Nothing in Fabric is removed. More in [Install: Uninstall](install.md#uninstall).

@@ -1117,7 +1117,7 @@ function vegaPage(source, spec) {
 function renderVegaLite(o) {
   const wrap = h("div", { class: "output" }, h("div", { class: "out-bar" }, previewMarked("altair", h("span", { class: "muted-text" }, "Altair chart"))));
   loadVega().then((source) => wrap.append(htmlFrame(vegaPage(source, o.spec))),
-    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err).text)));
   return wrap;
 }
 
@@ -1142,7 +1142,7 @@ function plotlyPage(source, figure) {
 function renderPlotly(o) {
   const wrap = h("div", { class: "output" });
   loadPlotly().then((source) => wrap.append(htmlFrame(plotlyPage(source, o.figure))),
-    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err))));
+    (err) => wrap.append(h("div", { class: "more", role: "alert" }, friendlyError(err).text)));
   return wrap;
 }
 
@@ -1278,7 +1278,7 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
       else { v.page = p; v.offset = p.offset; }
     } catch (err) {
       if (ask !== v.asked) return;
-      toast(`Could not load rows: ${friendlyError(err)}`, true);
+      toast(`Could not load rows: ${friendlyError(err).text}`, true);
     }
     v.busy = false;
     draw();
@@ -1446,7 +1446,7 @@ function renderFrameProfile(o, numeric, count) {
       o.profileGone = true;
       box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;
     } else { o.profile = p; show(p); }
-  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err)}`; });
+  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err).text}`; });
   return box;
 }
 

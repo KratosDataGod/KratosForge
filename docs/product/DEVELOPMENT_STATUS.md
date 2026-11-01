@@ -53,7 +53,9 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 13 are Proposed, 27 In progress, 4 In review and 65 Accepted.
+- Backlog: 111 items (5 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 27 In progress, 5 In review and 65 Accepted.
+- PB-119 split (2026-11-01): Learn v1 is In review, Guided Development is PB-122 (In progress, 8 of 10 rows merged)
+  and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
 
 ## Workstreams
 
@@ -76,7 +78,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 4 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 5 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

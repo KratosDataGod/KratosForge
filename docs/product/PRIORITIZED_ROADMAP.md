@@ -185,7 +185,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (55 items)
+### P2 (57 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -203,7 +203,9 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-091](PRODUCT_BACKLOG.md#pb-091) | Agent dashboard | 2 | 1 | 5 | 3 | 4 | 2 | 2 | 3.0 | 2.0 | 2.4 | none | M | High | none | Workload management |
 | [PB-056](PRODUCT_BACKLOG.md#pb-056) | Enterprise policy registry | 3 | 1 | 5 | 4 | 4 | 3 | 2 | 3.4 | 2.5 | 2.38 | none | M | Medium | none | Enterprise governance foundation |
 | [PB-082](PRODUCT_BACKLOG.md#pb-082) | Versioned data contracts with consumer declarations | 3 | 1 | 5 | 4 | 4 | 3 | 2 | 3.4 | 2.5 | 2.38 | none | M | Medium | none | Staged roadmap |
-| [PB-119](PRODUCT_BACKLOG.md#pb-119) | Learn: lessons, labs and guidance modes | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-119](PRODUCT_BACKLOG.md#pb-119) | Learn v1: lessons, labs and finding actions | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-122](PRODUCT_BACKLOG.md#pb-122) | Guided Development: levels, Try the fix and Compare | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Guided development (GD) |
+| [PB-123](PRODUCT_BACKLOG.md#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |

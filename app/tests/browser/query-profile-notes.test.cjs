@@ -73,6 +73,16 @@ test("Expert keeps the measured line and the rule, without the principle", { ski
   await setMode("professional");
 });
 
+test("Notebook guidance sets the level here, whatever the overall level", { skip }, async () => {
+  await page().evaluate(() => saveSettings({ learn_mode: "professional", learn_mode_notebooks: "expert" }));
+  await page().waitForFunction(() => state.settings.learn_mode_notebooks?.value === "expert");
+  await profile();
+  await box().locator(".qprofile-note").waitFor();
+  assert.doesNotMatch(await box().locator(".qprofile-notes").innerText(), /The principle/);
+  await page().evaluate(() => saveSettings({ learn_mode_notebooks: "same" }));
+  await page().waitForFunction(() => state.settings.learn_mode_notebooks?.value === "same");
+});
+
 test("a profile with no notes shows nothing extra", { skip }, async () => {
   notes = [];
   await profile();

@@ -39,13 +39,13 @@ function qprofileText(p) {
 // Professional and Guided add the rule's principle, Guided its lesson; Expert keeps the measured line.
 function qprofileNotes(p) {
   if (!p.notes?.length || !previewShown()) return null;
-  const mode = learnMode();
+  const mode = learnMode("notebooks");
   return h("div", { class: "qprofile-notes" },
     h("b", {}, "What this profile shows"),
     ...p.notes.map((n) => h("div", { class: "qprofile-note", "data-rule": n.rule_id },
       h("p", {}, h("span", { class: "badge" }, "Measured"), " ", n.text),
       mode !== "expert" && n.principle ? h("p", { class: "muted-text small" }, `The principle: ${n.principle}`) : null,
-      h("div", { class: "row" }, docLink(n.url, `About ${n.rule_id}`), mode === "guided" ? learnFindingLink(n.rule_id) : null))),
+      h("div", { class: "row" }, docLink(n.url, `About ${n.rule_id}`), mode === "guided" ? learnFindingLink(n.rule_id, "notebooks") : null))),
     h("span", { class: "muted-text small" }, "Measured in this run on this PC. Fabric's Spark may plan the query differently."));
 }
 

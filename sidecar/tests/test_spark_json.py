@@ -90,3 +90,32 @@ def test_a_json_array_with_a_struct_schema_stops_with_a_message():
 def test_a_duplicate_key_stops_as_in_databricks():
     with pytest.raises(duckdb.Error, match="unique"):
         answer("SELECT str_to_map('a:1,a:2')")
+
+
+def test_strings_spark_reads_into_doubles_decimals_and_whole_numbers_into_timestamps():
+    """#1412 review, from Spark's JacksonParser: DOUBLE and FLOAT read NaN, +INF, +Infinity, Infinity,
+    -INF and -Infinity (allowNonNumericNumbers, on by default); DECIMAL reads a string with the en-US
+    decimal parser (commas dropped), rounding half-up; TIMESTAMP reads a whole number as epoch seconds."""
+    got = answer("""SELECT from_json('{"a":"NaN", "b":"+INF", "c":"-Infinity", "d":"Infinity", "e":"-INF",
+        "f":"+Infinity", "g":"inf", "h":"1.25", "i":"-1.25", "j":"1,000.5", "k":"x", "l":1700000000, "m":2.5}',
+        'a DOUBLE, b DOUBLE, c FLOAT, d DOUBLE, e DOUBLE, f DOUBLE, g DOUBLE, h DECIMAL(5,1), i DECIMAL(5,1),
+         j DECIMAL(10,1), k DECIMAL(5,1), l TIMESTAMP, m TIMESTAMP')""")
+    assert got["a"] != got["a"]   # NaN
+    assert got["b"] == got["d"] == got["f"] == float("inf") and got["c"] == got["e"] == float("-inf")
+    assert got["g"] is None and got["k"] is None and got["m"] is None
+    assert got["h"] == Decimal("1.3") and got["i"] == Decimal("-1.3") and got["j"] == Decimal("1000.5")
+    assert got["l"] == dt.datetime(2023, 11, 14, 22, 13, 20, tzinfo=dt.timezone.utc)
+
+
+@pytest.mark.parametrize("query", [
+    """SELECT from_json('{"a":1, "a":2}', 'a INT')""",
+    """SELECT from_json('{"s":{"a":1, "a":2}}', 's STRUCT<a: INT>')""",
+])
+def test_a_repeated_schema_key_stops_rather_than_keeping_the_first(query):
+    """Spark keeps the last of a repeated key and json_extract the first, so it stops (#1412 review)."""
+    with pytest.raises(duckdb.Error, match="repeats a key of its schema"):
+        answer(query)
+
+
+def test_a_repeated_key_outside_the_schema_still_runs():
+    assert answer("""SELECT from_json('{"b":1, "b":2, "a":3}', 'a INT')""") == {"a": 3}

@@ -304,13 +304,22 @@ def _from_json_value(v: str, dtype: exp.DataType, depth: int) -> str:
     if t in _JSON_INTS:
         return f"CASE WHEN json_type({v}) IN ('BIGINT', 'UBIGINT') THEN TRY_CAST(({v})::VARCHAR AS {_JSON_INTS[t]}) END"
     if t in (_T.DOUBLE, _T.FLOAT):
+        # Spark's allowNonNumericNumbers (on by default) also reads these strings.
         name = "DOUBLE" if t == _T.DOUBLE else "FLOAT"
-        return f"CASE WHEN {_JSON_NUMBER.format(v=v)} THEN TRY_CAST(({v})::VARCHAR AS {name}) END"
+        return (f"CASE WHEN {_JSON_NUMBER.format(v=v)} THEN TRY_CAST(({v})::VARCHAR AS {name}) "
+                f"WHEN json_type({v}) = 'VARCHAR' THEN CASE ({v}) ->> '$' WHEN 'NaN' THEN 'NaN'::{name} "
+                f"WHEN '+INF' THEN 'Infinity'::{name} WHEN '+Infinity' THEN 'Infinity'::{name} "
+                f"WHEN 'Infinity' THEN 'Infinity'::{name} WHEN '-INF' THEN '-Infinity'::{name} "
+                f"WHEN '-Infinity' THEN '-Infinity'::{name} END END")
     if t == _T.DECIMAL:
+        # A number, or a string read as Spark's en-US decimal parser reads it (commas dropped);
+        # either rounds half-up to the scale, and too many digits is NULL.
         params = [int(p.name) for p in dtype.expressions] or [10]
         precision, scale = params[0], (params[1] if len(params) > 1 else 0)
         return (f"CASE WHEN {_JSON_NUMBER.format(v=v)} THEN "
-                f"TRY_CAST(({v})::VARCHAR AS DECIMAL({precision}, {scale})) END")
+                f"TRY_CAST(({v})::VARCHAR AS DECIMAL({precision}, {scale})) "
+                f"WHEN json_type({v}) = 'VARCHAR' AND ({v}) ->> '$' <> '' THEN "
+                f"TRY_CAST(REPLACE(({v}) ->> '$', ',', '') AS DECIMAL({precision}, {scale})) END")
     if t in (_T.TEXT, _T.VARCHAR):
         return f"CASE json_type({v}) WHEN 'VARCHAR' THEN ({v}) ->> '$' WHEN 'NULL' THEN NULL ELSE ({v})::VARCHAR END"
     if t == _T.BOOLEAN:
@@ -320,7 +329,9 @@ def _from_json_value(v: str, dtype: exp.DataType, depth: int) -> str:
     if t == _T.TIMESTAMPTZ:  # Databricks' TIMESTAMP
         # An offset in the text is honoured, as Spark does; text without one is read in the
         # session time zone.
-        return f"CASE WHEN json_type({v}) = 'VARCHAR' THEN TRY_CAST(({v}) ->> '$' AS TIMESTAMPTZ) END"
+        # A whole number is seconds since 1970-01-01 UTC, as Spark reads it.
+        return (f"CASE WHEN json_type({v}) = 'VARCHAR' THEN TRY_CAST(({v}) ->> '$' AS TIMESTAMPTZ) "
+                f"WHEN json_type({v}) IN ('BIGINT', 'UBIGINT') THEN TRY(TO_TIMESTAMP(({v})::VARCHAR::BIGINT)) END")
     if t == _T.ARRAY and len(dtype.expressions) == 1:
         element = f"fj_e{depth}"
         inner = _from_json_value(element, dtype.expressions[0], depth + 1)
@@ -351,7 +362,17 @@ def _sql_string(text: str) -> str:
 
 
 def _from_json_struct(v: str, dtype: exp.DataType, depth: int) -> str:
-    """A struct with Spark's field names; each key is matched case-sensitively, as Spark does."""
+    """A struct with Spark's field names; each key is matched case-sensitively, as Spark does. Spark
+    keeps the last of a repeated key and DuckDB's json_extract the first, so an object that repeats
+    one of the schema's keys stops with a message rather than answering differently."""
+    names = "[" + ", ".join(_sql_string(name) for name, _ in _json_fields(dtype)) + "]"
+    keys = f"LIST_FILTER(json_keys({v}), fj_k{depth} -> LIST_CONTAINS({names}, fj_k{depth}))"
+    return (f"CASE WHEN LEN({keys}) <> LIST_UNIQUE({keys}) THEN ERROR('from_json was given a JSON object that "
+            "repeats a key of its schema; Databricks keeps the last value and this PC can''t, so nothing ran. "
+            f"Remove the repeated key.') ELSE " + _from_json_fields(v, dtype, depth) + " END")
+
+
+def _from_json_fields(v: str, dtype: exp.DataType, depth: int) -> str:
     return "{" + ", ".join(
         f"{_sql_string(name)}: " + _from_json_value(f"json_extract({v}, {_sql_string(chr(36) + '.' + chr(34) + name + chr(34))})",
                                                     kind, depth)

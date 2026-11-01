@@ -140,12 +140,10 @@ class MetaMixin:
             raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
             raise NoMetadataProject("No metadata project is open. Create one or open its folder.")
-        project = getattr(self, "_meta_project", None)
-        if project is None or str(project.root) != path:
-            project = Project(path)
-            self._meta_project = project
-        else:
-            project.reload()
+        # A new Project each call, never a reload of the last one: a job thread may still be reading
+        # that one (the agent validates and runs it while its loop asks for the project again), and a
+        # reload empties its entities before refilling them.
+        project = Project(path)
         self._install_guard(project)
         return project
 

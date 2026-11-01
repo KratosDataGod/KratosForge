@@ -249,7 +249,8 @@ class _Untranslatable(Exception):
 
 
 def _duck(node: exp.Expression) -> str:
-    return node.sql(dialect="duckdb", unsupported_level=sqlglot.ErrorLevel.RAISE)
+    from .sql import KfDuckDB  # DuckDB 2.0 refuses "x -> body" lambdas (#1341)
+    return node.sql(dialect=KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
 def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool] | None:

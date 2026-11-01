@@ -93,11 +93,22 @@ def _left(req: dict[str, Any]) -> str:
     if kind == "source" and made.get("copy_job_id"):
         return "; its Copy job is still in the landing workspace" + (", on its schedule" if made.get("schedule_id") else "")
     if kind == "domain" and made.get("domain_id"):
-        return "; the domain it made is still there"
+        return "; the domain may be from it: check before deleting" if made.get("found") \
+            else "; the domain it made is still there"
     if kind == "shortcut" and made.get("shortcut_id"):
         return "; the shortcut may be from it: check before removing" if made.get("found") \
             else "; the shortcut it made is still in OneLake"
     return ""
+
+
+TITLE_MAX = 200  # platform_notify.validate cuts a title to this
+
+
+def _fit(head: str, tail: str) -> str:
+    """``head`` then ``tail`` in TITLE_MAX characters: a long target is cut, never what follows it (#1269)."""
+    if len(head) + len(tail) <= TITLE_MAX:
+        return head + tail
+    return head[:max(TITLE_MAX - len(tail) - 1, 0)] + "…" + tail
 
 
 def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -109,10 +120,10 @@ def request_closed(req: dict[str, Any], products: list[dict[str, Any]]) -> dict[
             "open": {"view": "platform", "tab": "requests", "target": req["id"]}}
     if status in _DECIDED:
         asker = _upns(req.get("requested_by"))
-        return base | {"kind": "request.decided", "title": f"{_title(req)} ({_DECIDED[status]}){_left(req)}",
+        return base | {"kind": "request.decided", "title": _fit(_title(req), f" ({_DECIDED[status]}){_left(req)}"),
                        "to": {"people": asker, "roles": [] if asker else ["requester"]}}
     if status == "withdrawn":
-        return base | {"kind": "request.withdrawn", "title": f"{_title(req)}{_left(req)}",
+        return base | {"kind": "request.withdrawn", "title": _fit(_title(req), _left(req)),
                        "to": {"people": _deciders(req, product), "roles": ["platform_admin"]}}
     return None
 

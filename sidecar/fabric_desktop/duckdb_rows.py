@@ -12,6 +12,15 @@ from typing import Any
 import duckdb
 
 
+def keep_try_cast(con: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
+    """``con`` with DuckDB 2.0's type_pushdown optimizer off. It pushes a TRY_CAST over a file's
+    column into the scan as a strict type, so ``SELECT TRY_CAST(x AS DOUBLE) FROM read_csv(...)`` fails
+    on a value that doesn't fit instead of giving NULL. DuckDB 1.x has no such optimizer (nor the name)."""
+    if int(duckdb.__version__.split(".")[0]) >= 2:
+        con.execute("SET disabled_optimizers = 'type_pushdown'")
+    return con
+
+
 def first_row(result: Any) -> tuple[Any, ...] | None:
     """The first row of an executed result or a relation, or None when there are none. The result is
     read to its end, which frees the connection on 2.0, so give it a query that returns few rows."""

@@ -4,12 +4,9 @@
 // a rule a policy names can't be dismissed.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, sqlRunMocks, settleForAxe } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
@@ -128,12 +125,7 @@ test("Guided opens Explain to start with, has Show example from the shipped guid
 
 test("the open finding has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
   await sq002().getByRole("button", { name: /Dismiss SQ002/ }).click();
-  await settleForAxe(page());
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector(".sql-compat"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), ".sql-compat");
   assert.deepStrictEqual(found, []);
   await page().keyboard.press("Escape");
   assert.strictEqual(await sq002().locator(".learn-dismiss-menu").isHidden(), true);

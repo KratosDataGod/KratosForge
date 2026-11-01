@@ -17,10 +17,12 @@ import duckdb
 import pyarrow as pa
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
 from . import lakehouse, sql_dialects
+from .duckdb_rows import keep_try_cast
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
 _VIEW_NAMES = itertools.count()
@@ -191,11 +193,16 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     next_day take text, pmod moves a negative remainder by the divisor, and bround, conv, soundex,
     format_number and exists (with a lambda) are written in DuckDB SQL (#1168). Deepest first, so a rewritten argument is
     written out already rewritten."""
+    _spark_lambdas(statement)
     found = list(statement.find_all(exp.DayOfWeek, *_SORTS, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
-                                    exp.Anonymous))
+                                    exp.MapContainsKey, exp.Anonymous))
     for node in reversed(found):
-        if isinstance(node, exp.DayOfWeek):
+        if isinstance(node, exp.MapContainsKey):
+            # Spark's map_contains_key is array_contains(map_keys(m), k), NULL key included; sqlglot
+            # writes the map and the key the other way round (#1325).
+            node.replace(_from_template("ARRAY_CONTAINS(MAP_KEYS({0}), {1})", [node.this, node.args["key"]]))
+        elif isinstance(node, exp.DayOfWeek):
             node.replace(exp.paren(exp.Add(this=node.copy(), expression=exp.Literal.number(1))))
         elif isinstance(node, _SORTS):
             nulls_first = _sort_nulls_first(node)
@@ -229,9 +236,58 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
                     node.replace(exp.Null())
                 elif places.is_int:
                     node.replace(_from_template(_FORMAT_NUMBER.replace("{1}", str(int(places.name))), [args[0]]))
+            elif name == "FORALL" and len(args) == 2 and isinstance(args[1], exp.Lambda):
+                # forall(a, x -> p) is NOT exists(a, x -> NOT p): FALSE on any FALSE, else NULL on any NULL.
+                negated = exp.Lambda(this=exp.Not(this=exp.paren(args[1].this.copy())),
+                                     expressions=[e.copy() for e in args[1].expressions])
+                node.replace(exp.Not(this=exp.paren(_from_template(_EXISTS, [args[0], negated]))))
             elif name in _ANON_TEMPLATES and len(args) == _arity(_ANON_TEMPLATES[name]):
                 node.replace(_from_template(_ANON_TEMPLATES[name], args))
     return statement
+
+
+# Where an Identifier named like the index is a name, not a use of the index.
+_NOT_A_REFERENCE = {("expression", exp.Dot), ("expressions", exp.Lambda), ("alias", exp.Alias),
+                    ("this", exp.TableAlias), ("columns", exp.TableAlias), ("this", exp.PropertyEQ)}
+
+
+def _spark_lambdas(statement: exp.Expression) -> None:
+    """transform and filter with an index lambda count the index from 0 in Spark and from 1 in DuckDB,
+    so the index becomes (i - 1) in the lambda's body; a nested lambda that reuses the name is refused
+    rather than guessed. get_json_object with a [*] path returns JSON text in Spark and a list here,
+    so it is refused (#1325)."""
+    for node in list(statement.find_all(exp.JSONExtractScalar)):
+        path = node.expression
+        if isinstance(path, exp.JSONPath) and any(
+                isinstance(p, exp.JSONPathWildcard) or isinstance(p.args.get("this"), exp.JSONPathWildcard)
+                for p in path.expressions):
+            raise ValueError("get_json_object with a [*] or .* path can't run on this PC the way it runs in "
+                             "Databricks (it returns JSON text there), so nothing ran. Run it on the warehouse, or "
+                             "read the values with from_json or a path to one element.")
+    for call in list(statement.find_all(exp.Transform, exp.ArrayFilter)):
+        func = call.expression
+        if not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
+            continue
+        index = func.expressions[1].name.lower()
+        body = func.this
+        if any(isinstance(inner, exp.Lambda) and any(e.name.lower() == index for e in inner.expressions)
+               for inner in body.find_all(exp.Lambda)):
+            raise ValueError("A lambda inside transform or filter reuses the index name, so the index can't be "
+                             "counted from 0 here as Databricks counts it. Give the inner lambda's argument another "
+                             "name.")
+        for ident in list(body.find_all(exp.Identifier)):
+            parent = ident.parent
+            if ident.name.lower() != index or (isinstance(parent, exp.Column) and parent.table):
+                continue
+            if isinstance(parent, exp.Column):
+                if parent.this is not ident:
+                    continue
+                target = parent
+            elif (ident.arg_key, type(parent)) in _NOT_A_REFERENCE:
+                continue   # a struct field (x.i), a lambda's own argument, an alias or a struct key
+            else:
+                target = ident
+            target.replace(exp.paren(exp.Sub(this=ident.copy(), expression=exp.Literal.number(1))))
 
 
 def _spark_dates(statement: exp.Expression) -> exp.Expression:
@@ -539,12 +595,26 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
+class KfDuckDB(DuckDB):
+    """DuckDB's dialect, with every lambda written as ``LAMBDA x : body``. DuckDB 2.0 refuses the old
+    ``x -> body`` ("Deprecated lambda arrow"); DuckDB 1.3 and later read both. sqlglot before 30.25
+    writes the arrow, including in lambdas it makes itself (initcap), unless a lambda is marked
+    ``colon`` (#1341)."""
+
+    class Generator(DuckDB.Generator):  # type: ignore[misc,valid-type]  # sqlglot sets Generator per dialect at run time
+        def lambda_sql(self, expression: exp.Lambda, arrow_sep: str = "->", wrap: bool = True) -> str:
+            if not expression.args.get("colon"):
+                expression = expression.copy()
+                expression.set("colon", True)
+            return super().lambda_sql(expression, arrow_sep=arrow_sep, wrap=wrap)
+
+
 def duckdb_sql(statement: exp.Expr) -> str:
     """``statement`` as DuckDB SQL. sqlglot leaves out what DuckDB has no way to say (such as
     array_sort's comparator) and only logs it, so the query would answer differently from Fabric;
     here that is a ValueError instead, and nothing runs (#1253)."""
     try:
-        return statement.sql("duckdb", unsupported_level=sqlglot.ErrorLevel.RAISE)
+        return statement.sql(KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
     except UnsupportedError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "sqlglot can't write part of it in DuckDB SQL."
         raise ValueError(f"Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: "
@@ -556,7 +626,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
     # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
-    return con
+    return keep_try_cast(con)
 
 
 def _arrow(result: duckdb.DuckDBPyConnection | None) -> pa.Table:

@@ -33,7 +33,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
-from .duckdb_rows import first_row
+from .duckdb_rows import first_row, keep_try_cast
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
@@ -462,7 +462,9 @@ class LakehouseReader:
         schema = getattr(self, "_schema", None)
         if schema is None:
             return df
-        rel = df.relation
+        # A limit no file reaches keeps DuckDB 2.0 from pushing the TRY_CASTs below into the file scan,
+        # where a value that doesn't fit fails the read instead of being NULL (#1341).
+        rel = df.relation.limit(2**62)
         have = rel.columns
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
@@ -548,6 +550,7 @@ class LocalSparkSession(SparkSession):
     def __init__(self) -> None:
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
+        keep_try_cast(self.conn)
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
@@ -597,7 +600,10 @@ class LocalSparkSession(SparkSession):
             return
         # A DataFrame is a query over the view's name, run when it's used: a view one still reads stays.
         used = [frame.relation.sql_query() for frame in list(self._frames) if frame.relation is not None]
-        used += [sql for (sql,) in self.conn.execute("SELECT sql FROM duckdb_views() WHERE NOT internal").fetchall() if sql]
+        # DuckDB 2.0 lists the registered views too, each with its own name in its SQL: those don't count.
+        ours = {v.lower() for v in views.values()}
+        used += [sql for name, sql in self.conn.execute("SELECT view_name, sql FROM duckdb_views() WHERE NOT internal")
+                 .fetchall() if sql and name.lower() not in ours]
         text = "\n".join(used)
         for key in old:
             view = views[key]
@@ -813,9 +819,30 @@ class LocalSparkSession(SparkSession):
             schema = ddl_schema(schema)
         if verifySchema:  # verifySchema=False skips the check, as in Spark
             check_not_null(data, schema)
-        # DuckDB's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
-        # how Spark infers and checks the schema, which is done above.
-        return super().createDataFrame(data, schema)
+        # DuckDB 1.x's own createDataFrame refuses samplingRatio and verifySchema=False; both only change
+        # how Spark infers and checks the schema, which is done above. DuckDB 2.0 checks the schema
+        # itself unless verifySchema=False reaches it.
+        try:
+            df = super().createDataFrame(data, schema, verifySchema=verifySchema)
+        except NotImplementedError:  # DuckDB 1.x: verifySchema=False
+            if verifySchema:
+                raise
+            df = super().createDataFrame(data, schema)
+        inferred = schema is None or (isinstance(schema, (list, tuple)) and all(isinstance(n, str) for n in schema))
+        return self._ints_as_long(df) if inferred and isinstance(data, (list, tuple)) else df
+
+    def _ints_as_long(self, df: DataFrame) -> DataFrame:
+        """Spark infers every Python int as bigint (LongType); DuckDB 1.x makes an int that fits INTEGER,
+        so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
+        rel = df.relation
+        exprs, changed = [], False
+        for name, kind in zip(rel.columns, rel.types):
+            text = str(kind)
+            wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
+            quoted = '"' + name.replace('"', '""') + '"'
+            changed |= wanted != text
+            exprs.append(f"CAST({quoted} AS {wanted}) AS {quoted}" if wanted != text else quoted)
+        return DataFrame(rel.project(", ".join(exprs)), self) if changed else df
 
 
 # A DDL schema string has a type after a name ("id int") or a comma; one bare word is a column name.
@@ -1052,7 +1079,10 @@ def _sql_text(value: Any) -> str:
     expr = getattr(value, "expr", None)
     if expr is None:
         raise TypeError(f"Expected SQL text or a Column, got {type(value).__name__}.")
-    return str(expr)
+    import sqlglot
+
+    # A Column prints as DuckDB SQL, which from DuckDB 2.0 quotes names ("s"."amount"): a string in Spark SQL.
+    return sqlglot.transpile(str(expr), read="duckdb", write="spark")[0]
 
 
 class LocalMergeBuilder:
@@ -1215,7 +1245,8 @@ def progress() -> float | None:
         p = _session.conn.query_progress()
     except Exception:  # noqa: BLE001  # silent-ok: progress is a hint; a closed connection has none
         return None
-    return round(p, 1) if p is not None and 0 < p <= 100 else None
+    shown = round(p, 1) if p is not None else None
+    return shown if shown is not None and 0 < shown <= 100 else None  # 0.04% shows as 0.0: not got going
 
 
 PROFILE_NODES = 200  # operators a query profile lists; a bigger plan says how many it left out

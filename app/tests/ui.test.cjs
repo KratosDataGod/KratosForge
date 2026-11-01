@@ -5647,6 +5647,8 @@ test("declining a domain request whose domain was made says where it is", () => 
     ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
     ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr", found: true } } }),
+    ["The domain HR is in the platform and Fabric: it was there before this request, or approving it made it. Check which before deleting it"], "#1270: possibly someone else's");
 });
 
 // #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
@@ -5680,4 +5682,15 @@ test("declining a shortcut request whose shortcut was made says it is still in O
   assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
     ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
   assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
+});
+
+test("browser tests run axe through the harness, which waits for animations to end (#1337)", () => {
+  // axe judges contrast on the colors as drawn; a check taken while a dialog fades in fails on
+  // faded text (#1297). harness.cjs axeFindings turns motion off and waits; the audit has its own runner.
+  const dir = path.join(__dirname, "browser");
+  const own = new Set(["harness.cjs", "a11y-audit.test.cjs"]);
+  const direct = fs.readdirSync(dir).filter((f) => f.endsWith(".cjs") && !own.has(f))
+    .filter((f) => /axe\.run\(|addScriptTag\(\{ content: axeSource/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.deepStrictEqual(direct, []);
+  assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
 });

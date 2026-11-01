@@ -303,7 +303,7 @@ def test_variable_explorer_opens_frames_and_containers_and_estimates_memory():
 
     assert k.variable_detail("sales")["columns"] == [{"name": "id", "type": "Int64"}, {"name": "name", "type": "String"}]
     assert k.variable_detail("arrow")["columns"] == [{"name": "v", "type": "double"}]
-    assert k.variable_detail("sdf")["columns"] == [{"name": "n", "type": "integer"}, {"name": "s", "type": "string"}]
+    assert k.variable_detail("sdf")["columns"] == [{"name": "n", "type": "bigint"}, {"name": "s", "type": "string"}]  # Spark infers a Python int as bigint
 
     cfg = k.variable_detail("cfg")
     assert cfg["total"] == 3

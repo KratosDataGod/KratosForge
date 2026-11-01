@@ -253,8 +253,62 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    # Spark: #,###,###.## rounded half-even to d places (2.345 -> 2.34, 0.125 -> 0.12).
-    return _sql(f"printf('%,.{int(d)}f', round_even({_col_sql(col)}, {int(d)}))")
+    """#,###,###.## rounded half-even to d places, as Spark's DecimalFormat does. A decimal or an
+    integer is rounded by its value. A double is rounded from the digits Java prints for it, padded with
+    zeros past them: its shortest digits (2.345, not 2.34500000000000019...), but the exact whole number for
+    a whole double from 2**53 to 2**62 (Java prints those). When those digits fall on a tie at
+    the last place, the double's exact binary value decides (2.345 is a little above 2.345, so 2.35;
+    2.675 a little below, so 2.67; 0.125 is exactly a tie, so 0.12). DuckDB's round_even does none of
+    this the same on 1.x and 2.0, so it is done on exact decimals by hand and printed from their digits."""
+    x, d = _col_sql(col), int(d)
+    if not 0 <= d <= 18:
+        return _sql(f"printf('%,.{max(d, 0)}f', {x})")
+    double = f"CAST({x} AS DOUBLE)"
+    negative = f"({x} < 0 OR ({x} = 0 AND CAST({double} AS VARCHAR) LIKE '-%'))"  # -0.0 prints -0, as in Java
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    # printf prints a double's exact digits; a VARCHAR, its shortest ones.
+    exact = f"CAST(printf('%.20f', {double}) AS DECIMAL(38, 20))"
+    shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 20))"
+    # Which side of its shortest digits the exact value lies (-1, 0, 1). Below 1, 37 places show it.
+    side = (f"CASE WHEN abs({double}) < 1 THEN sign(CAST(printf('%.37f', {double}) AS DECIMAL(38, 37)) - "
+            f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 37))) ELSE sign({exact} - {shortest}) END")
+    near = f"round({shortest}, {d})"  # half away from zero
+    tie = f"abs({shortest} - {near}) * 2 = {unit}"
+    from_shortest = (f"CASE WHEN NOT ({tie}) THEN {near} WHEN {side} * sign({double}) > 0 THEN {near} "
+                     f"WHEN {side} * sign({double}) < 0 THEN {near} - sign({double}) * {unit} "
+                     f"ELSE {_half_even(shortest, d)} END")
+    whole = f"CAST(printf('%.0f', {double}) AS DECIMAL(38, 0))"  # from 2**53 to 2**62 (a whole double), its exact digits
+    whole_shortest = f"CAST(CAST({double} AS VARCHAR) AS DECIMAL(38, 0))"  # from 2**62, its shortest digits
+    # Beyond the exact decimals DuckDB's own rounding prints it, as before. NaN and infinity print as
+    # DecimalFormat prints them.
+    big = f"printf('%,.{d}f', round_even({x}, {d}))"
+    special = (f"WHEN isnan({double}) THEN 'NaN' WHEN isinf({double}) THEN "
+               f"CASE WHEN {x} < 0 THEN '-∞' ELSE '∞' END")
+    return _sql(f"CASE WHEN typeof({x}) IN ('DOUBLE', 'FLOAT') THEN (CASE {special} "
+                f"WHEN abs({x}) >= 9007199254740992 AND abs({x}) < 4611686018427387904 THEN {_printed(whole, d, negative)} "
+                f"WHEN abs({x}) < 1e17 THEN {_printed(from_shortest, d, negative)} "
+                f"WHEN abs({x}) < 1e37 THEN {_printed(whole_shortest, d, negative)} ELSE {big} END) "
+                f"WHEN abs({double}) < 1e20 THEN "
+                f"{_printed(_half_even(f'CAST({x} AS DECIMAL(38, 18))', d), d, negative)} ELSE {big} END")
+
+
+def _half_even(v: str, d: int) -> str:
+    """``v``, an exact decimal, rounded half-even to ``d`` places (a decimal). A NULL stays NULL."""
+    unit = f"CAST('1e-{d}' AS DECIMAL(38, 20))"
+    r = f"round({v}, {d})"  # half away from zero, exact on a decimal
+    tie_to_odd = f"abs({v} - {r}) * 2 = {unit} AND CAST({r} * CAST('1e{d}' AS DECIMAL(38, 0)) AS HUGEINT) % 2 <> 0"
+    return f"CASE WHEN {tie_to_odd} THEN {r} - sign({v}) * {unit} ELSE {r} END"
+
+
+def _printed(rounded: str, d: int, negative: str) -> str:
+    """``rounded``, a decimal with no more than ``d`` places, with thousands separators and ``d``
+    places, from its digits rather than through a double, so all of them are exact (BIGINT's largest is
+    9,223,372,036,854,775,807). A negative value that rounds to zero keeps its sign, as DecimalFormat
+    prints it (-0.25 -> -0)."""
+    whole = f"trunc(abs({rounded}))"
+    places = "" if d == 0 else (f" || '.' || lpad(CAST(CAST((abs({rounded}) - {whole}) * CAST('1e{d}' AS "
+                                f"DECIMAL(38, 0)) AS HUGEINT) AS VARCHAR), {d}, '0')")
+    return f"CASE WHEN {negative} THEN '-' ELSE '' END || format('{{:,}}', CAST({whole} AS HUGEINT)){places}"
 
 
 def to_json(col: Any, options: Any = None) -> Column:
@@ -418,7 +472,8 @@ def _ordered(name: str, fn: Any) -> Any:
     return order
 
 
-_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE \(\2 IS NOT NULL\)\)$', re.S)
+# DuckDB 1.x prints "first"(x) FILTER (WHERE (x IS NOT NULL)); 2.0 drops the quotes and the inner parentheses.
+_IGNORING_NULLS = re.compile(r'^"?(first|last)"?\((.*)\) FILTER \(WHERE (\()?\2 IS NOT NULL(?(3)\))\)$', re.S)
 
 
 def _over(self: Column, window: WindowSpec) -> Column:
@@ -803,6 +858,76 @@ window_module.Window = Window  # type: ignore[attr-defined]
 window_module.WindowSpec = WindowSpec  # type: ignore[attr-defined]
 
 
+def spark_type_name(dt: Any) -> str:
+    """``dt`` as Spark's ``DataType.simpleString()`` writes it, which is what ``DataFrame.dtypes`` shows:
+    int, timestamp, timestamp_ntz. DuckDB 1.x's Spark API says integer and timestamptz, and DuckDB 2.0
+    says what Spark does, so the engine answers the same on both (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.ArrayType):
+        return f"array<{spark_type_name(dt.elementType)}>"
+    if isinstance(dt, T.MapType):
+        return f"map<{spark_type_name(dt.keyType)},{spark_type_name(dt.valueType)}>"
+    if isinstance(dt, T.StructType):
+        return "struct<" + ",".join(f"{f.name}:{spark_type_name(f.dataType)}" for f in dt.fields) + ">"
+    if isinstance(dt, T.IntegerType):
+        return "int"
+    if isinstance(dt, T.TimestampNTZType):
+        return "timestamp_ntz"
+    if isinstance(dt, T.TimestampType):
+        return "timestamp"
+    return str(dt.simpleString())
+
+
+def _dtypes(self: DataFrame) -> list[tuple[str, str]]:
+    return [(f.name, spark_type_name(f.dataType)) for f in self.schema.fields]
+
+
+def _struct_rows(value: Any, dt: Any) -> Any:
+    """A struct value as Spark's collect() gives it: a Row, also inside arrays and maps. DuckDB 1.x's
+    Spark API gives a dict; DuckDB 2.0's gives a Row (#1341)."""
+    from duckdb.experimental.spark.sql import types as T
+    from duckdb.experimental.spark.sql.types import Row
+    if value is None:
+        return None
+    if isinstance(dt, T.StructType):
+        if not isinstance(value, dict):
+            return value
+        row = tuple.__new__(Row, [_struct_rows(value.get(f.name), f.dataType) for f in dt.fields])
+        row.__fields__ = [f.name for f in dt.fields]
+        return row
+    if isinstance(dt, T.ArrayType) and isinstance(value, list):
+        return [_struct_rows(v, dt.elementType) for v in value]
+    if isinstance(dt, T.MapType) and isinstance(value, dict):
+        return {k: _struct_rows(v, dt.valueType) for k, v in value.items()}
+    return value
+
+
+def _has_struct(dt: Any) -> bool:
+    from duckdb.experimental.spark.sql import types as T
+    if isinstance(dt, T.StructType):
+        return True
+    if isinstance(dt, T.ArrayType):
+        return _has_struct(dt.elementType)
+    if isinstance(dt, T.MapType):
+        return _has_struct(dt.valueType)
+    return False
+
+
+def _collect_structs_as_rows(collect: Any) -> Any:
+    def collect_rows(self: DataFrame) -> list[Any]:
+        rows = collect(self)
+        fields = self.schema.fields
+        if not any(_has_struct(f.dataType) for f in fields):
+            return rows
+        out = []
+        for r in rows:
+            row = tuple.__new__(type(r), [_struct_rows(v, f.dataType) for v, f in zip(r, fields)])
+            row.__fields__ = list(r.__fields__)
+            out.append(row)
+        return out
+    return collect_rows
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
@@ -816,6 +941,8 @@ def install() -> None:
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]
+    DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
+    DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
     DataFrame.select = _global_select(DataFrame.select)  # type: ignore[method-assign]
     DataFrame.selectExpr = _select_expr  # type: ignore[attr-defined]
     DataFrame.fillna = _fillna  # type: ignore[attr-defined]

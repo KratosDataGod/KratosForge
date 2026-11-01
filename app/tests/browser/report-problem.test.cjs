@@ -3,11 +3,8 @@
 // nothing; the diagnostics box is read-only; and axe finds nothing serious in the dialog.
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const skip = !playwright && "Playwright is not installed";
 const ID = "4b2f8c1e-9d3a-4e6f-8a7b-1c2d3e4f5a6b";
 const TYPED = `Saving failed for raj@contoso.com in C:\\Users\\raj\\notebooks on workspace ${ID}, token=abc123secretvalue`;
@@ -95,15 +92,8 @@ test("Copy only copies the redacted report and opens nothing; the diagnostics ca
 });
 
 test("Report a problem has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
-  // The dialog fades and rises in, and axe measures contrast on the colors as drawn: mid-way, its
-  // text is still faded. So no motion here, and no animation running when axe looks.
   await page().emulateMedia({ reducedMotion: "reduce" });
   await open("mailto:help@contoso.com");
-  await page().waitForFunction(() => document.getAnimations().length === 0);
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector("#dialog-root .dialog"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), "#dialog-root .dialog");
   assert.deepStrictEqual(found, []);
 });

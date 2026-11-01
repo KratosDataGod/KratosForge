@@ -55,3 +55,17 @@ def test_a_query_from_a_thread_the_cell_started_shows_no_progress_under_the_cell
     assert during, "the query finished before it could be seen"
     assert seen and all(p is None for p in seen)
     k.run("spark.conn.execute('DROP TABLE big')")
+
+
+@pytest.mark.parametrize("raw, shown", [(0.04, None), (0.06, 0.1), (0.0, None), (-1.0, None),
+                                        (37.25, 37.2), (100.0, 100.0), (None, None)])
+def test_progress_that_rounds_to_nothing_is_not_reported(monkeypatch, raw, shown):
+    class Conn:
+        def query_progress(self):
+            return raw
+
+    class Session:
+        conn = Conn()
+
+    monkeypatch.setattr(spark_local, "_session", Session())
+    assert spark_local.progress() == shown

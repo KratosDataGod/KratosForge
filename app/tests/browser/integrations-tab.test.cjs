@@ -8,10 +8,8 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { playwright, openApp, settleForAxe } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
 const ENGINE = ["integrations_status", "integrations_activity", "integrations_pending", "integrations_decide",
@@ -98,12 +96,7 @@ async function activityRows(n) {
 const activity = () => page().locator("section.card").filter({ has: page().getByRole("heading", { name: "Recent activity" }) });
 
 async function axe(scope) {
-  await settleForAxe(page());
-  await page().addScriptTag({ content: axeSource });
-  return page().evaluate(async (scope) => {
-    const r = await window.axe.run(document.querySelector(scope), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  }, scope);
+  return axeFindings(page(), scope);
 }
 
 before(async () => {

@@ -48,10 +48,11 @@ def test_a_decision_goes_to_whoever_asked_and_a_withdrawal_to_the_deciders():
     ("source", {"copy_job_id": "j1", "copy_job_name": "CJ_Landing_crm", "schedule_id": "s1"},
      "; its Copy job is still in the landing workspace, on its schedule"),
     ("domain", {"domain_id": "hr", "fabric_domain_id": "f-hr"}, "; the domain it made is still there"),
+    ("domain", {"domain_id": "hr", "found": True}, "; the domain may be from it: check before deleting"),
     ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x"}, "; the shortcut it made is still in OneLake"),
     ("shortcut", {"shortcut_id": "lh-1|Tables/dbo/x", "found": True}, "; the shortcut may be from it: check before removing"),
     ("workspace", {}, ""),
-], ids=["workspace", "gave", "raised", "same", "older", "kept", "copy job", "domain", "shortcut", "found shortcut", "nothing"])
+], ids=["workspace", "gave", "raised", "same", "older", "kept", "copy job", "domain", "found domain", "shortcut", "found shortcut", "nothing"])
 def test_a_closed_request_whose_approval_made_something_says_it_is_still_there_without_names(kind, made, left):
     r = req(kind=kind, target="Sales Prod", detail={"made": made, "principal": {"email": "kim@contoso.com"}})
     gone = validate(notices.request_closed(r | {"status": "withdrawn"}, PRODUCTS))
@@ -125,3 +126,14 @@ def test_a_notice_that_cannot_be_built_never_fails_the_decision(svc, monkeypatch
     decided = svc.platform_decide(out["id"], False, "no")
     assert decided["status"] == "declined" and svc.platform_requests("declined")[0]["id"] == out["id"]
     assert decided["problems"][0].startswith("The Teams notice wasn't sent")
+
+
+@pytest.mark.parametrize("length", [10, 150, 199, 300])
+def test_a_long_target_is_cut_but_never_what_is_left_in_fabric(length):
+    r = req(kind="workspace", target="W" * length, detail={"made": {"workspace_id": "w1"}})
+    for status, tail in (("withdrawn", "; the workspace it made is still in Fabric"),
+                         ("declined", " (declined); the workspace it made is still in Fabric")):
+        title = validate(notices.request_closed(r | {"status": status}, PRODUCTS))["title"]
+        assert title.endswith(tail) and len(title) <= notices.TITLE_MAX
+        whole = f"{notices._title(r)}{tail}"
+        assert title == whole if len(whole) <= notices.TITLE_MAX else title.endswith("…" + tail)

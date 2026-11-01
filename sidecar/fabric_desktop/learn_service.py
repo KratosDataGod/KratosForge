@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from . import progress, verify
-from .learn import content, dismissals, fixes, guides, labs
+from .learn import content, dismissals, fixes, guides, labs, patterns
 from .redact import describe
 from .sqlcompat import practices
 
@@ -21,7 +21,8 @@ _log = logging.getLogger(__name__)
 
 METHODS = {"learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
            "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "learn_rule_guides", "learn_dismissals",
-           "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare", "learn_fix_checked"}
+           "learn_dismiss", "learn_undismiss", "learn_fixes", "learn_fix_compare", "learn_fix_checked",
+           "learn_patterns"}
 
 _SUMMARY = ("id", "kind", "title", "path", "level", "minutes", "objectives", "prerequisites", "platforms", "engines",
             "rules", "docs", "version", "status")
@@ -93,6 +94,11 @@ class LearnMixin:
         """Each notebook and SQL rule's Why, When it's fine and Before/After, from the docs that ship
         with the app (learn/guides.py)."""
         return guides.load()
+
+    def learn_patterns(self) -> dict[str, Any]:
+        """The decision patterns (GD-05): each one's title, explanation and an example that runs on this
+        PC, from the docs that ship with the app (learn/patterns.py)."""
+        return patterns.load()
 
     def learn_dismissals(self) -> list[dict[str, Any]]:
         """The findings this person dismissed on this PC (learn/dismissals.py)."""

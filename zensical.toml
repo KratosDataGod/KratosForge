@@ -60,6 +60,7 @@ nav = [
     { "Profile" = "profile.md" },
     { "Select cells and run part of a notebook" = "notebook-editor/select-and-run-parts.md" },
     { "Engines and connection profiles" = "engines.md" },
+    { "Decision patterns" = "decision-patterns.md" },
     { "Platform support levels" = "platforms.md" },
     { "Notebook comments" = "notebook-comments.md" },
     { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },

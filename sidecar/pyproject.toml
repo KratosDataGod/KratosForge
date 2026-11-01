@@ -70,7 +70,7 @@ include = ["fabric_desktop*"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
-"fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json"]
+"fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it

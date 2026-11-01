@@ -23,7 +23,7 @@ before(async () => {
   app = await openApp({ viewport: { width: 1440, height: 900 },
     engine: ["list_notebooks", "open_notebook", "save_notebook", "notebook_places", "compute_check", "kernel_variables",
       "start_cell", "poll_cell", "interrupt_cell", "restart_kernel",
-      "engine_catalog", "engine_select", "engine_state", "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close"],
+      "engine_catalog", "engine_select", "engine_state", "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close", "learn_patterns"],
     mocks: {
       notebook_runs: () => ({ runs: [] }),
       engine_connections: () => ({ connections: [{ key: "cli:dev", label: "dev (Databricks CLI)", host: "https://adb-1.azuredatabricks.net",
@@ -54,6 +54,22 @@ test("Engine replaces Runs on beside Run all, and says This PC", { skip }, async
   assert.ok(!rows.some((r) => r.startsWith("Apache Spark")), "planned engines sit behind More");
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "engine-menu.png") });
   await page().keyboard.press("Escape");
+});
+
+test("How to choose opens the DuckDB or Spark decision pattern (GD-05)", { skip }, async () => {
+  await page().locator(".engine-btn").first().click();
+  await page().locator("#menu [role^=menuitem]", { hasText: "This PC or Fabric? How to choose" }).click();
+  const dialog = page().getByRole("dialog", { name: "DuckDB on this PC or Spark in Fabric" });
+  await dialog.waitFor();
+  const said = await dialog.innerText();
+  assert.match(said, /DuckDB on this PC works when:[\s\S]*Spark in Fabric works when:[\s\S]*Each one fails when:/);
+  assert.match(said, /Cost:[\s\S]*Reliability:[\s\S]*How to decide:[\s\S]*Try it on this PC/);
+  assert.match(await dialog.locator("pre").innerText(), /^# Runs on this PC with DuckDB/);
+  if (SHOTS) { await page().waitForTimeout(400); await page().screenshot({ path: path.join(SHOTS, "decision-pattern.png") }); }  // after the fade-in
+  await dialog.getByRole("link", { name: "Open in the guide" }).click();
+  const opened = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "open_doc").map((c) => c.args.page));
+  assert.deepStrictEqual(opened.slice(-1), ["decision-patterns.md#dp-02"]);
+  await dialog.getByRole("button", { name: "Close" }).last().click();
 });
 
 test("a remote engine asks first, and Cancel starts nothing", { skip }, async () => {

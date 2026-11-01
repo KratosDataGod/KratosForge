@@ -411,6 +411,28 @@ def vault_url(akv: str) -> str:
                      "Your Key Vault token is only sent there.")
 
 
+def keyvault_error(resp: Any, vault: str, what: str, secret: str = "") -> requests.HTTPError:
+    """A Key Vault refusal other than 401/403 as one line: the vault, what wasn't done, the status
+    and Key Vault's error code. Never the URL, the response body or a secret's value. Still a
+    requests.HTTPError, with the response."""
+    code = ""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        code = str(body["error"].get("code") or "")
+    status = resp.status_code
+    if status == 404 and secret:
+        text = (f"Key Vault {vault} has no secret named {secret!r}, or it is disabled or deleted. "
+                "Check the name (it's case-insensitive, letters, digits and dashes).")
+    elif status == 429:
+        text = f"Key Vault {vault} is throttling requests, so it couldn't {what}. Try again in a minute."
+    else:
+        text = f"Key Vault {vault} couldn't {what} ({status}{': ' + code if code else ''})."
+    return requests.HTTPError(text, response=resp)
+
+
 def on_vault(url: str, vault: str) -> bool:
     """Whether ``url`` is on the Key Vault ``vault`` (from vault_url), as Key Vault's own next-page
     links write it: https, that host, on the default port (which they spell :443)."""
@@ -443,7 +465,8 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         if resp.status_code in (401, 403):
             raise PermissionError(f"Key Vault {vault} refused access to {secret!r} for your account. "
                                   f"You need the Key Vault Secrets User role on it.")
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise keyvault_error(resp, vault, f"read {secret!r}", secret)
         return resp.json()["value"]
 
     def isValidToken(token: str) -> bool:  # noqa: N802

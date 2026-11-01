@@ -52,8 +52,10 @@ def about() -> dict[str, Any]:
             value = "Microsoft's Fabric sign-in" if value == app_settings.MICROSOFT_CLIENT_ID else "own app registration"
         elif key == "platform":
             value = sorted(value) if isinstance(value, dict) else []
-        elif key == "support_url" or secret_key(key):  # a connection string is a secret whatever it looks like
-            value = "set" if value else ""
+        elif key in ("support_url", "dbconnect_index_url") or secret_key(key):  # a connection string is a secret whatever it looks like
+            value = "set" if value else ""  # an internal help desk or package mirror names the organization by its host
+        elif key == "sql_temp_dir" and isinstance(value, str) and value[:2] in ("\\\\", "//"):
+            value = "a network folder"  # a share's server name is the organization's
         summary[key] = {"value": value, "source": entry["source"]}
     engine = app_settings._read_engine_info()
     return {
@@ -101,7 +103,7 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
                 "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), the tenant's",
                 "onmicrosoft.com and SharePoint names, the organization's name on OneDrive folders, user names in paths, and tenant, workspace and item ids.",
                 "No table data, notebook contents or sign-in cache is included.",
-                "Settings that hold a secret, such as a connection string, show only whether they are set.",
+                "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 f"Logs are the last {LOG_LINES} lines."]
     files["CONTENTS.txt"] = "\n".join(contents) + "\n"

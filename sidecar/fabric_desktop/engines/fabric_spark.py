@@ -201,12 +201,19 @@ def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, 
         from .local_sql import _table_output
         fields = [str(f.get("name")) for f in (table.get("schema") or {}).get("fields") or []]
         rows = table["data"]
-        try:
-            arrow = pa.Table.from_pylist([dict(zip(fields, r)) for r in rows[:preview_rows]]) if rows else \
-                pa.table({f: pa.array([], pa.string()) for f in fields})
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            arrow = pa.table({f: pa.array([None if r[i] is None else str(r[i]) for r in rows[:preview_rows]],
-                                          pa.string()) for i, f in enumerate(fields)})
+        if any(not isinstance(r, list) or len(r) != len(fields) for r in rows):
+            # Never NULLs Fabric didn't send, nor a value cut off (#1369).
+            return [{"type": "error", "ename": "FabricSparkError",
+                     "evalue": "Fabric sent a result that doesn't have one value per column."}], None
+        shown = rows[:preview_rows]
+        arrays = []
+        for i in range(len(fields)):   # by position, so columns that share a name all stay (#1369)
+            values = [r[i] for r in shown]
+            try:
+                arrays.append(pa.array(values) if values else pa.array([], pa.string()))
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                arrays.append(pa.array([None if v is None else str(v) for v in values], pa.string()))
+        arrow = pa.Table.from_arrays(arrays, names=fields) if fields else pa.table({})
         return [_table_output(arrow, len(rows))], len(rows)
     text = data.get("text/plain")
     return ([{"type": "stream", "text": str(text)}] if text not in (None, "") else []), None

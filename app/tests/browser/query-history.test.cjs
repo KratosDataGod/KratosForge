@@ -114,7 +114,18 @@ test("history is capped and Clear history asks first", { skip }, async () => {
   // runs leaving storage, or the History tab redrawing (it once waited 30 s for "No runs yet" in CI).
   await confirm.waitFor({ state: "hidden" });
   await page().waitForFunction(() => !localStorage.getItem("fabric-desktop.sqlhistory.warehouse.wh1"));
-  await page().waitForFunction(() => /No runs yet/.test(document.querySelector(".warehouse-page aside.explorer")?.textContent || ""));
+  // This wait timed out once in CI with the runs already gone and nothing thrown (flaky ledger):
+  // a timeout now says what the explorer showed instead.
+  await page().waitForFunction(() => /No runs yet/.test(document.querySelector(".warehouse-page aside.explorer")?.textContent || ""), null, { timeout: 15000 })
+    .catch(async (err) => {
+      const seen = await page().evaluate(() => ({
+        asides: document.querySelectorAll(".warehouse-page aside.explorer").length,
+        view: sqlPage.whAside, filter: sqlPage.whHistoryFilter, tabs: sqlPage.tabs.length, active: sqlPage.active,
+        running: sqlPage.tabs.map((t) => !!t.running), dialogs: document.querySelectorAll("[role=dialog]").length,
+        text: (document.querySelector(".warehouse-page aside.explorer")?.textContent || "").slice(0, 300),
+      }));
+      throw new Error(`${err.message}; the explorer showed ${JSON.stringify(seen)}`);
+    });
   assert.deepStrictEqual(await history(), []);
 });
 

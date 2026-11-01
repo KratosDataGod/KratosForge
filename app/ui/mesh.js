@@ -460,13 +460,14 @@ async function renderMeshLinksTab(body) {
         text: "Find a product on the Data products tab and choose Link, or add one here." }),
       rows.length ? status : null)].filter(Boolean));
   if (!rows.length) return;
-  const resolved = await attempt(() => rpc("mesh_resolve_links", { env })) || [];
+  const resolved = await attempt(() => rpc("mesh_resolve_links", { env }), "Couldn't check where the links point");
   for (const r of rows) {
-    const got = resolved.find((x) => x.alias === r.l.alias);
+    const got = resolved?.find((x) => x.alias === r.l.alias);
     r.where.replaceChildren(got?.ok ? h("span", { title: got.table }, got.table.replace(/^abfss:\/\/([^@]+)@[^/]+\//, "$1/"))
-      : h("span", { class: "fail-text" }, got?.message || "not resolved"));
+      : h("span", { class: resolved ? "fail-text" : "muted-text" }, got?.message || (resolved ? "not resolved" : "not checked")));
   }
-  status.textContent = `Resolved for ${ENV_LABEL[env]}.`;
+  // A refused check isn't "Resolved": the message says why.
+  status.textContent = resolved ? `Resolved for ${ENV_LABEL[env]}.` : `Not checked for ${ENV_LABEL[env]}.`;
 }
 
 function p_usedBy(alias) {

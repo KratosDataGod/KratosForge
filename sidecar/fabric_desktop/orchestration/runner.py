@@ -729,7 +729,32 @@ class _Context:
                 raise _Cancelled()
             return output
         read = self.run.data.lookup if activity.type == "Lookup" else self.run.data.metadata
-        return read(activity, properties)
+        return self._bounded(lambda: read(activity, properties))
+
+    def _bounded(self, call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """``call`` on a worker thread, waited on until it returns, the run is cancelled, or this
+        activity's deadline (its policy timeout, or an enclosing Until's) passes (#1368). A read
+        still going then finishes in the background, read-only, and its result is dropped."""
+        done = threading.Event()
+        box: dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                box["out"] = call()
+            except BaseException as exc:  # noqa: BLE001 - handed back to the activity's thread below
+                box["exc"] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=work, name=f"pipeline-read-{self.activity.name}", daemon=True).start()
+        while not done.wait(0.2):
+            if self.run.cancelled or _past(self.until):
+                raise _Cancelled()
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
+        if "exc" in box:
+            raise box["exc"]
+        return box["out"]
 
     def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]:
         if self.run.notebooks is None:

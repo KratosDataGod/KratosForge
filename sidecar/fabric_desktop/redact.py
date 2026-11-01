@@ -24,6 +24,12 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # A JSON Web Token: what Entra ID access, refresh-able id and Fabric tokens look like.
     (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), REMOVED),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1" + REMOVED),
+    # Basic credentials (base64 of user:password), after "Authorization:" or as base64 a word isn't.
+    (re.compile(r"(?i)(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}"), r"\1" + REMOVED),
+    # Case matters in the lookahead: base64 has a digit, +, / or = or a lower-to-upper case change,
+    # which a word after "Basic" ("Basic authentication") doesn't.
+    (re.compile(r"(\b(?:basic|Basic|BASIC)\s+)(?=[A-Za-z0-9+/]*(?:[0-9+/=]|[a-z][A-Z]))[A-Za-z0-9+/]{8,}={0,2}"),
+     r"\1" + REMOVED),
     # A shared access signature's signature, in a URL.
     (re.compile(r"(?i)([?&]sig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
@@ -41,6 +47,12 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
     # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
+    # A Databricks OAuth secret (a service principal's client secret: dose + 32 hex).
+    (re.compile(r"\bdose[0-9a-f]{32}\b"), REMOVED),
+    # A quoted secret value runs to its closing quote, spaces and all: JSON ("name": "value") and a
+    # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end.
+    (re.compile(r"(?i)(\"(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:[^\"\\]|\\.)*"), r"\1" + REMOVED),
+    (re.compile(r"(?i)('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:[^'\\]|\\.)*"), r"\1" + REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end line.
     (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),

@@ -111,6 +111,16 @@ def test_describe_is_log_safe():
     assert redact.describe(KeyError()) == "KeyError"
 
 
+def test_describe_and_one_line_keep_text_from_a_file_or_reply_to_one_short_line():
+    forged = "bad name\nERROR: forged line\r\x1b[31m\tend"
+    assert redact.describe(ValueError(forged)) == "ValueError: bad name ERROR: forged line [31m end"
+    assert redact.one_line(f"Bearer {JWT}\nnext") == "Bearer [removed] next"
+    long = redact.describe(RuntimeError("x" * 5000))
+    assert len(long) == len("RuntimeError: ") + redact.DESCRIBE_MAX and long.endswith("…")
+    assert redact.one_line("y" * 400) == "y" * 299 + "…"
+    assert redact.one_line({"code": "Bad"}) == "{'code': 'Bad'}"
+
+
 G1, G2, G3 = ("11111111-2222-3333-4444-555555555555", "72f988bf-86f1-41af-91ab-2d7cd011db47",
               "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 

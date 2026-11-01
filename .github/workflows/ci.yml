@@ -112,8 +112,8 @@ jobs:
             PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
               -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
           done
-      # pyproject keeps DuckDB below 2.0 until the engine passes there (#1341); the whole engine suite
-      # also runs on the next major, so a change that breaks it there shows before the cap is lifted.
+      # pyproject allows DuckDB 1.x and 2.x (#1401) but installs the pinned 1.x; the whole engine suite
+      # also runs on 2.0 here, so a change that breaks it there shows before anyone moves the pin (#1341).
       - name: Engine tests on the next DuckDB major
         if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
         shell: bash

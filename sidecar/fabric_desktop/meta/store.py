@@ -37,7 +37,11 @@ META_LAKEHOUSE = "LH_Meta"
 # lakehouse there (LH_Landing for Shared, LH_Landing_<Name> for the rest): see Store.landing_zone.
 LANDING_LAKEHOUSE = "LH_Landing"
 SHARED_ZONE = "shared"
-META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
+# A column type as META_SCHEMAS spells it: the class (pl.String) or an instance (pl.Datetime("us")).
+# polars takes either in a schema.
+Dtype = pl.DataType | type[pl.DataType]
+
+META_SCHEMAS: dict[str, dict[str, Dtype]] = {
     "run_log": {"run_id": pl.String, "batch_id": pl.String, "entity": pl.String, "env": pl.String,
                 "status": pl.String, "metadata": pl.String, "logic": pl.String, "load_date": pl.String,
                 "started_at": pl.String, "seconds": pl.Float64, "rows_read": pl.Int64, "rows_written": pl.Int64,
@@ -438,7 +442,7 @@ class Store:
             return max(actions.column(name).to_pylist())
         return lazy(t, uri, options).select(pl.col(column).max()).collect().item()
 
-    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, Dtype]) -> bool:
         """Create an empty table, only if there is none: never overwrites one another writer made or
         filled. True if this call created it."""
         uri = self.uri(lakehouse, schema, table)
@@ -631,7 +635,7 @@ class LocalStore(Store):
                    version: int | None = None) -> Any:
         return local_retry(lambda: super(LocalStore, self).column_max(lakehouse, schema, table, column, version))
 
-    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, Dtype]) -> bool:
         return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
 
     def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],

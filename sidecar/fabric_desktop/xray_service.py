@@ -377,7 +377,8 @@ class XRayMixin:
             try:
                 uri, dt_ = self._source_table(workspace_id, lakehouse_id, t["schema"], t["table"])
                 cols = list(_table_schema(dt_))
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - the table is left out of the adoption, with the reason
+                _log.warning("Couldn't read %s.%s as a Delta table: %s", t["schema"], t["table"], describe(exc))
                 out.append({"schema": t["schema"], "table": t["table"], "ok": False, "why": "Not a Delta table"})
                 continue
             name = f"{layer}.{_entity_name(t['table'])}"

@@ -315,9 +315,7 @@
  },
  "fabric_desktop/meta/keys.py": {
   "arg-type": 2,
-  "attr-defined": 3,
-  "dict-item": 4,
-  "misc": 1
+  "attr-defined": 3
  },
  "fabric_desktop/meta/lineage.py": {
   "arg-type": 1
@@ -349,7 +347,6 @@
   "union-attr": 1
  },
  "fabric_desktop/meta/store.py": {
-  "dict-item": 76,
   "return-value": 2,
   "union-attr": 1
  },

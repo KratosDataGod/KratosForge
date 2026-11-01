@@ -66,6 +66,27 @@ def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
     assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
 
 
+def test_a_process_that_ends_leaves_no_pipe_open(kernel):
+    """Popen leaves its pipes to the garbage collector; the app starts a process per restart, so
+    each one that ended kept two handles open until a collection happened to run."""
+    def closed(proc, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not (proc.stdin.closed and proc.stdout.closed) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return proc.stdin.closed and proc.stdout.closed
+
+    kernel.run("x = 1")
+    stopped = kernel._proc
+    assert kernel.stop() == {"stopped": True}
+    assert closed(stopped)
+    kernel.run("y = 1")  # a fresh process
+    crashed = kernel._proc
+    assert crashed is not stopped
+    kernel.start("import os\nos._exit(3)")
+    assert closed(crashed)
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # and the next one still starts
+
+
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     kernel.run("kept = 1")
     kernel.start("import time\nwhile True:\n    time.sleep(0.05)")

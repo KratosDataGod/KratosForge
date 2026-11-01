@@ -492,7 +492,8 @@ class EstateMixin:
             _log.warning("Couldn't list the workspace's role assignments; showing IDs: %s", describe(exc))
         try:
             schemas, tables = self._lakehouse_paths(workspace_id, item_id)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - access still shows, without the table list
+            _log.warning("Couldn't list the lakehouse's schemas and tables: %s", describe(exc))
             schemas, tables = [], []
         out: dict[str, Any] = {"workspace_id": workspace_id, "item_id": item_id, "people": people,
                                "schemas": schemas, "tables": tables, "enabled": True, "problem": None, "roles": []}

@@ -165,12 +165,10 @@ def _uses_cli(cred: dict[str, Any], cfg_path: Path | None = None) -> bool:
 
 
 def _check_profile_host(profile: str, host: str, cfg_path: Path | None) -> None:
-    """The SDK takes DATABRICKS_HOST over the profile's own host, so a profile for another workspace
-    would send that workspace's sign-in here: refused, as provider_for refuses it."""
-    from .databricks_auth import _cfg_section
-    own = _cfg_section(profile, cfg_path).get("host")
-    if own and check_host(own) != host:
-        raise DatabricksAuthError(f"The CLI profile {profile!r} is for another workspace than this connection.")
+    """The SDK takes DATABRICKS_HOST over the profile's own host, so the profile must be for this
+    workspace, or name none and keep no secret of its own (databricks_auth.check_profile_host)."""
+    from .databricks_auth import _cfg_section, check_profile_host
+    check_profile_host(profile, _cfg_section(profile, cfg_path), host)
 
 
 def worker_env(connection: dict[str, Any], cluster_id: str, base: Mapping[str, str] | None = None,

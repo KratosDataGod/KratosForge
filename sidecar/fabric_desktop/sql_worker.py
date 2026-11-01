@@ -49,6 +49,7 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow.ipc as ipc
 
     from . import lakehouse, sql, sql_policy
+    from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
     lh = job["lakehouse"]
     lakehouse.attach(lakehouse.Attached(
@@ -69,7 +70,7 @@ def run(job: dict[str, Any]) -> None:
                      + _advice(stop.kind))
         return
 
-    con = duckdb.connect()
+    con = keep_try_cast(duckdb.connect())
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
         con.execute(f"SET memory_limit = '{int(job['memory_mb'])}MB'")
@@ -84,15 +85,19 @@ def run(job: dict[str, Any]) -> None:
 
     views: dict[str, str] = {}
     result = None
-    for statement in statements:
+    for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
-        result = con.execute(statement.sql("duckdb"))
+        text = sql.duckdb_sql(statement)
+        if i == len(statements) - 1:
+            result = for_arrow(con, text)
+        else:
+            run_through(con, text)
 
     out = Path(job["out"])
     rows, batches, last = 0, [], time.monotonic()
     reader = None
     if result is not None and result.description:
-        reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(BATCH_ROWS)
+        reader = arrow_reader(result, BATCH_ROWS)
         schema = reader.schema
     else:
         schema = pa.schema([])

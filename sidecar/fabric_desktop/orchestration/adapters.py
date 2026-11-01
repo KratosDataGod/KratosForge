@@ -26,11 +26,13 @@ UNTIL_DEFAULT_TIMEOUT = 7 * 24 * 3600   # Data Factory's default: 7 days
 
 
 class ActivityFailed(Exception):
-    """The activity ends Failed with this error (``errorCode``, ``message``)."""
+    """The activity ends Failed with this error. The runner adds ``target`` and ``details``, so the
+    error has the fields Fabric's ``activity('X').error`` has."""
 
-    def __init__(self, message: str, code: str = "LocalActivityFailed", output: Any = None):
+    def __init__(self, message: str, code: str = "LocalActivityFailed", output: Any = None,
+                 failure_type: str = "UserError"):
         super().__init__(message)
-        self.error = {"errorCode": code, "message": message}
+        self.error = {"errorCode": code, "message": message, "failureType": failure_type}
         self.output = output
 
 
@@ -39,7 +41,7 @@ class ActivityContext(Protocol):
 
     scope: Scope
 
-    def run_list(self, activities: list[Activity], scope: Scope, label: str) -> str: ...
+    def run_list(self, activities: list[Activity], scope: Scope, label: str, until: float | None = None) -> str: ...
 
     def wait(self, seconds: float) -> None: ...
 
@@ -177,7 +179,10 @@ class Until(LocalAdapter):
         deadline = ctx.clock() + timeout   # timeouts are real time; wait_scale shortens waits only
         for i in range(self.max_iterations):
             scope = ctx.scope.layer()
-            outcome = ctx.run_list(inner, scope, f"iteration {i}")
+            outcome = ctx.run_list(inner, scope, f"iteration {i}", until=deadline)
+            if ctx.clock() >= deadline:  # what was running in this iteration was cancelled at the timeout (#1316)
+                ctx.note(iterations=i + 1)
+                raise ActivityFailed("The Until loop reached its timeout.", "LocalUntilTimeout")
             if outcome == "failed":
                 ctx.note(iterations=i + 1)
                 raise ActivityFailed(f"An activity failed in iteration {i + 1}.", "LocalInnerActivityFailed")

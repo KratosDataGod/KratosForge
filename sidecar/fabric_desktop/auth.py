@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 
 import msal
 
-from . import dpapi
+from . import dpapi, jsonfile
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -236,7 +236,7 @@ class Authenticator:
                 f.write(data)
             if os.name != "nt":
                 tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
-            os.replace(tmp, self.cache_path)
+            jsonfile.replace(tmp, self.cache_path)
 
     def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
         scopes = self.scopes_for(scopes)

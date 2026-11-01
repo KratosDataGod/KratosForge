@@ -1,0 +1,41 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-10",
+  "kind": "module",
+  "title": "QUALIFY: filter on a window function",
+  "path": "snowflake",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Say what QUALIFY does: it filters rows after the window functions are worked out",
+    "Keep the top row of each group in one query, with no subquery",
+    "Know where QUALIFY runs and what to write where it doesn't"
+  ],
+  "prerequisites": ["LM-04", "LM-06"],
+  "platforms": ["DuckDB", "Snowflake", "Databricks SQL"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "biggest-order-per-region",
+      "prompt": "Return each region's biggest order: region, order_id and amount, one row per region. When two orders in a region have the same amount, keep the smaller order_id. Sort by region.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "row_number() OVER (PARTITION BY region ORDER BY amount DESC) numbers each region's orders, biggest first.",
+        "QUALIFY goes after WHERE, GROUP BY and HAVING, and keeps the rows where its condition is true.",
+        "North has two orders of 120.00. Add order_id to the window's ORDER BY so the tie always breaks the same way."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": [],
+  "docs": ["https://docs.snowflake.com/en/sql-reference/constructs/qualify",
+           "https://duckdb.org/docs/stable/sql/query_syntax/qualify"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-31"
+}

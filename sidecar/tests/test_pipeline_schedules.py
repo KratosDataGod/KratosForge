@@ -102,3 +102,12 @@ def test_the_cli_schedules_a_pipeline_folder(svc, tmp_path, monkeypatch, capsys)
     assert done.value.code == 0 and "Scheduled Orders daily on this PC" in capsys.readouterr().out
     [row] = svc.pc_schedules_for("pipeline", path=path)
     assert row["config"]["type"] == "Weekly" and row["config"]["weekdays"] == ["Monday"]
+
+
+def test_the_cli_refuses_a_setting_without_a_value(svc, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "Service", lambda: svc)
+    path = folder(tmp_path, pipeline(wait("W")))
+    with pytest.raises(SystemExit) as refused:
+        cli.main(["pipeline", "schedule", path, "--at", "06:00", "--param", "region"])
+    assert refused.value.code == 2 and "--param takes NAME=VALUE" in capsys.readouterr().out
+    assert svc.pc_schedules_for("pipeline", path=path) == []

@@ -303,7 +303,7 @@ def test_variable_explorer_opens_frames_and_containers_and_estimates_memory():
 
     assert k.variable_detail("sales")["columns"] == [{"name": "id", "type": "Int64"}, {"name": "name", "type": "String"}]
     assert k.variable_detail("arrow")["columns"] == [{"name": "v", "type": "double"}]
-    assert k.variable_detail("sdf")["columns"] == [{"name": "n", "type": "integer"}, {"name": "s", "type": "string"}]
+    assert k.variable_detail("sdf")["columns"] == [{"name": "n", "type": "bigint"}, {"name": "s", "type": "string"}]  # Spark infers a Python int as bigint
 
     cfg = k.variable_detail("cfg")
     assert cfg["total"] == 3
@@ -346,6 +346,23 @@ def test_variable_explorer_does_not_call_a_users_iter_or_sizeof_or_plan_a_lazy_f
     assert k.namespace["calls"] == []
 
 
+def test_a_lazy_frame_is_listed_without_reading_its_files():
+    # Its column names would come from resolving the plan: a scan reads its file for them, and one
+    # whose file is gone made the whole Variables pane fail.
+    import warnings
+    k = Kernel()
+    k.run("import polars as pl, os, tempfile\n"
+          "p = os.path.join(tempfile.mkdtemp(), 'a.csv')\n"
+          "with open(p, 'w') as f:\n"
+          "    f.write('a,b\\n1,2\\n')\n"
+          "gone = pl.scan_csv(p)\n"
+          "os.remove(p)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        rows = {r["name"]: r for r in k.variables()}
+    assert rows["gone"]["value"].startswith("<LazyFrame") and not rows["gone"]["expandable"]
+
+
 def test_a_paused_frames_locals_carry_memory_but_never_open_from_the_namespace():
     k = Kernel()
     k.run("items = ['global']")
@@ -358,3 +375,23 @@ def test_a_paused_frames_locals_carry_memory_but_never_open_from_the_namespace()
     assert local["value"] == "[1, 2, 3]" and local["memory"] > 0 and local["expandable"] is False
     assert [i["value"] for i in k.variable_detail("items")["items"]] == ["'global'"]  # the namespace's, not the frame's
     k.interrupt()
+
+
+def test_a_value_that_cannot_be_described_is_listed_by_its_type_and_the_pane_still_shows():
+    k = Kernel()
+    k.run("import duckdb\n"
+          "con = duckdb.connect()\n"
+          "con.execute('CREATE VIEW v AS SELECT 1 AS a')\n"
+          "rel = con.sql('SELECT * FROM v')\n"
+          "con.execute('DROP VIEW v')\n"
+          "class Odd:\n"
+          "    @property\n"
+          "    def shape(self):\n"
+          "        raise RuntimeError('no shape')\n"
+          "odd = Odd()\n"
+          "kept = [1, 2, 3]")
+    rows = {r["name"]: r for r in k.variables()}
+    assert rows["rel"] == {"name": "rel", "type": "DuckDBPyRelation", "size": "", "value": "?",
+                           "memory": None, "expandable": False}
+    assert rows["odd"]["type"] == "Odd" and rows["odd"]["value"] == "?"
+    assert rows["kept"]["size"] == "3" and rows["kept"]["expandable"]

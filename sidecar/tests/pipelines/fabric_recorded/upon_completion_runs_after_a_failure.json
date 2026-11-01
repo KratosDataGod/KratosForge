@@ -1,0 +1,49 @@
+{
+  "case": "upon_completion_runs_after_a_failure",
+  "source": {
+    "kind": "documented",
+    "url": "https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling",
+    "updated": "2025-07-25",
+    "quote": "Upon Completion | Execute this path after the current activity completed, regardless if it succeeded or not"
+  },
+  "pipeline": {
+    "name": "best_effort",
+    "properties": {
+      "activities": [
+        {
+          "name": "Previous",
+          "type": "Fail",
+          "typeProperties": {
+            "message": "boom",
+            "errorCode": "E1"
+          },
+          "dependsOn": []
+        },
+        {
+          "name": "Next",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "Previous",
+              "dependencyConditions": [
+                "Completed"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "parameters": {},
+  "mocks": {},
+  "expected": {
+    "status": null,
+    "activities": {
+      "Previous": "Failed",
+      "Next": "Succeeded"
+    }
+  }
+}

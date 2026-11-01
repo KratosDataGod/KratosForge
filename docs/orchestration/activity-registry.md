@@ -66,6 +66,13 @@ Some pipelines pass every check here and still fail in Fabric. The report warns 
 | PG9 | `global_parameter_array_or_object` | A variable library holds only text, numbers and true or false, so an array or object is kept as JSON text and read with `json(...)`. |
 | PG10 | `item_type_not_data_pipeline` | Fabric only accepts a pipeline as a `DataPipeline` item (the `.platform` part's type). |
 
+Data Factory's [ForEach limitations](https://learn.microsoft.com/en-us/azure/data-factory/control-flow-for-each-activity#limitations-and-workarounds) add two more (`FOREACH` in the list). Fabric's ForEach page doesn't state them, so the warnings say they aren't verified in Fabric yet:
+
+| Warning | What differs |
+| --- | --- |
+| `nested_foreach` | Data Factory doesn't allow a ForEach inside another ForEach or an Until, at any depth (through If Condition and Switch branches too). A local run allows it. Use a child pipeline for the inner loop. |
+| `set_variable_in_parallel_foreach` | Data Factory doesn't allow Set Variable inside a ForEach that runs in parallel, because pipeline variables are shared by every iteration. A local run allows it, and the last iteration to finish wins. Make the ForEach sequential, or use Append Variable or a child pipeline. |
+
 ## Using it
 
 ```powershell
@@ -95,3 +102,4 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | 6 | Pipelines plan P1: Lookup and Get Metadata are `local`. They read the lakehouse their dataset names, at the run's pinned table versions, when the run is started with lakehouse reads on. Their `datasetSettings` (and Lookup's `firstRowOnly`) are checked. |
 | 7 | Pipelines plan P2: Script is `local`. Each script runs through the SQL page's runner and policy: read-only T-SQL on a lakehouse (with lakehouse reads on), or in a local data project named for it. Warehouse and other connections, and script parameters, need a mock. `scripts` and `scriptBlockExecutionTimeout` are checked; `logSettings` isn't used here. |
 | 8 | FS-04: the report warns where a pipeline that passes here fails in Fabric, following Microsoft's pipeline gotchas PG1 to PG10 (see [Where Fabric differs](#where-fabric-differs)). Warnings only; no entry or classification changed. |
+| 9 | ORCH-H2: warns about Data Factory's ForEach limits, a ForEach inside a ForEach or Until and Set Variable inside a parallel ForEach (see [Where Fabric differs](#where-fabric-differs)). Warnings only; no entry or classification changed. |

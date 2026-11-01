@@ -44,9 +44,9 @@ from typing import Any, Callable, Iterator, Protocol
 import requests
 
 from . import http_session
-from .onelake import DFS_HOST
+from .onelake import DFS_HOST, _onelake_error
 from .redact import describe
-from .retrying import send_with_retry
+from .retrying import retry_after, send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -195,19 +195,36 @@ class LocalBackend:
             return True
 
 
+# A lease change OneLake throttles (429) did nothing, and every change is conditional, so it is sent
+# again: it can't take a lease from anyone. A resent create or flush that had in fact gone through gets
+# 409 or 412 (None, a lost race), a resent release gets 404 (False); an append isn't conditional, but
+# it only takes effect at the If-Match flush. Waits are short and few, so a long throttle fails while
+# the lease is still held instead of outliving it: one change (a create, renewal, take-over or
+# release) stops retrying once three request timeouts (a third of the lease) have gone by. A 5xx or
+# a dropped connection is still sent once.
+THROTTLE_ATTEMPTS = 3
+THROTTLE_WAIT_CAP = 5.0
+
+
 class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
                  session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
-                 timeout: float = 60):
+                 timeout: float = 60, clock: Callable[[], float] = time.monotonic):
         self.workspace_id, self.lakehouse_id = workspace_id, lakehouse_id
-        # Per request. A renewal is up to three requests, so keep this at a ninth of the lease's length
-        # or less (lease_timeout): one hung renewal then can't outlast the lease unnoticed.
+        # Per request; keep it at a ninth of the lease's length or less (lease_timeout). A renewal is
+        # three requests, and its throttling retries stop once 3 x timeout (a third of the lease) has
+        # gone by, so a renewal ends within about two thirds of the lease: one that can't get through
+        # fails while the lease is still held, never late at commit.
         self.timeout = timeout
         self._token = token
         self._http = session or http_session.session()
         self._sleep = sleep
+        self._clock = clock
+
+    def _deadline(self) -> float:
+        return self._clock() + 3 * self.timeout
 
     def _url(self, key: str) -> str:
         return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{LEASE_DIR}/{key}.json"
@@ -215,33 +232,57 @@ class OneLakeBackend:
     def _headers(self, **extra: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"} | extra
 
+    def _change(self, send: Callable[[], requests.Response], deadline: float) -> requests.Response:
+        """Send one request of a lease change; wait out a 429 (OneLake did nothing) while the
+        change's deadline allows. Anything else, a 5xx included, is the answer."""
+        for attempt in range(THROTTLE_ATTEMPTS):
+            resp = send()
+            if resp.status_code != 429 or attempt == THROTTLE_ATTEMPTS - 1:
+                return resp
+            wait = min(retry_after(resp.headers, 2.0), THROTTLE_WAIT_CAP)
+            if self._clock() + wait >= deadline:
+                return resp  # no time left in this change: fail while the lease is still held
+            close = getattr(resp, "close", None)
+            if callable(close):
+                close()
+            self._sleep(wait)
+        raise AssertionError("unreachable")
+
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=self.timeout)
+        what = f"write the lease for {key}"
+        deadline = self._deadline()
+        resp = self._change(lambda: self._http.put(url, params={"resource": "file"},
+                                                          headers=self._headers(**condition), timeout=self.timeout), deadline)
         if resp.status_code in (409, 412):
             return None  # it exists already (create), or changed since we read it (replace)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
         etag = resp.headers.get("ETag", "")
-        resp = self._http.patch(url, params={"action": "append", "position": "0"}, data=data,
-                                headers=self._headers(), timeout=self.timeout)
-        resp.raise_for_status()
-        resp = self._http.patch(url, params={"action": "flush", "position": str(len(data))},
-                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout)
+        resp = self._change(lambda: self._http.patch(url, params={"action": "append", "position": "0"},
+                                                     data=data, headers=self._headers(), timeout=self.timeout), deadline)
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
+        resp = self._change(lambda: self._http.patch(
+            url, params={"action": "flush", "position": str(len(data))},
+            headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout), deadline)
         if resp.status_code == 412:
             return None  # someone replaced it between our create and flush
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
         return resp.headers.get("ETag", etag)
 
     def create(self, key: str, data: bytes) -> str | None:
         return self._write(key, data, {"If-None-Match": "*"})
 
     def read(self, key: str) -> Stored | None:
-        # Only the read is retried on 429/5xx: the conditional writes report a lost race as None.
+        # A read is retried on 429/5xx; a change only on 429 (_change), and a lost race is None.
         resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout),
                                "GET", sleep=self._sleep)
         if resp.status_code == 404:
             return None
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, f"read the lease for {key}")
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
@@ -252,10 +293,12 @@ class OneLakeBackend:
         return self._write(key, data, {"If-Match": etag})
 
     def delete(self, key: str, etag: str) -> bool:
-        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=self.timeout)
+        resp = self._change(lambda: self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}),
+                                                      timeout=self.timeout), self._deadline())
         if resp.status_code in (404, 409, 412):
             return False
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, f"release the lease for {key}")
         return True
 
 
@@ -265,8 +308,11 @@ class Leases:
         self.backend, self.owner, self.ttl, self.wait = backend, owner, ttl, wait
         self.clock, self.sleep = clock, sleep
 
-    def _body(self) -> bytes:
-        now = self.clock()
+    def _body(self, now: float | None = None) -> bytes:
+        """A lease body that expires ``ttl`` after ``now``. The holder passes the time it started the
+        write, and counts the lease as renewed from that same time, never from when the write ended:
+        a slow write then can't make the holder think the lease runs longer than the file says."""
+        now = self.clock() if now is None else now
         return json.dumps({"owner": self.owner, "host": socket.gethostname(), "pid": os.getpid(),
                            "acquired_at": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
                            "expires": now + self.ttl}).encode()
@@ -279,17 +325,19 @@ class Leases:
             # Empty while its writer is between create and flush: treat it as fresh.
             return stored.modified + self.ttl, "?"
 
-    def try_acquire(self, key: str) -> str | None:
-        """The new lease's etag, or None while someone else holds a live lease."""
-        etag = self.backend.create(key, self._body())
+    def try_acquire(self, key: str, now: float | None = None) -> str | None:
+        """The new lease's etag, or None while someone else holds a live lease. Its body expires
+        ``ttl`` after ``now`` (the time the caller started; now by default)."""
+        now = self.clock() if now is None else now
+        etag = self.backend.create(key, self._body(now))
         if etag:
             return etag
         stored = self.backend.read(key)
         if stored is None:
-            return self.backend.create(key, self._body())  # released just now
+            return self.backend.create(key, self._body(now))  # released just now
         expires, _ = self._expires(stored)
         if expires < self.clock():
-            return self.backend.replace(key, self._body(), stored.etag)  # take over an expired lease
+            return self.backend.replace(key, self._body(now), stored.etag)  # take over an expired lease
         return None
 
     def holder(self, key: str) -> str:
@@ -314,13 +362,13 @@ class Leases:
         its length, release it after. Raises LeaseBusy when it stays taken."""
         deadline = self.clock() + self.wait
         delay = 1.0
-        while (etag := self.try_acquire(key)) is None:
+        while (etag := self.try_acquire(key, started := self.clock())) is None:
             if self.clock() >= deadline:
                 raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}; "
                                 f"will try again later")
             self.sleep(delay)
             delay = min(delay * 2, 15)
-        held = Held(self, key, etag)
+        held = Held(self, key, etag, started)
         held.start()
         token = _HELD.set(_HELD.get() + (held,))
         try:
@@ -334,10 +382,11 @@ class Leases:
 
 
 class Held:
-    def __init__(self, leases: Leases, key: str, etag: str):
+    def __init__(self, leases: Leases, key: str, etag: str, renewed: float | None = None):
         self.leases, self.key, self.etag = leases, key, etag
         self.lost = False
-        self._renewed = leases.clock()  # when the lease was last known to be ours
+        # When the lease's current expiry was counted from: the start of the write that set it.
+        self._renewed = leases.clock() if renewed is None else renewed
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._renew, daemon=True, name=f"lease-{key}")
 
@@ -353,8 +402,9 @@ class Held:
 
     def _renew(self) -> None:
         while not self._stop.wait(self.leases.ttl / 3):
+            started = self.leases.clock()
             try:
-                etag = self.leases.backend.replace(self.key, self.leases._body(), self.etag)
+                etag = self.leases.backend.replace(self.key, self.leases._body(started), self.etag)
             except Exception:  # a network blip: try again at the next beat while the lease has time
                 if self.leases.clock() - self._renewed >= self.leases.ttl:
                     # Unrenewed past its length: another writer may have taken it over by now.
@@ -364,7 +414,7 @@ class Held:
             if etag is None:
                 self.lost = True
                 return
-            self.etag, self._renewed = etag, self.leases.clock()
+            self.etag, self._renewed = etag, started  # the file expires ttl after started, not after now
 
     def stop(self) -> None:
         self._stop.set()

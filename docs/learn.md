@@ -33,12 +33,19 @@ A lesson marked **Draft** is still being written and may change.
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
+| LM-10 | QUALIFY: filter on a window function | Snowflake | |
+| LM-11 | MERGE: update, insert and delete in one step | Databricks | |
+| LM-12 | Incremental loads: a watermark that misses nothing | Python & Data Engineering | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
 teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
 where a lesson uses DuckDB's own SQL, it says so.
-Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
-Snowflake, Enterprise Architecture) come in later updates.
+Like every lab, they never read or write OneLake and never publish to Fabric.
+
+The Snowflake, Databricks and Python & Data Engineering paths start with one lesson each. They run on this
+PC in DuckDB too, and say where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse,
+and the MERGE lesson checks the table a MERGE would leave with a read-only SELECT. More lessons, and the
+Enterprise Architecture path, come in later updates.
 
 ## A lesson or lab
 
@@ -77,6 +84,11 @@ A level is a preference, not a permission: the checks run the same at every leve
 organization requires is required at every level. Guidance only adds explanations and links.
 The first names of the levels still work in a settings or policy file: Focus reads as Expert and
 Learning as Guided.
+**SQL guidance** and **Notebook guidance**, under Learning guidance in **Settings > Appearance >
+Layout**, set a level for one subject only: for example Expert for SQL, which you know well, and
+Guided for notebooks. **Same** (the default) follows Learning guidance. They change only the
+guidance beside that subject's findings; checks and required rules are the same at every level, and
+an organization policy can set them too.
 Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding

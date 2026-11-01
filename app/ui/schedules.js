@@ -30,11 +30,17 @@ function nextRunText(iso) {
 
 // UX-018: removing a schedule can't be undone, so say what stops and point at Off.
 // offHere: false where the list has no Off control (the Fabric tab of the schedule dialog).
-function confirmRemoveSchedule(what, text, fabric, offHere = true) {
+// Asked from the Schedule dialog, the confirm takes its place; that dialog comes back afterwards so the
+// list it redraws is seen. It has no onClose, so putting it back starts nothing again.
+async function confirmRemoveSchedule(what, text, fabric, offHere = true) {
   const how = fabric ? "Fabric deletes the schedule and stops starting runs from it."
     : "Its Windows task is deleted and it stops running on this PC.";
-  return confirmDialog(`Remove the schedule for ${what}?`,
+  const root = document.getElementById("dialog-root");
+  const under = root.firstElementChild;
+  const ok = await confirmDialog(`Remove the schedule for ${what}?`,
     `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Fabric > Schedules"}.`, "Remove", { danger: true });
+  if (under && !under.isConnected && !root.firstElementChild) root.replaceChildren(under);
+  return ok;
 }
 
 // The schedule form's values for a stored schedule: Fabric's configuration, which this PC's schedules keep too.
@@ -297,6 +303,17 @@ function drawSchedules(box) {
           s.last?.message ? h("div", { class: "reason" }, s.last.message) : null),
         h("td", { class: "n nowrap" },
           btn("Run now", "play", async () => {
+            // It starts a job on the workspace's capacity: the risk check, then a confirm, as Run in Fabric does.
+            // The risk check knows only the workloads in the workspaces this app works in; for any other
+            // item it would fail with a reason that reads as if the item were gone, so it's skipped and the
+            // confirm says so (as dfRunInFabric reads the same code). A failed lookup still runs the check.
+            const id = `fabric:${s.workspace_id}:${s.item_id}`;
+            const pre = await rpc("workload_preflight", { id, action: "run_item", env: null, assess: false }).catch(() => null);
+            const listed = pre?.code !== "not_in_inventory";
+            if (listed && !(await riskGate({ id, action: "run_item", title: `Run ${s.name} now?`, runLabel: "Run now" }))) return;
+            if (!(await confirmDialog(`Run ${s.name} now?`, `Starts one run of it in Fabric, in ${s.workspace_name}, which uses that workspace's capacity. `
+              + "Its schedule isn't changed." + (listed ? "" : " The risk check wasn't run: it covers only workloads in the workspaces this app works in."),
+              "Run now"))) return;
             const r = await attempt(() => rpc("run_fabric_item_now", { workspace_id: s.workspace_id, item_id: s.item_id,
               job_type: s.job_type, name: s.name, workspace_name: s.workspace_name }), "Not started");
             if (r) toast(`${s.name} started in Fabric. Follow it under Runs.`);

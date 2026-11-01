@@ -33,6 +33,15 @@ import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
+
+
+def _duckdb(node: exp.Expr) -> str:
+    """``node`` as DuckDB SQL, refused when sqlglot would leave part of it out (#1253)."""
+    from .. import sql
+    return sql.duckdb_sql(node)
+
+
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 # Characters Fabric (Spark, the SQL endpoint) can't take in a column name without column mapping,
 # which is outside the Fabric-safe profile.
@@ -158,7 +167,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
                 parts += [c.name for c in cols]
         replace = bool(tree.args.get("replace"))
         return Write(target.db or None, target.name, "overwrite" if replace else "create",
-                     query.sql(dialect="duckdb"), if_not_exists=bool(tree.args.get("exists")), replace=replace,
+                     _duckdb(query), if_not_exists=bool(tree.args.get("exists")), replace=replace,
                      partition_by=parts)
     if isinstance(tree, exp.Insert):
         target = tree.this
@@ -170,7 +179,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
         if not isinstance(target, exp.Table) or not is_delta(target.db or None, target.name) or tree.expression is None:
             return None
         return Write(target.db or None, target.name, "overwrite" if tree.args.get("overwrite") else "append",
-                     tree.expression.sql(dialect="duckdb"), by_position=not tree.args.get("by_name"))
+                     _duckdb(tree.expression), by_position=not tree.args.get("by_name"))
     return None
 
 
@@ -183,9 +192,9 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {exc}") from None
+        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(tree, start)
-    return (tree.sql(dialect="duckdb"), found) if found else (sql, [])
+    return (_duckdb(tree), found) if found else (sql, [])
 
 
 def rewrite_tree(tree: exp.Expression, start: int = 0) -> list[AsOf]:

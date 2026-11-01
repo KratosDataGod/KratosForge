@@ -105,19 +105,24 @@ class DatabricksError(RuntimeError):
 
 def split_statements(code: str) -> list[str]:
     """``code``'s statements as written, split on top-level semicolons (sqlglot's tokenizer, so a
-    semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides."""
+    semicolon in a string or comment doesn't split). Unreadable SQL is sent whole: the warehouse decides.
+    A part that is only comments is left out: sending it would wake a stopped warehouse for nothing."""
     import sqlglot
     from sqlglot.tokens import TokenType
     try:
         tokens = sqlglot.tokenize(code, read="databricks")
     except Exception:  # noqa: BLE001 - the warehouse reports what's wrong with SQL sqlglot can't read
         return [code.strip()] if code.strip() else []
-    parts, start = [], 0
+    parts, start, has_sql = [], 0, False
     for tok in tokens:
         if tok.token_type == TokenType.SEMICOLON:
-            parts.append(code[start:tok.start])
-            start = tok.end + 1
-    parts.append(code[start:])
+            if has_sql:
+                parts.append(code[start:tok.start])
+            start, has_sql = tok.end + 1, False
+        else:
+            has_sql = True
+    if has_sql:
+        parts.append(code[start:])
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -125,13 +130,21 @@ _TYPES = {"BYTE": pa.int64(), "SHORT": pa.int64(), "INT": pa.int64(), "LONG": pa
           "FLOAT": pa.float64(), "DOUBLE": pa.float64(), "BOOLEAN": pa.bool_(), "DATE": pa.date32()}
 
 
+def _one_value_per_column(rows: list[list[Any]], width: int) -> None:
+    if any(not isinstance(r, list) or len(r) != width for r in rows):
+        raise DatabricksError("The warehouse sent a result that doesn't have one value per column.")
+
+
 def to_table(manifest: dict[str, Any], rows: list[list[Any]]) -> pa.Table:
     """Rows from JSON_ARRAY (every value a string or null) typed by the manifest where that's safe;
-    a column that won't convert stays text, so nothing is lost."""
+    a column that won't convert stays text, so nothing is lost. JSON_ARRAY sends every column of every
+    row, nulls included, so a row of another length is a broken reply: DatabricksError, never NULLs the
+    warehouse didn't send."""
     columns = (manifest.get("schema") or {}).get("columns") or []
+    _one_value_per_column(rows, len(columns))
     arrays, names = [], []
     for i, col in enumerate(columns):
-        values = [r[i] if i < len(r) else None for r in rows]
+        values = [r[i] for r in rows]
         arr = pa.array(values, type=pa.string())
         target = _TYPES.get(str(col.get("type_name") or "").upper())
         if target is not None:
@@ -156,8 +169,7 @@ def whole_table(manifest: dict[str, Any], rows: list[list[Any]]) -> tuple[pa.Tab
     DatabricksError for a reply that isn't one value per column, or two columns of one name."""
     columns = (manifest.get("schema") or {}).get("columns") or []
     names = [str(c.get("name") or f"col{i}") for i, c in enumerate(columns)]
-    if any(not isinstance(r, list) or len(r) != len(names) for r in rows):
-        raise DatabricksError("The warehouse sent a result that doesn't have one value per column.")
+    _one_value_per_column(rows, len(names))
     twice = sorted({n for n in names if names.count(n) > 1})
     if twice:   # verify matches columns by name, so two of one name can't be compared honestly
         raise DatabricksError(f"The result has more than one column named {', '.join(twice)}. "
@@ -262,7 +274,7 @@ class Client:
             body = resp.json()
         except ValueError:
             body = {}
-        message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+        message = redact.one_line(body.get("message") or "") if isinstance(body, dict) else ""
         code = str(body.get("error_code") or "") if isinstance(body, dict) else ""
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
             (f"{message} " if message else "") + refusal_hint(resp.status_code, path, code)
@@ -378,7 +390,7 @@ class DatabricksSqlSession:
         state = reply["status"]["state"]
         if state == "FAILED":
             err = reply["status"].get("error") or {}
-            raise DatabricksError(redact.secrets(str(err.get("message") or "The statement failed on the warehouse.")))
+            raise DatabricksError(redact.one_line(err.get("message") or "The statement failed on the warehouse.", 1000))
         if state != "SUCCEEDED":
             raise DatabricksError("Cancelled.")
         return reply
@@ -440,7 +452,13 @@ class DatabricksSqlSession:
             from .local_sql import _table_output
             rows = ((reply.get("result") or {}).get("data_array") or [])[:request.preview_rows]
             total = int(manifest.get("total_row_count") or len(rows))
-            out = _table_output(to_table(manifest, rows), total)
+            try:
+                out = _table_output(to_table(manifest, rows), total)
+            except DatabricksError as exc:
+                out = {"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}
+                if on_output:
+                    on_output(out)
+                return CellResult("error", [out], seconds, None, self.engine)
             if manifest.get("truncated"):
                 out["truncated_by_warehouse"] = True
             result = CellResult("ok", [out], seconds, total, self.engine)

@@ -1,5 +1,5 @@
 """HD-051: the Fabric, OneLake, Power BI and admin clients share one pooled session, and one retry
-policy: reads are retried on 429/503, writes are sent once."""
+policy: reads are retried on 429/503, writes are sent once (FileStore writes and lease changes wait out a 429 first, #1287 #1315)."""
 
 from __future__ import annotations
 
@@ -108,20 +108,32 @@ def test_reads_retry_through_the_shared_session(shared, status):
 
 @pytest.mark.parametrize("status", [429, 503])
 def test_onelake_writes_are_sent_once(shared, status):
-    sent = transport(shared, status)
-    with pytest.raises(requests.HTTPError):
-        FileStore(token, sleep=no_sleep).upload("ws", "lh", "Files/a.csv", b"x")
-    assert [m for m, _, _ in sent.sent] == ["PUT"]
+    if status == 503:  # FileStore waits out throttling (#1287); a 5xx may mean the write happened
+        sent = transport(shared, status)
+        with pytest.raises(requests.HTTPError):
+            FileStore(token, sleep=no_sleep).upload("ws", "lh", "Files/a.csv", b"x")
+        assert [m for m, _, _ in sent.sent] == ["PUT"]
 
-    sent = transport(shared, status)
-    with pytest.raises(requests.HTTPError):
-        FileStore(token, sleep=no_sleep).delete("ws", "lh", "Files/a.csv")
-    assert [m for m, _, _ in sent.sent] == ["DELETE"]
+        sent = transport(shared, status)
+        with pytest.raises(requests.HTTPError):
+            FileStore(token, sleep=no_sleep).delete("ws", "lh", "Files/a.csv")
+        assert [m for m, _, _ in sent.sent] == ["DELETE"]
 
     sent = transport(shared, status)
     with pytest.raises(requests.HTTPError):
         OneLakeBackend("ws", "lh", token, sleep=no_sleep).create("k", b"{}")
-    assert [m for m, _, _ in sent.sent] == ["PUT"]
+    # A lease change waits out a throttle a few times (#1315): conditional, so it can't take a lease.
+    assert [m for m, _, _ in sent.sent] == ["PUT"] * (3 if status == 429 else 1)
+
+
+def test_filestore_writes_wait_out_throttling(shared):
+    sent = transport(shared, 429, 201, 202, 200)
+    FileStore(token, sleep=no_sleep).upload("ws", "lh", "Files/a.csv", b"x")
+    assert [m for m, _, _ in sent.sent] == ["PUT", "PUT", "PATCH", "PATCH"]
+
+    sent = transport(shared, 429, 200)
+    FileStore(token, sleep=no_sleep).delete("ws", "lh", "Files/a.csv")
+    assert [m for m, _, _ in sent.sent] == ["DELETE", "DELETE"]
 
 
 def test_fabric_writes_are_not_repeated_after_a_5xx(shared):

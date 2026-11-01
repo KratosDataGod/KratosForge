@@ -1,0 +1,80 @@
+{
+  "case": "do_if_skip_else_previous_succeeds",
+  "source": {
+    "kind": "documented",
+    "url": "https://learn.microsoft.com/en-us/azure/data-factory/tutorial-pipeline-failure-error-handling",
+    "updated": "2025-07-25",
+    "quote": "Do-If-Skip-Else | Upon Failure path + Upon Success path (with a Dummy Upon Skip at the end) | Success | Success"
+  },
+  "pipeline": {
+    "name": "do_if_skip_else",
+    "properties": {
+      "activities": [
+        {
+          "name": "Previous",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": []
+        },
+        {
+          "name": "OnSuccess",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "Previous",
+              "dependencyConditions": [
+                "Succeeded"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "OnFailure",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "Previous",
+              "dependencyConditions": [
+                "Failed"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "DummyUponSkip",
+          "type": "Wait",
+          "typeProperties": {
+            "waitTimeInSeconds": 0
+          },
+          "dependsOn": [
+            {
+              "activity": "OnSuccess",
+              "dependencyConditions": [
+                "Skipped"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "parameters": {},
+  "mocks": {},
+  "expected": {
+    "status": "Succeeded",
+    "activities": {
+      "Previous": "Succeeded",
+      "OnSuccess": "Succeeded",
+      "OnFailure": "Skipped",
+      "DummyUponSkip": "Skipped"
+    }
+  }
+}

@@ -17,9 +17,8 @@ from typing import Any
 import polars as pl
 import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
-import requests
 
-from . import jsonfile
+from . import http_session, jsonfile
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -31,6 +30,7 @@ from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe
+from .retrying import send_with_retry
 from .workloads.notify import failure
 
 _log = logging.getLogger(__name__)
@@ -390,6 +390,22 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
 
 
 def post_teams(url: str, title: str, lines: list[str]) -> None:
-    r = requests.post(url, json=teams_card(title, lines), timeout=15)
+    """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
+    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
+    caller's outbox decides whether to send it again."""
+    http = http_session.session()
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
     if r.status_code >= 300:
-        raise RuntimeError(f"Teams answered {r.status_code}: {r.text[:200]}")
+        raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
+
+
+def _teams_error(resp: Any) -> str:
+    """Teams' own error message, on one line, from its JSON body; nothing when there isn't one."""
+    try:
+        body = resp.json()
+    except (ValueError, AttributeError):
+        return ""
+    err = body.get("error") if isinstance(body, dict) else None
+    message = (err.get("message") if isinstance(err, dict) else err) if err else (body.get("message") if isinstance(body, dict) else None)
+    text = " ".join(str(message or "").split())
+    return f": {text[:200]}" if text else ""

@@ -197,7 +197,8 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
     lake(tmp_path)
     s = Service(client_id="x", root=tmp_path / "app")
-    s._auth = type("Auth", (), {"storage_token": lambda self: "tok"})()
+    s._auth = type("Auth", (), {"storage_token": lambda self: "tok", "signed_in_user": lambda self: "a@contoso.com",
+                                "silent_token": lambda self, scopes: "tok"})()
     s._schema_cache = {"lh1": True}
     return s
 
@@ -622,3 +623,118 @@ def test_ids_come_out_of_code_without_changing_anything_else(source, kept):
     b = replay.strip_ids(replay.build("n", cells, 0, {"tables": {}, "files": {}}, None))
     assert b["cells"][0]["source"] == kept
     assert b["error"]["evalue"] == kept
+
+
+# ---- #1303: a sample read that can't reach OneLake fails fast, with a plain error
+
+def _save_sample(s, cells):
+    return handle(s, json.dumps({"id": 1, "method": "replay_bundle_save", "params": {
+        "name": "events", "cells": cells, "failed": 3, "lakehouse_ref": LH, "include_sample": True}}))
+
+
+def _unreachable(monkeypatch, endpoint):
+    """delta-rs's real DeltaTable, sent to ``endpoint`` instead of OneLake, with the options the save chose."""
+    import deltalake
+    real, seen = deltalake.DeltaTable, {}
+
+    def opened(uri, version=None, storage_options=None):
+        seen.update(storage_options)
+        return real(uri, version=version, storage_options=storage_options | {
+            "azure_storage_endpoint": endpoint, "azure_allow_http": "true"})
+    monkeypatch.setattr(deltalake, "DeltaTable", opened)
+    return seen
+
+
+def test_a_sample_read_reads_with_short_limits_not_the_upload_ones(tmp_path, monkeypatch):
+    from fabric_desktop import onelake
+    opts = onelake.read_storage_options("tok")
+    assert opts["connect_timeout"] == "10s" and opts["timeout"] == "60s" and opts["retry_timeout"] == "60s"
+    assert opts["max_retries"] == "2" and opts["bearer_token"] == "tok" and opts["use_fabric_endpoint"] == "true"
+    assert onelake.storage_options("tok")["retry_timeout"] == "1800s"  # uploads keep theirs
+
+
+def test_saving_a_sample_while_offline_fails_fast_and_saves_nothing(tmp_path, monkeypatch):
+    import socket
+    import time
+    s = service(tmp_path, monkeypatch)
+    cells = failing_notebook(s, tmp_path)
+    with socket.socket() as free:  # a port nothing listens on: connections are refused, as offline
+        free.bind(("127.0.0.1", 0))
+        port = free.getsockname()[1]
+    seen = _unreachable(monkeypatch, f"http://127.0.0.1:{port}")
+    start = time.monotonic()
+    out = _save_sample(s, cells)
+    assert time.monotonic() - start < 30, "it should fail within the short limits"
+    assert out["error"].startswith("ConnectionError: Couldn't reach OneLake to read the sample.")
+    assert seen["retry_timeout"] == "60s"
+    assert not (tmp_path / "home" / "Downloads").exists() or not list((tmp_path / "home" / "Downloads").iterdir())
+    # The next call isn't held up behind it.
+    assert "bundle" in call(s, "replay_bundle_preview", name="events", cells=cells, failed=3, lakehouse_ref=LH)
+
+
+def test_a_sample_read_from_a_endpoint_that_never_answers_stops_at_its_time_limit(tmp_path, monkeypatch):
+    """A server that takes the connection and never replies: the read stops at the request time limit."""
+    import socket
+    import threading
+    import time
+
+    from fabric_desktop import onelake
+    monkeypatch.setattr(onelake, "READ_TIMEOUT", "1s")
+    monkeypatch.setattr(onelake, "READ_RETRY_TIMEOUT", "2s")
+    s = service(tmp_path, monkeypatch)
+    cells = failing_notebook(s, tmp_path)
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    held, stop = [], threading.Event()
+
+    def accept():
+        server.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                held.append(server.accept()[0])  # kept open, never answered
+            except OSError:
+                continue
+    threading.Thread(target=accept, daemon=True).start()
+    try:
+        _unreachable(monkeypatch, f"http://127.0.0.1:{server.getsockname()[1]}")
+        start = time.monotonic()
+        out = _save_sample(s, cells)
+        assert time.monotonic() - start < 30
+        assert out["error"].startswith("ConnectionError: Couldn't reach OneLake")
+    finally:
+        stop.set()
+        for c in held:
+            c.close()
+        server.close()
+
+
+def test_saving_a_sample_signed_out_fails_before_reading(tmp_path, monkeypatch):
+    import deltalake
+    s = service(tmp_path, monkeypatch)
+    cells = failing_notebook(s, tmp_path)
+    monkeypatch.setattr(deltalake, "DeltaTable", lambda *a, **k: pytest.fail("read while signed out"))
+    for auth in ({"signed_in_user": lambda self: None, "silent_token": lambda self, scopes: "tok"},
+                 {"signed_in_user": lambda self: "a@contoso.com", "silent_token": lambda self, scopes: None}):
+        s._auth = type("Auth", (), auth | {"storage_token": lambda self: pytest.fail("may prompt")})()
+        out = _save_sample(s, cells)
+        assert out["error"].startswith("PermissionError: Sign in to read the sample from OneLake"), out
+    # Without a sample, saving needs no sign-in.
+    assert call(s, "replay_bundle_save", name="events", cells=cells, failed=3, lakehouse_ref=LH)["path"]
+
+
+def test_a_replays_version_check_reads_with_the_short_limits(tmp_path, monkeypatch):
+    """replay_check runs when a replay notebook opens, on the same ordered lane as Save (#1303)."""
+    import deltalake
+
+    from fabric_desktop import onelake
+    s = service(tmp_path, monkeypatch)
+    seen = []
+
+    def opened(uri, version=None, storage_options=None):
+        seen.append(storage_options)
+        raise OSError("OneLake didn't answer")
+    monkeypatch.setattr(deltalake, "DeltaTable", opened)
+    row = s._replay_table({"table": "dbo.sales", "version": 1}, "abfss://ws1@x/lh1", lambda: onelake.storage_options("tok"), False)
+    assert row["readable"] is False and row["why"] == "The table can't be opened: OSError"
+    assert seen and all(o["retry_timeout"] == "60s" and o["bearer_token"] == "tok" for o in seen)

@@ -65,7 +65,8 @@ function openLink(url) {
 async function signOut() {
   if (!(await confirmDialog("Sign out?", "KratosForge forgets your sign-in on this PC, in the app and in the Fabric views. " +
     "Scheduled runs on this PC wait until someone signs in again. Notebooks and settings stay.", "Sign out"))) return;
-  await attempt(() => rpc("sign_out"), "Sign-out failed");
+  // A refused sign-out keeps the sign-in: saying "Signed out" over the error would leave it on this PC (#1437).
+  if (!(await attempt(() => rpc("sign_out"), "Sign-out failed"))) return;
   await invoke("fabric_view_sign_out").catch(() => {});
   Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
   try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
@@ -98,8 +99,9 @@ function channelLabel() {
 
 // ---------- Report a problem ----------
 
-// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses, the
-// Windows user name in paths, and tenant, workspace and item ids. The same rules as the engine's
+// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses (a guest's too),
+// the tenant's onmicrosoft.com and SharePoint names, the organization on OneDrive folders, the Windows user name in paths, and tenant,
+// workspace and item ids. The same rules as the engine's
 // redact.py; both are tested against app/tests/redact-cases.json.
 function redactReport(text, level = "support") {
   const slash = "(?:\\\\\\\\|\\\\|/)+";
@@ -119,7 +121,12 @@ function redactReport(text, level = "support") {
     .replace(/\b(client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
-    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
+    .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
+    .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+/gi, "$1[site]")
+    .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");
@@ -783,6 +790,8 @@ async function renderSettings() {
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
       h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
+  // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
+  if (state.view !== "settings") return;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),

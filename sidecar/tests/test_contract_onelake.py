@@ -9,7 +9,9 @@ network or a tenant. The contracts:
   it replaces an existing file (no If-None-Match), and a failed step stops before the file is
   committed (no flush after a failed append, nothing after a failed create);
 * delete sends one DELETE with recursive=true by default (false on request), treats 404 as done and
-  never repeats itself on an error;
+  never repeats itself on an error other than throttling (429, where OneLake did nothing);
+* upload waits out a 429 on any step and sends anything else once; mkdir (If-None-Match: *) is
+  tried again after throttling, a 5xx or a dropped connection;
 * the read-only and dry-run paths (probe, list, the live test's plan and --dry-run, the readiness
   write test refused for a production workspace) send no mutating request;
 * every request stays under https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/.
@@ -19,11 +21,13 @@ network or a tenant. The contracts:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import requests
 
 from fabric_desktop import readiness
-from fabric_desktop.onelake import DFS_HOST, FileStore
+from fabric_desktop.onelake import DFS_HOST, FileStore, TableCatalog
 from fake_http import MUTATING, Reply, session
 
 WS = "11111111-1111-1111-1111-111111111111"
@@ -136,12 +140,66 @@ def test_deleting_something_already_gone_is_fine():
     assert len(t.sent) == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
+@pytest.mark.parametrize("status", [500, 503])
 def test_a_failed_delete_raises_and_is_not_repeated_by_filestore(status):
     fs, t = store([Reply(status)])
     with pytest.raises(requests.HTTPError):
         fs.delete(WS, LH, "Files/folder")
     assert len(t.sent) == 1
+
+
+# ---- throttling (#1287): a 429 is waited out, since OneLake did nothing
+
+
+def waiting_store(replies):
+    s, transport = session(replies)
+    waits = []
+    return FileStore(lambda: "tok", session=s, sleep=waits.append), transport, waits
+
+
+def test_an_upload_whose_append_is_throttled_writes_once():
+    fs, t, waits = waiting_store([Reply(201), Reply(429, headers={"Retry-After": "2"}), Reply(202), Reply(200)])
+    fs.upload(WS, LH, "Files/x.txt", b"data")
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "append"), ("PATCH", "flush")]
+    assert waits == [2]
+
+
+def test_a_throttled_delete_is_sent_again_after_the_wait():
+    fs, t, waits = waiting_store([Reply(429, headers={"Retry-After": "1"}), Reply(200)])
+    fs.delete(WS, LH, "Files/folder")
+    assert [r.method for r in t.sent] == ["DELETE", "DELETE"] and waits == [1]
+
+
+@pytest.mark.parametrize("first", [Reply(503), Reply(429)])
+def test_a_folder_create_is_tried_again_after_a_busy_answer(first):
+    fs, t, _ = waiting_store([first, Reply(201)])
+    fs.mkdir(WS, LH, "Files/in")
+    assert [r.method for r in t.sent] == ["PUT", "PUT"]
+    assert all(r.headers["If-None-Match"] == "*" for r in t.sent)
+
+
+def test_a_folder_that_is_there_is_still_fine():
+    fs, t, _ = waiting_store([Reply(409, {"error": {"code": "PathAlreadyExists"}})])
+    fs.mkdir(WS, LH, "Files/in")
+    assert len(t.sent) == 1
+
+
+def test_a_refused_write_says_what_and_why_without_the_url():
+    fs, _, _ = waiting_store([Reply(201), Reply(202), Reply(503, {"error": {"code": "ServerBusy", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.upload(WS, LH, "Files/in/data.csv", b"data")
+    assert str(err.value) == "OneLake didn't commit Files/in/data.csv (503: ServerBusy)."
+    assert err.value.response.status_code == 503 and "https://" not in str(err.value)
+
+    fs, _, _ = waiting_store([Reply(403, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't delete Files/a \(403: AuthorizationPermissionMismatch\)\.$"):
+        fs.delete(WS, LH, "Files/a")
+
+    fs, t, _ = waiting_store([Reply(500)] * 5)  # a folder create is tried 5 times before it gives up
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't create the folder Files/b \(500\)\.$"):
+        fs.mkdir(WS, LH, "Files/b")
+    assert len(t.sent) == 5
 
 
 # ---- read-only and dry-run paths send no mutating request
@@ -154,6 +212,27 @@ def test_probe_reads_at_most_one_entry_and_writes_nothing():
     assert (r.method, r.base) == ("GET", f"https://{DFS_HOST}/{WS}")
     assert r.query == {"resource": "filesystem", "recursive": "false", "maxResults": "1",
                        "directory": f"{LH}/Files/shortcut"}
+
+
+def test_probe_waits_out_throttling_and_a_busy_onelake():
+    s, t = session([Reply(429, headers={"Retry-After": "1"}), Reply(503), Reply(200, {"paths": []})])
+    waits = []
+    fs = FileStore(lambda: "tok", session=s, sleep=waits.append)
+    assert fs.probe(WS, LH, "Files/shortcut") == (200, "")
+    assert [r.method for r in t.sent] == ["GET"] * 3 and waits[0] == 1
+
+
+def test_probe_gives_its_last_answer_after_a_few_tries():
+    s, t = session([Reply(503, {"error": {"code": "ServerBusy", "message": "busy"}})] * 5)
+    fs = FileStore(lambda: "tok", session=s, sleep=lambda w: None)
+    assert fs.probe(WS, LH, "Files/shortcut") == (503, "ServerBusy busy")
+    assert len(t.sent) == 3  # onelake.PROBE_ATTEMPTS
+
+
+def test_probe_doesnt_repeat_a_404():
+    fs, t = store([Reply(404, {"error": {"code": "PathNotFound", "message": "gone"}})])
+    assert fs.probe(WS, LH, "Files/shortcut") == (404, "PathNotFound gone")
+    assert len(t.sent) == 1
 
 
 def test_list_follows_the_continuation_header_and_only_reads():
@@ -328,3 +407,49 @@ def test_notebookutils_rm_cant_climb_out_of_files(path, tmp_path, monkeypatch):
     finally:
         lakehouse.attach(None)
     assert [s for s in t.sent if s.method in MUTATING] == []
+
+
+# ---- refused reads (#1313): one line, what wasn't read, the status and OneLake's code, no URL
+
+
+def test_a_refused_list_says_what_and_why_without_the_url():
+    fs, _ = store([Reply(403, {"error": {"code": "AuthorizationPermissionMismatch", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == "OneLake didn't list Files/in (403: AuthorizationPermissionMismatch)."
+    assert err.value.response.status_code == 403
+
+
+def test_refused_reads_of_a_file_say_which_file():
+    fs, _ = store([Reply(403, headers={"x-ms-error-code": "AuthorizationFailure"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(403: AuthorizationFailure\)\.$"):
+        fs.read_bytes(WS, LH, "Files/a.csv")
+
+    fs, _ = store([Reply(401)])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(401\)\.$") as err:
+        fs.download(WS, LH, "Files/a.csv", Path("unused"))
+    assert err.value.response.status_code == 401
+
+
+def test_a_missing_file_is_still_none():
+    fs, _ = store([Reply(404, {"error": {"code": "PathNotFound"}})])
+    assert fs.read_bytes(WS, LH, "Files/gone.csv") is None
+
+
+def test_a_refused_table_listing_gives_the_table_apis_code():
+    s, _ = session([Reply(403, {"error_code": "PERMISSION_DENIED", "message": "no"})])
+    with pytest.raises(requests.HTTPError) as err:
+        TableCatalog(lambda: "tok", session=s).list_tables(WS, LH, "dbo")
+    assert str(err.value) == "OneLake didn't list the tables in dbo (403: PERMISSION_DENIED)."
+    assert "https://" not in str(err.value)
+
+
+@pytest.mark.parametrize("code, shown", [("AuthorizationFailure", "AuthorizationFailure"), ("a" * 64, "a" * 64),
+                                         ("a" * 65, ""), ("Bad code\nwith lines", ""), ("x" * 10000, ""), (None, "")])
+def test_an_error_code_is_shown_only_when_it_looks_like_one(code, shown):
+    from fabric_desktop.onelake import error_code
+    assert error_code(code) == shown
+    fs, _ = store([Reply(403, {"error": {"code": code}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == f"OneLake didn't list Files/in (403{': ' + shown if shown else ''})."

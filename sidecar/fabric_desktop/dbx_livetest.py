@@ -29,6 +29,8 @@ from __future__ import annotations
 import functools
 import json
 import re
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -39,6 +41,7 @@ from typing import Any, Callable
 
 from .engines import authorization
 from .engines.contract import CellRequest, SessionConfig
+from .engines import databricks_auth
 from .engines.databricks_auth import TokenProvider
 from .engines.databricks_sql import Client, DatabricksError
 from .livetest import MARKER, Check, scrub
@@ -50,6 +53,63 @@ SLOW_CELL = "spark.range(100000000000).selectExpr('sum(id * 7 % 13) AS s').colle
 CANCEL_WAIT = 60.0           # seconds to wait for the slow statement to be running before cancelling
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
 _RUNNING = ("RUNNING", "STARTING", "PENDING", "RESIZING", "RESTARTING")
+
+
+MIN_PYTHON = (3, 12)          # sidecar/pyproject.toml requires-python
+MIN_CLI = (0, 205)           # the first Databricks CLI with ``auth token`` as databricks_auth reads it
+_CLI_VERSION = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+def pc_checks(connection: dict[str, Any], *, environ: Any = None, cfg_path: Path | None = None,
+              run: Callable[..., Any] = subprocess.run, version: tuple[int, ...] = tuple(sys.version_info[:3])
+              ) -> list[tuple[bool, str]]:
+    """What this PC needs before the live test can sign in, as (ok, what) lines: Python, the
+    Databricks CLI and its version, and the profile or workspace address. It signs in to nothing and
+    reads no token: the CLI is asked only for its version, and the profile only for its host."""
+    found: list[tuple[bool, str]] = []
+    need = ".".join(map(str, MIN_PYTHON))
+    have = ".".join(map(str, version))
+    found.append((version[:2] >= MIN_PYTHON, f"Python {have} (KratosForge needs {need} or later)."))
+    cli = databricks_auth.find_cli(environ)
+    if not cli:
+        found.append((False, "The Databricks CLI isn't on PATH. Install it from "
+                             "https://docs.databricks.com/dev-tools/cli/install.html, then open a new terminal."))
+    else:
+        found.append(_cli_version(cli, run))
+    credential = connection.get("credential") or {}
+    if credential.get("method") == "cli-profile":
+        profile = str(credential.get("profile") or "")
+        try:
+            section = databricks_auth._cfg_section(profile, cfg_path)
+            host = databricks_auth.check_host(section.get("host", ""))
+        except databricks_auth.DatabricksAuthError as exc:
+            found.append((False, f"{exc} Sign in with: databricks auth login --host <workspace address> "
+                                 f"--profile {profile}"))
+        else:
+            found.append((True, f"Profile {profile!r} points at {host}."))
+    else:
+        try:
+            found.append((True, f"Workspace address {databricks_auth.check_host(str(connection.get('host') or ''))}."))
+        except databricks_auth.DatabricksAuthError as exc:
+            found.append((False, str(exc)))
+    return found
+
+
+def _cli_version(cli: str, run: Callable[..., Any]) -> tuple[bool, str]:
+    need = ".".join(map(str, MIN_CLI))
+    try:
+        done = run([cli, "--version"], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"The Databricks CLI at {cli} didn't answer --version ({type(exc).__name__})."
+    match = _CLI_VERSION.search(f"{done.stdout or ''} {done.stderr or ''}")
+    if done.returncode != 0 or not match:
+        return False, (f"The Databricks CLI at {cli} didn't say its version. This may be the old Python "
+                       f"databricks-cli; install the current CLI ({need} or later).")
+    got = tuple(int(g or 0) for g in match.groups())
+    text = ".".join(map(str, got))
+    if got[:2] < MIN_CLI:
+        return False, f"The Databricks CLI at {cli} is {text}; the live test needs {need} or later. Update it."
+    return True, f"Databricks CLI {text} at {cli}."
 
 
 def warehouse_tags(info: dict[str, Any]) -> set[str]:

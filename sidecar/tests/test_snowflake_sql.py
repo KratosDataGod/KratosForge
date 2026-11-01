@@ -312,6 +312,38 @@ def test_every_rule_the_code_uses_is_in_the_docs_table():
     assert len(listed) == len(set(listed)) and used == set(listed)
 
 
+@pytest.mark.parametrize("code", [
+    "select dateadd(day, 1, ts::timestamp) from t",
+    "select date_trunc('day', current_timestamp())",
+    "select dateadd(month, 1, to_timestamp('2026-01-01 10:00'))",
+    "select dateadd(day, 1, to_timestamp(s)) from t",
+    "select date_trunc('day', to_timestamp_ntz(s)) from t",
+    "select dateadd(week, 1, try_to_timestamp(s)) from t",
+    "select date_trunc('month', to_timestamp_tz(s)) from t",
+    "select date_trunc('week', convert_timezone('UTC', ts)) from t",
+])
+def test_date_arithmetic_on_a_plain_timestamp_is_not_a_date_difference(code):
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+
+
+@pytest.mark.parametrize("code", [
+    "select dateadd(day, 1, ts) from t",
+    "select date_trunc('month', ts) from t",
+    "select dateadd(year, 1, d) from t",
+])
+def test_date_arithmetic_on_what_may_be_a_date_is_a_date_difference(code):
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" in [n.id for n in report.notes]
+
+
+def test_date_trunc_of_a_date_stays_a_date_on_every_sqlglot():
+    """#1252: cast back to DATE here, as Snowflake (and sqlglot 30.25 itself) does, so no SFD-006."""
+    (report,) = sf.translate("select date_trunc('month', ts::date) from t").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    assert report.duckdb_sql.upper().startswith("SELECT CAST(DATE_TRUNC('MONTH', CAST(TS AS DATE)) AS DATE)")
+
+
 def test_a_time_unit_on_date_arithmetic_is_not_a_date_difference():
     (report,) = sf.translate("select dateadd(hour, 2, ts), date_trunc('minute', ts) from t").statements
     assert "SFD-006" not in [n.id for n in report.notes]
@@ -328,3 +360,134 @@ def test_values_in_from_get_snowflakes_column_names_and_an_aliased_list_keeps_it
     con.execute("create table iv(a int, b varchar)")
     con.execute(sf.translate("insert into iv values (1, 'z')").duckdb_sql)  # INSERT ... VALUES is left alone
     assert con.execute("select * from iv").fetchall() == [(1, "z")]
+
+
+def test_ratio_to_report_is_the_value_over_its_partitions_sum_and_null_when_that_sum_is_0():
+    con = duckdb.connect()
+    for statement in SETUP:
+        con.execute(statement)
+    sql = sf.translate("select id, ratio_to_report(amt) over (partition by grp order by id) r from t "
+                       "order by id").duckdb_sql
+    assert "ORDER BY id)" not in sql  # the window's ORDER BY doesn't change the result, so it's dropped
+    assert [round(r, 9) for _, r in con.execute(sql).fetchall()] == [round(10 / 30, 9), round(20 / 30, 9), 1.0]
+    sql = sf.translate("select ratio_to_report(x) over () from values (1), (-1), (null) as v(x)").duckdb_sql
+    assert con.execute(sql).fetchall() == [(None,)] * 3
+
+
+@pytest.mark.parametrize("code", [
+    "select ratio_to_report(amt) over (order by id rows between unbounded preceding and current row) from t",
+    "select ratio_to_report(amt, id) over () from t",
+    "select haversine(1, 2, 3) from t",
+])
+def test_ratio_to_report_and_haversine_refuse_shapes_snowflake_does_not_allow(code):
+    translation = sf.translate(code)
+    assert not translation.runnable
+    assert translation.first_refusal()
+
+
+def test_haversine_is_kilometres_on_a_6371_km_sphere_and_reads_columns():
+    con = duckdb.connect()
+    sql = sf.translate("select haversine(40.7127, -74.0059, 34.0500, -118.2500)").duckdb_sql
+    assert round(con.execute(sql).fetchall()[0][0], 9) == 3936.385096389  # Snowflake's docs example
+    con.execute("create table p(a_lat int, a_lon int, b_lat int, b_lon int)")
+    con.execute("insert into p values (0, 0, 0, 180), (0, 0, 0, 0), (null, 0, 0, 0)")
+    sql = sf.translate("select haversine(a_lat, a_lon, b_lat, b_lon) from p").duckdb_sql
+    got = [r[0] for r in con.execute(sql).fetchall()]
+    assert round(got[0], 6) == round(3.141592653589793 * 6371, 6) and got[1] == 0 and got[2] is None
+
+
+@pytest.mark.parametrize("code, want", [
+    ("select dateadd(month, 1, '2026-01-31'::date)", "2026-02-28"),
+    ("select dateadd(year, 1, to_date('2026-01-01'))", "2027-01-01"),
+    ("select timestampadd(week, 1, try_to_date('2026-01-01'))", "2026-01-08"),
+    ("select dateadd(day, 1, current_date) - interval 1 day = current_date", None),
+])
+def test_dateadd_of_a_plain_date_by_a_date_unit_gives_a_date_and_no_note(code, want):
+    """#1319: Snowflake keeps a DATE a DATE; DuckDB's DATE + INTERVAL is a TIMESTAMP, so it's cast back."""
+    (report,) = sf.translate(code).statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    con = duckdb.connect()
+    if want is None:
+        assert con.execute(report.duckdb_sql).fetchone()[0] is True
+        assert con.execute(sf.translate("select dateadd(day, 1, current_date)").duckdb_sql).description[0][1] \
+            == "DATE"
+        return
+    (got,) = con.execute(report.duckdb_sql).fetchone()
+    assert type(got).__name__ == "date" and got.isoformat() == want
+
+
+def test_dateadd_of_a_date_by_an_hour_stays_a_timestamp():
+    (report,) = sf.translate("select dateadd(hour, 2, '2026-01-01'::date)").statements
+    assert "SFD-006" not in [n.id for n in report.notes]
+    (got,) = duckdb.connect().execute(report.duckdb_sql).fetchone()
+    assert got.isoformat() == "2026-01-01T02:00:00"
+
+
+# ---------------------------------------------------------------- TYPEOF (SFX-009, #1372)
+
+
+@pytest.mark.parametrize("code, want", [
+    # The rows of Snowflake's TYPEOF page.
+    ("select typeof(parse_json('null'))", "NULL_VALUE"),
+    ("select typeof(null::variant)", None),
+    ("select typeof(parse_json('true'))", "BOOLEAN"),
+    ("select typeof(parse_json('-17'))", "INTEGER"),
+    ("select typeof(parse_json('123.12'))", "DECIMAL"),
+    ("select typeof(parse_json('1.912e2'))", "DOUBLE"),
+    ("""select typeof(parse_json('"Om ara pa ca na dhih"  '))""", "VARCHAR"),
+    ("select typeof(parse_json('[-1, 12, 289, 2188, false,]'))", "ARRAY"),
+    ("""select typeof(parse_json('{ "x" : "abc", "y" : false, "z": 10} '))""", "OBJECT"),
+    ("select typeof('check in'::variant)", "VARCHAR"),
+    ("select typeof(to_variant('2024-01-17 19:00:00.000'::timestamp))", "TIMESTAMP_NTZ"),
+    # PARSE_JSON's own rules for numbers: an exponent is DOUBLE; past NUMBER(38, 37) is DOUBLE.
+    ("select typeof(parse_json('1E2'))", "DOUBLE"),
+    ("select typeof(parse_json('18446744073709551615'))", "INTEGER"),
+    ("select typeof(parse_json('9' || repeat('0', 37)))", "INTEGER"),
+    ("select typeof(parse_json('9' || repeat('0', 38)))", "DOUBLE"),
+    ("select typeof(parse_json('0.' || repeat('1', 37)))", "DECIMAL"),
+    ("select typeof(parse_json('0.' || repeat('1', 38)))", "DOUBLE"),
+    ("select typeof(try_parse_json('not json'))", None),
+    # Typed values.
+    ("select typeof(1)", "INTEGER"),
+    ("select typeof(1.5)", "DECIMAL"),
+    ("select typeof(7::number(10, 0))", "INTEGER"),
+    ("select typeof(1.5::float)", "DOUBLE"),
+    ("select typeof(true)", "BOOLEAN"),
+    ("select typeof('2026-01-01'::date)", "DATE"),
+    ("select typeof('10:00'::time)", "TIME"),
+])
+def test_typeof_gives_snowflakes_names_and_no_note_where_they_are_exact(code, want):
+    (report,) = sf.translate(code).statements
+    assert report.verdict == "translated", report.notes
+    assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
+
+
+def test_typeof_of_a_column_names_json_values_and_flags_what_it_cant_know():
+    con = duckdb.connect()
+    con.execute("create table j(v json)")
+    con.execute("""insert into j values ('null'), ('true'), ('-17'), ('"s"'), ('[1]'), ('{"a": 1}'), (null),"""
+                """ ('99999999999999999999'), ('123.12'), ('1.912e2')""")
+    (report,) = sf.translate("select typeof(v) from j").statements
+    assert report.verdict == "difference" and [n.id for n in report.notes] == ["SFD-007"]
+    got = [r[0] for r in con.execute(report.duckdb_sql).fetchall()]
+    # A fraction or an exponent in a column: DuckDB may have written it again, so it isn't named.
+    assert got == ["NULL_VALUE", "BOOLEAN", "INTEGER", "VARCHAR", "ARRAY", "OBJECT", None, "INTEGER",
+                   "DECIMAL or DOUBLE", "DECIMAL or DOUBLE"]
+
+
+@pytest.mark.parametrize("code, want", [
+    ("""select typeof(parse_json('{"a": 1.912e2}'):a)""", "DECIMAL or DOUBLE"),  # DuckDB writes 191.2
+    ("""select typeof(parse_json('{"a": 10}'):a)""", "INTEGER"),
+    ("select typeof('2026-01-01 10:00'::timestamp_ltz)", "TIMESTAMP WITH TIME ZONE"),  # LTZ or TZ: DuckDB's name
+])
+def test_typeof_never_gives_a_confident_wrong_name(code, want):
+    (report,) = sf.translate(code).statements
+    assert "SFD-007" in [n.id for n in report.notes]
+    assert duckdb.connect().execute(report.duckdb_sql).fetchone()[0] == want
+
+
+def test_typeof_reads_its_argument_as_a_tree_and_the_rule_is_listed():
+    sql = sf.translate("select typeof(v:k.x) from t").duckdb_sql
+    assert "LAMBDA" not in sql.upper() and "->" in sql  # a path stays a path (#1252)
+    assert "VARIANT" not in sf.translate("select typeof('a'::variant)").duckdb_sql
+    assert "SFX-009" in [row[0] for row in sf.CATALOG] and "SFX-009" in sf.docs_table()

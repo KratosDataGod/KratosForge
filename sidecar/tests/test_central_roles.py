@@ -9,6 +9,7 @@ role check and not from the arguments. An operation added without a line here fa
 SQLite only; no tenant calls."""
 
 import datetime as dt
+import json
 import shutil
 import sqlite3
 
@@ -148,7 +149,9 @@ ROLE_WRITES = [
     ("clear_keys", ADMIN, lambda db: core.stage_keys(db, True, by=ADMIN) and {}),
     ("save_domain", ADMIN, lambda db: {"domain": {"id": "hr", "name": "HR"}}),
     ("import_fabric_domains", ADMIN, lambda db: {"domains": [{"id": "f1", "displayName": "Finance"}]}),
-    ("delete_domain", ADMIN, lambda db: {"did": "sales"}),
+    # sales has a landing zone, a policy and a group link, so it can't go (#1310): an unused one can.
+    ("delete_domain", ADMIN, lambda db: (core.save_domain(db, {"id": "spare", "name": "Spare"}, by=ADMIN),
+                                         {"did": "spare"})[1]),
     ("register_product", PRODUCT_OWNER, lambda db: {
         "product": {"project": "crm", "name": "c360", "owner": PRODUCT_OWNER, "access": "private",
                     "status": "published", "description": "changed"},
@@ -266,9 +269,36 @@ def test_a_role_write_succeeds_for_someone_with_the_role(seeded, tmp_path, op, a
     assert _dump(path) != before
 
 
-# Writes deliberately left off the audit trail, each with why. A role write that's neither audited nor
-# listed here fails the test below: Platform > Govern > Audit says it holds every change (#1194).
-NOT_AUDITED: dict[str, str] = {}
+# Writes deliberately left off the audit trail, each with why. A write that's neither audited nor
+# listed here fails the tests below: Platform > Govern > Audit says it holds every change (#1194, #1236).
+NOT_AUDITED: dict[str, str] = {
+    "ensure_schema": "Finish or repair: creates what is missing and changes no one's data",
+    "ensure_policy_schema": "Finish or repair, as ensure_schema",
+    "ensure_template_schema": "Finish or repair, as ensure_schema",
+    "issue_keys": "high volume: every load issues keys, and keys.<name> records when each was issued",
+    "note_seen": "records only that the caller used the platform today, for owner coverage",
+    "call_once": "bookkeeping for a change sent again: the change it runs is audited by that change",
+    "follow_product": "a person's own notice subscription; product_followers is its record",
+    "unfollow_product": "as follow_product",
+    "claim_exception_warning": "one PC's claim to post an ending notice once; the notice is the record",
+}
+
+# Each change anyone signed in may make (ANYONE above) that is audited, run as: (operation, who, arguments).
+ANYONE_WRITES = [
+    ("register_project", NOBODY, lambda db: {"project": {"name": "fresh"}}),
+    ("register_project", MEMBER, lambda db: {"project": {"name": "ledger", "domain": "sales", "team": "Finance"}}),
+    ("register_link", MEMBER, lambda db: {"consumer": "ledger", "alias": "cust", "product_id": "crm/c360",
+                                          "port": "customers", "reads": {"dev": "prod", "test": "prod", "prod": "prod"}}),
+    ("request", REQUESTER, lambda db: {"kind": "key_table", "target": "vendor", "reason": "Vendors"}),
+    ("log_workload_action", NOBODY, lambda db: {"workload": "nightly", "action": "run", "status": "succeeded"}),
+    ("record_shortcuts", ADMIN, lambda db: {"lakehouses": [{"lakehouse_id": LH, "workspace_id": WS,
+                                                            "workspace_name": "CRM Dev", "lakehouse_name": "LH_Gold"}],
+                                            "shortcuts": []}),
+    ("record_shortcut_health", NOBODY, lambda db: {"results": [{"id": _shortcut(db), "health": "broken"}]}),
+    ("log_shortcut_change", NOBODY, lambda db: {"kind": "added", "shortcut": {
+        "lakehouse_id": LH, "workspace_id": WS, "path": "Tables", "name": "fresh",
+        "target": {"oneLake": {"workspaceId": WS, "itemId": LH}}}}),
+]
 
 
 @pytest.mark.parametrize("op,allowed,args", ROLE_WRITES, ids=[r[0] for r in ROLE_WRITES])
@@ -352,3 +382,42 @@ def test_a_read_changes_nothing_whoever_calls_it(seeded, tmp_path, op, user):
     except core.PlatformError:
         pass  # silent-ok: a read some roles may not make (product_followers) changes nothing either way
     assert _dump(path) == before
+
+
+def test_every_change_anyone_may_make_is_run_below_or_listed_as_not_audited():
+    run = {op for op, _, _ in ANYONE_WRITES}
+    assert sorted(set(ANYONE) - run - set(NOT_AUDITED) - {"claim_admin"}) == [], \
+        "audit it and add it to ANYONE_WRITES, or list it in NOT_AUDITED with why"
+    assert not run & set(NOT_AUDITED) and all(why.strip() for why in NOT_AUDITED.values())
+
+
+@pytest.mark.parametrize("op,who,args", ANYONE_WRITES, ids=[f"{r[0]}-{r[1].split('@')[0]}" for r in ANYONE_WRITES])
+def test_every_change_anyone_may_make_leaves_an_audit_row_naming_who_made_it(seeded, tmp_path, op, who, args):
+    path = _copy(seeded, tmp_path)
+    db = _db(path)
+    kwargs = args(db)
+    db.conn.close()
+    platform = LocalPlatform(path, lambda: who)
+    before = {row["id"] for row in platform.call("audit", limit=100_000)}
+    platform.call(op, **kwargs)
+    added = [row for row in platform.call("audit", limit=100_000) if row["id"] not in before]
+    assert added, f"{op} changed the platform without an audit row"
+    assert {row["by_user"] for row in added} == {who}
+
+
+def test_claiming_the_first_admin_seat_is_on_the_audit_trail(tmp_path):
+    platform = LocalPlatform(tmp_path / "platform.sqlite", lambda: NOBODY)
+    platform.call("claim_admin")
+    assert [(r["action"], r["by_user"]) for r in platform.call("audit", limit=5) if "admin" in r["action"]]
+
+
+def test_recording_a_project_names_who_recorded_it_and_its_domain(seeded, tmp_path):
+    who = {"user": NOBODY}
+    platform = LocalPlatform(_copy(seeded, tmp_path), lambda: who["user"])
+    # Joining a domain waits for its owners, so the row records the domain the project has: none yet.
+    platform.call("register_project", project={"name": "fresh", "domain": "sales"})
+    who["user"] = MEMBER
+    platform.call("register_project", project={"name": "ledger", "domain": "sales", "team": "Finance"})
+    rows = [(r["action"], r["target"], r["by_user"], json.loads(r["detail"])["domain"])
+            for r in platform.call("audit", limit=10) if r["action"].endswith(" project")]
+    assert sorted(rows) == [("change project", "ledger", MEMBER, ""), ("record project", "fresh", NOBODY, "")]

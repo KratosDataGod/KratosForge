@@ -31,7 +31,7 @@ from typing import Any, Callable, Protocol
 from .definition import Activity, ImportedPipeline
 from .validate import Diagnostic, summary, validate
 
-REGISTRY_VERSION = "8"
+REGISTRY_VERSION = "9"
 
 CLASSIFICATIONS = {
     "local": "Runs on this PC with a tested adapter.",

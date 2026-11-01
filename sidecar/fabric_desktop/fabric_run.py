@@ -146,7 +146,11 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
             from sqlglot import exp
         con, views, result = duckdb.connect(), {}, None
         con.execute("SET TimeZone = 'UTC'")  # SET, not connect's config, which tries to download ICU
-        for st in [s for s in sqlglot.parse(query, read="spark") if s is not None]:
+        # DuckDB 2.0: Arrow from an executed result copies every row once more and warns, so the last
+        # statement is read as a relation there; one before it is run to its end first.
+        two = int(duckdb.__version__.split(".")[0]) >= 2
+        statements = [s for s in sqlglot.parse(query, read="spark") if s is not None]
+        for i, st in enumerate(statements):
             ctes = {c.alias_or_name.lower() for c in st.find_all(exp.CTE)}
             for t in list(st.find_all(exp.Table)):
                 if not isinstance(t.this, exp.Identifier) or (not t.db and t.name.lower() in ctes):
@@ -157,7 +161,12 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
                     con.register(views[key], lh.open_table(key).to_pyarrow_dataset())
                 alias = t.args.get("alias") or exp.TableAlias(this=exp.to_identifier(t.name))
                 t.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
-            result = con.execute(st.sql("duckdb"))
+            if two and i == len(statements) - 1:
+                result = con.sql(st.sql("duckdb"))
+            else:
+                result = con.execute(st.sql("duckdb"))
+                if two:
+                    con.complete()
         if result is None or not result.description:
             return _pl.DataFrame()
         return _pl.from_arrow((getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)())

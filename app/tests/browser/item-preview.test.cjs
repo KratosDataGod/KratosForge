@@ -91,13 +91,16 @@ after(async () => { if (app) await app.close(); });
 
 const panel = () => page().locator(".preview-panel.open");
 const row = (name) => page().locator(".ws-items tr", { hasText: name });
+// A row is clicked on its Type cell: the row's middle can land on its name, a link that opens the item
+// in Fabric instead (where it falls depends on the fonts and the panel's width).
+const pick = (name) => row(name).locator("td.ws-type").click();
 const since = (n, method) => app.calls.slice(n).filter((c) => c.method === method).map((c) => c.params);
 const shellCalls = () => page().evaluate(() => window.__fdShellCalls.map((c) => ({ cmd: c.cmd, page: c.args?.page })));
 
 // Opens a lakehouse in the panel and its Tables and Files folders, ready for a table or file click.
 async function openLakehouse(name) {
   if (await panel().count()) await panel().getByRole("button", { name: "Close preview" }).click();
-  await row(name).click();
+  await pick(name);
   await panel().locator(".preview-title .name", { hasText: name }).waitFor();
   // The tree keeps what was open for each lakehouse, so a folder already open stays as it is.
   if (!(await panel().locator(".tree-row", { hasText: "sales" }).count())) await panel().locator(".tree-row", { hasText: "Tables" }).click();
@@ -170,7 +173,7 @@ test("a file sends its own lakehouse and path and shows its text, rows, or a not
 
 test("a notebook sends its own workspace and item and shows its cells", { skip }, async () => {
   const n = app.calls.length;
-  await row("nb_orders").click();
+  await pick("nb_orders");
   await panel().locator(".preview-cell").first().waitFor();
   assert.deepStrictEqual(since(n, "preview_notebook"), [{ workspace_id: WS, item_id: NB }]);
   assert.strictEqual(await panel().locator(".preview-title .name").textContent(), "nb_orders");
@@ -184,7 +187,7 @@ test("a notebook sends its own workspace and item and shows its cells", { skip }
 test("another item type shows Fabric's page in the panel and reads nothing on this PC", { skip }, async () => {
   const n = app.calls.length;
   await page().evaluate(() => { window.__fdShellCalls.length = 0; });
-  await row("Sales report").click();
+  await pick("Sales report");
   await panel().locator(".preview-fabric").waitFor();
   await page().waitForFunction(() => window.__fdShellCalls.some((c) => c.cmd === "fabric_view_show"));
   const shown = (await shellCalls()).filter((c) => c.cmd === "fabric_view_show");
@@ -194,7 +197,7 @@ test("another item type shows Fabric's page in the panel and reads nothing on th
   assert.deepStrictEqual(axeSource ? await axeFindings(page(), ".preview-panel.open") : [], []);
   // A notebook after it takes Fabric's page away again.
   await page().evaluate(() => { window.__fdShellCalls.length = 0; });
-  await row("nb_orders").click();
+  await pick("nb_orders");
   await panel().locator(".preview-cell").first().waitFor();
   await page().waitForFunction(() => window.__fdShellCalls.some((c) => c.cmd === "fabric_view_hide"));
 });
@@ -208,12 +211,12 @@ async function answered(id) {
 test("opening another item replaces the panel, and a late answer for an item no longer shown is ignored", { skip }, async () => {
   await page().evaluate(() => itemPreview.cache.clear());  // both read now, not from the earlier test
   const n = app.calls.length;
-  await row("nb_slow").click();
+  await pick("nb_slow");
   await panel().locator(".preview-title .name", { hasText: "nb_slow" }).waitFor();
   await page().waitForFunction(() => /Loading the preview/.test(document.querySelector(".preview-panel.open .preview-body")?.textContent));
   assert.ok(held[NB_SLOW], "nb_slow's answer is held");
   // Another item replaces it while nb_slow is still reading.
-  await row("nb_orders").click();
+  await pick("nb_orders");
   await panel().locator(".preview-md h1", { hasText: "Orders notebook" }).waitFor();
   assert.strictEqual(await page().locator(".preview-panel").count(), 1, "one panel, replaced");
   held[NB_SLOW]();
@@ -227,7 +230,7 @@ test("opening another item replaces the panel, and a late answer for an item no 
   // A late answer after the panel was closed doesn't open it again.
   delete held[NB_SLOW];
   await page().evaluate(() => itemPreview.cache.clear());
-  await row("nb_slow").click();
+  await pick("nb_slow");
   await page().waitForFunction(() => /Loading the preview/.test(document.querySelector(".preview-panel.open .preview-body")?.textContent));
   for (const end = Date.now() + 5000; !held[NB_SLOW]; await new Promise((r) => setTimeout(r, 25))) {
     if (Date.now() > end) throw new Error("nb_slow was never read");
@@ -247,7 +250,7 @@ const focused = () => page().evaluate(() => {
 
 test("Close and Escape close the panel and return focus to the item that opened it", { skip }, async () => {
   // Close, from a mouse click on the row.
-  await row("nb_orders").click();
+  await pick("nb_orders");
   await panel().locator(".preview-cell").first().waitFor();
   await panel().getByRole("button", { name: "Close preview" }).click();
   await page().waitForFunction(() => !document.querySelector(".preview-panel.open"));

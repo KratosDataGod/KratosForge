@@ -57,7 +57,7 @@ _SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey",
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 # The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.
 _TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
-_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:,\r\n]+)")
+_ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
 _WIN_USER_PATH = re.compile(rf"(?i)([a-z]:{_SLASH}(?:users|documents and settings){_SLASH})([^\\/\"'<>\r\n]+)")

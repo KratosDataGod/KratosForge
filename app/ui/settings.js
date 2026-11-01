@@ -122,7 +122,7 @@ function redactReport(text, level = "support") {
   return out
     .replace(/[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
-    .replace(/(OneDrive - )([^\\/"'<>:,\r\n]+)/g, "$1[organization]")
+    .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");

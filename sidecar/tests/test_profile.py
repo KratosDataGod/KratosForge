@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from pathlib import Path
 
 import pytest
 
@@ -269,7 +270,7 @@ def test_report_and_export_are_new_files_and_delete_leaves_validate_history(plai
     (plain.root / "validations.json").write_text("[]")
     first = call(plain, "profile_report_save")["path"]
     second = call(plain, "profile_report_save")["path"]
-    assert first != second and "Validated notebook Orders" in open(first, encoding="utf-8").read()
+    assert first != second and "Validated notebook Orders" in Path(first).read_text(encoding="utf-8")
     assert call(plain, "profile_export")["path"].endswith(".json")
     assert call(plain, "profile_delete") == {"deleted": True}
     assert call(plain, "profile_get")["evidence"] == [] and (plain.root / "validations.json").exists()

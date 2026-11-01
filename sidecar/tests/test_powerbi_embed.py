@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 
 import pytest
 
@@ -133,7 +134,7 @@ def test_the_calls_are_read_only_and_never_offered_to_external_tools():
     assert {"pbi_embed_token", "pbi_embed_content"} <= server.METHODS
     assert not audit.audited("pbi_embed_token") and not audit.audited("pbi_embed_content")
     from fabric_desktop.integrations import capabilities
-    source = open(capabilities.__file__, encoding="utf-8").read()
+    source = Path(capabilities.__file__).read_text(encoding="utf-8")
     assert "pbi_embed" not in source and "powerbi_embed" not in source
 
 

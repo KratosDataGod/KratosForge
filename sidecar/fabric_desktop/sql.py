@@ -394,7 +394,7 @@ def _from_json_template(schema: exp.Expression) -> str:
     except (ParseError, TokenError, ValueError) as exc:
         raise ValueError(f"from_json's schema {ddl!r} couldn't be read here, so nothing ran.") from exc
     if dtype.this == _T.STRUCT:
-        nulls = "{" + ", ".join(f"{_sql_string(name)}: CAST(NULL AS {kind.sql('duckdb')})"
+        nulls = "{" + ", ".join(f"{_sql_string(name)}: CAST(NULL AS {duckdb_sql(kind)})"
                                 for name, kind in _json_fields(dtype)) + "}"
         body = (f"CASE WHEN fj_j IS NULL THEN {nulls} "
                 "WHEN json_type(fj_j) = 'ARRAY' THEN error('from_json with a struct schema was given a JSON array, "

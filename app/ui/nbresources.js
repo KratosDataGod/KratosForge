@@ -86,7 +86,7 @@ function nbResReveal(nb, file = null) {
 }
 
 function nbResRow(nb, box, file) {
-  return h("div", { class: "nb-res-row", "data-file": file.name },
+  return h("div", { class: "nb-res-row", role: "listitem", "data-file": file.name },
     icon("file", 16),
     h("span", { class: "nb-res-name", title: `builtin/${file.name}` }, file.name),
     h("span", { class: "muted small" }, sizeText(file.size)),

@@ -12,11 +12,16 @@ from typing import Any
 import duckdb
 
 
+def duckdb_major() -> int:
+    """DuckDB's major version: 1 or 2 while the engine runs on both (#1341)."""
+    return int(duckdb.__version__.split(".")[0])
+
+
 def keep_try_cast(con: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
     """``con`` with DuckDB 2.0's type_pushdown optimizer off. It pushes a TRY_CAST over a file's
     column into the scan as a strict type, so ``SELECT TRY_CAST(x AS DOUBLE) FROM read_csv(...)`` fails
     on a value that doesn't fit instead of giving NULL. DuckDB 1.x has no such optimizer (nor the name)."""
-    if int(duckdb.__version__.split(".")[0]) >= 2:
+    if duckdb_major() >= 2:
         con.execute("SET disabled_optimizers = 'type_pushdown'")
     return con
 

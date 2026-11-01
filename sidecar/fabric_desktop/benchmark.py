@@ -766,7 +766,8 @@ _WRITE = '''
 try:
     for table in TABLES:
         started = time.perf_counter()
-        result = con.execute(f"SELECT * FROM {table}")
+        # A relation's reader: DuckDB 2.0 warns that one over an executed result copies every row again.
+        result = con.sql(f"SELECT * FROM {table}")
         reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)  # newer, older DuckDB
         # The whole table as one write: one commit, its batches never all in memory at once. On this PC
         # it uploads in the background while the next table is read; the cell ends when all are in.
@@ -815,7 +816,7 @@ _RUN = '''
 answers = {}
 for n in queries:
     started = time.perf_counter()
-    answers[n] = con.execute(QUERIES[n]).pl()
+    answers[n] = con.sql(QUERIES[n]).pl()
     print(f"Q{n:02d}: {len(answers[n]):>6} rows in {timed(f'Q{n:02d}', started):.2f} s")
 query_seconds = sum(t["seconds"] for t in timings if t["step"].startswith("Q"))
 print(f"All {len(queries)} queries: {query_seconds:.1f} s")

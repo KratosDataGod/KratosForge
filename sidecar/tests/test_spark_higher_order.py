@@ -186,3 +186,47 @@ def test_rewritten_calls_inside_rewritten_calls_still_run(query, want):
 def test_a_kf_name_in_aggregate_without_finish_is_left_alone():
     statements = _databricks("SELECT aggregate(kf_a, 0, (acc, x) -> acc + x) FROM (SELECT array(1, 2) AS kf_a)")
     assert duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 3
+
+
+@pytest.mark.parametrize("dialect", ["databricks", "spark"])
+@pytest.mark.parametrize("query, want", [
+    ("SELECT array_sort(array(5, 6, 1), (left, right) -> CASE WHEN left < right THEN -1 "
+     "WHEN left > right THEN 1 ELSE 0 END)", [1, 5, 6]),
+    ("SELECT array_sort(array('bc', 'ab', 'dc'), (left, right) -> CASE WHEN left IS NULL AND right IS NULL THEN 0 "
+     "WHEN left IS NULL THEN -1 WHEN right IS NULL THEN 1 WHEN left < right THEN 1 WHEN left > right THEN -1 ELSE 0 END)",
+     ["dc", "bc", "ab"]),
+    # ties keep their order, as Spark's stable sort keeps them
+    ("SELECT array_sort(array('b1', 'a2', 'b3', 'a4'), (l, r) -> CASE WHEN substr(l, 1, 1) < substr(r, 1, 1) THEN -1 "
+     "WHEN substr(l, 1, 1) > substr(r, 1, 1) THEN 1 ELSE 0 END)", ["a2", "a4", "b1", "b3"]),
+    ("SELECT array_sort(array(3, NULL, 1), (l, r) -> CASE WHEN l IS NULL AND r IS NULL THEN 0 WHEN l IS NULL THEN 1 "
+     "WHEN r IS NULL THEN -1 WHEN l < r THEN -1 WHEN l > r THEN 1 ELSE 0 END)", [1, 3, None]),
+    ("SELECT array_sort(array(3, 1, 2), (l, r) -> r - l)", [3, 2, 1]),
+    ("SELECT array_sort(CAST(array() AS ARRAY<INT>), (l, r) -> l - r)", []),
+    ("SELECT array_sort(CAST(NULL AS ARRAY<INT>), (l, r) -> l - r)", None),
+    ("SELECT array_sort(array(CAST(NULL AS INT)), (l, r) -> l - r)", [None]),   # one element: nothing compared
+    ("SELECT array_sort(array(named_struct('left', 2), named_struct('left', 1)), (left, right) -> left.left - right.left)",
+     [{"left": 1}, {"left": 2}]),
+    ("SELECT zip_with(array(1), array(2), (left, right) -> left + right)", [3]),
+])
+def test_array_sort_with_a_comparator_answers_as_databricks(query, want, dialect):
+    """#1413: a comparator sorts as Spark's stable sort does; arguments named like DuckDB keywords
+    (left, right) still read as names."""
+    assert answer(query, dialect) == want
+
+
+def test_array_sort_comparator_over_a_column_and_with_an_outer_column():
+    con = duckdb.connect()
+    rows = con.execute(sql.duckdb_sql(_databricks(
+        "SELECT array_sort(arr, (l, r) -> (l - r) * d) FROM VALUES (array(2, 1, 3), 1), (array(9, 7, 8), -1) "
+        "AS t(arr, d) ORDER BY d")[-1])).fetchall()
+    assert [r[0] for r in rows] == [[9, 8, 7], [1, 2, 3]]
+
+
+def test_array_sort_comparator_returning_null_stops_as_databricks_does():
+    with pytest.raises(duckdb.Error, match="comparator returned NULL"):
+        answer("SELECT array_sort(array(1, 2), (l, r) -> CAST(NULL AS INT))", "databricks")
+
+
+def test_a_kf_name_in_an_array_sort_comparator_is_refused_plainly():
+    with pytest.raises(ValueError, match="names that start with kf_ are reserved"):
+        _databricks("SELECT array_sort(array(3, 1), (kf_l, r) -> kf_l - r)")

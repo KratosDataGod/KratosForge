@@ -1314,7 +1314,7 @@ async function renderWorkspaces() {
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
-        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
+        title: previewing ? `Preview ${it.displayName}` : null, "data-preview": previewing ? previewKey(target) : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
@@ -1974,6 +1974,7 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
             title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
             onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
             ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
@@ -2002,6 +2003,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js

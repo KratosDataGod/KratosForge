@@ -37,12 +37,12 @@
       },
       "ready": [
         {
-          "issue": 1314,
-          "title": "Compute check: a useRootDefaultLakehouse that isn't true or false is Unknown"
+          "issue": 1368,
+          "title": "Lookup and Get Metadata stop at their policy timeout and on Cancel"
         },
         {
-          "issue": 1316,
-          "title": "Local pipelines: an Until's timeout and a container's policy timeout stop a long-running iteration"
+          "issue": 1370,
+          "title": "An Until timeout and an Execute Pipeline's policy timeout stop its child pipeline"
         }
       ],
       "backlog": [
@@ -56,7 +56,7 @@
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; build #1314 and #1316 in parallel, and file the next hardening stories."
+      "next_action": "Keep PB-015 moving; build #1368 and #1370 in parallel, and file the next hardening stories."
     },
     {
       "key": "fabric",
@@ -83,6 +83,14 @@
           "issue": 1165,
           "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")",
           "note": "Fixed by #1166, with Release management."
+        },
+        {
+          "issue": 1366,
+          "title": "Key Vault secret reads in local notebooks (getSecret, dbutils secrets list) say what's wrong in one line"
+        },
+        {
+          "issue": 1367,
+          "title": "The agent's mailbox listing errors are one line"
         }
       ],
       "backlog": [

@@ -61,7 +61,7 @@ def run_through(con: duckdb.DuckDBPyConnection, query: str, params: Any = None) 
     fails here) before the next statement, which ``for_arrow`` may make a relation."""
     con.execute(query, params) if params is not None else con.execute(query)
     if duckdb_major() >= 2:
-        con.complete()
+        con.complete()  # type: ignore[attr-defined]  # DuckDB 2.0 only; the pinned 1.x stubs have no complete()
 
 
 def arrow_reader(result: Any, batch_rows: int) -> Any:

@@ -523,6 +523,20 @@ def test_a_failed_check_fails_the_job_without_retrying(setup, tmp_path):
     assert lines[0]["outcome"] == "error" and "bronze.orders" in lines[0]["error"], lines[0]
 
 
+def test_asking_for_the_project_again_leaves_the_one_a_job_holds_whole(setup):
+    """A job validates and runs the Project it was given while the agent's loop asks for the project
+    again (status, incidents, the mailbox). Asking again must not reload that Project in place: a
+    reload empties its entities before refilling them, and a job that validated then saw gold.dim_customer
+    reading a silver.customers that wasn't there (the flaky ledger's test_a_failed_check_fails_the_job)."""
+    runtime = Runtime(setup)
+    held = runtime._project()
+    names = sorted(held.entities)
+    (setup.project / "metadata" / "entities" / "silver.customers.toml").unlink()
+    again = runtime._project()
+    assert "silver.customers" not in again.entities  # the next caller sees the folder as it is now
+    assert sorted(held.entities) == names  # the job's Project is untouched
+
+
 def test_a_job_from_a_crashed_agent_runs_again_after_restart(setup):
     clock = Clock()
     q = JobQueue(setup.home / "queue.sqlite3", clock=clock, backoff_seconds=0)

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
-from fabric_desktop import app_settings, lakehouse
+from fabric_desktop import app_settings, kernel_proc, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
 from fabric_desktop.notebook import NotebookStore
 from fabric_desktop.server import handle
@@ -85,6 +85,25 @@ def test_a_process_that_ends_leaves_no_pipe_open(kernel):
     kernel.start("import os\nos._exit(3)")
     assert closed(crashed)
     assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # and the next one still starts
+
+
+def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marked_gone(kernel, monkeypatch):
+    """If a request's write never returns (something the process started holds the pipe open and
+    doesn't read), the reader still closes stdout and marks the process gone, leaving stdin."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    assert kernel._send_lock.acquire(timeout=5)  # as a _send stuck mid-write would hold it
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel._proc is not proc  # marked gone without the lock
+        assert proc.stdout.closed and not proc.stdin.closed
+    finally:
+        kernel._send_lock.release()
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]
 
 
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):

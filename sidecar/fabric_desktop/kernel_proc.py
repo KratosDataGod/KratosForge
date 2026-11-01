@@ -41,6 +41,7 @@ WIDGET_REQUEST_SECONDS = 75.0  # a widget handler runs for at most notebook.WIDG
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
+CLOSE_WAIT_SECONDS = 2.0  # how long an ended process's stdin waits for a write in progress
 TIME_GRACE_SECONDS = 30.0
 
 # The environment of a kernel that runs code for an external AI tool (HD-012): nothing from the
@@ -252,13 +253,23 @@ class ProcessKernel:
 
     def _close_pipes(self, proc: subprocess.Popen[str]) -> None:
         """Close the ended process's pipes: Popen leaves them to the garbage collector, and the app
-        starts a process per notebook restart, so each one left two handles open until then. Under
-        the send lock, so a request being written gets KernelGone, not a pipe closed mid-write."""
-        with self._send_lock:
-            for pipe in (proc.stdin, proc.stdout):
-                if pipe is not None:
-                    with contextlib.suppress(OSError):  # flushing stdin to a process that's gone
-                        pipe.close()
+        starts a process per notebook restart, so each one left two handles open until then.
+
+        stdout is this reader thread's alone. stdin is closed under the send lock, so a request being
+        written gets KernelGone, not a pipe closed mid-write. A write to a process that has ended
+        fails at once, but one can block for good if something the process started still holds the
+        pipe open without reading it. So the lock is waited for only CLOSE_WAIT_SECONDS: past that,
+        stdin is left to the garbage collector, and the reader goes on to mark the process gone."""
+        if proc.stdout is not None:
+            with contextlib.suppress(OSError):
+                proc.stdout.close()
+        if proc.stdin is None or not self._send_lock.acquire(timeout=CLOSE_WAIT_SECONDS):
+            return
+        try:
+            with contextlib.suppress(OSError):  # flushing stdin to a process that's gone
+                proc.stdin.close()
+        finally:
+            self._send_lock.release()
 
     def _memory(self, proc: subprocess.Popen[str], pid: int) -> int:
         """Bytes the kernel uses with every process below it, so a cell can't get past the limit by

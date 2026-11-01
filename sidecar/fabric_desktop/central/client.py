@@ -16,7 +16,7 @@ from typing import Any, Callable
 import requests
 
 from . import core
-from .. import http_session
+from .. import http_session, redact
 from ..retrying import send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -144,7 +144,7 @@ class FabricPlatform:
             if not isinstance(errors, list):
                 errors = [errors]
             message = "; ".join(str(e.get("message", e) if isinstance(e, dict) else e) for e in errors)
-            raise core.PlatformError(f"The platform couldn't {what}: {message}")
+            raise core.PlatformError(f"The platform couldn't {what}: {redact.one_line(message)}")
         return body.get("output", body)
 
 
@@ -167,7 +167,7 @@ def _start(resp: requests.Response) -> str:
     text = getattr(resp, "text", None)
     if not isinstance(text, str):
         text = bytes(resp.content or b"").decode("utf-8", "replace")
-    return " ".join(text.split())[:300]
+    return redact.one_line(text)
 
 
 class PlatformKeys:

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .cli import GitError
+from ..redact import one_line
 from .platform_files import dumps
 from .scopes import _replace_in
 
@@ -48,7 +49,7 @@ def read(root: str | Path) -> dict[str, Any]:
     except FileNotFoundError:
         return {"capacities": [], "problems": []}
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        return {"capacities": [], "problems": [f"{FILE} can't be read: {exc}"]}
+        return {"capacities": [], "problems": [f"{FILE} can't be read: {one_line(exc)}"]}
     sections = data.get("capacities") or {}
     if not isinstance(sections, dict):
         return {"capacities": [], "problems": [f"{FILE}: capacities must be a table of [capacities.<name>] sections."]}
@@ -56,11 +57,11 @@ def read(root: str | Path) -> dict[str, Any]:
     seen: set[str] = set()
     for name, sec in sections.items():
         if not isinstance(sec, dict):
-            problems.append(f"{FILE}: capacities.{name} isn't a section.")
+            problems.append(f"{FILE}: capacities.{one_line(name, 80)} isn't a section.")
             continue
         cid = _text(sec.get("capacity_id"))
         if not cid or not _ok_text(cid) or not _ok_text(name):
-            problems.append(f"{FILE}: capacities.{name} needs a capacity_id.")
+            problems.append(f"{FILE}: capacities.{one_line(name, 80)} needs a capacity_id.")
             continue
         if cid.lower() in seen:
             problems.append(f"{FILE}: capacity {cid} is listed twice; only the first is used.")

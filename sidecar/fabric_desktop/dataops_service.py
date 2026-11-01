@@ -29,7 +29,7 @@ from .meta import store as store_mod
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from . import sealed_settings
-from .redact import describe
+from .redact import describe, one_line
 from .retrying import send_with_retry
 from .workloads.notify import failure
 
@@ -407,5 +407,5 @@ def _teams_error(resp: Any) -> str:
         return ""
     err = body.get("error") if isinstance(body, dict) else None
     message = (err.get("message") if isinstance(err, dict) else err) if err else (body.get("message") if isinstance(body, dict) else None)
-    text = " ".join(str(message or "").split())
-    return f": {text[:200]}" if text else ""
+    text = one_line(message or "", 200)
+    return f": {text}" if text else ""

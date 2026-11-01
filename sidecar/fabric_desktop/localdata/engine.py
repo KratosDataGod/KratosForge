@@ -1515,17 +1515,19 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     kept: list[pa.RecordBatch] = []
     have = total = 0
     truncated = False
-    for batch in reader:
-        total += batch.num_rows
-        if have < limit:
-            take = batch.slice(0, limit - have)
-            kept.append(take)
-            have += take.num_rows
-        if total > limit:
-            truncated = True
-            if not count:
-                break
-    reader.close()  # on DuckDB 2.0 a reader stopped early keeps the connection busy
+    try:
+        for batch in reader:
+            total += batch.num_rows
+            if have < limit:
+                take = batch.slice(0, limit - have)
+                kept.append(take)
+                have += take.num_rows
+            if total > limit:
+                truncated = True
+                if not count:
+                    break
+    finally:
+        reader.close()  # on DuckDB 2.0 a reader stopped early, or by an error, keeps the connection busy
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],

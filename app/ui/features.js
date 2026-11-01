@@ -189,8 +189,13 @@ const LAYOUT_CHOICES = {
   ui_density: ["Density", "Spacing in tables, lists and toolbars.", [["comfortable", "Comfortable"], ["compact", "Compact"]]],
   learn_mode: ["Learning guidance (Preview)", "Expert shows findings, their About link and Dismiss. Professional, the default, adds a line on why each finding matters, with Explain and Show example when you want them. Guided opens the explanation, adds the Learn lesson that covers each finding and suggests your next lesson on Learn. A preference only: checks and your organization's rules are the same at every level.",
     [["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
+  // GD-08: a level for one subject, under Learning guidance. Same follows it.
+  learn_mode_sql: ["SQL guidance (Preview)", "Beside SQL best-practice findings, on the SQL and warehouse pages. Same follows Learning guidance.",
+    [["same", "Same"], ["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
+  learn_mode_notebooks: ["Notebook guidance (Preview)", "Beside notebook best-practice findings. Same follows Learning guidance.",
+    [["same", "Same"], ["expert", "Expert"], ["professional", "Professional"], ["guided", "Guided"]]],
 };
-const LAYOUT_DEFAULTS = { ui_explanations: "on_request", learn_mode: "professional" };  // as app_settings.DEFAULTS; others: the first choice
+const LAYOUT_DEFAULTS = { ui_explanations: "on_request", learn_mode: "professional", learn_mode_sql: "same", learn_mode_notebooks: "same" };  // as app_settings.DEFAULTS; others: the first choice
 const layoutChoice = (key) => state.settings?.[key]?.value || LAYOUT_DEFAULTS[key] || LAYOUT_CHOICES[key][2][0][0];
 const howView = { open: null };  // the view the drawer was opened on
 

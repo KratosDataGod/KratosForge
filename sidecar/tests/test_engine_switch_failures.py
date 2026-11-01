@@ -151,3 +151,86 @@ def test_a_close_failure_is_logged_without_a_secret_it_carried(manager, caplog):
     with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
         manager.close("nb")
     assert "Closing a local-duckdb session failed" in caplog.text and token not in caplog.text
+
+
+def test_a_close_failure_is_logged_on_one_line(manager, caplog):
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = _Stuck("first line\nINFO forged: all good\r\n  last")
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        manager.close("nb")
+    (record,) = [r for r in caplog.records if "Closing a" in r.getMessage()]
+    assert record.getMessage().endswith("(RuntimeError): first line INFO forged: all good last")
+    assert "\n" not in record.getMessage() and "\r" not in record.getMessage()
+
+
+def test_a_remote_session_that_couldnt_close_is_noted_once_for_the_person(manager):
+    manager.remote.fail = False
+    manager.switch("nb", "fake-remote", target="wh-1", authorization=OK)
+    manager._notebooks["nb"].sessions["fake-remote"] = _Stuck()
+    manager.switch("nb", "local-duckdb", decision="close")
+    assert manager.engine_of("nb") == "local-duckdb"
+    assert manager.notes("nb") == ["Couldn't close the Fake remote session. It ends on its own after its idle "
+                                   "timeout, and may use compute (DBUs) until then."]
+    assert manager.notes("nb") == []
+
+
+def test_a_local_session_that_couldnt_close_is_noted_without_the_capacity_line(manager):
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = _Stuck()
+    manager.close("nb")
+    assert manager.notes("nb") == ["Couldn't close the DuckDB (this PC) session."]
+
+
+def test_a_clean_switch_or_close_has_no_notes(manager):
+    manager.switch("nb", "local-duckdb")
+    manager.switch("nb", "local-sqlite", decision="close")
+    manager.close("nb")
+    assert manager.notes("nb") == []
+
+
+@pytest.mark.parametrize("engine, says", [
+    ("fabric-spark", "may use capacity until then. To stop it now, cancel it in Fabric's Monitor hub."),
+    ("databricks-connect", "may use compute (DBUs) until then. To stop it now, end it on the cluster's page in "
+                           "Databricks."),
+    ("databricks-sql", "may use compute (DBUs) until then. To stop it now, stop it on the SQL warehouse's page "
+                       "in Databricks."),
+    ("snowflake-sql", "may use compute or capacity until then."),
+])
+def test_a_remote_note_names_what_it_may_use_and_where_to_stop_it(engine, says):
+    from types import SimpleNamespace
+    m = SessionManager(lambda eid: SimpleNamespace(describe=lambda: registry.get(eid)))
+    note = m._note(engine)
+    assert note.startswith(f"Couldn't close the {registry.get(engine).label} session. It ends on its own")
+    assert note.endswith(says)
+
+
+def test_close_all_tries_once_more_the_sessions_whose_close_failed(manager, caplog):
+    class Flaky:
+        closed = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def close(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("busy")
+            self.closed = True
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = flaky = Flaky()
+    manager.close("nb")
+    assert flaky.calls == 1 and manager.notes("nb")
+    manager.close_all()
+    assert flaky.calls == 2 and flaky.closed
+    manager.close_all()
+    assert flaky.calls == 2       # tried once more, not on every close_all
+
+
+def test_a_session_that_fails_again_at_exit_is_logged_and_let_go(manager, caplog):
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = stuck = _Stuck()
+    manager.close("nb")
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        manager.close_all()
+    assert stuck.close_calls == 2 and "failed again at exit (RuntimeError)" in caplog.text
+    assert manager._unclosed == []

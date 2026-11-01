@@ -35,7 +35,7 @@ from .meta_service import NoMetadataProject
 from .notebook import leaf_name
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore, TableRef, storage_options
-from .redact import describe
+from .redact import describe, one_line
 
 _log = logging.getLogger(__name__)
 # How long Monitor waits for Fabric to say how its open runs are doing before showing the rest as last known.
@@ -111,7 +111,7 @@ class CloudMixin:
             try:
                 job = fabric.job_instance(r["workspace_id"], r["item_id"], r["job_id"])
             except Exception as exc:  # offline or gone: keep the last known status
-                r["message"] = r.get("message") or f"Status not available: {exc}"
+                r["message"] = r.get("message") or f"Status not available: {one_line(exc)}"
                 status = retrying.status_of(exc)
                 unreachable = unreachable + 1 if status is None or status in retrying.TRANSIENT_STATUS else 0
                 continue
@@ -119,7 +119,7 @@ class CloudMixin:
             r["status"] = job.get("status", r["status"])
             r["finished_at"] = job.get("endTimeUtc") or r.get("finished_at")
             reason = job.get("failureReason") or {}
-            r["message"] = reason.get("message", "") if isinstance(reason, dict) else str(reason)
+            r["message"] = one_line((reason.get("message") or "") if isinstance(reason, dict) else reason, 1000)
         return unchecked
 
     def _quiet_fabric(self) -> FabricClient | None:

@@ -68,6 +68,20 @@ test("Expert shows Dismiss and nothing else beside a finding", { skip }, async (
   assert.strictEqual(await sq002().locator(".learn-why").count(), 0);
 });
 
+test("SQL guidance overrides Learning guidance for SQL findings only (GD-08)", { skip }, async () => {
+  // Learning guidance is Expert from the test above; SQL guidance set to Guided wins on this page.
+  await page().evaluate(() => saveSettings({ learn_mode_sql: "guided" }));
+  await page().waitForFunction(() => state.settings.learn_mode_sql?.value === "guided");
+  await setDoc(VIEW.replace("2026", "2023"));
+  await openPanel();
+  await sq002().locator(".learn-detail").waitFor();
+  assert.match(await sq002().locator(".learn-detail").innerText(), /Why it matters/);
+  assert.strictEqual(await page().evaluate(() => [learnMode(), learnMode("sql"), learnMode("notebooks")].join()), "expert,guided,expert");
+  await page().evaluate(() => saveSettings({ learn_mode_sql: "same" }));
+  await page().waitForFunction(() => state.settings.learn_mode_sql?.value === "same");
+  assert.strictEqual(await page().evaluate(() => learnMode("sql")), "expert", "Same follows Learning guidance");
+});
+
 test("Professional, the default, adds a line on why, with Explain on request and no Lesson link", { skip }, async () => {
   await setMode("professional");
   assert.strictEqual(await page().evaluate(() => state.settings.learn_mode.source === "user"), true);

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import polars as pl
 import pyarrow as pa
@@ -509,3 +510,29 @@ def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, da
     engine.remove_source(str(outside.resolve()))
     with pytest.raises(Exception):
         engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")
+
+
+
+def test_a_reader_that_fails_part_way_is_still_closed(local):
+    """On DuckDB 2.0 a reader left open keeps its connection busy, so it is closed even when reading fails."""
+    from fabric_desktop.localdata import engine as local_engine
+    closed = []
+
+    class Reader:
+        schema = None
+
+        def __iter__(self):
+            raise RuntimeError("late failure")
+
+        def close(self):
+            closed.append(True)
+
+    result = SimpleNamespace(description=[("n",)], to_arrow_reader=lambda rows: Reader())
+    with pytest.raises(RuntimeError, match="late failure"):
+        local_engine._collect(result, 10, True)
+    assert closed == [True]
+    e = local.engine(local.create("Fails late")["id"])
+    with pytest.raises(Exception, match="late failure"):
+        e.execute("SELECT CASE WHEN range < 200000 THEN range ELSE error('late failure') END AS n "
+                  "FROM range(250000)", limit=10)
+    assert e.execute("SELECT 42 AS answer")["rows"] == [[42]]

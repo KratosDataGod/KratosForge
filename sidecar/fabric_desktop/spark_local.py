@@ -33,7 +33,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
-from .duckdb_rows import first_row
+from .duckdb_rows import first_row, keep_try_cast
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
@@ -550,6 +550,7 @@ class LocalSparkSession(SparkSession):
     def __init__(self) -> None:
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
+        keep_try_cast(self.conn)
         # The running query's progress, for the line under a running cell (progress()); never printed.
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
@@ -1244,7 +1245,8 @@ def progress() -> float | None:
         p = _session.conn.query_progress()
     except Exception:  # noqa: BLE001  # silent-ok: progress is a hint; a closed connection has none
         return None
-    return round(p, 1) if p is not None and 0 < p <= 100 else None
+    shown = round(p, 1) if p is not None else None
+    return shown if shown is not None and 0 < shown <= 100 else None  # 0.04% shows as 0.0: not got going
 
 
 PROFILE_NODES = 200  # operators a query profile lists; a bigger plan says how many it left out

@@ -2317,7 +2317,7 @@ def _left(req: dict[str, Any]) -> dict[str, Any]:
 # What each kind's approval makes, by the keys record_request_progress keeps: a workspace request's
 # capacity_id or a source's landing workspace_id are where things went, not what was made.
 _LEFT = {"workspace": ("workspace_id",), "workspace_access": ("assigned", "change", "from"), "source": ("copy_job_id", "schedule_id"),
-         "domain": ("domain_id", "fabric_domain_id"), "shortcut": ("shortcut_id", "found")}
+         "domain": ("domain_id", "fabric_domain_id", "found"), "shortcut": ("shortcut_id", "found")}
 
 
 def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:

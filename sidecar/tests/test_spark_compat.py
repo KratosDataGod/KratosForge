@@ -110,6 +110,11 @@ def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, c
     assert rows(spark.sql("SELECT CAST(1e20 AS DOUBLE) x").select(F.format_number("x", 0))) == [
         ("100,000,000,000,000,000,000",)]
     big = spark.sql("SELECT CAST(1e25 AS DECIMAL(38, 2)) d, CAST(10 AS HUGEINT) ** 30 h, CAST(1e19 AS DECIMAL(38, 2)) e")
+    edge = spark.sql("SELECT CAST(9223372036854775807 AS BIGINT) m, CAST(-9223372036854775808 AS BIGINT) n, "
+                     "CAST('NaN' AS DOUBLE) a, CAST('inf' AS DOUBLE) i, CAST('-inf' AS DOUBLE) j, "
+                     "CAST(123456789012345.67 AS DOUBLE) k")
+    assert rows(edge.select(*(F.format_number(c, 2) for c in "mnaijk"))) == [(
+        "9,223,372,036,854,775,807.00", "-9,223,372,036,854,775,808.00", "NaN", "∞", "-∞", "123,456,789,012,345.67")]
     # From 1e20 a number prints through a double, as before: no failure, but digits past 17 aren't exact.
     [(d, e, h)] = rows(big.select(F.format_number("d", 2), F.format_number("e", 1), F.format_number("h", 0)))
     assert d.startswith("10,000,000,000,000,000,") and d.endswith(".00") and len(d) == len("10,000,000,000,000,000,000,000,000.00")

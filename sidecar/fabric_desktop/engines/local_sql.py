@@ -44,7 +44,7 @@ import pyarrow as pa
 
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
-from ..duckdb_rows import first_row
+from ..duckdb_rows import first_row, keep_try_cast
 
 _T = "unit_tests"
 _LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
@@ -291,6 +291,7 @@ class DuckDBSession(_SqlSession):
         import duckdb
         target = str(Path(config.database)) if config.database else ":memory:"
         self._con = duckdb.connect(target, read_only=bool(config.database), config=dict(_DUCKDB_CLOSED))
+        keep_try_cast(self._con)
 
     def _sql(self, code: str, dialect: str | None) -> str:
         if (dialect or "duckdb") == "duckdb":

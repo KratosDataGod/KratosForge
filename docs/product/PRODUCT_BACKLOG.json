@@ -623,7 +623,9 @@
       "capability": "A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.",
       "evidence": [
         "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
-        "docs/product/enterprise-gap-analysis.md FD-111 partial"
+        "docs/product/enterprise-gap-analysis.md FD-111 partial",
+        "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
+        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met"
       ],
       "features": [
         "FEAT-NB-07"
@@ -652,13 +654,21 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
         "score": 2.73,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1190,
+        1262,
+        1275,
+        1300,
+        1305,
+        1324
+      ]
     },
     {
       "id": "PB-015",
@@ -714,7 +724,8 @@
         933,
         1028,
         1054,
-        1157
+        1157,
+        1272
       ],
       "issues": [
         848
@@ -2202,7 +2213,8 @@
         "docs/platform.md lists the unverified points",
         "central/setup.py setup() and join() have no tests",
         "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
-        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d"
+        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
+        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2247,7 +2259,26 @@
         1038,
         1041,
         1045,
-        1200
+        1200,
+        1205,
+        1213,
+        1239,
+        1241,
+        1243,
+        1244,
+        1255,
+        1259,
+        1265,
+        1267,
+        1308,
+        1309,
+        1322,
+        1328,
+        1335,
+        1348,
+        1351,
+        1353,
+        1354
       ],
       "issues": [
         909
@@ -2592,7 +2623,8 @@
       "capability": "Settings > Help > Save support bundle with a contents preview, as FD-138 asks.",
       "evidence": [
         "support_bundle.py has no RPC or UI",
-        "Smoke: CLI wrote about.json and CONTENTS.txt"
+        "Smoke: CLI wrote about.json and CONTENTS.txt",
+        "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2617,13 +2649,16 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1177
+      ]
     },
     {
       "id": "PB-063",
@@ -2634,7 +2669,8 @@
       "evidence": [
         "app/tests/ui.test.cjs static checks",
         "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
-        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet"
+        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
+        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2675,7 +2711,11 @@
       "prs": [
         907,
         926,
-        951
+        951,
+        1294,
+        1297,
+        1334,
+        1339
       ],
       "issues": [
         880,
@@ -4264,7 +4304,8 @@
       "capability": "Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).",
       "evidence": [
         "DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py)",
-        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)"
+        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
+        "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4321,7 +4362,25 @@
         620,
         622,
         628,
-        631
+        631,
+        1210,
+        1254,
+        1268,
+        1274,
+        1291,
+        1293,
+        1304,
+        1326,
+        1327,
+        1338,
+        1342,
+        1343,
+        1344,
+        1345,
+        1346,
+        1349,
+        1356,
+        1357
       ]
     },
     {
@@ -4452,7 +4511,15 @@
         1089,
         1122,
         1153,
-        1156
+        1156,
+        1208,
+        1209,
+        1211,
+        1212,
+        1214,
+        1215,
+        1231,
+        1245
       ],
       "issues": [
         910,
@@ -4636,7 +4703,17 @@
         1107,
         1154,
         1155,
-        1164
+        1164,
+        1230,
+        1234,
+        1240,
+        1258,
+        1290,
+        1298,
+        1299,
+        1302,
+        1332,
+        1336
       ]
     },
     {
@@ -4883,7 +4960,12 @@
         739,
         740,
         741,
-        746
+        746,
+        1222,
+        1250,
+        1251,
+        1256,
+        1333
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5368,7 +5450,10 @@
       "prs": [
         993,
         995,
-        1202
+        1202,
+        1225,
+        1248,
+        1321
       ],
       "category": "Local Development and Execution",
       "effort": "M",
@@ -5458,7 +5543,9 @@
       "external_dependencies": [],
       "prs": [
         1053,
-        1146
+        1146,
+        1242,
+        1289
       ],
       "computed": {
         "benefit": 2.2,
@@ -5486,14 +5573,18 @@
         1159,
         1160,
         1161,
-        1162
+        1162,
+        1175,
+        1186,
+        1233
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
       "capability": "A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
         "No backlog item tracked it before this check",
-        "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce"
+        "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
+        "Rule guides carry importance, principle, impact and how to check (GD-03, #1175); a fix applied after a matching Compare is recorded in Profile (GD-06, #1186); first lessons for the Snowflake, Databricks and Python paths (GD-10, #1233) on main at b3c5b223"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -5543,7 +5634,17 @@
         1183,
         1191,
         1201,
-        1202
+        1202,
+        1228,
+        1238,
+        1263,
+        1271,
+        1276,
+        1277,
+        1279,
+        1292,
+        1323,
+        1329
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",

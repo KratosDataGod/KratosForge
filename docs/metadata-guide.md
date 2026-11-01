@@ -23,7 +23,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 ## 1. Set up a project
 
 1. Open **Data mesh** in the left rail. With no project yet, it shows **Set up a metadata project**.
-2. **Folder:** where the project goes. The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
+2. **Folder:** where the project goes, as a full path (a relative path such as `crm` is refused). The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
 3. **Layers:** pick 2 (raw, curated), 3 (bronze, silver, gold) or 5 (landing, bronze, silver, gold, semantic). You can add, remove, rename and reorder later.
 4. **Add the sample tables:** with 3 layers, tick this to get customers and orders from Bronze to Gold with sample CSV files, so you can try everything straight away.
 5. **Create project.**

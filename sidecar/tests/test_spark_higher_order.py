@@ -139,3 +139,50 @@ def test_columns_keep_spark_names(dialect):
         "SELECT map_filter(map(1, 0), (k, v) -> k > v)")
     cursor = duckdb.connect().execute(sql.duckdb_sql(statements[-1]))
     assert cursor.description[0][0] == "map_filter(map(1, 0), (k, v) -> k > v)"
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT transform_values(map(1, 10), (kf_p, v) -> v + kf_p)",       # a lambda argument named like the rewrite's
+    "SELECT map_filter(map(1, 10), (k, kf_v) -> kf_v > 0)",
+    "SELECT zip_with(array(1), array(2), (kf_i, y) -> kf_i + y)",
+    "SELECT aggregate(array(1, 2), 0, (kf_a, x) -> kf_a + x, acc -> acc)",
+    "SELECT array_union(kf_v, array(1)) FROM (SELECT array(2) AS kf_v)",  # a column inside a rewritten call
+])
+def test_a_kf_name_inside_a_rewritten_call_is_refused_plainly(query):
+    """#1371 follow-up: the rewrites' own lambda arguments start with kf_, so a person's kf_ name could
+    hide one of them (a confusing binder error, or a wrong answer); it is refused with a plain message."""
+    with pytest.raises(ValueError, match="names that start with kf_ are reserved"):
+        _databricks(query)
+
+
+def test_a_kf_column_outside_any_rewritten_call_still_runs():
+    con = duckdb.connect()
+    statements = _databricks("SELECT kf_x + 1 FROM (SELECT 1 AS kf_x)")
+    assert con.execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 2
+
+
+
+def test_a_kf_name_in_an_exists_subquery_still_runs():
+    """EXISTS (SELECT ...) is a subquery, not the rewritten exists(array, x -> ...), so a kf_ name
+    in it is the person's own and runs as on main (#1400 review)."""
+    con = duckdb.connect()
+    statements = _databricks("SELECT 1 WHERE EXISTS (SELECT kf_x FROM (SELECT 1 AS kf_x) WHERE kf_x = 1)")
+    assert con.execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 1
+@pytest.mark.parametrize("query, want", [
+    ("SELECT array_distinct(array_except(array(1, 2, 2, 3), array(2)))", [1, 3]),
+    ("SELECT aggregate(zip_with(array(1, 2), array(10, 20), (x, y) -> x + y), 0, (acc, v) -> acc + v, acc -> acc * 2)",
+     66),
+    ("SELECT map_filter(transform_values(map(1, 10, 2, 20), (k, v) -> v + k), (k, v) -> v > 15)", {2: 22}),
+    ("SELECT array_union(array_intersect(array(1, 2), array(2, 3)), array_distinct(array(4, 4)))", [2, 4]),
+])
+def test_rewritten_calls_inside_rewritten_calls_still_run(query, want):
+    """The kf_ check reads the statement as written, so a rewrite's own kf_ names inside another
+    rewritten call are never taken for the person's (#1400 review)."""
+    for dialect in ("databricks", "spark"):
+        statements = _databricks(query) if dialect == "databricks" else sql.parse(query, "spark")
+        assert duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == want, dialect
+
+
+def test_a_kf_name_in_aggregate_without_finish_is_left_alone():
+    statements = _databricks("SELECT aggregate(kf_a, 0, (acc, x) -> acc + x) FROM (SELECT array(1, 2) AS kf_a)")
+    assert duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 3

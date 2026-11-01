@@ -761,7 +761,7 @@ The one list of Preview features, with where each one is, is on the [documentati
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses, your Windows user name in paths, and tenant, workspace and item ids. You can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses (a guest's sign-in name too), your tenant's `onmicrosoft.com` domain, your organization's name on a OneDrive folder, your Windows user name in paths, and tenant, workspace and item ids. You can read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 

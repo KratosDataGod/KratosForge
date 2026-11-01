@@ -9,7 +9,7 @@
     CONTENTS.txt    what is in the zip and what was taken out
 
 Every file passes through :func:`redact.for_support` (no tokens, keys, passwords, email
-addresses, user names in paths or ids). No table data, notebook contents or token cache is read.
+addresses, tenant domains, the organization on OneDrive folders, user names in paths or ids). No table data, notebook contents or token cache is read.
 """
 
 from __future__ import annotations
@@ -100,8 +100,9 @@ def _files(data_dir: Path, agent_home: Path | None) -> dict[str, str]:
             files[name] = text
     contents = ["KratosForge support bundle", "",
                 *[f"{name}" for name in files], *[f"{name} (not found on this PC)" for name in missing], "",
-                "Taken out of every file: tokens, keys, passwords, email addresses, user names in paths,",
-                "and tenant, workspace and item ids. No table data, notebook contents or sign-in cache is included.",
+                "Taken out of every file: tokens, keys, passwords, email addresses (a guest's too), tenant domains,",
+                "the organization's name on OneDrive folders, user names in paths, and tenant, workspace and item ids.",
+                "No table data, notebook contents or sign-in cache is included.",
                 "Settings that hold a secret, such as a connection string, or an internal address show only whether they are set.",
                 "The policy file shows only the setting names it sets, never their values; other keys are counted.",
                 f"Logs are the last {LOG_LINES} lines."]

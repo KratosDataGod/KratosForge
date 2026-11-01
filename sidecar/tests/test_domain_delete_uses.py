@@ -85,5 +85,8 @@ def test_a_platform_without_the_policy_tables_still_deletes_an_unused_domain(tmp
             db.run(f"DROP TABLE {db.t('catalog', table)}")
     db.commit()
     db.conn.close()
-    assert core.delete_domain(core.Db(__import__("sqlite3").connect(tmp_path / "platform.sqlite"), "sqlite"),
-                              "hr", by=ADMIN) is None
+    conn = __import__("sqlite3").connect(tmp_path / "platform.sqlite")
+    try:
+        assert core.delete_domain(core.Db(conn, "sqlite"), "hr", by=ADMIN) is None
+    finally:
+        conn.close()

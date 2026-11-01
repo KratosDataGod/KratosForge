@@ -3,6 +3,7 @@
 import json
 import threading
 import types
+from contextlib import closing
 
 import polars as pl
 import pytest
@@ -908,7 +909,7 @@ def test_a_platform_made_before_source_ids_gets_them_keeping_its_sources(tmp_pat
     import sqlite3
     path = tmp_path / "old.sqlite"
     LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # the source table as schema 4 made it
+    with closing(sqlite3.connect(path)) as conn, conn:  # the source table as schema 4 made it
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -983,7 +984,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     import sqlite3
     path = tmp_path / "old.sqlite"
     platform = LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
+    with closing(sqlite3.connect(path)) as conn, conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -992,7 +993,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with platform._db() as db:
         got = {s["name"]: s for s in core.list_sources(db)}
     assert (got["crm"]["source_id"], got["crm"]["code"], got["sap"]["source_id"], got["sap"]["active"]) == (1, "CRM", 2, True)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
 

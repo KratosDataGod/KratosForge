@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-31 23:42 UTC, main b3c5b223.** Covers the PRs merged from #135 to #1357.
+**Product check of 2026-11-01 11:42 UTC, main 063b84ed.** Covers the PRs merged from #135 to #1523.
 
 ## Summary
 
+- Morning check, 2026-11-01: 103 PRs merged after b3c5b223 (#1381 to #1523), all hardening and tests.
+  The remaining screens and their writes have real-browser tests, and several gained the danger or
+  risk-check confirm they lacked. Databricks sign-in, profiles and discovery refuse replies that
+  aren't the documented ones. More engine readers work on DuckDB 2.0, and CI runs on it, though 2.0
+  isn't allowed yet. Errors stay one bounded line. App state files are written safely. Engine HTTPS
+  trusts the Windows certificate store, and support bundles leave out tenant and OneDrive names.
+  No backlog item finished. PB-014's review asks for Unknown cells in the notebook (#1362).
 - Evening check, 2026-10-31: 99 PRs merged after f3750b9d (#1205 to #1357), the full-speed day.
   Most are hardening and tests. The engine is ready for DuckDB 2.0 (#1341's parts), OneLake reads,
   writes, shortcut checks and leases wait out throttling, governance requests say what stays in

@@ -35,10 +35,12 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
-
 def _writable_then_retry(func: Callable[..., Any], path: str, _exc: BaseException) -> None:
     """Git keeps its objects and packs read-only, and Windows won't delete a read-only file: make it
-    writable and try once more. Anything else still in the way is left (the caller ignores it)."""
+    writable and try once more. Anything else still in the way is left (the caller ignores it).
+    A link is never changed: chmod would follow it and change its target, outside the clone."""
+    if os.path.islink(path) or os.path.isjunction(path):
+        return
     try:
         os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
         func(path)
@@ -50,6 +52,7 @@ def remove_clone(dest: Path) -> None:
     """Remove what a failed clone left, read-only Git objects included, so cloning to the same folder
     again doesn't stop at "already exists and isn't empty"."""
     shutil.rmtree(dest, onexc=_writable_then_retry)
+
 
 class Operations:
     def __init__(self) -> None:

@@ -54,7 +54,7 @@ def _minutes(value: Any) -> int:
         return 0
     try:
         minutes = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):   # OverflowError: JSON's Infinity
         raise OddReply(f"an auto-stop of {_text(value)!r} isn't a number of minutes") from None
     return max(minutes, 0)
 

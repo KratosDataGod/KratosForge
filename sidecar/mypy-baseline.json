@@ -229,10 +229,6 @@
   "assignment": 1,
   "operator": 1
  },
- "fabric_desktop/ipython_display.py": {
-  "attr-defined": 10,
-  "call-overload": 1
- },
  "fabric_desktop/jobqueue.py": {
   "assignment": 2,
   "valid-type": 1
@@ -537,9 +533,6 @@
  },
  "fabric_desktop/tenant_history_service.py": {
   "var-annotated": 1
- },
- "fabric_desktop/time_zones.py": {
-  "attr-defined": 9
  },
  "fabric_desktop/usage/__init__.py": {
   "assignment": 1,

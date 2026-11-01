@@ -12,16 +12,29 @@ on the chosen engine, ``execute`` says so and stops: it never moves the cell to 
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .. import redact
 from . import authorization as auth
 from .capabilities import check_cell
 from .contract import CellRequest, CellResult, EngineAdapter, EngineSession, OutputSink, SessionConfig, Unsupported
 from .usage import UsageRecord
 
 DECISIONS = ("close", "keep")
+_log = logging.getLogger(__name__)
+
+
+def _close(session: EngineSession, engine: str) -> None:
+    """Close a session the notebook has already let go of. A failure is logged, never raised: the
+    switch or close it belongs to has already happened, so an error would say otherwise."""
+    try:
+        session.close()
+    except Exception as exc:  # noqa: BLE001 - logged; the caller's step already succeeded
+        _log.warning("Closing a %s session failed (%s): %s", engine, type(exc).__name__,
+                     redact.secrets(str(exc))[:300])
 
 
 class SwitchNeeded(RuntimeError):
@@ -94,7 +107,7 @@ class SessionManager:
             nb.engine = engine
             nb.sessions[engine] = session
             if old is not None:
-                old.close()
+                _close(old, t["from"])
             return session
 
     def check(self, notebook: str, request: CellRequest) -> dict[str, Any]:
@@ -123,8 +136,8 @@ class SessionManager:
         """Close every session of ``notebook``, kept ones included."""
         with self._lock:
             nb = self._notebooks.pop(notebook, None)
-        for session in (nb.sessions.values() if nb else ()):
-            session.close()
+        for engine, session in (nb.sessions.items() if nb else ()):
+            _close(session, engine)
 
     def close_all(self) -> None:
         for notebook in list(self._notebooks):

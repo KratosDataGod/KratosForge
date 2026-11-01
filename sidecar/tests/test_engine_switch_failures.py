@@ -103,3 +103,51 @@ def test_a_cell_with_no_open_session_says_so_instead_of_an_internal_error(manage
     nb.sessions.clear()     # however it happened, the engine has no session
     with pytest.raises(Unsupported, match="has no open session"):
         manager.execute("nb", sql("SELECT 1"))
+
+
+# ---------------------------------------------------------------- a close that fails
+
+
+class _Stuck:
+    """A session whose close fails (a worker that won't stop, a remote that answers with an error)."""
+
+    closed = False
+
+    def __init__(self, message="worker wouldn't stop"):
+        self.message = message
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+        raise RuntimeError(self.message)
+
+
+def test_a_switch_that_happened_isnt_reported_as_failed_when_the_old_close_fails(manager, caplog):
+    manager.remote.fail = False
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = stuck = _Stuck()
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        s2 = manager.switch("nb", "fake-remote", decision="close", target="wh-1", authorization=OK)
+    assert stuck.close_calls == 1 and manager.session("nb") is s2 and manager.engine_of("nb") == "fake-remote"
+    assert "Closing a local-duckdb session failed (RuntimeError): worker wouldn't stop" in caplog.text
+
+
+def test_closing_a_notebook_closes_every_session_even_when_one_fails(manager, caplog):
+    s1 = manager.switch("nb", "local-duckdb")
+    manager.switch("nb", "local-sqlite", decision="keep")
+    nb = manager._notebooks["nb"]
+    nb.sessions = {"local-stuck": _Stuck(), **nb.sessions}
+    other = manager.switch("nb2", "local-duckdb")
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        manager.close_all()
+    assert s1.closed and other.closed and manager.open_sessions() == []
+    assert "Closing a local-stuck session failed" in caplog.text
+
+
+def test_a_close_failure_is_logged_without_a_secret_it_carried(manager, caplog):
+    token = "dapi" + "0123456789abcdef" * 2
+    manager.switch("nb", "local-duckdb")
+    manager._notebooks["nb"].sessions["local-duckdb"] = _Stuck(f"401 for Bearer {token}")
+    with caplog.at_level("WARNING", logger="fabric_desktop.engines.sessions"):
+        manager.close("nb")
+    assert "Closing a local-duckdb session failed" in caplog.text and token not in caplog.text

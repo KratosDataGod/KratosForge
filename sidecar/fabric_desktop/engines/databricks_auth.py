@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import math
 import os
 import subprocess
 import sys
@@ -165,19 +166,33 @@ def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | N
                    stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise DatabricksAuthError("The Databricks CLI didn't answer within a minute.") from None
+    except OSError as exc:   # found on PATH, but Windows or a policy wouldn't start it
+        raise DatabricksAuthError(f"The Databricks CLI at {cli} couldn't be started ({type(exc).__name__}). "
+                                  "Reinstall it, or check that it is allowed to run.") from None
     if done.returncode != 0:
         # stderr says why (not signed in, expired refresh token); it never carries the token itself,
         # but it passes through redaction anyway.
         lines = (done.stderr or "").strip().splitlines()
-        detail = redact.secrets(lines[-1]) if lines else ""
+        detail = _part(redact.secrets(lines[-1])) if lines else ""
         hint = " Sign in again with: databricks auth login " + " ".join(args)
         raise DatabricksAuthError(f"The Databricks CLI couldn't give a token{': ' + detail if detail else '.'}{hint}")
     try:
         data = json.loads(done.stdout)
     except (TypeError, ValueError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("access_token", ""), str):
         raise DatabricksAuthError("The Databricks CLI's answer wasn't the JSON it documents. "
-                                  "Update the CLI (0.205 or later).") from None
-    return str(data.get("access_token") or ""), _expiry(data.get("expiry"))
+                                  "Update the CLI (0.205 or later).")
+    return data.get("access_token") or "", _expiry(data.get("expiry"))
+
+
+_PART_MAX = 300   # characters of the CLI's own reason kept in an error
+
+
+def _part(text: str) -> str:
+    """The CLI's reason as one bounded line: control characters folded to spaces, cut to _PART_MAX."""
+    line = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return line if len(line) <= _PART_MAX else line[:_PART_MAX - 1].rstrip() + "…"
 
 
 def _expiry(value: Any) -> float | None:
@@ -200,14 +215,20 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     if resp.status_code != 200:
         raise DatabricksAuthError(f"The workspace refused the service principal's sign-in (HTTP {resp.status_code}). "
                                   "Check the client ID, the secret and that the principal is in the workspace.")
+    refused = DatabricksAuthError("The workspace's token endpoint didn't answer with the OAuth token it documents. "
+                                  "Check the workspace address.")
     try:
         data = resp.json()
         lifetime = data.get("expires_in")
-        expires = (clock() + float(lifetime)) if lifetime else None
+        seconds = float(lifetime) if lifetime else None
     except (ValueError, TypeError, AttributeError):
-        raise DatabricksAuthError("The workspace's token endpoint didn't answer with the OAuth token it documents. "
-                                  "Check the workspace address.") from None
-    return str(data.get("access_token") or ""), expires
+        raise refused from None
+    # A lifetime that is infinite, NaN or not positive would keep a token forever or fetch one on every call.
+    if seconds is not None and not (math.isfinite(seconds) and seconds > 0):
+        raise refused
+    if not isinstance(data.get("access_token", ""), str):
+        raise refused   # str() of an object would send its text as the bearer token
+    return data.get("access_token") or "", (clock() + seconds) if seconds is not None else None
 
 
 def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subprocess.run, http: Any = None,

@@ -75,9 +75,17 @@ test("a run opens in a new tab without running, and the filter narrows the list"
   await page().waitForFunction((n) => sqlPage.tabs.length === n + 1, tabs);
   assert.match(await page().evaluate(() => sqlPage.editor.text()), /^-- top customers/);
   assert.strictEqual(starts().length, before, "opening a past run runs nothing");
-  await aside().getByLabel("Filter history").fill("customr");
-  assert.strictEqual(await aside().locator(".wh-h-row").count(), 1);
-  await aside().getByLabel("Filter history").fill("");
+  // Typed a letter at a time, as a person does: each letter redraws the list, and the filter keeps
+  // the focus (it lost it after the first letter, and a redraw mid-fill flaked this test in CI).
+  const filter = aside().getByLabel("Filter history");
+  await filter.click();
+  await page().keyboard.type("cust");
+  await page().evaluate(() => sqlPage.whRedraw());  // a run finishing or the catalog arriving
+  await page().keyboard.type("omr");
+  assert.strictEqual(await filter.inputValue(), "customr");
+  assert.ok(await filter.evaluate((el) => el === document.activeElement), "the filter keeps the focus");
+  assert.deepStrictEqual(await aside().locator(".wh-h-row .wh-h-sql").allTextContents(), ["SELECT * FROM dbo.DimCustomr"]);
+  await filter.fill("");
 });
 
 test("query insights open in a new tab and run there", { skip }, async () => {

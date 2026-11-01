@@ -259,7 +259,8 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
 # array_sort(a, (left, right) -> ...) as Spark's stable sort with that comparator: each element's place
 # is the number of elements that compare less than it plus the earlier ones that compare equal ({1} is
 # the bound comparator; an element is never compared with itself). A NULL comparison is refused, as
-# Spark refuses it.
+# Spark refuses it. Every pair is compared, so the work grows with the square of the array's length:
+# fine for the arrays a row usually holds, slow past a few thousand elements (about 1.5 s for 2,000).
 _ARRAY_SORT_BY = ("(LIST_TRANSFORM([{0}], kf_l -> CASE WHEN kf_l IS NULL THEN NULL ELSE LIST_TRANSFORM(LIST_SORT("
                   "LIST_TRANSFORM(kf_l, (kf_x, kf_i) -> {{'r': LEN(LIST_FILTER(LIST_FILTER(RANGE(1, LEN(kf_l) + 1), "
                   "kf_k -> kf_k <> kf_i), kf_j -> "

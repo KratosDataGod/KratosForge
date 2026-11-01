@@ -26,6 +26,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 from typing import Any, ClassVar
 
@@ -68,7 +69,8 @@ FOCUS = Layout(
 def _hours(unit: str) -> float | None:
     """How many hours one unit is, from text like "1 Hour", "10 Hours" or "Hours"; None when it isn't hours."""
     m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)?\s*(?:cu\s*)?hours?\s*", (unit or "").lower())
-    return float(m.group(1) or 1) if m else None
+    hours = float(m.group(1) or 1) if m else None
+    return hours if hours is None or math.isfinite(hours) else None
 
 
 class CostManagement(Provider):
@@ -110,6 +112,8 @@ class CostManagement(Provider):
         cu = None
         hours = _hours(unit)
         if meter.lower().endswith(COMPUTE_SUFFIX) and quantity is not None and hours is not None:
+            if not math.isfinite(quantity * hours):
+                return "The quantity is too large to be real usage"
             cu = ms.make(ms.MEASURED, "billed_capacity_cu", ms.CU_HOURS, quantity * hours, capacity_id=resource_id.lower(),
                          source=source, method=f"{layout.columns['quantity'][0]} x {unit!r} of a compute meter ({meter})",
                          collected_at=ctx.imported_at, period_start=start, period_end=end, uncertainty=BILLED,

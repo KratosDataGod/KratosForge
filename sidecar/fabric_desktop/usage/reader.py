@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import math
 import re
 from typing import Any
 
@@ -106,7 +107,8 @@ def decimal_mark(values: list[str]) -> str | None:
 
 
 def number(raw: str, mark: str | None) -> float | None:
-    """A number written with ``mark`` as its decimal mark; None when the cell is empty or not a number."""
+    """A number written with ``mark`` as its decimal mark; None when the cell is empty or not a number,
+    including one too large to be a real amount (more digits than a float holds reads as infinity)."""
     v = (raw or "").strip().replace(" ", "").replace(" ", "").replace(" ", "").replace("'", "")
     if not v or not _NUM.match(v):
         return None
@@ -115,9 +117,10 @@ def number(raw: str, mark: str | None) -> float | None:
     else:
         v = v.replace(",", "")
     try:
-        return float(v)
+        value = float(v)
     except ValueError:
         return None
+    return value if math.isfinite(value) else None
 
 
 # ---- times

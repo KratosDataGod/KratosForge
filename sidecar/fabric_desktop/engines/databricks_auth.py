@@ -191,6 +191,22 @@ def _where(exc: configparser.Error) -> str:
     return (" (line " + ", ".join(map(str, lines)) + ")") if lines else ""
 
 
+# The ~/.databrickscfg keys that hold a sign-in of the profile's own.
+PROFILE_SECRETS = ("token", "client_secret", "azure_client_secret", "password")
+
+
+def check_profile_host(name: str, section: Mapping[str, str], host: str) -> None:
+    """A CLI profile's sign-in goes only to the workspace the profile names. One for another workspace
+    is refused, and so is one that keeps a secret of its own (PROFILE_SECRETS) but names no workspace."""
+    own = section.get("host")
+    if own:
+        if check_host(own) != host:
+            raise DatabricksAuthError(f"The CLI profile {name!r} is for another workspace than this connection.")
+    elif any(section.get(key) for key in PROFILE_SECRETS):
+        raise DatabricksAuthError(f"The CLI profile {name!r} keeps a sign-in but names no workspace. Add "
+                                  f"host = {host} to it in ~/.databrickscfg, so it only signs in there.")
+
+
 def find_cli(environ: Mapping[str, str] | None = None) -> str | None:
     """The Databricks CLI from PATH's absolute folders only (runtimes.trusted_cli): on Windows only
     databricks.exe in a folder that starts with a drive letter, never the current folder."""
@@ -294,8 +310,7 @@ def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subpro
             raise DatabricksAuthError("Name the Databricks CLI profile to use.")
         section = _cfg_section(name, cfg_path)
         host = check_host(connection.get("host") or section.get("host", ""))
-        if section.get("host") and check_host(section["host"]) != host:
-            raise DatabricksAuthError(f"The CLI profile {name!r} is for another workspace than this connection.")
+        check_profile_host(name, section, host)
         if section.get("token"):
             pat = section["token"]
             return TokenProvider(host, lambda: (pat, None), "pat", clock)

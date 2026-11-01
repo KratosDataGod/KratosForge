@@ -526,7 +526,16 @@ function confirmLink(w) {
   }, "tool primary")]);
 }
 
+// A link this PC keeps decides which Fabric item Run in Fabric runs, so unlinking one asks first.
+// A name match isn't kept (inventory.notebook_link), so unlinking it changes nothing to ask about.
 async function unlinkNotebook(w) {
+  const link = w.link || {};
+  const runs = (w.available_actions || []).some((a) => a.action === "run_in_fabric");
+  if (runs && link.how !== "name match" && !(await confirmDialog(`Unlink ${w.name} from its Fabric item?`,
+    `Run in Fabric runs the notebook in ${link.workspace_name || "its workspace"} (item ${link.item_id}) now. After unlinking, `
+    + "KratosForge finds its item again from runs this app started in Fabric, or by its name in its publish workspace; "
+    + "if neither finds it, Run in Fabric isn't offered until you publish or link it again. Nothing changes in Fabric.",
+    "Unlink", { danger: true }))) return;
   if (await attempt(() => rpc("workload_unlink", { notebook: w.name }), "Not unlinked")) {
     wlPage.detail = null;
     toast(`${w.name} is no longer linked. If a Fabric notebook has the same name, it's matched by name again.`);

@@ -434,7 +434,7 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
     for t in benchmark.TABLES:
         con.register(t, DeltaTable(str(tables.path(tname("tpch", t)))).to_pyarrow_dataset())
     for n in (1, 6, 13, 18):
-        expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
+        expected = sbs.fingerprint(con.sql(benchmark.QUERIES[n]).pl().to_arrow())
         got = tables.fingerprint(tname("bench", f"q{n:02d}"), DeltaTable(str(tables.path(tname("bench", f"q{n:02d}")))).version())
         assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]
 

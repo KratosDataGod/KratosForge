@@ -14,7 +14,7 @@ const { playwright, openApp, startupReads, axeSource, axeFindings } = require(".
 let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
-const READS = ["all_schedules", "pc_schedules_for", "time_zones", "risk_check"];
+const READS = ["all_schedules", "pc_schedules_for", "time_zones", "risk_check", "workload_preflight"];
 const WRITES = ["add_pc_schedule", "run_pc_schedule_now", "set_pc_schedule_enabled", "delete_pc_schedule", "update_pc_schedule",
   "run_fabric_item_now", "set_fabric_schedule_enabled", "delete_fabric_schedule", "update_fabric_schedule", "risk_acknowledge"];
 const DENIED = "HTTPError: 403 Client Error: Forbidden for url: https://api.fabric.microsoft.com/v1/workspaces/ws1/items/pl1/jobs/Pipeline/schedules/f1";
@@ -50,6 +50,7 @@ function fresh() {
 let db = fresh();
 const fail = {};  // method -> the engine's error text for calls to it
 let risk = null;  // what risk_check answers; null passes
+let listed = true;  // false: workload_preflight answers not_in_inventory, as the engine does for an item it doesn't list
 const pcFind = (id) => {
   const s = db.pc.find((x) => x.id === id);
   if (!s) throw new Error(`LookupError: There is no schedule ${id} on this PC`);  // local_schedules.py
@@ -77,9 +78,18 @@ const mocks = {
     s.next_run = enabled ? later(5) : null;
     return copy(s);
   },
-  // risk.py analyze; a pass shows nothing (risk.js riskGate)
-  risk_check: ({ id, action }) => risk || { id: "r-pass", result: "pass", label: "Pass", summary: "Nothing should stop or slow this run",
-    workload_id: id, action, findings: [], can_proceed: true, needs_acknowledgement: false, enforced: false },
+  // workload_service.py workload_preflight: an item the inventory doesn't list is refused with this code
+  workload_preflight: ({ id }) => listed ? { allowed: true, id }
+    : { allowed: false, code: "not_in_inventory", reason: "That workload isn't in the inventory any more. It may have been renamed, "
+      + "deleted, or be in a workspace this app no longer reads." },
+  // risk.py analyze; a pass shows nothing (risk.js riskGate). It looks the workload up the same way
+  // (workload_service.py _wl_record), so for an item the inventory doesn't list it raises NotInInventory.
+  risk_check: ({ id, action }) => {
+    if (!listed) throw new Error("NotInInventory: That workload isn't in the inventory any more. It may have been renamed, "
+      + "deleted, or be in a workspace this app no longer reads.");
+    return risk || { id: "r-pass", result: "pass", label: "Pass", summary: "Nothing should stop or slow this run",
+      workload_id: id, action, findings: [], can_proceed: true, needs_acknowledgement: false, enforced: false };
+  },
   // schedule_service.py run_fabric_item_now -> cloud_service.py _log_fabric_run
   run_fabric_item_now: (p) => {
     refuse("run_fabric_item_now");
@@ -118,6 +128,7 @@ beforeEach(async () => {
   if (skip) return;
   db = fresh();
   risk = null;
+  listed = true;
   for (const k of Object.keys(fail)) delete fail[k];
   await page().evaluate(() => { closeMenu(); closeDialog(); const t = document.getElementById("toast"); t.hidden = true; t.textContent = ""; go("home"); });
 });
@@ -238,6 +249,31 @@ test("Run now in Fabric: a blocked risk check stops it, and nothing is sent", { 
   await gate.waitFor({ state: "detached" });
   await pause(300);
   assert.deepStrictEqual(writes(from), []);
+});
+
+test("Run now in Fabric for an item the app doesn't list: one confirm that says the risk check wasn't run", { skip }, async () => {
+  listed = false;
+  try {
+    await schedules("fabric_schedules", 2);
+    const from = app.calls.length;
+    await row("pl_load_gold").getByRole("button", { name: "Run now" }).click();
+    const confirm = page().getByRole("dialog", { name: "Run pl_load_gold now?" });
+    await confirm.waitFor();
+    await pause(300);
+    assert.strictEqual(await page().getByRole("dialog").count(), 1, "only the capacity confirm");
+    const text = await confirm.innerText();
+    assert.match(text, /Sales Prod, which uses that workspace's capacity/);
+    assert.match(text, /The risk check wasn't run: it covers only workloads in the workspaces this app works in/);
+    assert.doesNotMatch(text, /deleted|couldn't run|inventory/i);
+    const looked = app.calls.slice(from).filter((c) => c.method === "workload_preflight").map((c) => c.params);
+    assert.deepStrictEqual(looked, [{ id: "fabric:ws1:pl1", action: "run_item", env: null, assess: false }]);
+    assert.strictEqual(app.calls.slice(from).filter((c) => c.method === "risk_check").length, 0, "the check isn't asked");
+    await confirm.getByRole("button", { name: "Run now" }).click();
+    assert.match(await toastText(), /^pl_load_gold started in Fabric/);
+    assert.deepStrictEqual(writes(from), [RUN_FABRIC]);
+  } finally {
+    listed = true;
+  }
 });
 
 test("Paused and On in Fabric send that schedule, its configuration and the new state", { skip }, async () => {

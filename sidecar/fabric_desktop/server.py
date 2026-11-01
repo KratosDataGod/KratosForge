@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, rpc_params
+from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
@@ -282,7 +282,10 @@ def handle(service: Service, line: str) -> dict:
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
             reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
-            reply = {"id": req_id, "error": _short(_home(secrets(f"{type(exc).__name__}: {exc}")))}
+            text = f"{type(exc).__name__}: {exc}"
+            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
+                text = f"{net_trust.HINT} ({text})"
+            reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started
         _audit(service, method, params, reply, seconds)

@@ -297,6 +297,10 @@ function drawSchedules(box) {
           s.last?.message ? h("div", { class: "reason" }, s.last.message) : null),
         h("td", { class: "n nowrap" },
           btn("Run now", "play", async () => {
+            // It starts a job on the workspace's capacity: the risk check, then a confirm, as Run in Fabric does.
+            if (!(await riskGate({ id: `fabric:${s.workspace_id}:${s.item_id}`, action: "run_item", title: `Run ${s.name} now?`, runLabel: "Run now" }))) return;
+            if (!(await confirmDialog(`Run ${s.name} now?`, `Starts one run of it in Fabric, in ${s.workspace_name}, which uses that workspace's capacity. `
+              + "Its schedule isn't changed.", "Run now"))) return;
             const r = await attempt(() => rpc("run_fabric_item_now", { workspace_id: s.workspace_id, item_id: s.item_id,
               job_type: s.job_type, name: s.name, workspace_name: s.workspace_name }), "Not started");
             if (r) toast(`${s.name} started in Fabric. Follow it under Runs.`);

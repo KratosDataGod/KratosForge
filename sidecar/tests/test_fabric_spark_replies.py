@@ -97,3 +97,42 @@ def test_a_blank_cell_sends_nothing_to_fabric(code, language, rows):
     with pytest.raises(Unsupported, match="nothing was sent"):
         s.execute(CellRequest(code, language, result_rows=rows))
     assert _posts(livy, "/7/statements") == 0 and not s._lock.locked()
+
+
+# ---------------------------------------------------------------- SQL previews (#1369)
+
+
+def _sql_reply(fields, rows):
+    return {"status": "ok", "data": {"application/json": {
+        "schema": {"fields": [{"name": f, "type": "long"} for f in fields]}, "data": rows}}}
+
+
+@pytest.mark.parametrize("rows", [[[1, "a"], [2]], [[1, "a", "extra"]], [{"id": 1, "name": "a"}]],
+                         ids=["short", "long", "not-a-list"])
+def test_a_sql_preview_whose_rows_dont_match_the_columns_is_an_error_never_padded_or_cut(rows):
+    outputs, total = fs._outputs(_sql_reply(["id", "name"], rows), 10)
+    assert total is None and outputs == [{"type": "error", "ename": "FabricSparkError",
+                                          "evalue": "Fabric sent a result that doesn't have one value per column."}]
+
+
+def test_a_broken_sql_preview_ends_the_cell_as_an_error():
+    livy = t.FakeLivy()
+    livy._result = lambda n: {"id": n, "state": "available", "output": _sql_reply(["id", "name"], [[1]])}
+    r = t.open_session(livy).execute(CellRequest("SELECT id, name FROM t", "sql"))
+    assert r.status == "error" and "one value per column" in r.outputs[0]["evalue"]
+
+
+def test_columns_that_share_a_name_all_show():
+    outputs, total = fs._outputs(_sql_reply(["a", "a", "b"], [[1, 2, "x"], [3, 4, None]]), 10)
+    assert total == 2 and outputs[0]["columns"] == ["a", "a", "b"]
+    assert outputs[0]["rows"] == [[1, 2, "x"], [3, 4, None]]
+
+
+def test_a_column_of_mixed_values_shows_as_text_and_the_preview_keeps_the_total():
+    outputs, total = fs._outputs(_sql_reply(["v"], [[1], ["x"], [None]]), 2)
+    assert total == 3 and outputs[0]["rows"] == [["1"], ["x"]] and outputs[0]["total_rows"] == 3
+
+
+def test_an_empty_result_keeps_its_columns():
+    outputs, total = fs._outputs(_sql_reply(["id", "name"], []), 10)
+    assert total == 0 and outputs[0]["columns"] == ["id", "name"] and outputs[0]["rows"] == []

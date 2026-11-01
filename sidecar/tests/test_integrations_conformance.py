@@ -8,6 +8,7 @@ checks don't depend on the transport, so a difference between transports fails h
 The manual checklist for each AI tool is docs/product/ai-integration-client-checklist.md.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -23,7 +24,7 @@ import uvicorn
 from jsonschema import Draft202012Validator
 from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 
 from fabric_desktop import __version__
 from fabric_desktop.integrations import prompts
@@ -76,7 +77,10 @@ def http_server(env):
     sock.close()
 
 
-def connect(transport, env, mode, port=None):
+@contextlib.asynccontextmanager
+async def connect(transport, env, mode, port=None):
+    """A connected client; the HTTP client it was given is closed with it, so no socket is left open."""
+    http = None
     if transport == "memory":
         target = build_server(env["registry"], lambda: env["service"], env["client"]["id"])
     elif transport == "stdio":
@@ -85,9 +89,14 @@ def connect(transport, env, mode, port=None):
         target = StdioServerParameters(command=sys.executable, env=process_env,
                                        args=["-m", "fabric_desktop.cli", "mcp", "--client", env["client"]["id"]])
     else:
-        target = streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=httpx2.AsyncClient(
-            headers={"Authorization": f"Bearer {env['token']}"}, timeout=30))
-    return Client(target, mode=mode)
+        http = httpx2.AsyncClient(headers={"Authorization": f"Bearer {env['token']}"}, timeout=30)
+        target = streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http)
+    try:
+        async with Client(target, mode=mode) as client:
+            yield client
+    finally:
+        if http is not None:
+            await http.aclose()
 
 
 @pytest.fixture(params=TRANSPORTS)
@@ -121,7 +130,8 @@ def test_initialize_negotiates_and_describes_the_server(transport, mode):
             assert caps.tools is not None and caps.resources is not None and caps.prompts is not None
             assert c.instructions and "approval" in c.instructions
             if mode == "legacy":  # ping was removed in 2026-07-28
-                await c.send_ping()
+                with pytest.warns(MCPDeprecationWarning, match="ping"):  # still answered under legacy
+                    await c.send_ping()
     run(go)
 
 

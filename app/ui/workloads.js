@@ -272,7 +272,8 @@ function openButton(w) {
 function moreMenu(anchor, w) {
   const items = (w.available_actions || []).map((a) => ({ label: a.label, icon: a.action === "cancel" ? "dismiss" : "play",
     action: () => confirmWorkloadAction(w, a) }));
-  if (w.kind === "notebook" && w.link) items.push({ label: "Unlink from its Fabric item", icon: "dismiss", action: () => unlinkNotebook(w) });
+  // Only a link this PC keeps can be forgotten; a run or a name match finds the item again (inventory.notebook_link).
+  if (w.kind === "notebook" && w.link?.kept) items.push({ label: "Unlink from its Fabric item", icon: "dismiss", action: () => unlinkNotebook(w) });
   items.push({ label: "Read again", icon: "sync", action: async () => {
     wlPage.detail = await attempt(() => rpc("workload_detail", { id: w.id, refresh: true }), "Couldn't read it again");
     render();
@@ -526,10 +527,19 @@ function confirmLink(w) {
   }, "tool primary")]);
 }
 
+// A link this PC keeps decides which Fabric item Run in Fabric runs, so unlinking one asks first.
+// Unlink is only offered for a kept link (link.kept, inventory.notebook_link).
 async function unlinkNotebook(w) {
+  const link = w.link || {};
+  const runs = (w.available_actions || []).some((a) => a.action === "run_in_fabric");
+  if (runs && link.kept && !(await confirmDialog(`Unlink ${w.name} from its Fabric item?`,
+    `Run in Fabric runs the notebook in ${link.workspace_name || "its workspace"} (item ${link.item_id}) now. After unlinking, `
+    + "KratosForge finds its item again from runs this app started in Fabric, or by its name in its publish workspace; "
+    + "if neither finds it, Run in Fabric isn't offered until you publish or link it again. Nothing changes in Fabric.",
+    "Unlink", { danger: true }))) return;
   if (await attempt(() => rpc("workload_unlink", { notebook: w.name }), "Not unlinked")) {
     wlPage.detail = null;
-    toast(`${w.name} is no longer linked. If a Fabric notebook has the same name, it's matched by name again.`);
+    toast(`${w.name} is no longer linked. If this app ran it in Fabric, or a Fabric notebook has the same name, it's found again that way.`);
     render();
   }
 }

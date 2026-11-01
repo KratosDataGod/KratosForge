@@ -17,6 +17,7 @@ The UI has the same rules in ``app/ui/settings.js`` (``redactReport``); both are
 from __future__ import annotations
 
 import re
+from typing import Any
 
 REMOVED = "[removed]"
 
@@ -99,10 +100,24 @@ def for_support(text: str) -> str:
     return _GUID.sub("[id]", text)
 
 
+DESCRIBE_MAX = 1000  # characters of an exception's message that describe keeps
+
+
+def one_line(text: Any, limit: int = 300) -> str:
+    """``text`` as it goes into a message: credential-shaped values removed, control characters and
+    line breaks folded to single spaces, and cut to ``limit`` characters, so text from a file or a
+    reply can't carry a token or start a line of its own."""
+    # Removed again once folded: a control character between a keyword and its value hides the pair
+    # from the first pass, and folding joins them.
+    folded = secrets(" ".join("".join(c if c.isprintable() else " " for c in secrets(str(text))).split()))
+    return folded if len(folded) <= limit else folded[:limit - 1] + "…"
+
+
 def describe(exc: BaseException) -> str:
     """``exc`` as one log-safe line, ``TypeName: message``, with anything credential-shaped removed."""
     try:
         text = str(exc)
     except Exception:  # noqa: BLE001 - an exception whose message can't be read still gets its type logged
         text = "(message unreadable)"
-    return f"{type(exc).__name__}: {secrets(text)}" if text else type(exc).__name__
+    text = one_line(text, DESCRIBE_MAX)
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__

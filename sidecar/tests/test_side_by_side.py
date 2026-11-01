@@ -434,7 +434,7 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
     for t in benchmark.TABLES:
         con.register(t, DeltaTable(str(tables.path(tname("tpch", t)))).to_pyarrow_dataset())
     for n in (1, 6, 13, 18):
-        expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
+        expected = sbs.fingerprint(con.sql(benchmark.QUERIES[n]).pl().to_arrow())
         got = tables.fingerprint(tname("bench", f"q{n:02d}"), DeltaTable(str(tables.path(tname("bench", f"q{n:02d}")))).version())
         assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]
 
@@ -524,3 +524,27 @@ def test_this_pcs_time_splits_into_processing_and_upload_wait():
     s = sbs.speed(780, 549, 488, 130)
     assert s["processing"].startswith("This PC was 3.8x faster on processing alone")
     assert sbs.speed(780, 549, 488, 780)["processing"] == ""  # no wait, nothing to add
+
+
+def test_tpch_data_write_cell_streams_each_table_without_duckdb_warnings():
+    """The write cell hands lakehouse.write_table one Arrow reader per table. It reads a relation, as
+    DuckDB 2.0 warns that a reader over an executed result copies every row again (#1489)."""
+    import warnings
+    import duckdb
+    con = duckdb.connect()
+    con.execute("CREATE TABLE region AS SELECT range AS r_regionkey FROM range(7)")
+    con.execute("CREATE TABLE nation AS SELECT range AS n_nationkey FROM range(25)")
+    written, cleaned = {}, []
+
+    class Lake:
+        @staticmethod
+        def write_table(reader, name):
+            written[name] = [b.num_rows for b in reader]
+
+    ns = {"TABLES": ["region", "nation"], "con": con, "batch_rows": 10, "schema": "tpch", "time": time,
+          "lakehouse": Lake, "table_name": lambda schema, table: f"{schema}.{table}",
+          "clean_up": lambda: cleaned.append(True)}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        exec(compile(benchmark._WRITE, "write", "exec"), ns)
+    assert written == {"tpch.region": [7], "tpch.nation": [10, 10, 5]} and cleaned == [True]

@@ -40,7 +40,7 @@ from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
-from .redact import describe
+from .redact import describe, one_line
 from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
@@ -467,7 +467,7 @@ class EstateMixin:
                 raise LookupError(f"No one with the email {text} in your organization.")
             user = found[0]
         elif not r.ok:
-            raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {r.text[:200]}")
+            raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {one_line(r.text, 200)}")
         else:
             user = r.json()
         # Only the person whose email was typed gets the role, never a near match the directory returned.

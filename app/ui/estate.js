@@ -17,8 +17,13 @@ async function historyDialog(name) {
   const overlay = showDialog(`History of ${name} in ${ENV_LABEL[env]}`, body, [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   if (env !== "dev" && !state.user && !(await signIn())) return;
-  const hist = await attempt(() => rpc("meta_table_history", { name, env }), "Could not read the history");
-  if (!hist || !body.isConnected) return;
+  // A refusal says why in the dialog, which otherwise kept saying it was reading.
+  let hist;
+  try { hist = await rpc("meta_table_history", { name, env }); } catch (err) {
+    if (body.isConnected) fill(body, errorPanel(err, { label: "Could not read the history", retry: () => historyDialog(name) }));
+    return;
+  }
+  if (!body.isConnected) return;
   if (!hist.versions.length) {
     fill(body, h("p", { class: "muted-text" }, `${name} hasn't been written in ${ENV_LABEL[env]} yet.`));
     return;

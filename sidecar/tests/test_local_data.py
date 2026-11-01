@@ -305,6 +305,8 @@ def test_another_process_cant_open_the_database_for_writing(local, data, tmp_pat
             LocalData(tmp_path / "app" / "local-data").engine(pid).execute("SELECT 1")
     finally:
         holder.kill()
+        holder.wait()
+        holder.stdout.close()
 
 
 def test_project_names_and_folders(local, tmp_path, data):

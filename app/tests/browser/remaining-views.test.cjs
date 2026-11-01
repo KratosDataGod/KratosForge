@@ -415,14 +415,16 @@ test("A Fabric run that stopped before saving results says how it ended", { skip
 });
 
 // The real engine: this PC's run list (fabric_runs.jsonl) has no run with that id.
-test("A Fabric run this PC has no record of is refused in a sentence, and the bell stops showing it running", { skip }, async () => {
+test("A Fabric run this PC has no record of is refused in a sentence, and the bell stops showing it running without calling it failed", { skip }, async () => {
   const from = app.calls.length;
   const text = await watchFast(submitted("fd-20261101-073000-ef56"), toastText);
   assert.deepStrictEqual(sent(from, "meta_fabric_result"), [{ request_id: "fd-20261101-073000-ef56" }]);
   sentence(text, "Couldn't follow the Fabric run");
   assert.match(text, /no record of the Fabric run fd-20261101-073000-ef56/);
   const item = await page().evaluate(() => activity.items.find((i) => i.id === "fabric:9f1c2d3e-0000-4000-8000-00000000a1b2"));
-  assert.strictEqual(item.status, "failed");
+  // Not following a run says nothing about how it ended: a notice, not a failure.
+  assert.strictEqual(item.status, "info");
+  assert.match(item.text, /stopped following this run\. Monitor shows how it ended\./);
   assert.deepStrictEqual(writes(from), []);
   await noSerious("#toast");
   assert.deepStrictEqual(app.errors, []);

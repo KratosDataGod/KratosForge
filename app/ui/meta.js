@@ -725,8 +725,8 @@ async function watchMetaFabricRun(run, label) {
   for (let wait = 10; ; wait = Math.min(wait * 1.5, 60)) {
     await new Promise((r) => setTimeout(r, wait * 1000));
     const res = await attempt(() => rpc("meta_fabric_result", { request_id: run.request_id }), "Couldn't follow the Fabric run");
-    if (!res) {  // the bell would otherwise show it running for good
-      logActivity({ id, status: "failed", text: "The app stopped following this run. Monitor shows how it ended." });
+    if (!res) {  // the bell would otherwise show it running for good; how it ended isn't known, so not "failed"
+      logActivity({ id, status: "info", text: "The app stopped following this run. Monitor shows how it ended." });
       return;
     }
     if (!["Completed", "Failed", "Cancelled", "Deduped"].includes(res.status)) continue;

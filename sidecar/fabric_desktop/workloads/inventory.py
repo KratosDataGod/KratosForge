@@ -224,22 +224,25 @@ def _meta_actions(data: dict[str, Any], compute: str) -> list[str]:
 def notebook_link(name: str, nb: dict[str, Any], links: dict[str, dict[str, Any]],
                   fabric_runs: list[dict[str, Any]], fabric_items: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """Which Fabric item this notebook is: recorded or hand-made link first, then a run this app
-    started (its item id), and only then the same name in its publish workspace (labelled)."""
+    started (its item id), and only then the same name in its publish workspace (labelled).
+
+    ``kept`` is true only for a link this PC keeps (the ``link`` table): the only kind Unlink forgets.
+    The other two are found again on every read, so unlinking them changes nothing."""
     if name in links:
         link = links[name]
         return {"workspace_id": link["workspace_id"], "workspace_name": link.get("workspace_name") or "",
-                "item_id": link["item_id"], "how": link.get("how") or "recorded", "at": link.get("at")}
+                "item_id": link["item_id"], "how": link.get("how") or "recorded", "at": link.get("at"), "kept": True}
     for r in reversed(fabric_runs):
         if r.get("kind") == "Notebook run" and r.get("name") == name and r.get("item_id"):
             return {"workspace_id": r["workspace_id"], "workspace_name": r.get("workspace_name") or "",
-                    "item_id": r["item_id"], "how": "recorded", "at": r.get("started_at")}
+                    "item_id": r["item_id"], "how": "from a run", "at": r.get("started_at"), "kept": False}
     ws = (nb.get("workspace") or {}).get("workspace_id")
     if ws and fabric_items:
         same = [i for i in fabric_items if i.get("workspace_id") == ws and i.get("type") == "Notebook"
                 and i.get("displayName") == name]
         if len(same) == 1:
             return {"workspace_id": ws, "workspace_name": same[0].get("workspace_name") or "",
-                    "item_id": same[0]["id"], "how": "name match", "at": None}
+                    "item_id": same[0]["id"], "how": "name match", "at": None, "kept": False}
     return None
 
 

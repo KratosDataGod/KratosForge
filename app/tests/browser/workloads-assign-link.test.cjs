@@ -1,8 +1,9 @@
 // #1475: the writes on a workload's page (app/ui/workloads.js) that change what this PC keeps about it
 // (see harness.cjs for how to run it). Edit under Ownership sends workload_assign with only the roles,
 // criticality and tags that changed, never a role the project's files declare; Link on a notebook matched
-// by name sends workload_link with that item; More > Unlink sends workload_unlink and, when the link is
-// one this PC keeps (so it decides which item Run in Fabric runs), asks first. Cancel sends nothing.
+// by name sends workload_link with that item; More > Unlink is offered only for a link this PC keeps, and
+// sends workload_unlink after asking first (the link decides which item Run in Fabric runs). A link found
+// from a run or by name isn't offered Unlink, since the next read finds it again. Cancel sends nothing.
 // An engine refusal reads as a sentence, without the exception's name. Opening the pages sends no write,
 // and axe finds nothing serious on a workload page and on each dialog.
 const { test, before, after, beforeEach } = require("node:test");
@@ -23,12 +24,15 @@ const CRITICALITY = ["critical", "high", "standard", "low"];  // workloads/model
 const at = (s) => new Date(Date.now() + s * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const copy = (x) => JSON.parse(JSON.stringify(x));
 
-// Two notebooks on this PC and one metadata entity. daily_sales is linked by hand to its Fabric item;
+// Three notebooks on this PC and one metadata entity. daily_sales is linked by hand to its Fabric item;
 // orders_clean has no kept link and one notebook of its name in its publish workspace, so it is matched
-// by name (inventory.notebook_link); silver.orders declares its team and technical owner in Git.
-const DAILY = "notebook:daily_sales", ORDERS = "notebook:orders_clean", ENTITY = "meta:sales:silver.orders";
+// by name; weekly_report has no kept link but a Fabric run this app started names its item, so it is
+// found from that run (inventory.notebook_link); silver.orders declares its team and technical owner in Git.
+const DAILY = "notebook:daily_sales", ORDERS = "notebook:orders_clean", WEEKLY = "notebook:weekly_report";
+const ENTITY = "meta:sales:silver.orders";
 const WS = { workspace_id: "0b6f3c2a-5d1e-4f7a-9c8b-1a2b3c4d5e6f", workspace_name: "Sales Dev" };
 const DAILY_ITEM = "7d1c0e9a-2b3f-4a5c-8d6e-0f1a2b3c4d5e", ORDERS_ITEM = "9e8d7c6b-5a4f-4e3d-2c1b-0a9f8e7d6c5b";
+const WEEKLY_ITEM = "3c2b1a09-8f7e-4d6c-9b5a-4e3d2c1b0a9f";
 
 function fresh() {
   return {
@@ -43,8 +47,8 @@ function fresh() {
     // inventory.meta_workloads: {role: (value, where)} from project.toml and the entity file.
     declared: { team: ["Sales data team", "project.toml"], technical_owner: ["dana@contoso.com", "entity file"] },
     history: [],
-    notebooks: ["daily_sales", "orders_clean"],  // the files NotebookStore.list finds
-    inventory: [DAILY, ORDERS, ENTITY],
+    notebooks: ["daily_sales", "orders_clean", "weekly_report"],  // the files NotebookStore.list finds
+    inventory: [DAILY, ORDERS, WEEKLY, ENTITY],
   };
 }
 let db = fresh();
@@ -64,9 +68,12 @@ function owners(declared, assigned) {
   return out;
 }
 
-// inventory.notebook_link: a kept link first, then the same name in its publish workspace.
-const notebookLink = (name) => db.links[name] ? { ...WS, item_id: db.links[name].item_id, how: db.links[name].how, at: db.links[name].at }
-  : name === "orders_clean" ? { ...WS, item_id: ORDERS_ITEM, how: "name match", at: null } : null;
+// inventory.notebook_link: a kept link first, then a run this app started, then the same name in its
+// publish workspace. Only the kept one says kept.
+const notebookLink = (name) => db.links[name]
+  ? { ...WS, item_id: db.links[name].item_id, how: db.links[name].how, at: db.links[name].at, kept: true }
+  : name === "weekly_report" ? { ...WS, item_id: WEEKLY_ITEM, how: "from a run", at: at(-7200), kept: false }
+  : name === "orders_clean" ? { ...WS, item_id: ORDERS_ITEM, how: "name match", at: null, kept: false } : null;
 
 // workload_service.workload_detail, built the way inventory.py and health.py build it.
 function detail(id) {
@@ -404,16 +411,18 @@ test("Unlink: Cancel sends nothing and the link stays", { skip }, async () => {
   assert.match((await pageNow(DAILY)).subtitle, /linked to its Fabric item \(manual\)/);
 });
 
-test("Unlink of a name match changes nothing Run in Fabric targets, so it doesn't ask", { skip }, async () => {
-  await openPage(ORDERS, "Fabric · Sales Dev");
-  const from = app.calls.length;
-  await (await moreItem("Unlink from its Fabric item")).click();
-  for (const end = Date.now() + 5000; !writes(from).length; await pause(25)) if (Date.now() > end) break;
-  assert.deepStrictEqual(writes(from), [{ method: "workload_unlink", params: { notebook: "orders_clean" } }]);
-  assert.strictEqual(await page().locator("#dialog-root [role=dialog]").count(), 0);
-  // Still matched by name, so Run in Fabric still runs the same item.
-  const shown = await pageNow(ORDERS, "linked to its Fabric item (name match)");
-  assert.match(shown.deployments, /Fabric · Sales Dev/);
+test("a link found by name or from a run isn't offered Unlink, since the next read finds it again", { skip }, async () => {
+  for (const [id, how] of [[ORDERS, "name match"], [WEEKLY, "from a run"]]) {
+    const from = app.calls.length;
+    const shown = await openPage(id, `linked to its Fabric item (${how})`);
+    assert.match(shown.deployments, /Fabric · Sales Dev/);
+    const more = page().locator(".page.wl-page .wl-head").getByRole("button", { name: "More" });
+    await more.click();
+    await page().getByRole("menuitem").first().waitFor();
+    assert.strictEqual(await page().getByRole("menuitem", { name: "Unlink from its Fabric item" }).count(), 0, how);
+    await page().keyboard.press("Escape");
+    assert.deepStrictEqual(writes(from), [], how);
+  }
 });
 
 test("an unlink refusal reads as a sentence and the link stays", { skip }, async () => {

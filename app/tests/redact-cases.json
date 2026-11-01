@@ -36,6 +36,8 @@
     {"level": "secrets", "in": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----", "out": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n-----END PUBLIC KEY-----"},
     {"level": "support", "in": "Fabric said no to guest ann_contoso.com#EXT#@fabrikam.onmicrosoft.com", "out": "Fabric said no to guest [email]"},
     {"level": "support", "in": "Signed in to tenant fabrikam.onmicrosoft.com", "out": "Signed in to tenant [tenant].onmicrosoft.com"},
+    {"level": "support", "in": "Mail routes to fabrikam.mail.onmicrosoft.com", "out": "Mail routes to [tenant].onmicrosoft.com"},
+    {"level": "support", "in": "Saved in OneDrive - Fabrikam Ltd: access denied, retry 2", "out": "Saved in OneDrive - [organization]: access denied, retry 2"},
     {"level": "support", "in": "Opened C:\\Users\\ann\\OneDrive - Fabrikam Ltd\\Notebooks\\sales.ipynb", "out": "Opened C:\\Users\\[user]\\OneDrive - [organization]\\Notebooks\\sales.ipynb"},
     {"level": "secrets", "in": "guest ann_contoso.com#EXT#@fabrikam.onmicrosoft.com in OneDrive - Fabrikam Ltd", "out": "guest ann_contoso.com#EXT#@fabrikam.onmicrosoft.com in OneDrive - Fabrikam Ltd"}
   ]

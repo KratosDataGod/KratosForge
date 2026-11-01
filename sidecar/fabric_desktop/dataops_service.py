@@ -302,7 +302,8 @@ class DataOpsMixin:
 
     def meta_freshness(self, notify: bool = False) -> dict[str, Any]:
         """Every freshness promise in every environment that has runs, late ones first. With
-        ``notify``, newly late or failed tables are posted to the Teams channel, once each."""
+        ``notify`` (Preview features hidden), newly late or failed tables are posted to the Teams
+        channel, once each, unless Teams already heard about the table from its incident."""
         alerts = bool(self._settings().get("teams_webhook"))  # type: ignore[attr-defined]
         unreadable = self._alerts_unreadable()
         try:
@@ -335,6 +336,7 @@ class DataOpsMixin:
             return 0, None
         sent = self._alert_state()
         lines, keys = [], []
+        told: dict[str, set[str] | None] = {}  # per environment, what its incidents already post
         for x in items:
             env = x["env"].title()
             if x["status"] == "late":
@@ -345,9 +347,15 @@ class DataOpsMixin:
                 text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in KratosForge'}."
             else:
                 continue
-            if key not in sent:
-                lines.append(text)
-                keys.append(key)
+            if key in sent:
+                continue
+            if x["env"] not in told:
+                told[x["env"]] = self._tables_incidents_tell(x["env"])  # type: ignore[attr-defined]
+            tell = told[x["env"]]
+            if tell is None or key in tell:
+                continue  # Teams hears about it from its incident (a running agent, or this app with Preview on)
+            lines.append(text)
+            keys.append(key)
         if not lines:
             return 0, None
         try:

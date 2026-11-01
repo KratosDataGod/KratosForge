@@ -1,6 +1,7 @@
 """Compare before promote, quarantine replay and freshness promises."""
 
 import datetime as dt
+import json
 import shutil
 import time
 import types
@@ -244,6 +245,66 @@ def test_late_tables_are_posted_to_teams_once(svc, monkeypatch):
     assert svc.meta_freshness(notify=True)["alerted"] == 0  # already told
     with pytest.raises(ValueError):
         svc.meta_set_alerts("http://not-secure")
+
+
+def _teams_posts(svc, monkeypatch, url="https://example.webhook.office.com/x"):
+    posts = []
+    post = lambda url, title, lines: posts.append((title, lines))  # noqa: E731
+    monkeypatch.setattr(dataops_service, "post_teams", post)
+    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", post)
+    svc.meta_set_alerts(url)
+    return posts
+
+
+def _late(svc):
+    svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
+    time.sleep(0.5)  # 0.0001 h is 0.36 s
+
+
+def test_a_table_an_agent_posts_as_an_incident_is_not_posted_per_table(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    _late(svc)
+    fresh = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=3)).isoformat()
+    svc._incident_log("dev").backend.create("agents/etl-01.json", json.dumps(
+        {"contract": 1, "kind": "agent_status", "agent": "etl-01", "host": "srv", "version": "0.21.0", "state": "running",
+         "heartbeat_at": dt.datetime.now(dt.timezone.utc).isoformat(), "stale_after": fresh, "schedules": [],
+         "incidents": {"enabled": True, "seconds": 300}}).encode())
+    out = svc.meta_freshness(notify=True)
+    assert out["items"][0]["status"] == "late" and out["alerted"] == 0 and posts == []  # the agent posts it
+
+
+def test_turning_preview_off_or_on_posts_a_late_table_once_and_its_recovery_once(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    _late(svc)
+    svc.incidents_watch(notify=True)  # Preview on: its incident is posted
+    assert len(posts) == 1 and posts[0][0].startswith("New: ")
+    assert svc.meta_freshness(notify=True)["alerted"] == 0 and len(posts) == 1  # Preview off: not again
+    svc.incidents_watch(notify=True)  # and on again
+    assert len(posts) == 1
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    svc.incidents_watch(notify=True)
+    svc.incidents_watch(notify=True)
+    assert len(posts) == 2 and posts[1][0].startswith("Recovered: ")
+
+
+def test_a_table_posted_per_table_is_not_posted_again_when_preview_is_turned_on(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    _late(svc)
+    assert svc.meta_freshness(notify=True)["alerted"] == 1 and len(posts) == 1  # Preview off
+    opened = svc.incidents_watch(notify=True)["envs"][0]  # Preview on
+    assert [c["change"] for c in opened["changes"]] == ["opened"] and len(posts) == 1  # the incident still opens
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    svc.incidents_watch(notify=True)
+    assert len(posts) == 2 and posts[1][0].startswith("Recovered: ")
+
+
+def test_unreadable_incidents_still_post_the_late_table(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    _late(svc)
+    def broken(env):
+        raise OSError("LH_Meta can't be read")
+    monkeypatch.setattr(svc, "_incident_log", broken)
+    assert svc.meta_freshness(notify=True)["alerted"] == 1 and len(posts) == 1
 
 
 def test_a_failed_freshness_post_keeps_the_webhook_signature_out(svc, monkeypatch):

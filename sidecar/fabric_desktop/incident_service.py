@@ -9,6 +9,7 @@ it does when asked (``incidents_evaluate``), so nothing polls a tenant in the ba
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from typing import Any
 
@@ -26,6 +27,15 @@ from .workloads import queue, run_as
 from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
+
+
+def table_key(env: str, inc: dict[str, Any]) -> str:
+    """The per-table Teams alert key (dataops_service._freshness_alerts) for a late or failed
+    table's incident, or "" for any other incident."""
+    name = str(inc.get("name") or "")
+    prefix = {"late": "late", "run_failed": "failed"}.get(inc.get("kind", ""))
+    evidence = str(inc.get("evidence_id") or "").removeprefix("late:")
+    return f"{prefix}:{env}:{name}:{evidence}" if prefix and name and evidence else ""
 
 
 class IncidentMixin:
@@ -203,9 +213,39 @@ class IncidentMixin:
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
-            out["notified"] = send(changes, single(url), outbox, "KratosForge", post_teams)
+            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge", post_teams)
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
+
+    def _not_told_before(self, env: str, changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Leave out an incident opening that an older app already posted as a late or failed
+        table (freshness_alerts.json, no longer written), so updating doesn't post it twice. Its
+        recovery is still posted."""
+        try:
+            told = json.loads((self.root / "freshness_alerts.json").read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+        except FileNotFoundError:
+            return changes
+        except (OSError, ValueError) as exc:  # unreadable: post, a second post beats none
+            _log.warning("Couldn't read the older Teams alert record: %s", describe(exc))
+            return changes
+        if not isinstance(told, dict):
+            return changes
+        return [c for c in changes if c["change"] != "opened" or table_key(env, c["incident"]) not in told]
+
+    def _tables_incidents_tell(self, env: str) -> set[str] | None:
+        """The per-table alert keys (meta_freshness) that Teams already hears about from an
+        incident in ``env``: None when a running agent checks its incidents (it posts them all),
+        else the keys of its active late and failed incidents. Unreadable: an empty set, so the
+        per-table post still goes; a second post beats none."""
+        try:
+            log = self._incident_log(env)
+            agents = self._incident_agents(env)
+            if any(a["state"] == "live" and (a["incidents"] or {}).get("enabled") for a in agents["agents"]):
+                return None
+            return {k for i in log.active() if (k := table_key(env, i))}
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Couldn't read %s's incidents; late tables are posted as before: %s", env, describe(exc))
+            return set()
 
     def incidents_watch(self, notify: bool = False) -> dict[str, Any]:
         """The app's own check while it is open (every few minutes, from the UI): each environment

@@ -358,3 +358,23 @@ def test_a_paused_frames_locals_carry_memory_but_never_open_from_the_namespace()
     assert local["value"] == "[1, 2, 3]" and local["memory"] > 0 and local["expandable"] is False
     assert [i["value"] for i in k.variable_detail("items")["items"]] == ["'global'"]  # the namespace's, not the frame's
     k.interrupt()
+
+
+def test_a_value_that_cannot_be_described_is_listed_by_its_type_and_the_pane_still_shows():
+    k = Kernel()
+    k.run("import duckdb\n"
+          "con = duckdb.connect()\n"
+          "con.execute('CREATE VIEW v AS SELECT 1 AS a')\n"
+          "rel = con.sql('SELECT * FROM v')\n"
+          "con.execute('DROP VIEW v')\n"
+          "class Odd:\n"
+          "    @property\n"
+          "    def shape(self):\n"
+          "        raise RuntimeError('no shape')\n"
+          "odd = Odd()\n"
+          "kept = [1, 2, 3]")
+    rows = {r["name"]: r for r in k.variables()}
+    assert rows["rel"] == {"name": "rel", "type": "DuckDBPyRelation", "size": "", "value": "?",
+                           "memory": None, "expandable": False}
+    assert rows["odd"]["type"] == "Odd" and rows["odd"]["value"] == "?"
+    assert rows["kept"]["size"] == "3" and rows["kept"]["expandable"]

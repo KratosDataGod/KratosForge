@@ -536,14 +536,14 @@ async function alertsDialog() {
 
 // Checked at startup and every 10 minutes. Late tables show on Home; problems become incidents
 // (incident_service.incidents_watch): an environment a running agent checks is only read, any other
-// is checked here, and its new incidents go to the bell and, once each, to this PC's Teams webhook.
+// is checked here, and its new incidents go, once each, to this PC's Teams webhook, which hears
+// about a table only from its incident. With Preview features on they go to the bell as well.
 async function checkFreshness() {
   clearTimeout(fresh.timer);
   fresh.timer = setTimeout(checkFreshness, 600000);
   const [res, watch] = await Promise.all([
-    // With preview features hidden, Teams gets the old per-table alerts instead of incidents.
-    rpc("meta_freshness", { notify: !previewShown() }).catch(() => null),
-    previewShown() ? rpc("incidents_watch", { notify: true }).catch(() => null) : null,
+    rpc("meta_freshness", {}).catch(() => null),
+    rpc("incidents_watch", { notify: true }).catch(() => null),
   ]);
   if (res) {
     fresh.items = res.items;
@@ -556,10 +556,9 @@ async function checkFreshness() {
       }
     }
     if (res.project_error) logActivity({ id: "fresh:project-error", status: "error", title: "Freshness not checked", text: "The metadata project couldn't be read, so late tables can't be found.", details: res.project_error });
-    if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
   }
   for (const e of watch?.envs || []) {
-    for (const i of e.incidents) {
+    for (const i of previewShown() ? e.incidents : []) {
       const id = `inc:${i.id}`;
       if (i.state !== "open" || activity.items.some((x) => x.id === id)) continue;
       logActivity({ id, status: "failed", title: i.title, text: [i.text, e.mode === "agent" ? `Raised in ${ENV_LABEL[e.env]}'s incident list.` : ""].filter(Boolean).join(" ") });

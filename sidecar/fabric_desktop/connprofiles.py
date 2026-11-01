@@ -97,12 +97,23 @@ def _looks_secret(text: str) -> bool:
     return redact.secrets(text) != text
 
 
+def _key_text(key: Any) -> str:
+    """A key (or id) from the file, as it goes in a message: "[key]" when it looks like a secret,
+    otherwise with control characters folded to spaces and cut to 60 characters, so it can't carry
+    a token or forge a line of the problem list."""
+    text = str(key)
+    if _looks_secret(text):
+        return "[key]"
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return text if len(text) <= 60 else text[:59] + "…"
+
+
 def secret_problems(data: Any, path: str = "") -> list[str]:
     """Every place in ``data`` that holds a secret instead of a reference. Values are never repeated."""
     problems: list[str] = []
     if isinstance(data, dict):
         for key, value in data.items():
-            where = f"{path}.{key}" if path else str(key)
+            where = f"{path}.{_key_text(key)}" if path else _key_text(key)
             if redact.secret_key(key) and value not in (None, "", [], {}):
                 if not (isinstance(value, str) and _REF.fullmatch(value)):
                     problems.append(f"{where} must be a reference (env:NAME or credman:TARGET), not a value.")
@@ -220,7 +231,7 @@ def _snowflake_problems(conn: dict[str, Any], where: str) -> list[str]:
             out.append(f"{where}.{field} must be a name (up to 255 characters).")
     cred = conn.get("credential") or {}
     method = cred.get("method")
-    extra = sorted(str(k) for k in cred if k not in _SF_CRED_FIELDS.get(method, ("method",)) + ("method", "needs_setup"))
+    extra = sorted(_key_text(k) for k in cred if k not in _SF_CRED_FIELDS.get(method, ("method",)) + ("method", "needs_setup"))
     if extra:  # names only: a stray field may hold a key or passphrase, so its value is never repeated
         out.append(f"{where}.credential can't hold {', '.join(extra)} for this sign-in method.")
     if method == "keypair":
@@ -253,6 +264,9 @@ def _shape_problems(data: Any) -> list[str]:
         return ["A profile is a JSON object."]
     out = [f"{key} must be text." for key in ("id", "name", "kind", "description")
            if data.get(key) is not None and not isinstance(data[key], str)]
+    schema = data.get("schema")
+    if schema is not None and (not isinstance(schema, int) or isinstance(schema, bool)):
+        out.append("schema must be a whole number.")
     conns = data.get("connections")
     if conns is not None and not isinstance(conns, list):
         out.append("connections must be a list.")
@@ -326,7 +340,7 @@ def problems(data: dict[str, Any]) -> list[str]:
             out += _host_problems(conn, where)
     dupes = sorted({i for i in ids if ids.count(i) > 1})
     if dupes:
-        out.append(f"Connection ids must be different: {', '.join(dupes)}.")
+        out.append(f"Connection ids must be different: {', '.join(_key_text(i) for i in dupes)}.")
     if kind == "local" and p["connections"]:
         out.append("A local profile has no platform connections; make it Fabric, Databricks, Snowflake or hybrid instead.")
     for platform in PLATFORMS:
@@ -348,19 +362,22 @@ def problems(data: dict[str, Any]) -> list[str]:
                                "not the same secret reference.")
     d = p["defaults"]
     if d.get("connection") and d["connection"] not in ids:
-        out.append(f"defaults.connection names {d['connection']!r}, which isn't one of this profile's connections.")
+        out.append(f"defaults.connection names {_key_text(d['connection'])!r}, which isn't one of this profile's "
+                   "connections.")
     for env, mapping in p["environments"].items():
         if env not in ENVIRONMENTS:
-            out.append(f"environments.{env}: environments are {', '.join(ENVIRONMENTS)}.")
+            out.append(f"environments.{_key_text(env)}: environments are {', '.join(ENVIRONMENTS)}.")
         for cid in mapping or {}:
             if cid not in ids:
-                out.append(f"environments.{env} maps {cid!r}, which isn't one of this profile's connections.")
+                out.append(f"environments.{_key_text(env)} maps {_key_text(cid)!r}, which isn't one of this "
+                           "profile's connections.")
     for env, mapping in p["deploy"].items():
         if env not in ENVIRONMENTS:
-            out.append(f"deploy.{env}: environments are {', '.join(ENVIRONMENTS)}.")
+            out.append(f"deploy.{_key_text(env)}: environments are {', '.join(ENVIRONMENTS)}.")
         for cid in mapping or {}:
             if cid not in ids:
-                out.append(f"deploy.{env} targets {cid!r}, which isn't one of this profile's connections.")
+                out.append(f"deploy.{_key_text(env)} targets {_key_text(cid)!r}, which isn't one of this "
+                           "profile's connections.")
     ex = p["execution"]
     if ex.get("remote_compute") not in REMOTE_POLICIES:
         out.append(f"execution.remote_compute must be one of: {', '.join(REMOTE_POLICIES)}.")

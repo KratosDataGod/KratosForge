@@ -815,7 +815,7 @@ _RUN = '''
 answers = {}
 for n in queries:
     started = time.perf_counter()
-    answers[n] = con.execute(QUERIES[n]).pl()
+    answers[n] = con.sql(QUERIES[n]).pl()
     print(f"Q{n:02d}: {len(answers[n]):>6} rows in {timed(f'Q{n:02d}', started):.2f} s")
 query_seconds = sum(t["seconds"] for t in timings if t["step"].startswith("Q"))
 print(f"All {len(queries)} queries: {query_seconds:.1f} s")

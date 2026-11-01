@@ -12,6 +12,10 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-11-01 | #1390 c539738c | Drift, quarantine and freshness browser tests | PASS 9.2 | Test only, merges clean. Merge result: entity-drift-quarantine.test.cjs 12/12 in 5 of 5 runs, each with two ui.test processes running for load. ui 314/0. |
+| 2026-11-01 | #1394 2345a7b2 | Compare, last release and Roll back browser tests | PASS 9.2 | Test only, merges clean. Merge result: entity-compare.test.cjs 11/11 in 5 of 5 runs under load, ui 314/0. The test documents that Roll back's own dialog is the confirm and has no danger style. Rollback is recorded as a new release and keeps table data, so this is a UX follow-up, not a blocker. |
+| 2026-11-01 | #1395 25332574 | Clean, Query profile and Plan browser tests; [object Object] fix | PASS 9.3 | Merges clean. Nine call sites in charts, ipywidgets, notebook, qprofile, runs and wrangler now use friendlyError(...).text, and the ui.test guard checks every app/ui file. The two harness stubs now return objects. Merge result: output-views.test.cjs 13/13 in 5 of 5 runs under load, ui 315/0. |
+
 | 2026-10-31 | #1332 49012d01 | Notebook wizard browser test and three wizard.js fixes | PASS carry | RM merge of main (#1334) on c19a5a15. The three-dot patch-id 193af83b matches c19a5a15's. |
 | 2026-10-31 | #1336 6da37a32 | Incident action browser tests, and friendlyError drops 'Conflict:' | PASS carry | RM merge of main (#1334) on a39d42f5. The three-dot patch-id fee0e7dd matches a39d42f5's. |
 

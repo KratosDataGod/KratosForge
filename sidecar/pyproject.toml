@@ -20,6 +20,9 @@ dependencies = [
     # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.
     "pymsalruntime>=0.20,<0.21; sys_platform == 'win32'",
     "requests>=2.31",
+    # HTTPS checks certificates against the Windows certificate store, so a network that inspects
+    # HTTPS with the company's root certificate works (net_trust.py). mcp's httpx brings it already.
+    "truststore>=0.10,<0.11; sys_platform == 'win32'",
     # Charts in notebook cells, as Fabric notebooks have.
     "matplotlib>=3.8",
     # pandas, as Fabric and Databricks notebooks have it: import pandas, df.toPandas() and

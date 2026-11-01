@@ -113,20 +113,38 @@ def _checked(value: str, pattern: re.Pattern[str], what: str) -> str:
     return value
 
 
+_MESSAGE_MAX = 300  # characters of Livy's own message in an error
+
+
+def _one_line(text: str) -> str:
+    """Livy's message as part of one line: whitespace and control characters folded, cut to _MESSAGE_MAX."""
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return text if len(text) <= _MESSAGE_MAX else text[:_MESSAGE_MAX - 1].rstrip() + "…"
+
+
 class LivyClient:
     """The Livy calls for one lakehouse. A write is sent again only after a 429; errors never quote the token."""
 
     def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, refresh: Callable[[], str] | None = None):
         if http is None:
             from ..http_session import session
             http = session()
         self._token = token
+        # A new token after a 401 (as FabricClient): Fabric refused the call unread, so it is sent once more.
+        self._refresh = refresh
         self._http = http
         self._sleep = sleep
         self.stopped: Callable[[], bool] = lambda: False  # the session points this at its Cancel
         self.base = (f"{API}/workspaces/{_checked(workspace_id, _GUID, 'workspace')}/lakehouses/"
                      f"{_checked(lakehouse_id, _GUID, 'lakehouse')}/{LIVY}/sessions")
+
+    def _fresh_token(self) -> str:
+        """A new token, or "" when none can be had without the person: the 401 then says to sign in again."""
+        try:
+            return (self._refresh or (lambda: ""))() or ""
+        except Exception:  # noqa: BLE001  # silent-ok: the caller reports the original 401 and says to sign in again
+            return ""
 
     def _call(self, method: str, path: str = "", repeatable: bool | None = None, **kwargs: Any) -> dict[str, Any]:
         """One Livy call. Throttling (429) is tried again; 502/503/504 too when the call is
@@ -134,12 +152,20 @@ class LivyClient:
         if repeatable is None:
             repeatable = method == "GET"
         undo = method == "DELETE" or path.endswith("/cancel")
-        headers = {"Authorization": f"Bearer {self._token()}"}
+        token = self._token()
+        headers = {"Authorization": f"Bearer {token}"}
 
         def send() -> Any:
             return self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
+        stop = (lambda: False) if undo else self.stopped
         try:
-            resp, tries = send_remote(send, repeatable, self._sleep, (lambda: False) if undo else self.stopped)
+            resp, tries = send_remote(send, repeatable, self._sleep, stop)
+            if resp.status_code == 401 and self._refresh is not None:
+                fresh = self._fresh_token()
+                if fresh and fresh != token:  # once, and only with a token that is actually new
+                    headers["Authorization"] = f"Bearer {fresh}"
+                    resp, more = send_remote(send, repeatable, self._sleep, stop)
+                    tries += more
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
             raise FabricSparkError(f"Couldn't reach Fabric: {type(exc).__name__}.") from None
         if resp.status_code >= 400:
@@ -147,7 +173,7 @@ class LivyClient:
                 body = resp.json()
             except ValueError:
                 body = {}
-            message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+            message = _one_line(redact.secrets(str(body.get("message") or ""))) if isinstance(body, dict) else ""
             hint = {401: "Sign in again.", 403: "You need Contributor on the workspace.",
                     404: "Check the workspace and lakehouse.", 429: "The capacity is busy; try again shortly.",
                     430: "The capacity's Spark limit is reached; close another session or try later."}
@@ -474,8 +500,9 @@ class FabricSparkAdapter:
 
     def __init__(self, token: Callable[[], str] | None = None,
                  client_for: Callable[[str, str], LivyClient] | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, refresh: Callable[[], str] | None = None):
         self._token = token
+        self._refresh = refresh
         self._client_for = client_for
         self._sleep = sleep
 
@@ -493,7 +520,7 @@ class FabricSparkAdapter:
         if self._client_for is not None:
             client = self._client_for(ws, lh)
         elif self._token is not None:
-            client = LivyClient(self._token, ws, lh, sleep=self._sleep)
+            client = LivyClient(self._token, ws, lh, sleep=self._sleep, refresh=self._refresh)
         else:
             raise Unsupported("Fabric Spark sessions use the app's Fabric sign-in. Sign in first.")
         return FabricSparkSession(config, client, self._sleep)

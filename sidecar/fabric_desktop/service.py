@@ -242,12 +242,27 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         threading.Thread(target=run, name="usage-send", daemon=True).start()
 
+    def _checks(self, name: str | None) -> dict[str, Any]:
+        """What compute_check (and Prove's and Validate's checks) need to follow the code that
+        notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+
+    def _notebook_of(self, name: str) -> dict[str, Any]:
+        """Another notebook by name, for compute_check: its cells and its own lakehouse."""
+        nb = self.notebooks.load(name)
+        return {"cells": nb["cells"], "lakehouse": nb.get("lakehouse")}
+
+    def _cells_of(self, name: str) -> list[dict[str, Any]]:
+        """Another notebook's cells, by the name ``%run`` gives it: what the kernel runs, and what
+        compute_check follows."""
+        return self.notebooks.load(name)["cells"]
+
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
         inside the engine."""
         if process is None:
             process = bool(app_settings.value("kernel_process"))
-        load = lambda name: self.notebooks.load(name)["cells"]  # noqa: E731
+        load = self._cells_of
         if process:
             kernel = ProcessKernel(token=self._token_for, load_notebook=load, variable_libraries=self._notebook_variables)
             _apply_limits(kernel)
@@ -1024,7 +1039,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         nb = self.notebooks.load(name)
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
-        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
                                        "replay": self.notebooks.extra(name, "replay"),  # a replay notebook (prove_service)
                                        "onelake_writes": self.notebooks.extra(name, "onelake_writes")}
 
@@ -1114,7 +1129,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
             return out | ({"outside_copy": copy} if copy else {})
         self._keep_version(name)
-        return out | {"check": compute_check(cells, lakehouse_ref)}
+        return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
     def notebook_diff(self, name: str, other: str | None = None) -> dict[str, Any]:
         """How the notebook's cells differ, by source only, from ``other`` (another notebook) or,

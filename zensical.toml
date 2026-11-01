@@ -78,6 +78,7 @@ nav = [
     { "Source control" = "source-control.md" },
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
+    { "The platform's audit trail" = "platform-audit.md" },
     { "Governance policies" = "governance.md" },
     { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },

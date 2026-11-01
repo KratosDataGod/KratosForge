@@ -101,6 +101,26 @@ jobs:
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
+      # pyproject allows a range of sqlglot and the suite above runs the pin, so the SQL tests also
+      # run on the oldest and newest version of that range (#1252).
+      - name: SQL tests on both ends of the sqlglot range
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          for v in $(python tests/test_sqlglot_version.py); do
+            python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/sqlglot-$v" "sqlglot==$v"
+            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
+              -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
+          done
+      # pyproject keeps DuckDB below 2.0 until the engine passes there (#1341); the whole engine suite
+      # also runs on the next major, so a change that breaks it there shows before the cap is lifted.
+      - name: Engine tests on the next DuckDB major
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          v=$(python tests/test_duckdb_version.py)
+          python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/duckdb-$v" "duckdb==$v"
+          PYTHONPATH="$RUNNER_TEMP/duckdb-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.

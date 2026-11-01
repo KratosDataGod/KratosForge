@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +85,10 @@ def _line(source: str, pos: int) -> tuple[int, str]:
     return n, text if len(text) <= 80 else text[:77] + "..."
 
 
-def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict[str, Any]:
-    """Whether a proof can run this notebook, and what it should tell the person first."""
+def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+          load: Callable[[str], Any] | None = None, resources: str | None = None) -> dict[str, Any]:
+    """Whether a proof can run this notebook, and what it should tell the person first. ``load``
+    and ``resources`` let the check follow the notebooks and Built-in files it runs (compute_check)."""
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
@@ -106,7 +109,7 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
     if not spark and not uses_local_module(cells):
         add(blockers, None, None, "The notebook doesn't use `from fabric_desktop import lakehouse` or Spark. A proof "
                                   "compares the tables a notebook writes, so there would be nothing to compare.")
-    compat = compute_check(cells, lakehouse)
+    compat = compute_check(cells, lakehouse, load, resources=resources)
     for side, label in (("local", "this PC"), ("fabric", "Fabric")):
         for r in compat[side]["reasons"]:
             if r.get("cell") is None and side == "fabric" and not lakehouse:
@@ -159,8 +162,6 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
     if spark:
         limits += ["In Fabric, Spark reads of a single file under Files/ are checked; files read as a whole folder "
                    "aren't, so a change to them between the runs isn't found.",
-                   "In Fabric, a Spark read whose path is given as an option (option(\"path\", ...).load()) or as a "
-                   "file:/lakehouse/default/... path isn't pinned.",
                    "In Fabric, Spark writes to Azure storage outside OneLake (abfss:// of another account) aren't "
                    "stopped or compared.",
                    "In Fabric, the copy needs sqlglot in the notebook's environment to read its SQL; it installs nothing."]

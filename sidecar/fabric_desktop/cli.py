@@ -13,6 +13,8 @@ from .service import Service
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import net_trust
+    net_trust.use_system_store()  # before any HTTPS: a network that inspects HTTPS signs with a root Windows trusts
     parser = argparse.ArgumentParser(prog="fabric-desktop")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="run the JSON-lines server for the desktop app")
@@ -616,7 +618,17 @@ def _nb_validate(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         observed = {}
     runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
-    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed)
+    from .notebook import check_notebook_name
+
+    from .notebook_resources import folder_for
+
+    def sibling(name: str) -> dict:  # %run Name: the notebook next to this file, as in the app's folder
+        other = from_ipynb(json.loads((path.parent / f"{check_notebook_name(name)}.ipynb").read_text(encoding="utf-8")))
+        return {"cells": other["cells"], "lakehouse": other["lakehouse"]}
+
+    resources = folder_for(path)  # <name>.resources beside the file, where %run -b finds its files
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed, load=sibling,
+                            resources=str(resources) if resources.is_dir() else None)
     if args.json:
         print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
     else:

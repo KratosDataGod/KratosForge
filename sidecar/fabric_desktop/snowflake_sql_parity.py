@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .engines.databricks_sql_parity import same
+from .duckdb_rows import first_row
 
 _FN = "https://docs.snowflake.com/en/sql-reference/functions/"
 D = dt.date
@@ -139,10 +140,8 @@ CASES: tuple[Case, ...] = (
     _c("TO_DATE (format)", "Conversion", "SELECT to_date('10/30/2026', 'MM/DD/YYYY')", D(2026, 10, 30)),
     _c("TO_TIME", "Conversion", "SELECT to_time('13:45:00')", dt.time(13, 45)),
     _c("DATE_FROM_PARTS", "Date and time", "SELECT date_from_parts(2026, 10, 30)", D(2026, 10, 30)),
-    _c("DATE_TRUNC (DATE)", "Date and time", "SELECT date_trunc('month', '2026-03-15'::date)", D(2026, 3, 1), "differs",
-       "The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006)."),
-    _c("DATEADD (DATE, month end)", "Date and time", "SELECT dateadd(month, 1, '2026-01-31'::date)", D(2026, 2, 28),
-       "differs", "The date is right, but it comes back as a TIMESTAMP at midnight, not a DATE (SFD-006)."),
+    _c("DATE_TRUNC (DATE)", "Date and time", "SELECT date_trunc('month', '2026-03-15'::date)", D(2026, 3, 1)),
+    _c("DATEADD (DATE, month end)", "Date and time", "SELECT dateadd(month, 1, '2026-01-31'::date)", D(2026, 2, 28)),
     _c("ADD_MONTHS (month end)", "Date and time", "SELECT add_months('2026-01-31'::date, 1)", D(2026, 2, 28)),
     _c("LAST_DAY", "Date and time", "SELECT last_day('2026-02-10'::date)", D(2026, 2, 28)),
     _c("DATEDIFF (day)", "Date and time", "SELECT datediff(day, '2026-01-01'::date, '2026-01-31'::date)", 30),
@@ -168,8 +167,27 @@ CASES: tuple[Case, ...] = (
     _c("ARRAY_CAT", "Semi-structured", "SELECT array_cat(array_construct(1), array_construct(2))", [1, 2]),
     _c("OBJECT_KEYS", "Semi-structured", "SELECT object_keys(parse_json('{\"a\": 1, \"b\": 2}'))", ["a", "b"]),
     _c("IS_NULL_VALUE", "Semi-structured", "SELECT is_null_value(parse_json('null'))", True),
-    _c("TYPEOF", "Semi-structured", "SELECT typeof(parse_json('1'))", "INTEGER", "differs",
-       "It names DuckDB's type (JSON), not Snowflake's VARIANT type (SFD-007)."),
+    _c("TYPEOF", "Semi-structured", "SELECT typeof(parse_json('1'))", "INTEGER"),
+    # The examples on Snowflake's TYPEOF page, row by row.
+    _c("TYPEOF (JSON null)", "Semi-structured", "SELECT typeof(parse_json('null'))", "NULL_VALUE", page="typeof"),
+    _c("TYPEOF (SQL NULL)", "Semi-structured", "SELECT typeof(NULL::variant)", None, page="typeof"),
+    _c("TYPEOF (BOOLEAN)", "Semi-structured", "SELECT typeof(parse_json('true'))", "BOOLEAN", page="typeof"),
+    _c("TYPEOF (INTEGER)", "Semi-structured", "SELECT typeof(parse_json('-17'))", "INTEGER", page="typeof"),
+    _c("TYPEOF (DECIMAL)", "Semi-structured", "SELECT typeof(parse_json('123.12'))", "DECIMAL", page="typeof"),
+    _c("TYPEOF (DOUBLE)", "Semi-structured", "SELECT typeof(parse_json('1.912e2'))", "DOUBLE", page="typeof"),
+    _c("TYPEOF (VARCHAR)", "Semi-structured", "SELECT typeof(parse_json('\"Om ara pa ca na dhih\"  '))", "VARCHAR",
+       page="typeof"),
+    _c("TYPEOF (ARRAY)", "Semi-structured", "SELECT typeof(parse_json('[-1, 12, 289, 2188, false,]'))", "ARRAY",
+       page="typeof"),
+    _c("TYPEOF (OBJECT)", "Semi-structured", "SELECT typeof(parse_json('{ \"x\" : \"abc\", \"y\" : false, \"z\": 10} '))",
+       "OBJECT", page="typeof"),
+    _c("TYPEOF (VARCHAR cast to VARIANT)", "Semi-structured", "SELECT typeof('check in'::variant)", "VARCHAR",
+       page="typeof"),
+    _c("TYPEOF (TIMESTAMP cast to VARIANT)", "Semi-structured",
+       "SELECT typeof('2024-01-17 19:00:00.000'::timestamp::variant)", "TIMESTAMP_NTZ", page="typeof"),
+    _c("TYPEOF (path to an exponent)", "Semi-structured", "SELECT typeof(parse_json('{\"a\": 1.912e2}'):a)", "DOUBLE",
+       "differs", "A JSON number with a fraction or exponent read from a path or a column is 'DECIMAL or DOUBLE' "
+       "here: DuckDB doesn't keep how it was written (SFD-007). TYPEOF(PARSE_JSON(...)) is exact.", page="typeof"),
     _c("LISTAGG", "Aggregate", f"SELECT listagg(x, ',') WITHIN GROUP (ORDER BY x) FROM {_values(repr('b'), repr('a'))}",
        "a,b"),
     _c("ARRAY_AGG", "Aggregate", f"SELECT array_agg(x) WITHIN GROUP (ORDER BY x) FROM {_values(2, 1)}", [1, 2]),
@@ -180,9 +198,20 @@ CASES: tuple[Case, ...] = (
     _c("APPROX_COUNT_DISTINCT", "Aggregate", f"SELECT approx_count_distinct(x) FROM {_values(1, 1, 2)}", 2),
     _c("STDDEV_SAMP", "Aggregate", f"SELECT stddev_samp(x) FROM {_values(1, 3)}", 2 ** 0.5, page="stddev_samp"),
     _c("RATIO_TO_REPORT", "Aggregate", f"SELECT ratio_to_report(x) OVER () FROM {_values(1, 3)} ORDER BY x LIMIT 1",
-       0.25, "error", "DuckDB has no RATIO_TO_REPORT; write x / SUM(x) OVER () instead."),
-    _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0, "error",
-       "DuckDB has no HAVERSINE outside its spatial extension, which this PC's sessions don't load."),
+       0.25),
+    _c("RATIO_TO_REPORT (docs example)", "Aggregate",
+       f"SELECT ratio_to_report(x) OVER (ORDER BY x) FROM {_values(300, 250, 450, 'NULL')} "
+       "ORDER BY x DESC NULLS LAST LIMIT 1", 0.45),
+    _c("RATIO_TO_REPORT (null value)", "Aggregate",
+       f"SELECT ratio_to_report(x) OVER () FROM {_values(300, 'NULL')} ORDER BY x NULLS FIRST LIMIT 1", None),
+    _c("RATIO_TO_REPORT (sum is 0)", "Aggregate", f"SELECT ratio_to_report(x) OVER () FROM {_values(1, -1)} LIMIT 1",
+       None),
+    _c("RATIO_TO_REPORT (by partition)", "Aggregate",
+       "SELECT ratio_to_report(column2) OVER (PARTITION BY column1) FROM VALUES ('a', 2), ('a', 3), ('b', 7) "
+       "ORDER BY column1, column2 LIMIT 1", 0.4),
+    _c("HAVERSINE", "Geospatial", "SELECT haversine(0, 0, 0, 0)", 0),
+    _c("HAVERSINE (docs example)", "Geospatial", "SELECT haversine(40.7127, -74.0059, 34.0500, -118.2500)",
+       3936.385096389, page="haversine"),
 )
 
 
@@ -197,7 +226,7 @@ def run(case: Case, con: Any = None) -> tuple[str, Any]:
         return "untranslated", translation.first_refusal()
     con = con or duckdb.connect()
     try:
-        row = con.execute(translation.duckdb_sql).fetchone()
+        row = first_row(con.execute(translation.duckdb_sql))
     except duckdb.Error as exc:
         return "error", f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
     value = row[0] if row else None

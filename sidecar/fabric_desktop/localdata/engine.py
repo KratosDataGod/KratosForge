@@ -43,6 +43,8 @@ from .. import delta_dml, delta_profile, sql_dialects
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
+from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
+from ..sql import KfDuckDB
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -259,6 +261,7 @@ class LocalEngine:
                 raise _friendly_open_error(exc, p.database) from None
             # UTC, like Fabric. SET, not connect's config: that tries to download ICU, which fails offline.
             con.execute("SET TimeZone = 'UTC'")
+            keep_try_cast(con)
             con.execute(f"SET temp_directory = {lit(str(p.temp_dir))}")
             # dbo first, as in Fabric's SQL endpoints and SQL Server: CREATE TABLE t makes dbo.t, and
             # dbo.orders can be written orders.
@@ -375,12 +378,12 @@ class LocalEngine:
         return True
 
     def _exists(self, schema: str, table: str) -> bool:
-        row = self._con.execute(  # type: ignore[union-attr]
+        row = one_row(self._con.execute(  # type: ignore[union-attr]
             "SELECT count(*) FROM duckdb_tables() WHERE lower(schema_name) = lower(?) AND lower(table_name) = lower(?) "
-            "AND database_name = current_database()", [schema, table]).fetchone()
-        views = self._con.execute(  # type: ignore[union-attr]
+            "AND database_name = current_database()", [schema, table]))
+        views = one_row(self._con.execute(  # type: ignore[union-attr]
             "SELECT count(*) FROM duckdb_views() WHERE lower(schema_name) = lower(?) AND lower(view_name) = lower(?) "
-            "AND NOT internal AND database_name = current_database()", [schema, table]).fetchone()
+            "AND NOT internal AND database_name = current_database()", [schema, table]))
         return bool(row[0] or views[0])
 
     def remove_source(self, path: str) -> None:
@@ -484,14 +487,14 @@ class LocalEngine:
         or the other (``with engine.execute_reader(...) as stream:`` closes it). ``cancel(query_id)``
         and the time limit stop it mid-stream: reading then raises QueryCancelled or TimeoutError.
         ``stream.reader`` is a pyarrow RecordBatchReader for code that needs one."""
-        query = self._query(sql, dialect, timeout, query_id)
-        result, _run = query.__enter__()
+        query = self._query(sql, dialect, timeout, query_id, lazy=True)
+        result, run = query.__enter__()
+        state = self._running.get(run["query_id"]) or {}
         try:
             if result is None or not result.description:
                 inner = pa.RecordBatchReader.from_batches(pa.schema([]), iter(()))
             else:
-                reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-                inner = reader_of(max(1, int(batch_size)))
+                inner = arrow_reader(result, max(1, int(batch_size)))
         except BaseException:
             if not query.__exit__(*sys.exc_info()):
                 raise
@@ -499,8 +502,12 @@ class LocalEngine:
 
         def batches():
             try:
-                yield from inner
+                for batch in inner:
+                    if state.get("cancelled") or state.get("timed_out"):  # an interrupt DuckDB missed
+                        raise duckdb.InterruptException("cancelled")
+                    yield batch
             except BaseException:
+                inner.close()  # DuckDB 2.0 keeps the connection busy while a reader is open
                 if not query.__exit__(*sys.exc_info()):
                     raise
             else:
@@ -516,7 +523,8 @@ class LocalEngine:
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
-               confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None):
+               confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None,
+               lazy: bool = False):
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -553,7 +561,7 @@ class LocalEngine:
                                      "with no other statements.")
                 if explain is not None:
                     _one_read(con, statements)
-                result = None
+                result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
                 for i, step in enumerate(statements):
                     if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
                         raise duckdb.InterruptException("cancelled")
@@ -562,21 +570,21 @@ class LocalEngine:
                     if step["write"] is not None and step["write"].mode == "table":
                         summary = self._make_table(con, step["write"], params)
                         run["write"] = summary
-                        result = con.execute('SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
-                                             [summary["table"], summary["rows"]])
+                        result = for_arrow(con, 'SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                                           [summary["table"], summary["rows"]])
                     elif step["write"] is not None:
                         summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
                         run["write"] = summary
-                        result = con.execute(
-                            'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
+                        result = for_arrow(
+                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_written',
                             [summary["table"], summary["mode"], summary["version"], summary["rows"]])
                     elif step["change"] is not None:
                         summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
                                                confirm=confirm)
                         run["change"] = summary
-                        result = con.execute(
-                            'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                        result = for_arrow(
+                            con, 'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
                             [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
                              summary["rows_updated"], summary["rows_deleted"]])
@@ -584,8 +592,15 @@ class LocalEngine:
                         result = _analyze(con, step["sql"])
                     elif explain == "plan":
                         result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
+                    elif lazy and i == len(statements) - 1 and step["kind"] == "select":
+                        # A relation runs as it's read. DuckDB 2.0's reader over an executed result copies
+                        # every row before the first batch, so a big result filled memory and Stop
+                        # couldn't end it (#1340). con.sql runs a statement that isn't a query at once.
+                        result = con.sql(step["sql"], params=_bound(con, step["sql"], params))
+                    elif i == len(statements) - 1:
+                        result = for_arrow(con, step["sql"], _bound(con, step["sql"], params))
                     else:
-                        result = con.execute(step["sql"], _bound(con, step["sql"], params))
+                        run_through(con, step["sql"], _bound(con, step["sql"], params))
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
@@ -627,7 +642,7 @@ class LocalEngine:
                                   "kind": f"{change.kind} delta"})
                     continue
                 write = delta.parse_tree(tree, self._is_own)
-                text = "" if write else tree.sql(dialect="duckdb")
+                text = "" if write else delta._duckdb(tree)
                 if write is None and not text.strip():
                     continue
                 if write is None:
@@ -851,7 +866,7 @@ class LocalEngine:
         _only_reads(con, w.query)
         con.execute(f"CREATE SCHEMA IF NOT EXISTS {q(schema)}")
         con.execute(f"CREATE OR REPLACE TABLE {q(schema)}.{q(w.table)} AS {w.query}", _bound(con, w.query, params))
-        rows = con.execute(f"SELECT count(*) FROM {q(schema)}.{q(w.table)}").fetchone()[0]
+        rows = one_row(con.execute(f"SELECT count(*) FROM {q(schema)}.{q(w.table)}"))[0]
         return {"table": name, "mode": "table", "rows": int(rows), "version": None}
 
     def _write(self, con: duckdb.DuckDBPyConnection, w: "delta.Write", state: dict[str, Any], query_id: str,
@@ -895,11 +910,10 @@ class LocalEngine:
             out["version"] = current.version()
 
         _only_reads(con, w.query)  # before anything runs, dry run or not
-        result = con.execute(w.query, _bound(con, w.query, params))
-        if not result.description:
+        result = for_arrow(con, w.query, _bound(con, w.query, params))
+        if result is None or not result.description:
             raise ValueError("The query returns no rows to write.")
-        reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-        reader = reader_of(_WRITE_BATCH)
+        reader = arrow_reader(result, _WRITE_BATCH)
         positional = current is not None and not w.replace and w.by_position
         incoming = delta.fabric_schema(reader.schema, names=not positional)
         target, schema_mode, by_position = incoming, None, False
@@ -1012,10 +1026,10 @@ class LocalEngine:
         props = CommitProperties(custom_metadata={"fabric_desktop.project": self.project.id,
                                                   "fabric_desktop.query": query_id})
         source_table = f"__fd_merge_{uuid.uuid4().hex}"
-        source = names = None
+        source = names = stream = None
         try:
             if c.kind == "merge":
-                source, names = self._merge_source(con, c, current, source_table, name)
+                source, names, stream = self._merge_source(con, c, current, source_table, name)
             if dry_run:
                 with self._shadow(folder) as copy:
                     out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
@@ -1031,6 +1045,8 @@ class LocalEngine:
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:
+            if stream is not None:
+                stream.close()  # a refused MERGE never read it, and DuckDB 2.0 runs nothing while it's open
             if c.kind == "merge":
                 con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
         after = DeltaTable(str(folder))
@@ -1040,34 +1056,33 @@ class LocalEngine:
         return out
 
     def _merge_source(self, con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", current: Any,
-                      source_table: str, name: str) -> tuple[Any, list[str]]:
+                      source_table: str, name: str) -> tuple[Any, list[str], Any]:
         """The MERGE's source rows, kept in a temporary table so the check below and the merge read
-        the same rows, as a stream of Fabric-safe types with column names in the table's case."""
-        query = c.source_sql("duckdb")
+        the same rows, as a stream of Fabric-safe types with column names in the table's case, and
+        DuckDB's stream under it, for the caller to close."""
+        query = c.source_sql(KfDuckDB)
         _only_reads(con, query)
         con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
         keys = delta_dml.equi_keys(c)
-        if keys and any(w.match == "matched" for w in c.whens):
+        if keys and c.on is not None and any(w.match == "matched" for w in c.whens):
             # Spark refuses a MERGE in which one row of the table matches two source rows: which
             # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
             group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
-            duplicate = con.execute(
+            duplicate = first_row(con.execute(
                 f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
-                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {c.on.sql(dialect='duckdb')}) "
-                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1").fetchone()
+                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {delta._duckdb(c.on)}) "
+                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1"))
             if duplicate is not None:
                 raise ValueError(f"More than one source row matches the same row of {name} (source key "
                                  f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "
                                  "Keep one source row per key, for example with QUALIFY row_number() OVER "
                                  "(PARTITION BY key ORDER BY ...) = 1.")
-        result = con.execute(f"SELECT * FROM temp.{q(source_table)}")
-        reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-        reader = reader_of(_WRITE_BATCH)
+        reader = arrow_reader(for_arrow(con, f"SELECT * FROM temp.{q(source_table)}"), _WRITE_BATCH)
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
         schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
-        return delta.Conform(reader, schema, by_position=True).reader, names
+        return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
     def _shadow(self, folder: Path):
@@ -1266,12 +1281,36 @@ class _Rows:
         return self.rows
 
 
+def _profile_1x(raw: dict[str, Any]) -> dict[str, Any]:
+    """DuckDB 2.0's JSON profile in 1.x's shape. 2.0 puts the totals under "query", "system" and "io",
+    and the plan in an "operator" list (under a RESULT_COLLECTOR) of nodes with type, timing,
+    intermediate_rows and rows_scanned (#1341)."""
+    if "operator" not in raw:
+        return raw
+    query, system, io = raw.get("query") or {}, raw.get("system") or {}, raw.get("io") or {}
+
+    def node(n: dict[str, Any]) -> dict[str, Any]:
+        return {"operator_name": n.get("type", ""), "operator_timing": n.get("timing"),
+                "operator_cardinality": n.get("intermediate_rows"), "operator_rows_scanned": n.get("rows_scanned"),
+                "extra_info": n.get("extra_info"), "children": [node(c) for c in n.get("children") or []]}
+
+    roots = [node(n) for n in raw.get("operator") or []]
+    while len(roots) == 1 and roots[0]["operator_name"] == "RESULT_COLLECTOR":
+        roots = roots[0]["children"]
+    return {"latency": query.get("total_time"), "cpu_time": query.get("cpu_time"),
+            "cumulative_rows_scanned": query.get("total_rows_scanned"),
+            "system_peak_buffer_memory": system.get("peak_buffer_memory"),
+            "system_peak_temp_dir_size": system.get("peak_temp_dir_size"),
+            "total_bytes_read": io.get("total_bytes_read"), "children": roots}
+
+
 def _explained(raw: Any, mode: str) -> dict[str, Any]:
     if mode == "plan":
         roots = raw if isinstance(raw, list) else [raw]
         plan = [_plan_node(n) for n in roots]
         return {"mode": "plan", "plan": plan, "text": "\n".join(_render(plan)), "totals": None, "slowest": [],
                 "hints": []}
+    raw = _profile_1x(raw)
     roots = [c for c in raw.get("children", []) if c.get("operator_name") != "EXPLAIN_ANALYZE"]
     for wrapper in raw.get("children", []):
         if wrapper.get("operator_name") == "EXPLAIN_ANALYZE":
@@ -1472,8 +1511,7 @@ def _chain(first: pa.RecordBatch, rest: Any) -> Any:
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     if result is None or not result.description:
         return {"columns": [], "rows": [], "row_count": 0, "truncated": False}
-    reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
-    reader = reader_of(min(max(limit, 1), 10_000) if limit else 10_000)
+    reader = arrow_reader(result, min(max(limit, 1), 10_000) if limit else 10_000)
     kept: list[pa.RecordBatch] = []
     have = total = 0
     truncated = False
@@ -1487,6 +1525,7 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
             truncated = True
             if not count:
                 break
+    reader.close()  # on DuckDB 2.0 a reader stopped early keeps the connection busy
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],

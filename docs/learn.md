@@ -84,6 +84,11 @@ A level is a preference, not a permission: the checks run the same at every leve
 organization requires is required at every level. Guidance only adds explanations and links.
 The first names of the levels still work in a settings or policy file: Focus reads as Expert and
 Learning as Guided.
+**SQL guidance** and **Notebook guidance**, under Learning guidance in **Settings > Appearance >
+Layout**, set a level for one subject only: for example Expert for SQL, which you know well, and
+Guided for notebooks. **Same** (the default) follows Learning guidance. They change only the
+guidance beside that subject's findings; checks and required rules are the same at every level, and
+an organization policy can set them too.
 Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding

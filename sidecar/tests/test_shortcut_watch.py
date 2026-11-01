@@ -282,6 +282,20 @@ def test_unreachable_says_nothing_and_a_healthy_shortcut_posts_no_fix(world):
     assert world["posts"] == []
 
 
+@pytest.mark.parametrize("busy", [429, 503])
+def test_a_busy_onelake_posts_nothing_and_doesnt_close_a_break(world, busy):
+    agent = world["make"]()
+    world["status"]["Tables/dbo/orders"] = busy  # OneLake still busy after the probe's own retries
+    agent.check_shortcuts()
+    assert world["posts"] == []
+
+    world["status"]["Tables/dbo/orders"] = 404
+    agent.check_shortcuts()
+    world["status"]["Tables/dbo/orders"] = busy  # busy while broken: no "fixed", no second "broken"
+    agent.check_shortcuts()
+    assert titles(world) == ["Shortcut broken: orders in LH_Gold"]
+
+
 def test_teams_down_keeps_the_break_for_the_next_check(world, monkeypatch):
     agent = world["make"]()
     world["status"]["Tables/dbo/orders"] = 404

@@ -482,7 +482,8 @@ class CloudMixin:
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         item = self._published_item(name, ws["workspace_id"])[0] or self._notebook_item(name, ws["workspace_id"])
         if item is None:
-            raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}")
+            raise LookupError(f"{name} isn't published in {ws['workspace_name'] or 'that workspace'}, "
+                              "so it has no schedules there. Nothing was removed.")
         self.fabric_jobs.delete_schedule(ws["workspace_id"], item["id"], NOTEBOOK_JOB, schedule_id)  # type: ignore[attr-defined]
         return self.notebook_schedules(name, lakehouse_ref)
 
@@ -634,8 +635,10 @@ class CloudMixin:
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:
-            state = json.loads(self._bundles_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            state = jsonfile.read_json(self._bundles_file, {})
+        except OSError:
+            state = {}
+        if not isinstance(state, dict):
             state = {}
         key = f"{env}:{ws}"
         known = state.get(key, {})
@@ -685,7 +688,7 @@ class CloudMixin:
         """A Fabric run's status, and its per-entity results once the runner has saved them."""
         run = next((r for r in self.fabric_runs(200) if r.get("request_id") == request_id), None)
         if run is None:
-            raise KeyError(f"no Fabric run {request_id}")
+            raise LookupError(f"This PC has no record of the Fabric run {request_id}. Monitor lists the runs this app started.")
         out: dict[str, Any] = {"status": run["status"], "message": run.get("message", ""), "results": None}
         if run["status"] in TERMINAL:
             data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
@@ -709,7 +712,7 @@ class CloudMixin:
         """Schedule "run every entity" in Fabric, from the project as it is now."""
         project = self._project()  # type: ignore[attr-defined]
         if self._compute(project, env) != "fabric":
-            raise ValueError(f"Set {env.title()} to run in Fabric first; scheduled runs need Fabric compute")
+            raise ValueError(f"Set {env.title()} to run in Fabric first: scheduled runs need Fabric compute.")
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
@@ -725,7 +728,8 @@ class CloudMixin:
         ws = self._env_cfg(project, env).get("workspace_id", "")
         runner = self._notebook_item(RUNNER, ws) if ws else None
         if runner is None:
-            raise LookupError(f"There is no runner notebook in the {env.title()} workspace")
+            raise LookupError(f"There is no runner notebook in the {env.title()} workspace, "
+                              "so it has no schedules there. Nothing was removed.")
         self.fabric_jobs.delete_schedule(ws, runner["id"], "RunNotebook", schedule_id)  # type: ignore[attr-defined]
         return self.meta_schedules(env)
 

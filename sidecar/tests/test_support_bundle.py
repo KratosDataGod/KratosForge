@@ -61,7 +61,23 @@ def test_no_planted_secret_reaches_the_zip(tmp_path, pc):
             assert leaked not in text, f"{leaked!r} reached {name}"
     about = json.loads(files["about.json"])
     assert about["settings"]["telemetry_connection_string"]["value"] == "set"  # a secret: only whether it's set
+    assert about["settings"]["support_url"]["value"] == "set"
+    assert about["settings"]["dbconnect_index_url"]["value"] == "set"  # an internal mirror's host names the organization
+    assert "contoso" not in files["about.json"]
     assert "start" in files["sidecar.log"] and "end" in files["sidecar.log"]
+
+
+@pytest.mark.parametrize("folder", ["\\\\fs01.contoso.local\\scratch\\kf", "//fs01.contoso.local/scratch/kf"])
+def test_a_network_temp_folder_shows_only_that_it_is_one(tmp_path, pc, folder):
+    app_settings.user_path().write_text(json.dumps({"sql_temp_dir": folder}))
+    about = json.loads(_bundle(tmp_path)["about.json"])
+    assert about["settings"]["sql_temp_dir"]["value"] == "a network folder"
+    assert "contoso" not in json.dumps(about)
+
+
+def test_a_local_temp_folder_still_shows(tmp_path, pc):
+    app_settings.user_path().write_text(json.dumps({"sql_temp_dir": "D:\\Temp\\kf"}))
+    assert json.loads(_bundle(tmp_path)["about.json"])["settings"]["sql_temp_dir"]["value"] == "D:\\Temp\\kf"
 
 
 def test_policy_state_names_what_it_sets_but_never_a_value(tmp_path, pc):

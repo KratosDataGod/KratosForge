@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 import requests
 
-from . import http_session
+from . import http_session, redact
 from .paging import Pages
 from .retrying import send_with_retry
 
@@ -71,6 +71,49 @@ def storage_options(token: str) -> dict[str, str]:
             "timeout": REQUEST_TIMEOUT, "connect_timeout": "30s", "retry_timeout": RETRY_TIMEOUT}
 
 
+# A short read the person waits on, such as a replay bundle's sample: storage_options' upload-tuned
+# limits would keep it retrying for up to 30 minutes on a PC that's offline (#1303).
+READ_TIMEOUT = "60s"
+READ_CONNECT_TIMEOUT = "10s"
+READ_RETRY_TIMEOUT = "60s"
+READ_MAX_RETRIES = "2"
+
+
+def read_storage_options(token: str) -> dict[str, str]:
+    """storage_options for a small read the person waits on: it fails within about a minute when
+    OneLake can't be reached, instead of retrying for up to 30 minutes."""
+    return storage_options(token) | {"timeout": READ_TIMEOUT, "connect_timeout": READ_CONNECT_TIMEOUT,
+                                     "retry_timeout": READ_RETRY_TIMEOUT, "max_retries": READ_MAX_RETRIES}
+
+
+_CODE = re.compile(r"[A-Za-z0-9_.]{1,64}")
+
+
+def error_code(value: object) -> str:
+    """A service's error code fit for a one-line message: letters, digits, "_" and "." only, at most
+    64 of them. Anything else (an odd or hostile reply) gives "", so it can't grow or bend the line."""
+    text = str(value or "")
+    return text if _CODE.fullmatch(text) else ""
+
+
+def _onelake_error(resp: requests.Response, what: str) -> requests.HTTPError:
+    """A refused OneLake request as one line: what didn't happen, the status and OneLake's error code
+    (the DFS API's ``error.code``, the table API's ``error_code``, or ``x-ms-error-code``). The path
+    is the one inside the lakehouse, never the whole URL. Still a requests.HTTPError, with the
+    response, for callers that read its status."""
+    code = resp.headers.get("x-ms-error-code") if resp.headers else None
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        err = body.get("error")
+        code = (err.get("code") if isinstance(err, dict) else None) or body.get("error_code") or code
+    code = error_code(code)
+    return requests.HTTPError(f"OneLake didn't {what} ({resp.status_code}{': ' + code if code else ''}).",
+                              response=resp)
+
+
 class TableCatalog:
     """Read-only listing through the OneLake Delta table API (Unity Catalog compatible)."""
 
@@ -80,20 +123,21 @@ class TableCatalog:
         self._http = session or http_session.session()
         self._sleep = sleep
 
-    def _get(self, url: str, **params) -> dict[str, Any]:
+    def _get(self, url: str, what: str, **params) -> dict[str, Any]:
         resp = send_with_retry(lambda: self._http.get(url, params=params, timeout=60,
                                                       headers={"Authorization": f"Bearer {self._token()}"}),
                                "GET", sleep=self._sleep)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, what)
         return resp.json()
 
     def list_schemas(self, workspace_id: str, lakehouse_id: str) -> list[str]:
         url = f"{TABLE_API}/{workspace_id}/{lakehouse_id}/api/2.1/unity-catalog/schemas"
-        return [s["name"] for s in self._get(url, catalog_name=lakehouse_id).get("schemas", [])]
+        return [s["name"] for s in self._get(url, "list the lakehouse's schemas", catalog_name=lakehouse_id).get("schemas", [])]
 
     def list_tables(self, workspace_id: str, lakehouse_id: str, schema: str) -> list[str]:
         url = f"{TABLE_API}/{workspace_id}/{lakehouse_id}/api/2.1/unity-catalog/tables"
-        body = self._get(url, catalog_name=lakehouse_id, schema_name=schema)
+        body = self._get(url, f"list the tables in {schema}", catalog_name=lakehouse_id, schema_name=schema)
         return [t["name"] for t in body.get("tables", [])]
 
 
@@ -129,11 +173,17 @@ class FileTooBig(ValueError):
         super().__init__(f"{path} is over {max_bytes // (1024 * 1024)} MB, so it wasn't downloaded.")
         self.path, self.max_bytes = path, max_bytes
 
+# How many times a shortcut check asks OneLake before giving its last answer. The Shortcuts page
+# and the agent's watch run 8 checks at once, so each one gives up sooner than a file read does.
+PROBE_ATTEMPTS = 3
+
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
-    Reads are retried on throttling, 5xx and dropped connections (retrying.send_with_retry). Uploads
-    and deletes are sent once: a write that failed part way may have happened."""
+    Reads and folder creates are retried on throttling, 5xx and dropped connections
+    (retrying.send_with_retry). Uploads and deletes wait out throttling only; any other failure is
+    sent once, since a write that failed part way may have happened."""
 
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep):
@@ -161,7 +211,8 @@ class FileStore:
         pages = Pages(f"{directory or 'Files'} in OneLake")
         while True:
             resp = self._read(url, params=dict(params), timeout=60)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"list {directory or 'Files'}")
             for p in resp.json().get("paths", []):
                 path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
                 entries.append({"name": path.rsplit("/", 1)[-1], "path": path,
@@ -176,22 +227,27 @@ class FileStore:
     def probe(self, workspace_id: str, lakehouse_id: str, directory: str) -> tuple[int | None, str]:
         """List at most one entry of ``directory``: (HTTP status, message). Reads nothing else and
         writes nothing; through a shortcut it proves Fabric can reach the target. Status None: the
-        request didn't get an answer."""
+        request didn't get an answer. Throttling and 5xx are tried again (PROBE_ATTEMPTS in all)
+        before the last answer is returned."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "false", "maxResults": "1",
                   "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
-        try:
-            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+        try:  # a read: OneLake throttling, a 5xx or a dropped connection is waited out, a few times
+            resp = send_with_retry(lambda: self._http.get(url, params=params, headers=self._headers(), timeout=60),
+                                   "GET", sleep=self._sleep, attempts=PROBE_ATTEMPTS)
         except requests.RequestException as exc:
-            return None, str(exc)
+            return None, redact.one_line(exc)
         if resp.status_code < 400:
             return resp.status_code, ""
         try:
-            err = resp.json().get("error") or {}
-            message = f"{err.get('code', '')} {err.get('message', '')}".strip()
+            body = resp.json()
+            err = (body.get("error") if isinstance(body, dict) else None) or {}
+            if not isinstance(err, dict):
+                err = {"message": err}
+            message = f"{err.get('code', '')} {err.get('message', '')}"
         except ValueError:
-            message = resp.text[:300]
-        return resp.status_code, message
+            message = resp.text
+        return resp.status_code, redact.one_line(message)
 
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path,
                  max_bytes: int | None = None) -> Path:
@@ -199,7 +255,8 @@ class FileStore:
         there and raises FileTooBig, and the part written is removed."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         with self._read(url, stream=True, timeout=300) as resp:
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"read {path}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             written = 0
             with dest.open("wb") as f:
@@ -223,7 +280,8 @@ class FileStore:
             return None
         if ranged and resp.status_code == 416:  # an empty file has no byte 0
             return b""
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise _onelake_error(resp, f"read {path}")
         return resp.content[:length] if length else resp.content
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
@@ -232,26 +290,37 @@ class FileStore:
         steps = [("PUT", {"resource": "file"}, None),
                  ("PATCH", {"action": "append", "position": "0"}, data),
                  ("PATCH", {"action": "flush", "position": str(len(data))}, None)]
-        for method, params, body in steps:
+        for (method, params, body), step in zip(steps, ("create", "write", "commit")):
             if body is not None and not body:
                 continue  # an empty file needs no append
-            resp = self._http.request(method, url, params=params, data=body, headers=self._headers(), timeout=300)
-            resp.raise_for_status()
+            # Throttling (429) is waited out: OneLake did nothing. Anything else is sent once, since
+            # the step may have happened; a failed append is never flushed, so no half file is seen.
+            resp = send_with_retry(lambda: self._http.request(method, url, params=params, data=body,
+                                                              headers=self._headers(), timeout=300),
+                                   method, sleep=self._sleep, safe=False)
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"{step} {path}")
 
     def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
         """Create a folder (and any missing parents). One that is already there is left as it is:
         If-None-Match makes OneLake answer 409 instead of touching it."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        resp = self._http.request("PUT", url, params={"resource": "directory"},
-                                  headers={**self._headers(), "If-None-Match": "*"}, timeout=60)
-        if resp.status_code != 409:
-            resp.raise_for_status()
+        # If-None-Match can't change a folder that's there, so sending it again is safe: throttling,
+        # a 5xx and a dropped connection are tried again.
+        resp = send_with_retry(lambda: self._http.request("PUT", url, params={"resource": "directory"},
+                                                          headers={**self._headers(), "If-None-Match": "*"},
+                                                          timeout=60), "PUT", sleep=self._sleep, safe=True)
+        if resp.status_code >= 400 and resp.status_code != 409:
+            raise _onelake_error(resp, f"create the folder {path}")
 
     def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
         """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
         refuses (409) a folder that isn't empty."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        resp = self._http.request("DELETE", url, params={"recursive": "true" if recursive else "false"},
-                                  headers=self._headers(), timeout=300)
-        if resp.status_code != 404:
-            resp.raise_for_status()
+        # Throttling (429) is waited out; anything else is sent once (HD-053).
+        resp = send_with_retry(lambda: self._http.request("DELETE", url,
+                                                          params={"recursive": "true" if recursive else "false"},
+                                                          headers=self._headers(), timeout=300),
+                               "DELETE", sleep=self._sleep, safe=False)
+        if resp.status_code >= 400 and resp.status_code != 404:
+            raise _onelake_error(resp, f"delete {path}")

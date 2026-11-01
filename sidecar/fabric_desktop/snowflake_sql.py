@@ -24,7 +24,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, UnsupportedError
 
-RULES_VERSION = "2026.10.3"
+RULES_VERSION = "2026.10.6"
 _DOCS = "https://docs.snowflake.com/en/sql-reference"
 
 VERDICTS = ("translated", "difference", "not_translatable")
@@ -124,15 +124,23 @@ SFD_FLATTEN = _n("SFD-005", "FLATTEN rows and keys",
                  "Add ORDER BY INDEX where order matters.", f"{_DOCS}/functions/flatten")
 
 SFD_DATE = _n("SFD-006", "Date arithmetic on a DATE returns a TIMESTAMP",
-              "DATE_TRUNC, DATEADD and TIMESTAMPADD by a date unit (day and longer) keep a DATE as a DATE in "
-              "Snowflake; here the result is a TIMESTAMP at midnight. The date is the same. Raised when the value "
-              "is or may be a DATE (a column's type isn't known here), not on a TIMESTAMP cast or function.",
+              "DATEADD and TIMESTAMPADD by a date unit (day and longer), and DATE_TRUNC, of a value whose type "
+              "isn't known here keep a DATE as a DATE in Snowflake; here the result is a TIMESTAMP at "
+              "midnight. The date is the same. Raised when the value may be a DATE (a column's type isn't "
+              "known here); a value that is plainly a DATE (a cast, TO_DATE, CURRENT_DATE) is cast back to "
+              "DATE instead, and a TIMESTAMP cast or function raises nothing.",
               "Cast the result to DATE where its type matters, such as a join or a written table.",
               f"{_DOCS}/functions/date_trunc")
-SFD_TYPEOF = _n("SFD-007", "TYPEOF names DuckDB's types",
-                "TYPEOF gives Snowflake's VARIANT type names (INTEGER, VARCHAR, OBJECT...); here it gives "
-                "DuckDB's (JSON for a parsed value).",
-                "Don't branch on TYPEOF's text in code meant for both.", f"{_DOCS}/functions/typeof")
+SFD_TYPEOF = _n("SFD-007", "TYPEOF can't always name Snowflake's type",
+                "TYPEOF gives Snowflake's type names here (SFX-009), with two exceptions. A JSON number with a "
+                "fraction or an exponent that wasn't parsed in the same call (a column, a path such as v:a) "
+                "comes back as 'DECIMAL or DOUBLE': Snowflake tells them apart by how the number was written "
+                "(1.912e2 is DOUBLE, 191.2 is DECIMAL) and DuckDB doesn't keep that. A type with no single "
+                "Snowflake name keeps DuckDB's name (TIMESTAMP WITH TIME ZONE, which is TIMESTAMP_TZ or "
+                "TIMESTAMP_LTZ in Snowflake; INTERVAL, UUID, STRUCT, MAP). Raised when the value's type isn't "
+                "known here: a column, a path or a computed value.",
+                "Don't branch on TYPEOF's text for those values in code meant for both; TYPEOF(PARSE_JSON(...)) "
+                "and TYPEOF of a cast are named as in Snowflake.", f"{_DOCS}/functions/typeof")
 
 _ONLY_IN_SNOWFLAKE = "Runs only in Snowflake"
 
@@ -247,7 +255,8 @@ class _Untranslatable(Exception):
 
 
 def _duck(node: exp.Expression) -> str:
-    return node.sql(dialect="duckdb", unsupported_level=sqlglot.ErrorLevel.RAISE)
+    from .sql import KfDuckDB  # DuckDB 2.0 refuses "x -> body" lambdas (#1341)
+    return node.sql(dialect=KfDuckDB, unsupported_level=sqlglot.ErrorLevel.RAISE)
 
 
 def _flatten_parts(node: exp.Expression) -> tuple[exp.Expression, bool] | None:
@@ -285,9 +294,12 @@ def _rewrite_flatten(statement: exp.Expression) -> bool:
             source, outer = parts
             alias_node = join.this.args.get("alias")
             alias = alias_node.name if alias_node is not None and alias_node.name else "flatten"
-            src = _duck(source)
-            how = f"LEFT JOIN json_each({src}) AS {alias} ON TRUE" if outer else f"CROSS JOIN json_each({src}) AS {alias}"
+            _duck(source)  # refused here when DuckDB can't take the input
+            how = f"LEFT JOIN json_each(_kf_src) AS {alias} ON TRUE" if outer else f"CROSS JOIN json_each(_kf_src) AS {alias}"
             joins[i] = sqlglot.parse_one(f"SELECT 1 FROM _x {how}", read="duckdb").args["joins"][0]
+            # The input goes in as a tree, not as text read again: sqlglot 30.25 reads DuckDB's
+            # "v -> '$.arr'" back as a lambda (#1252).
+            next(c for c in joins[i].find_all(exp.Column) if c.name == "_kf_src").replace(source.copy())
             aliases.append(alias.lower())
             did = True
         if not aliases:
@@ -339,6 +351,30 @@ def _strftime(model: str) -> str | None:
             out.append(model[i])
             i += 1
     return "".join(out)
+
+
+def _plainly_a_date(value: exp.Expression | None) -> bool:
+    return value is not None and (value.is_type(exp.DataType.Type.DATE) or isinstance(value, exp.CurrentDate))
+
+
+def _date_trunc_of_a_date(node: exp.Expr) -> bool:
+    """DATE_TRUNC, DATEADD or TIMESTAMPADD by a unit of a day or longer on a value that is plainly a DATE:
+    Snowflake gives a DATE back."""
+    return (isinstance(node, (exp.DateTrunc, exp.DateAdd)) and _plainly_a_date(node.this)
+            and str(getattr(node.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS)
+
+
+def _rewrite_date_trunc(statement: exp.Expression) -> None:
+    """DATE_TRUNC and DATEADD of a DATE by a date unit stay a DATE, as in Snowflake (DuckDB gives a
+    TIMESTAMP at midnight for DATE + INTERVAL; sqlglot 30.25 keeps DATE_TRUNC a DATE itself, earlier
+    versions don't). Here every version gives a DATE (#1252, #1319)."""
+    for node in [n for n in statement.find_all(exp.DateTrunc, exp.DateAdd) if _date_trunc_of_a_date(n)]:
+        if isinstance(node.parent, exp.Cast) and node.parent.to.is_type(exp.DataType.Type.DATE):
+            continue
+        kept = node.copy()
+        if isinstance(kept, exp.DateTrunc):
+            kept.set("input_type_preserved", None)
+        node.replace(exp.cast(kept, exp.DataType.Type.DATE))
 
 
 def _rewrite_to_char(statement: exp.Expression) -> None:
@@ -417,6 +453,124 @@ def _rewrite_values(statement: exp.Expression) -> None:
                                          columns=[exp.to_identifier(f"column{i}") for i in range(1, width + 1)]))
 
 
+def _rewrite_ratio_to_report(statement: exp.Expression) -> None:
+    """SFX-007: RATIO_TO_REPORT(x) OVER (PARTITION BY p) is x over the partition's sum, and null when x is
+    null or the sum is 0. Snowflake's docs say an ORDER BY in the window doesn't change the result, so it's
+    dropped; a window frame isn't allowed there."""
+    for node in list(statement.find_all(exp.Window)):
+        func = node.this
+        if not (isinstance(func, exp.Anonymous) and str(func.this).upper() == "RATIO_TO_REPORT"):
+            continue
+        if len(func.expressions) != 1 or node.args.get("spec") is not None:
+            raise _Untranslatable(_refuse("SFX-007", "RATIO_TO_REPORT", "Only RATIO_TO_REPORT(expr) OVER "
+                                          "(PARTITION BY ...) is rewritten.", f"{_DOCS}/functions/ratio_to_report"))
+        value = _duck(func.expressions[0])
+        partition = node.args.get("partition_by") or []
+        over = f"PARTITION BY {', '.join(_duck(p) for p in partition)}" if partition else ""
+        node.replace(sqlglot.parse_one(f"(({value}) / NULLIF(SUM({value}) OVER ({over}), 0))", read="duckdb"))
+
+
+_EARTH_RADIUS_KM = 6371
+
+
+def _rewrite_haversine(statement: exp.Expression) -> None:
+    """SFX-008: HAVERSINE(lat1, lon1, lat2, lon2) is the great-circle distance in kilometres on a sphere of
+    radius 6,371 km; that radius reproduces the docs example (3936.385096389 km, New York to Los Angeles)."""
+    for node in list(statement.find_all(exp.Anonymous)):
+        if str(node.this).upper() != "HAVERSINE":
+            continue
+        if len(node.expressions) != 4:
+            raise _Untranslatable(_refuse("SFX-008", "HAVERSINE", "HAVERSINE takes four numbers.",
+                                          f"{_DOCS}/functions/haversine"))
+        lat1, lon1, lat2, lon2 = (f"radians(CAST({_duck(a)} AS DOUBLE))" for a in node.expressions)
+        node.replace(sqlglot.parse_one(
+            f"(2 * {_EARTH_RADIUS_KM} * asin(sqrt(power(sin(({lat2} - {lat1}) / 2), 2) + "
+            f"cos({lat1}) * cos({lat2}) * power(sin(({lon2} - {lon1}) / 2), 2))))", read="duckdb"))
+
+
+# DuckDB's typeof -> Snowflake's TYPEOF, where the name is the same whatever the value.
+_TYPEOF_NAMES = {**{t: "INTEGER" for t in ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT",
+                                           "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT")},
+                 "FLOAT": "DOUBLE", "DOUBLE": "DOUBLE", "VARCHAR": "VARCHAR", "BOOLEAN": "BOOLEAN", "DATE": "DATE",
+                 "TIME": "TIME", "BLOB": "BINARY",
+                 **{t: "TIMESTAMP_NTZ" for t in ("TIMESTAMP", "TIMESTAMP_S", "TIMESTAMP_MS", "TIMESTAMP_NS")}}
+_JSON_NAMES = {"NULL": "NULL_VALUE", "BOOLEAN": "BOOLEAN", "VARCHAR": "VARCHAR", "ARRAY": "ARRAY",
+               "OBJECT": "OBJECT", "BIGINT": "INTEGER", "UBIGINT": "INTEGER"}
+_TYPEOF_AMBIGUOUS = "DECIMAL or DOUBLE"
+# Types a cast gives whose name is one of _TYPEOF_NAMES (or DECIMAL), so TYPEOF of the cast is exact.
+_TYPEOF_KNOWN_CASTS = {exp.DataType.Type.TEXT, exp.DataType.Type.VARCHAR, exp.DataType.Type.CHAR,
+                       exp.DataType.Type.NCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.BOOLEAN,
+                       exp.DataType.Type.DATE, exp.DataType.Type.TIME, exp.DataType.Type.TIMESTAMP,
+                       exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.DATETIME, exp.DataType.Type.DOUBLE,
+                       exp.DataType.Type.FLOAT, exp.DataType.Type.TINYINT, exp.DataType.Type.SMALLINT,
+                       exp.DataType.Type.INT, exp.DataType.Type.BIGINT, exp.DataType.Type.DECIMAL,
+                       exp.DataType.Type.BINARY, exp.DataType.Type.VARBINARY}
+
+
+def _typeof_value(node: exp.Typeof) -> exp.Expression:
+    """TYPEOF's argument without casts to VARIANT: Snowflake names the value inside, and DuckDB's VARIANT
+    (1.5 and later) would hide it."""
+    value = node.this
+    while isinstance(value, exp.ToVariant) or (isinstance(value, (exp.Cast, exp.TryCast))
+                                               and value.to.is_type(exp.DataType.Type.VARIANT)):
+        value = value.this
+    return value
+
+
+def _typeof_known(node: exp.Typeof) -> bool:
+    """True when SFX-009 names the argument's type exactly whatever its value: PARSE_JSON in the same
+    call, a literal, or a cast to a type Snowflake names one way."""
+    value = _typeof_value(node)
+    if isinstance(value, (exp.ParseJSON, exp.Literal, exp.Boolean, exp.Null)):
+        return True
+    return isinstance(value, (exp.Cast, exp.TryCast)) and value.to.this in _TYPEOF_KNOWN_CASTS
+
+
+def _quoted(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _rewrite_typeof(statement: exp.Expression) -> None:
+    """SFX-009: TYPEOF gives Snowflake's names. A JSON value goes by json_type; a JSON number by how it was
+    written, as PARSE_JSON reads it: with an exponent it's DOUBLE; otherwise INTEGER or DECIMAL while it
+    fits NUMBER (38 digits, 37 after the point) and DOUBLE when it doesn't. DuckDB writes a parsed double
+    again its own way (1.912e2 becomes 191.2), so only PARSE_JSON's own input text tells; any other
+    JSON number with a fraction is 'DECIMAL or DOUBLE' (SFD-007). Another type goes by DuckDB's typeof;
+    one with no single Snowflake name keeps DuckDB's name."""
+    for node in list(statement.find_all(exp.Typeof)):
+        value = _typeof_value(node)
+        if isinstance(value, exp.ParseJSON):
+            # Snowflake's rule on the text as written: DuckDB's JSON() writes doubles again.
+            text = "trim(CAST(_kf_t AS VARCHAR))"
+            number = (f"CASE WHEN regexp_matches({text}, '[eE]') THEN 'DOUBLE' "
+                      f"WHEN length(ltrim(regexp_extract({text}, '^-?([0-9]+)', 1), '0')) "
+                      f"+ length(regexp_extract({text}, '\\.([0-9]+)', 1)) > 38 "
+                      f"OR length(regexp_extract({text}, '\\.([0-9]+)', 1)) > 37 THEN 'DOUBLE' "
+                      f"WHEN contains({text}, '.') THEN 'DECIMAL' ELSE 'INTEGER' END")
+        else:
+            # Only a whole number keeps its text (DuckDB keeps big integers as written).
+            text = "trim(CAST(_kf_v AS VARCHAR))"
+            number = (f"CASE WHEN NOT regexp_full_match({text}, '-?[0-9]+') THEN {_quoted(_TYPEOF_AMBIGUOUS)} "
+                      f"WHEN length(ltrim(ltrim({text}, '-'), '0')) > 38 THEN 'DOUBLE' ELSE 'INTEGER' END")
+        json_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _JSON_NAMES.items())
+        type_case = " ".join(f"WHEN {_quoted(k)} THEN {_quoted(v)}" for k, v in _TYPEOF_NAMES.items())
+        template = (f"SELECT CASE WHEN _kf_v IS NULL THEN NULL "
+                    f"WHEN typeof(_kf_v) = 'JSON' THEN CASE json_type(TRY_CAST(_kf_v AS JSON)) {json_case} "
+                    f"ELSE {number} END "
+                    f"WHEN regexp_full_match(typeof(_kf_v), 'DECIMAL\\([0-9]+,0\\)') THEN 'INTEGER' "
+                    f"WHEN typeof(_kf_v) LIKE 'DECIMAL(%' THEN 'DECIMAL' "
+                    f"WHEN typeof(_kf_v) LIKE '%[]' THEN 'ARRAY' "
+                    f"ELSE CASE typeof(_kf_v) {type_case} ELSE typeof(_kf_v) END END")
+        case = sqlglot.parse_one(template, read="duckdb").expressions[0]
+        # The value goes in as a tree, not as text read again (#1252), as in SFX-001.
+        for col in list(case.find_all(exp.Column)):
+            if col.name == "_kf_v":
+                col.replace(value.copy())
+            elif col.name == "_kf_t":
+                col.replace(value.this.copy())
+        node.replace(case)
+
+
 # ---------------------------------------------------------------- known differences (SFD-*)
 
 _TIMESTAMP_TYPES = {exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPNTZ, exp.DataType.Type.TIMESTAMPLTZ,
@@ -457,9 +611,10 @@ def _differences(statement: exp.Expression) -> list[Note]:
     if exp.DataType.Type.TIMESTAMPLTZ in types or any(statement.find_all(exp.CurrentTimestamp)):
         notes.append(SFD_LTZ)
     if any(str(getattr(n.args.get("unit"), "name", "") or "").upper() in _DATE_UNITS and _may_be_date(n.this)
+           and not _date_trunc_of_a_date(n)
            for n in statement.find_all(exp.TimestampTrunc, exp.DateTrunc, exp.DateAdd)):
         notes.append(SFD_DATE)
-    if any(statement.find_all(exp.Typeof)):
+    if any(not _typeof_known(n) for n in statement.find_all(exp.Typeof)):
         notes.append(SFD_TYPEOF)
     return notes
 
@@ -481,6 +636,19 @@ CATALOG = (
     ("SFX-006", "Rewritten", "SOUNDEX becomes American Soundex in DuckDB SQL (the first letter and three digits). "
                 "Text that starts with a non-letter comes back as it is, as in Spark; Snowflake doesn't document that "
                 "case."),
+    ("SFX-007", "Rewritten", "RATIO_TO_REPORT(x) OVER (PARTITION BY ...) becomes x divided by the partition's "
+                "sum, null when x is null or the sum is 0. An ORDER BY in its window is dropped, as it doesn't "
+                "change the result. x is worked out twice, which matters only when it isn't deterministic "
+                "(RANDOM(), for example)."),
+    ("SFX-008", "Rewritten", "HAVERSINE becomes the great-circle distance in kilometres on a sphere of radius "
+                "6,371 km."),
+    ("SFX-009", "Rewritten", "TYPEOF gives Snowflake's type names: NULL_VALUE, BOOLEAN, VARCHAR, ARRAY and OBJECT "
+                "for JSON; INTEGER, DECIMAL or DOUBLE for a JSON number by how PARSE_JSON reads it (an exponent "
+                "makes it DOUBLE; otherwise INTEGER or DECIMAL while it fits NUMBER); INTEGER, DECIMAL, DOUBLE, "
+                "VARCHAR, BOOLEAN, DATE, TIME, TIMESTAMP_NTZ, BINARY and ARRAY for other values; SQL NULL for "
+                "SQL NULL. A whole number is always INTEGER here, where Snowflake notes it may say DECIMAL. "
+                "Where the name can't be known, SFD-007 applies. The argument is worked out more than once, "
+                "which matters only when it isn't deterministic."),
     ("SFX-000", "Runs only in Snowflake", "Anything else sqlglot can't write for DuckDB."),
     ("SFD-001", "Runs, with a difference: " + SFD_CASE.title, SFD_CASE.reason),
     ("SFD-002", "Runs, with a difference: " + SFD_TZ.title, SFD_TZ.reason),
@@ -528,9 +696,13 @@ def _statement(n: int, statement: exp.Expression) -> StatementReport:
     try:
         flattened = _rewrite_flatten(tree)
         _rewrite_to_char(tree)
+        _rewrite_date_trunc(tree)
         _rewrite_object_construct(tree)
         _rewrite_values(tree)
         _rewrite_soundex(tree)
+        _rewrite_ratio_to_report(tree)
+        _rewrite_haversine(tree)
+        _rewrite_typeof(tree)
         sql = _duck(tree)
     except _Untranslatable as exc:
         return StatementReport(n, "not_translatable", None, (exc.note,))

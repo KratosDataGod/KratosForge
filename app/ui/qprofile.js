@@ -59,7 +59,7 @@ function renderQueryProfile(o) {
       q.busy = false;
       if (p.gone) q.gone = true; else q.data = p;
       redraw();
-    }, (err) => { q.busy = false; q.error = friendlyError(err); redraw(); });
+    }, (err) => { q.busy = false; q.error = friendlyError(err).text; redraw(); });
   };
   const draw = () => {
     if (q.gone) return [h("div", { class: "more" }, "The kernel restarted since this result. Run the cell again to profile its query.")];

@@ -89,6 +89,8 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [semantic-model-best-practices.md](semantic-model-best-practices.md) | Engineers, BI developers | Best Practice Analyzer through semantic-link-labs in Fabric (Preview): what a check runs, writes and costs |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
+| [health-thresholds.md](health-thresholds.md) | Engineers, platform owners | The thresholds KratosForge flags tables, warehouses and capacity use at, compared with Microsoft's Fabric skills, and why each value is kept |
+| [platform-audit.md](platform-audit.md) | Auditors, platform owners | The platform's audit trail: what each request, decision and access change records, and how to pull one request's history |
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, asking another team for data, following a product, catalog text |

@@ -361,8 +361,11 @@ class PipelineRun:
             except Exception as exc:  # noqa: BLE001 - a failed save must not stop the run
                 _log.warning("Couldn't save the run's progress; the run goes on: %s", describe(exc))
 
-    def _run_list(self, acts: list[Activity], scope: Scope, label: str, parent: str | None) -> str:
-        """Run one list of sibling activities; returns succeeded, failed or cancelled."""
+    def _run_list(self, acts: list[Activity], scope: Scope, label: str, parent: str | None,
+                  until: float | None = None) -> str:
+        """Run one list of sibling activities; returns succeeded, failed or cancelled. ``until`` is an
+        enclosing Until's deadline (time.monotonic()): at it, what's running is cancelled and what
+        hasn't started doesn't start (#1316)."""
         names = {a.name for a in acts}
         status: dict[str, str] = {}
         threads: list[threading.Thread] = []
@@ -374,9 +377,10 @@ class PipelineRun:
                     deps = [d for d in a.depends_on if d.activity in names]
                     if any(status.get(d.activity) in (None, "running") for d in deps):
                         continue
-                    if self.cancelled:
+                    if self.cancelled or _past(until):
                         status[a.name] = "cancelled"
                         self._record(a, label, parent, "cancelled", executed_by="not_started")
+                        self._cond.notify_all()
                     elif any(status[d.activity] == "cancelled" for d in deps):
                         status[a.name] = "cancelled"
                         self._record(a, label, parent, "cancelled", executed_by="not_started")
@@ -386,7 +390,7 @@ class PipelineRun:
                         self._cond.notify_all()
                     else:
                         status[a.name] = "running"
-                        t = threading.Thread(target=self._execute, args=(a, scope, label, parent, status),
+                        t = threading.Thread(target=self._execute, args=(a, scope, label, parent, status, until),
                                              name=f"pipeline-{a.name}", daemon=True)
                         threads.append(t)
                         t.start()
@@ -399,11 +403,12 @@ class PipelineRun:
             return "cancelled"
         return "succeeded" if _leaves_succeed(acts, status) else "failed"
 
-    def _execute(self, a: Activity, scope: Scope, label: str, parent: str | None, status: dict[str, str]) -> None:
+    def _execute(self, a: Activity, scope: Scope, label: str, parent: str | None, status: dict[str, str],
+                 until: float | None = None) -> None:
         rec = self._record(a, label, parent, "running")
         final = "failed"
         try:
-            final = self._attempts(a, scope, rec)
+            final = self._attempts(a, scope, rec, until)
         except Exception as exc:  # noqa: BLE001 - an adapter bug fails the activity, not the run
             rec["error"] = {"errorCode": "LocalAdapterError", "message": f"{type(exc).__name__}: {exc}",
                             "failureType": "SystemError"}
@@ -421,7 +426,7 @@ class PipelineRun:
                 self._cond.notify_all()
             self._changed()
 
-    def _attempts(self, a: Activity, scope: Scope, rec: dict[str, Any]) -> str:
+    def _attempts(self, a: Activity, scope: Scope, rec: dict[str, Any], until: float | None = None) -> str:
         if a.inactive:
             mark = str(a.raw.get("onInactiveMarkAs", "Succeeded")).lower()
             rec["executed_by"] = "inactive"
@@ -433,7 +438,8 @@ class PipelineRun:
         policy = a.raw.get("policy") if isinstance(a.raw.get("policy"), dict) else {}
         retries = policy.get("retry", 0) if leaf and isinstance(policy.get("retry"), int) else 0
         interval = policy.get("retryIntervalInSeconds", 30) if isinstance(policy.get("retryIntervalInSeconds"), int) else 30
-        limit = timespan(policy.get("timeout")) if leaf else None
+        # An Execute Pipeline's timeout bounds its child pipeline's run (#1370).
+        limit = timespan(policy.get("timeout")) if leaf or a.type in _CHILD_TYPES else None
         if leaf:
             while not self._slots.acquire(timeout=0.2):
                 if self.cancelled:
@@ -442,19 +448,24 @@ class PipelineRun:
             for attempt in range(retries + 1):
                 rec["attempts"] = attempt + 1
                 deadline = None if limit is None else time.monotonic() + limit
-                ctx = _Context(self, a, scope, rec, deadline)
+                if until is not None:  # an enclosing Until's timeout stops this activity too
+                    deadline = until if deadline is None else min(deadline, until)
+                ctx = _Context(self, a, scope, rec, deadline, until)
                 try:
                     output = _run_mock(mock, ctx) if mock is not None else adapter.execute(a, ctx)
                     rec["output"] = HIDDEN if policy.get("secureOutput") is True else output
                     rec.pop("error", None)
                     return "succeeded"
                 except ActivityFailed as exc:
+                    if _past(until):  # stopped by the Until's timeout, not by a failure of its own
+                        rec.pop("error", None)
+                        return "cancelled"
                     rec["error"] = exc.error
                     if exc.output is not None:
                         rec["output"] = exc.output
                     if attempt < retries and not self.cancelled:
                         try:
-                            _Context(self, a, scope, rec, None).wait(interval)
+                            _Context(self, a, scope, rec, until, until).wait(interval)
                         except _Cancelled:
                             return "cancelled"
                         continue
@@ -553,6 +564,14 @@ def _leaves_succeed(acts: list[Activity], status: dict[str, str]) -> bool:
     return all(ok(a.name, frozenset()) for a in acts if a.name not in depended)
 
 
+_CHILD_TYPES = ("ExecutePipeline", "InvokePipeline")
+
+
+def _past(until: float | None) -> bool:
+    """Whether an enclosing Until's deadline has passed."""
+    return until is not None and time.monotonic() >= until
+
+
 def _run_mock(mock: Mapping[str, Any], ctx: "_Context") -> Any:
     seconds = mock.get("seconds", 0)
     if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds > 0:
@@ -568,8 +587,10 @@ def _run_mock(mock: Mapping[str, Any], ctx: "_Context") -> Any:
 class _Context:
     """What one activity run can do (see adapters.ActivityContext)."""
 
-    def __init__(self, run: PipelineRun, activity: Activity, scope: Scope, rec: dict[str, Any], deadline: float | None):
+    def __init__(self, run: PipelineRun, activity: Activity, scope: Scope, rec: dict[str, Any], deadline: float | None,
+                 until: float | None = None):
         self.run, self.activity, self.scope, self.rec, self.deadline = run, activity, scope, rec, deadline
+        self.until = until  # an enclosing Until's deadline, which this activity's own run_list keeps
 
     @property
     def wait_scale(self) -> float:
@@ -584,7 +605,7 @@ class _Context:
         end = min(end, self.deadline) if self.deadline is not None else end
         while True:
             left = end - time.monotonic()
-            if self.run.cancelled:
+            if self.run.cancelled or _past(self.until):
                 raise _Cancelled()
             if left <= 0:
                 break
@@ -596,10 +617,12 @@ class _Context:
         with self.run._lock:
             self.rec.update(fields)
 
-    def run_list(self, activities: list[Activity], scope: Scope, label: str) -> str:
+    def run_list(self, activities: list[Activity], scope: Scope, label: str, until: float | None = None) -> str:
         if self.run.cancelled:
             raise _Cancelled()
-        outcome = self.run._run_list(activities, scope, label, self.rec["id"])
+        if self.until is not None:
+            until = self.until if until is None else min(until, self.until)
+        outcome = self.run._run_list(activities, scope, label, self.rec["id"], until)
         if outcome == "cancelled":
             raise _Cancelled()
         return outcome
@@ -619,9 +642,9 @@ class _Context:
 
         for i, item in enumerate(items):
             while not gate.acquire(timeout=0.2):
-                if self.run.cancelled:
+                if self.run.cancelled or _past(self.until):
                     break
-            if self.run.cancelled:
+            if self.run.cancelled or _past(self.until):  # an enclosing Until's timeout: start no more (#1393)
                 break
             t = threading.Thread(target=one, args=(i, item), daemon=True, name=f"foreach-{i}")
             threads.append(t)
@@ -656,23 +679,46 @@ class _Context:
         child = PipelineRun(child_imp, parameters=parameters, mocks=self.run.mocks, children=self.run.children,
                             max_parallel=self.run.max_parallel, wait_scale=self.run.wait_scale,
                             registry=self.run.registry, now=self.run.scope.now, depth=self.run.depth + 1,
-                            cancel=self.run._cancel, notebooks=self.run.notebooks, detached=self.run._detached,
-                            data=self.run.data,
+                            # A child nothing waits on shares this run's Cancel; one waited on gets its own,
+                            # so its timeout stops it without stopping this run (#1370).
+                            cancel=None if wait else self.run._cancel, notebooks=self.run.notebooks,
+                            detached=self.run._detached, data=self.run.data,
                             run_id=str(uuid.uuid5(self.run._ns, f"child|{self.rec['id']}")))
         if not wait:
             return self._start_child(child, key)
+        done = threading.Event()
+        watcher = threading.Thread(target=self._watch_child, args=(child, done), daemon=True,
+                                   name=f"pipeline-child-watch-{child.id[:8]}")
+        watcher.start()
         try:
             child.run()
         except RunRefused as exc:
             raise ActivityFailed(f"Child pipeline {key} can't run: {exc}", "LocalChildRefused") from None
         finally:
+            done.set()
+            watcher.join()
             self.note(child_run=child.to_json())
-        if child.state == "cancelled":
+        if child.state == "cancelled" or self.run.cancelled:
             raise _Cancelled()
+        if child.stop_reason == "timed_out":
+            raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
         output = {"pipelineRunId": child.id, "pipelineReturnValue": dict(child.return_value)}
         if child.state != "succeeded":
             raise ActivityFailed(f"Child pipeline {key} failed.", "LocalChildFailed", output)
         return output
+
+    def _watch_child(self, child: PipelineRun, done: threading.Event) -> None:
+        """Stop a child run waited on when this run is cancelled or this activity's deadline (its policy
+        timeout or an enclosing Until's) passes; an Until's timeout cancels it, a policy timeout times it out."""
+        while not done.is_set():
+            if self.run.cancelled:
+                child.cancel()
+                return
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                child.cancel("cancelled" if _past(self.until) else "timed_out")
+                return
+            left = 0.2 if self.deadline is None else self.deadline - time.monotonic()
+            done.wait(min(0.2, max(0.0, left)))
 
     def _start_child(self, child: PipelineRun, key: str) -> dict[str, Any]:
         """waitOnCompletion false: start the child and succeed at once, as Fabric does. The child's
@@ -710,7 +756,32 @@ class _Context:
                 raise _Cancelled()
             return output
         read = self.run.data.lookup if activity.type == "Lookup" else self.run.data.metadata
-        return read(activity, properties)
+        return self._bounded(lambda: read(activity, properties))
+
+    def _bounded(self, call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """``call`` on a worker thread, waited on until it returns, the run is cancelled, or this
+        activity's deadline (its policy timeout, or an enclosing Until's) passes (#1368). A read
+        still going then finishes in the background, read-only, and its result is dropped."""
+        done = threading.Event()
+        box: dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                box["out"] = call()
+            except BaseException as exc:  # noqa: BLE001 - handed back to the activity's thread below
+                box["exc"] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=work, name=f"pipeline-read-{self.activity.name}", daemon=True).start()
+        while not done.wait(0.2):
+            if self.run.cancelled or _past(self.until):
+                raise _Cancelled()
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise ActivityFailed("The activity reached its policy timeout.", "LocalActivityTimeout")
+        if "exc" in box:
+            raise box["exc"]
+        return box["out"]
 
     def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]:
         if self.run.notebooks is None:

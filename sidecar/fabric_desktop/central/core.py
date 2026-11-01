@@ -685,13 +685,40 @@ def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -
     return out
 
 
+def _domain_uses(db: Db, did: str) -> list[str]:
+    """What else names a domain, so deleting it would leave a reference to nothing, or hand a domain
+    made later with the same id its policies (#1310). Tables an older platform lacks are skipped."""
+    out = []
+    if db.exists("catalog", "landing_zone"):
+        out += [f"landing zone {z['name']}" for z in
+                db.rows(f"SELECT name FROM {db.t('catalog', 'landing_zone')} WHERE domain_id = ?", (did,))]
+    if db.exists("catalog", "policy_assignment"):
+        out += [f"policy {a['policy_id']}" for a in db.rows(
+            f"SELECT policy_id FROM {db.t('catalog', 'policy_assignment')} WHERE scope = 'domain' AND target = ?", (did,))]
+    if db.exists("catalog", "policy_exception"):
+        today = _today().isoformat()  # UTC, as policy reads exceptions
+        out += [f"an exception to {e['policy_id']}" for e in db.rows(
+            f"SELECT policy_id FROM {db.t('catalog', 'policy_exception')} "
+            "WHERE scope = 'domain' AND target = ? AND until_date >= ?", (did, today))]
+    if db.exists("catalog", "entra_group"):
+        out += [f"the {g['role']} group link ({g['env']})" for g in
+                db.rows(f"SELECT role, env FROM {db.t('catalog', 'entra_group')} WHERE domain_id = ?", (did,))]
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE status = 'waiting'"):
+        r = _request_out(r)
+        d = r["detail"]
+        if did in (d.get("domain_id"), d.get("parent_id"), d.get("domain"), d.get("subdomain")) \
+                or (r["kind"] == "exception" and d.get("scope") == "domain" and d.get("scope_target") == did):
+            out.append(f"a waiting {r['kind'].replace('_', ' ')} request for {r['target'] or r['project']}")
+    return sorted(set(out))
+
+
 def delete_domain(db: Db, did: str, by: str = "") -> None:
     did = domain_id(did)
     require_admin(db, by, "delete domains")
     children = db.rows(f"SELECT id FROM {db.t('catalog', 'domain')} WHERE parent_id = ?", (did,))
     users = db.rows(f"SELECT name FROM {db.t('catalog', 'project')} WHERE domain_id = ? OR subdomain_id = ?", (did, did))
-    if children or users:
-        what = [f"subdomain {c['id']}" for c in children] + [f"project {u['name']}" for u in users]
+    what = [f"subdomain {c['id']}" for c in children] + [f"project {u['name']}" for u in users] + _domain_uses(db, did)
+    if what:
         raise PlatformError(f"{did} is still used by " + ", ".join(what))
     db.run(f"DELETE FROM {db.t('catalog', 'domain')} WHERE id = ?", (did,))
     _audit(db, by, "delete domain", did)
@@ -1735,6 +1762,20 @@ def switch_landing_reads(db: Db, by: str = "") -> list[dict[str, Any]]:
     return list_landing_zones(db)
 
 
+def _zone_waiting(db: Db, zid: str) -> list[str]:
+    """The sources of waiting source requests that land in this zone (no zone is Shared), so a zone
+    isn't taken away from a request an approver is about to carry out (#1331)."""
+    out = set()
+    for r in db.rows(f"SELECT target, detail FROM {db.t('catalog', 'request')} WHERE kind = 'source' AND status = 'waiting'"):
+        try:
+            zone = zone_key(json.loads(r.get("detail") or "{}").get("zone") or SHARED_ZONE)
+        except (ValueError, AttributeError):  # silent-ok: a request naming no valid zone (or unreadable) lands nowhere
+            continue
+        if zone == zid:
+            out.add(str(r["target"]))
+    return sorted(out)
+
+
 def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
     """Take a zone out of the catalog. Its lakehouse and files stay in Fabric. Refused while a source
     is in it (a source with no zone is in Shared). Platform admins only."""
@@ -1747,6 +1788,12 @@ def delete_landing_zone(db: Db, id: str, by: str = "") -> list[dict[str, Any]]:
         used = zone["sources"]
         raise PlatformError(f"{zone['name']} still holds {', '.join(used)}: move {'it' if len(used) == 1 else 'them'} "
                             "to another zone first")
+    waiting = _zone_waiting(db, zid)
+    if waiting:
+        raise PlatformError(f"{zone['name']} is where the waiting source request{'s' if len(waiting) > 1 else ''} for "
+                            f"{', '.join(waiting)} land{'' if len(waiting) > 1 else 's'}: decline "
+                            f"{'them' if len(waiting) > 1 else 'it'}, or wait for {'them' if len(waiting) > 1 else 'it'} "
+                            "to be decided, first")
     db.run(f"DELETE FROM {db.t('catalog', 'landing_zone')} WHERE id = ?", (zid,))
     _audit(db, by, "delete landing zone", zid)
     db.commit()
@@ -2123,7 +2170,7 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         if _duplicate_key(_request_out(r)) == mine:
             raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
     _upsert(db, "catalog", "request", "id", row)
-    _audit(db, by, f"request {kind}", target, {"project": project})
+    _audit(db, by, f"request {kind}", target, {"request": row["id"], "project": project})
     db.commit()
     return _request_out(row)
 
@@ -2262,13 +2309,15 @@ def _left(req: dict[str, Any]) -> dict[str, Any]:
     """The ids of what approving a request made before it was declined or withdrawn, for the audit
     trail: closing it deletes nothing in Fabric."""
     made = (req.get("detail") or {}).get("made") or {}
+    if made.get("change") == "kept":  # a higher role they already had: approving changed nothing
+        return {}
     return {k: made[k] for k in _LEFT.get(req.get("kind") or "", ()) if made.get(k)}
 
 
 # What each kind's approval makes, by the keys record_request_progress keeps: a workspace request's
 # capacity_id or a source's landing workspace_id are where things went, not what was made.
-_LEFT = {"workspace": ("workspace_id",), "workspace_access": ("assigned",), "source": ("copy_job_id", "schedule_id"),
-         "domain": ("domain_id", "fabric_domain_id")}
+_LEFT = {"workspace": ("workspace_id",), "workspace_access": ("assigned", "change", "from"), "source": ("copy_job_id", "schedule_id"),
+         "domain": ("domain_id", "fabric_domain_id", "found"), "shortcut": ("shortcut_id", "found")}
 
 
 def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
@@ -2300,12 +2349,15 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can take access away")
     # After the role check, so only someone who may take access away learns whether a grant exists.
-    if _row(db, "grant", "id", f"{product_id}|{project}") is None:
+    grant = _row(db, "grant", "id", f"{product_id}|{project}")
+    if grant is None:
         raise PlatformError(f"{project} has no access to {product_id} to take away")
     db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
     if db.exists("catalog", "grant_review"):
         db.run(f"DELETE FROM {db.t('catalog', 'grant_review')} WHERE id = ?", (f"{product_id}|{project}",))
-    _audit(db, by, "revoke access", product_id, {"project": project})
+    # The grant row goes, so its audit row keeps what gave the access (#1352): the request, who and when.
+    given = {"request": grant.get("request_id"), "granted_by": grant.get("granted_by"), "granted_at": grant.get("granted_at")}
+    _audit(db, by, "revoke access", product_id, {"project": project, **{k: v for k, v in given.items() if v}})
     db.commit()
     return list_grants(db, product_id)
 

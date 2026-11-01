@@ -182,7 +182,11 @@ def display(value: Any) -> dict[str, Any]:
     """The output a value shows as: a table, an image, HTML or text."""
     table = as_table(value)
     if table is not None:
-        rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
+        shown = table.slice(0, PREVIEW_ROWS)
+        # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
+        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        rows = [list(row) for row in zip(*columns)] if columns else \
+            [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
@@ -1523,7 +1527,7 @@ class Kernel:
         if not self.resources_dir:
             raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
                                     "under Resources (Built-in) first.")
-        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        path = notebook_resources.real_path(f"builtin/{file}", self.resources_dir)
         if path is None or not os.path.isfile(path):
             raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
         text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM
@@ -1632,9 +1636,14 @@ class Kernel:
         """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
         memory it holds and whether variable_detail can open it."""
         hidden = self._hidden(name, value)
-        return {"name": name, "type": type(value).__name__, "size": _size(value),
-                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
-                "expandable": not hidden and _expandable(value)}
+        kind = type(value).__name__
+        try:
+            return {"name": name, "type": kind, "size": _size(value),
+                    "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                    "expandable": not hidden and _expandable(value)}
+        except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
+            return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
+                    "memory": None, "expandable": False}
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -2172,7 +2181,9 @@ def _count(n: Any) -> str:
 
 def _preview(value: Any) -> str:
     module = type(value).__module__
-    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")):
+    # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
+    # gone), so it shows as its repr, as _columns leaves it unexpanded.
+    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")) and type(value).__name__ != "LazyFrame":
         cols = getattr(value, "columns", None)
         if cols is not None:
             names = list(cols)

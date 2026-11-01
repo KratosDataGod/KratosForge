@@ -271,6 +271,20 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+// friendlyError returns { text, details, cancelled }, so a call used as text shows "[object Object]".
+test("friendlyError's result is never used as text", () => {
+  const misused = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const m of src.matchAll(/friendlyError\([^()]*\)(?![.\w])/g)) {
+      const start = src.lastIndexOf("\n", m.index) + 1;
+      if (/(?:const|let) \w+ = $/.test(src.slice(start, m.index)) || /function $/.test(src.slice(start, m.index))) continue;
+      misused.push(`${name}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepStrictEqual(misused, []);
+});
+
 // Accessibility (FD-139): checks that need no browser.
 test("every icon-only button has a name a screen reader can say", () => {
   const missing = [];
@@ -2468,22 +2482,23 @@ test("the update splash lists the build's notes and each change since the build 
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
-test("removing a schedule asks first, in red, and says what stops", () => {
+test("removing a schedule asks first, in red, and says what stops", async () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
   assert.strictEqual(removes.length, 3);
   for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
-  ctx.confirmDialog = (...args) => args;
-  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  vm.runInContext(/(?:async )?function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = async (...args) => args;
+  ctx.document = { getElementById: () => ({ firstElementChild: null }) };  // asked with no dialog open
+  const [title, text, ok, opts] = await ctx.f("nb_sales", "Daily at 06:00 UTC", false);
   assert.strictEqual(title, "Remove the schedule for nb_sales?");
   assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true))[1], /Fabric deletes the schedule/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true, false))[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -4504,7 +4519,7 @@ function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
   const { node } = chartsHarness(null);
   const calls = [];
-  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: String(e?.message ?? e), details: "" }), previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
     renderOutput: (o) => node("pre", {}, o.text || o.type),
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4840,7 +4855,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
@@ -5625,7 +5640,7 @@ test("declining or withdrawing a partly carried-out request says what is still i
   assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
     ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
-    ["The group Sales Engineers keeps the Contributor role (or the higher one they had) in Sales Prod from approving this request: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+    ["The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
   assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
     ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
   for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
@@ -5647,4 +5662,50 @@ test("declining a domain request whose domain was made says where it is", () => 
     ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
   assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
     ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr", found: true } } }),
+    ["The domain HR is in the platform and Fabric: it was there before this request, or approving it made it. Check which before deleting it"], "#1270: possibly someone else's");
+});
+
+// #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
+test("declining a workspace access request says whether its approval gave, raised or kept the role", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (made) => JSON.parse(JSON.stringify(box.result({ kind: "workspace_access",
+    detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { email: "dev@contoso.com" }, made } })));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ assigned: true, change: "gave", from: "" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }),
+    ["dev@contoso.com has the Contributor role in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ assigned: true }),
+    ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
+});
+
+// #1260: a shortcut request's decline says the shortcut its approval made is still in OneLake.
+test("declining a shortcut request whose shortcut was made says it is still in OneLake", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
+  assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
+    ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
+    ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
+  assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
+});
+
+test("browser tests run axe through the harness, which waits for animations to end (#1337)", () => {
+  // axe judges contrast on the colors as drawn; a check taken while a dialog fades in fails on
+  // faded text (#1297). harness.cjs axeFindings turns motion off and waits; the audit has its own runner.
+  const dir = path.join(__dirname, "browser");
+  const own = new Set(["harness.cjs", "a11y-audit.test.cjs"]);
+  const direct = fs.readdirSync(dir).filter((f) => f.endsWith(".cjs") && !own.has(f))
+    .filter((f) => /axe\.run\(|addScriptTag\(\{ content: axeSource/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.deepStrictEqual(direct, []);
+  assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
 });

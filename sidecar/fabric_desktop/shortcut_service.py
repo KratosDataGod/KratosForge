@@ -556,24 +556,35 @@ class ShortcutMixin:
                 d = req["detail"]
                 why = f"Request from {req.get('requested_by') or 'someone'}: {req.get('reason') or ''}".strip(": ")
                 try:
-                    self.create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
+                    self._create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
                                          d.get("lakehouse_name", ""), workspace_name=d.get("workspace_name", ""),
                                          target_workspace_name=d.get("target_workspace_name", ""), note=why,
                                          via_request=True)
                 except FabricError as exc:
                     if exc.status != 409 and "AlreadyExists" not in str(exc.code or ""):
                         raise
-                    self._sc_made_before(req, why, exc)
+                    ours = self._sc_made_before(req, why, exc)
+                    self._sc_progress(req, found=not ours)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
                     return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
                                            "asks, so it was kept"]}
+                self._sc_progress(req)
         return super().platform_decide(id, approve, note)  # type: ignore[misc]
 
-    def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> None:
+    def _sc_progress(self, req: dict[str, Any], found: bool = False) -> None:
+        """Record the shortcut on the request, so declining it after a later step fails says it's in OneLake.
+        ``found``: it was there already and this request's own approval hadn't logged making it, so it may be
+        one made by hand before the request (or one whose create answer was lost): a decline says to check."""
+        d = req["detail"]
+        sid = core.shortcut_id(d["item_id"], f"{shortcuts_mod.location(d['where'])}/{d['name']}")
+        self._rq_progress(req, {"shortcut_id": sid, **({"found": True} if found else {})})  # type: ignore[attr-defined]
+
+    def _sc_made_before(self, req: dict[str, Any], why: str, conflict: Exception) -> bool:
         """Fabric refused a shortcut request's shortcut because one is there already. It counts as made only
         when it points exactly where the request asks: an earlier approval made it and its answer, or the
-        approval after it, was lost (#1052). Its "added" entry is recorded once."""
+        approval after it, was lost (#1052). Its "added" entry is recorded once. True when this request's own
+        approval had already logged making it; otherwise it may have been there before the request (#1260)."""
         d = req["detail"]
         api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
         where = shortcuts_mod.location(d["where"])
@@ -591,8 +602,10 @@ class ShortcutMixin:
         sid = core.shortcut_id(d["item_id"], f"{where}/{d['name']}")
         since = str(req.get("requested_at") or "")
         logged = self._catalog().call("shortcut_changes", days=3650, shortcut=sid)  # type: ignore[attr-defined]
-        if not any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged):
+        ours = any(c.get("kind") == "added" and str(c.get("at") or "") >= since for c in logged)
+        if not ours:
             ref = {"workspace_id": d["workspace_id"], "lakehouse_id": d["item_id"], "path": where, "name": d["name"],
                    "workspace_name": d.get("workspace_name", ""), "lakehouse_name": d.get("lakehouse_name", "")}
             self._sc_log("added", ref, None, self._sc_def(d["workspace_id"], d["item_id"], where, d["name"], wanted), why)
         self._all_shortcuts = None
+        return ours

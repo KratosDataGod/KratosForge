@@ -30,6 +30,7 @@ Last checked against `main` c9874896 (2026-10-23). Nothing in this pack has been
 | Usage data, field by field | [Usage data](telemetry.md) |
 | External AI tools: local API, approvals, audit | [AI integration security](product/ai-integration-security.md) |
 | Audit trail | [User guide: audit trail](user-guide.md#audit-trail) |
+| Requests, decisions and access given or taken away | [The platform's audit trail](platform-audit.md) |
 | Backup and restore | [Back up and restore](backup.md) |
 | Support bundles and logs | [Troubleshooting](troubleshooting.md) |
 | Independent code audit, findings and fixes | [Hardening audit](hardening/README.md), [findings](hardening/findings.md), [release gates](hardening/readiness-checklist.md) |

@@ -149,7 +149,9 @@ ROLE_WRITES = [
     ("clear_keys", ADMIN, lambda db: core.stage_keys(db, True, by=ADMIN) and {}),
     ("save_domain", ADMIN, lambda db: {"domain": {"id": "hr", "name": "HR"}}),
     ("import_fabric_domains", ADMIN, lambda db: {"domains": [{"id": "f1", "displayName": "Finance"}]}),
-    ("delete_domain", ADMIN, lambda db: {"did": "sales"}),
+    # sales has a landing zone, a policy and a group link, so it can't go (#1310): an unused one can.
+    ("delete_domain", ADMIN, lambda db: (core.save_domain(db, {"id": "spare", "name": "Spare"}, by=ADMIN),
+                                         {"did": "spare"})[1]),
     ("register_product", PRODUCT_OWNER, lambda db: {
         "product": {"project": "crm", "name": "c360", "owner": PRODUCT_OWNER, "access": "private",
                     "status": "published", "description": "changed"},

@@ -33,11 +33,44 @@ CONNECT_MODES = {"SINGLE_USER": "Dedicated", "USER_ISOLATION": "Standard",
 PARTS = ("identity", "warehouses", "clusters", "metastore", "catalogs")
 
 
+class OddReply(ValueError):
+    """A reply that isn't the shape the documented API gives: that part says so, the rest still come back."""
+
+
+_TEXT_MAX = 200   # characters of one name or state from the workspace
+
+
+def _text(value: Any) -> str:
+    """A name, id or state from the workspace as one line of plain text: control characters (a
+    newline, a terminal escape) folded to spaces, so a name can't add lines to the summary or recolor
+    a terminal, and cut to _TEXT_MAX."""
+    line = " ".join("".join(c if c.isprintable() else " " for c in str(value or "")).split())
+    return line if len(line) <= _TEXT_MAX else line[:_TEXT_MAX - 1].rstrip() + "…"
+
+
+def _minutes(value: Any) -> int:
+    """An auto-stop in whole minutes; 0 (none) when missing. Anything but a whole number is an odd reply."""
+    if value is None or value == "":
+        return 0
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError, OverflowError):   # OverflowError: JSON's Infinity
+        raise OddReply(f"an auto-stop of {_text(value)!r} isn't a number of minutes") from None
+    return max(minutes, 0)
+
+
+def _object(value: Any, what: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise OddReply(f"{what} isn't an object")
+    return value
+
+
 def warehouse_row(w: dict[str, Any]) -> dict[str, Any]:
-    auto_stop = int(w.get("auto_stop_mins") or 0)
+    w = _object(w, "a warehouse")
+    auto_stop = _minutes(w.get("auto_stop_mins"))
     notes = [] if auto_stop else ["No auto-stop: once started, it bills DBUs until someone stops it."]
-    return {"id": str(w.get("id") or ""), "name": str(w.get("name") or ""), "state": str(w.get("state") or ""),
-            "size": str(w.get("cluster_size") or ""), "type": str(w.get("warehouse_type") or ""),
+    return {"id": _text(w.get("id")), "name": _text(w.get("name")), "state": _text(w.get("state")),
+            "size": _text(w.get("cluster_size")), "type": _text(w.get("warehouse_type")),
             "serverless": bool(w.get("enable_serverless_compute")), "auto_stop_mins": auto_stop, "notes": notes}
 
 
@@ -60,12 +93,13 @@ def connect_problems(spark_version: str, access_mode: str) -> list[str]:
 
 
 def cluster_row(c: dict[str, Any]) -> dict[str, Any]:
-    version = str(c.get("spark_version") or "")
-    mode = str(c.get("data_security_mode") or "")
-    auto_stop = int(c.get("autotermination_minutes") or 0)
+    c = _object(c, "a cluster")
+    version = _text(c.get("spark_version"))
+    mode = _text(c.get("data_security_mode"))
+    auto_stop = _minutes(c.get("autotermination_minutes"))
     problems = connect_problems(version, mode)
-    return {"id": str(c.get("cluster_id") or ""), "name": str(c.get("cluster_name") or ""),
-            "state": str(c.get("state") or ""), "spark_version": version,
+    return {"id": _text(c.get("cluster_id")), "name": _text(c.get("cluster_name")),
+            "state": _text(c.get("state")), "spark_version": version,
             "access_mode": CONNECT_MODES.get(mode, mode), "auto_stop_mins": auto_stop,
             "connect": {"usable": not problems, "problems": problems},
             "notes": [] if auto_stop else ["No auto-termination: once started, it bills DBUs until someone stops it."]}
@@ -79,24 +113,24 @@ class Discovery:
         self.catalogs = catalogs
 
     def _identity(self) -> dict[str, Any]:
-        me = self.client.get("/api/2.0/preview/scim/v2/Me")
-        return {"user": str(me.get("userName") or ""), "name": str(me.get("displayName") or "")}
+        me = _object(self.client.get("/api/2.0/preview/scim/v2/Me"), "the signed-in user")
+        return {"user": _text(me.get("userName")), "name": _text(me.get("displayName"))}
 
     def _warehouses(self) -> list[dict[str, Any]]:
         return [warehouse_row(w) for w in self.client.list("/api/2.0/sql/warehouses", "warehouses", {})]
 
     def _clusters(self) -> list[dict[str, Any]]:
         found = self.client.list("/api/2.1/clusters/list", "clusters", {})
-        return [cluster_row(c) for c in found if str(c.get("cluster_source") or "") != "JOB"]
+        return [cluster_row(c) for c in found if str(_object(c, "a cluster").get("cluster_source") or "") != "JOB"]
 
     def _metastore(self) -> dict[str, Any]:
-        m = self.client.get(f"{UC}/metastore_summary")
-        return {"id": str(m.get("metastore_id") or ""), "name": str(m.get("name") or ""),
-                "region": str(m.get("region") or ""), "default_catalog": str(m.get("default_catalog_name") or "")}
+        m = _object(self.client.get(f"{UC}/metastore_summary"), "the metastore")
+        return {"id": _text(m.get("metastore_id")), "name": _text(m.get("name")),
+                "region": _text(m.get("region")), "default_catalog": _text(m.get("default_catalog_name"))}
 
     def _catalogs(self) -> list[dict[str, Any]]:
-        return [{"name": str(c.get("name") or ""), "type": str(c.get("catalog_type") or ""),
-                 "comment": str(c.get("comment") or "")} for c in self.client.list(f"{UC}/catalogs", "catalogs", {})]
+        return [{"name": _text(c.get("name")), "type": _text(c.get("catalog_type")), "comment": _text(c.get("comment"))}
+                for c in (_object(x, "a catalog") for x in self.client.list(f"{UC}/catalogs", "catalogs", {}))]
 
     def run(self) -> dict[str, Any]:
         readers = {"identity": self._identity, "warehouses": self._warehouses, "clusters": self._clusters,
@@ -116,6 +150,9 @@ class Discovery:
                     parts[name] = {"ok": False, "error": signed_out}
                 except DatabricksError as exc:
                     parts[name] = {"ok": False, "error": str(exc)}
+                except (OddReply, TypeError, AttributeError) as exc:   # a list where an object belongs, say
+                    why = str(exc) if isinstance(exc, OddReply) else "a value isn't the type the API documents"
+                    parts[name] = {"ok": False, "error": f"Databricks answered in a shape discovery doesn't know ({why})."}
         return {"schema": SCHEMA, "host": self.client.host, "signed_in": not signed_out, "parts": parts,
                 "suggested": suggested(parts)}
 

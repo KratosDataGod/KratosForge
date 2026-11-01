@@ -190,7 +190,7 @@ test("Optimize reads the check first, says it runs in Fabric and uses capacity, 
   if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), []);
   await dialogButton("Optimize").click();
   await waitToast(/Optimizing dbo\.orders in Fabric/);
-  assert.deepStrictEqual(writes(from), [{ method: "xray_optimize", params: argsOf(f) }]);
+  assert.deepStrictEqual(writes(from), [{ method: "xray_optimize", params: { ...argsOf(f), risk_id: "r-pass" } }]);
   assert.strictEqual(await dialog().count(), 0);
   await page().waitForFunction(() => /Fix submitted to Fabric/.test(document.querySelector("#xray-under-test .xray-list").textContent));
   assert.deepStrictEqual(app.errors, []);
@@ -226,7 +226,7 @@ test("Optimize past warnings that need the box ticked stops until it is ticked",
   await dialog().getByRole("checkbox", { name: /I've looked at these/ }).check();
   await dialogButton("Optimize").click();
   await waitToast(/Optimizing lines in Fabric/);
-  assert.deepStrictEqual(writes(from), [{ method: "xray_optimize", params: argsOf(byTable("lines")) }]);
+  assert.deepStrictEqual(writes(from), [{ method: "xray_optimize", params: { ...argsOf(byTable("lines")), risk_id: "r-wrn" } }]);
 });
 
 test("Vacuum shows its dry run before anything runs, is drawn as destructive, and sends exactly the table picked", { skip }, async () => {

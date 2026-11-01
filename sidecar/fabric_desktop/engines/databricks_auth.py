@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import math
 import os
 import subprocess
 import sys
@@ -63,8 +64,19 @@ def resolve_secret(ref: str, environ: Mapping[str, str] | None = None) -> str:
     return _credman_read(name)
 
 
+# Windows' own limit on a credential's secret (CRED_MAX_CREDENTIAL_BLOB_SIZE, 5 * 512 bytes): a size
+# beyond it isn't a credential Credential Manager wrote, so nothing past it is read.
+CRED_MAX_BLOB = 5 * 512
+
+
+def _advapi() -> Any:
+    import ctypes
+    return ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+
+
 def _credman_read(target: str) -> str:
-    """A generic credential's secret from Windows Credential Manager (CredReadW)."""
+    """A generic credential's secret from Windows Credential Manager (CredReadW). Errors name the
+    credential, never its secret."""
     if sys.platform != "win32":
         raise DatabricksAuthError("credman: references are read from Windows Credential Manager, on Windows only.")
     import ctypes
@@ -77,19 +89,43 @@ def _credman_read(target: str) -> str:
                     ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
                     ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
 
-    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi = _advapi()
     found = ctypes.POINTER(_Credential)()
     if not advapi.CredReadW(target, 1, 0, ctypes.byref(found)):  # 1 = CRED_TYPE_GENERIC
         raise DatabricksAuthError(f"Windows Credential Manager has no generic credential named {target!r}.")
     try:
-        blob = ctypes.string_at(found.contents.CredentialBlob, found.contents.CredentialBlobSize)
+        size = int(found.contents.CredentialBlobSize)
+        if size > CRED_MAX_BLOB:
+            raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager is larger than "
+                                      f"Windows allows ({CRED_MAX_BLOB} bytes), so it wasn't read.")
+        blob = ctypes.string_at(found.contents.CredentialBlob, size) if size else b""
     finally:
         advapi.CredFree(found)
-    # Credential Manager's own editor saves UTF-16; cmdkey and most tools too.
-    try:
-        text = blob.decode("utf-16-le")
-    except UnicodeDecodeError:
-        text = blob.decode("utf-8", "replace")
+    return credman_text(blob, target)
+
+
+def credman_text(blob: bytes, target: str) -> str:
+    """A Credential Manager secret as text. Credential Manager's own editor and cmdkey save UTF-16;
+    some tools save UTF-8. A UTF-16 secret of ASCII holds NUL bytes, so a blob with none (past its
+    terminating NULs) that reads as UTF-8 is UTF-8: read as UTF-16 it would become other characters,
+    a wrong secret. A blob that is neither is refused rather than guessed, and the error never
+    quotes it."""
+    text = None
+    bare = blob.rstrip(b"\x00")   # without the terminating NULs some tools store with the secret
+    if b"\x00" not in bare:
+        try:
+            text = bare.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+    if text is None and len(blob) % 2 == 0:
+        try:
+            text = blob.decode("utf-16-le")
+        except UnicodeDecodeError:
+            text = None
+    if text is None:
+        raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager isn't readable text "
+                                  "(UTF-16 or UTF-8). Save the secret again with Credential Manager or cmdkey.")
+    text = text.rstrip("\x00")
     if not text:
         raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager is empty.")
     return text
@@ -181,19 +217,33 @@ def _cli_token(args: list[str], run: Callable[..., Any]) -> tuple[str, float | N
                    stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise DatabricksAuthError("The Databricks CLI didn't answer within a minute.") from None
+    except OSError as exc:   # found on PATH, but Windows or a policy wouldn't start it
+        raise DatabricksAuthError(f"The Databricks CLI at {cli} couldn't be started ({type(exc).__name__}). "
+                                  "Reinstall it, or check that it is allowed to run.") from None
     if done.returncode != 0:
         # stderr says why (not signed in, expired refresh token); it never carries the token itself,
         # but it passes through redaction anyway.
         lines = (done.stderr or "").strip().splitlines()
-        detail = redact.secrets(lines[-1]) if lines else ""
+        detail = _part(redact.secrets(lines[-1])) if lines else ""
         hint = " Sign in again with: databricks auth login " + " ".join(args)
         raise DatabricksAuthError(f"The Databricks CLI couldn't give a token{': ' + detail if detail else '.'}{hint}")
     try:
         data = json.loads(done.stdout)
     except (TypeError, ValueError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("access_token", ""), str):
         raise DatabricksAuthError("The Databricks CLI's answer wasn't the JSON it documents. "
-                                  "Update the CLI (0.205 or later).") from None
-    return str(data.get("access_token") or ""), _expiry(data.get("expiry"))
+                                  "Update the CLI (0.205 or later).")
+    return data.get("access_token") or "", _expiry(data.get("expiry"))
+
+
+_PART_MAX = 300   # characters of the CLI's own reason kept in an error
+
+
+def _part(text: str) -> str:
+    """The CLI's reason as one bounded line: control characters folded to spaces, cut to _PART_MAX."""
+    line = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return line if len(line) <= _PART_MAX else line[:_PART_MAX - 1].rstrip() + "…"
 
 
 def _expiry(value: Any) -> float | None:
@@ -216,14 +266,20 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     if resp.status_code != 200:
         raise DatabricksAuthError(f"The workspace refused the service principal's sign-in (HTTP {resp.status_code}). "
                                   "Check the client ID, the secret and that the principal is in the workspace.")
+    refused = DatabricksAuthError("The workspace's token endpoint didn't answer with the OAuth token it documents. "
+                                  "Check the workspace address.")
     try:
         data = resp.json()
         lifetime = data.get("expires_in")
-        expires = (clock() + float(lifetime)) if lifetime else None
+        seconds = float(lifetime) if lifetime is not None else None   # missing: no known expiry
     except (ValueError, TypeError, AttributeError):
-        raise DatabricksAuthError("The workspace's token endpoint didn't answer with the OAuth token it documents. "
-                                  "Check the workspace address.") from None
-    return str(data.get("access_token") or ""), expires
+        raise refused from None
+    # A lifetime that is infinite, NaN or not positive would keep a token forever or fetch one on every call.
+    if seconds is not None and not (math.isfinite(seconds) and seconds > 0):
+        raise refused
+    if not isinstance(data.get("access_token", ""), str):
+        raise refused   # str() of an object would send its text as the bearer token
+    return data.get("access_token") or "", (clock() + seconds) if seconds is not None else None
 
 
 def provider_for(connection: dict[str, Any], *, run: Callable[..., Any] = subprocess.run, http: Any = None,

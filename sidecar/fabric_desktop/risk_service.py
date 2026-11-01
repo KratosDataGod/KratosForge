@@ -255,13 +255,18 @@ class RiskMixin:
             raise PermissionError("A blocked run can't be acknowledged: " + current["summary"])
         if current["id"] != risk_id:
             raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
-        record = {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "risk_id": risk_id,
-                  "workload_id": id, "workload": current["workload"], "action": action, "env": env or "",
-                  "result": current["result"], "user": self._wl_user(),  # type: ignore[attr-defined]
-                  "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING],
-                  "note": str(note or "")[:500]}
+        record = self._risk_ack_record(current, risk_id, note)
         self._risk_ack_write(record)
         return record
+
+    def _risk_ack_record(self, current: dict[str, Any], risk_id: str, note: str = "") -> dict[str, Any]:
+        """The acknowledgement of ``current``, an assessment already checked to match ``risk_id``."""
+        return {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "risk_id": risk_id,
+                "workload_id": current["workload_id"], "workload": current["workload"], "action": current["action"],
+                "env": current.get("env") or "", "result": current["result"],
+                "user": self._wl_user(),  # type: ignore[attr-defined]
+                "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING],
+                "note": str(note or "")[:500]}
 
     def _risk_ack_write(self, record: dict[str, Any]) -> None:
         path = self.root / _ACKS  # type: ignore[attr-defined]

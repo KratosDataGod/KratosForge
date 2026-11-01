@@ -556,7 +556,7 @@ class ShortcutMixin:
                 d = req["detail"]
                 why = f"Request from {req.get('requested_by') or 'someone'}: {req.get('reason') or ''}".strip(": ")
                 try:
-                    self.create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
+                    self._create_shortcut(d["workspace_id"], d["item_id"], d["where"], d["name"], d["source"],  # type: ignore[attr-defined]
                                          d.get("lakehouse_name", ""), workspace_name=d.get("workspace_name", ""),
                                          target_workspace_name=d.get("target_workspace_name", ""), note=why,
                                          via_request=True)

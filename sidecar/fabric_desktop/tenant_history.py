@@ -26,11 +26,11 @@ from .optimize import schema
 S = schema.S
 
 # The shared row shape. FinOps' fdcap_ family uses the same columns, so one view reads both.
-SNAPSHOT = {"taken_at": S, "scope_type": S, "scope_id": S, "setting": S, "value_json": S, "value_hash": S,
+SNAPSHOT: dict[str, schema.Dtype] = {"taken_at": S, "scope_type": S, "scope_id": S, "setting": S, "value_json": S, "value_hash": S,
             "source": S, "read_by": S}
-CHANGE = {"changed_after": S, "changed_by_time": S, "scope_type": S, "scope_id": S, "setting": S, "old_json": S,
+CHANGE: dict[str, schema.Dtype] = {"changed_after": S, "changed_by_time": S, "scope_type": S, "scope_id": S, "setting": S, "old_json": S,
           "new_json": S, "source": S, "read_by": S}
-READ = {"read_at": S, "scope_type": S, "scope_id": S, "source": S, "outcome": S, "reason": S, "read_by": S}
+READ: dict[str, schema.Dtype] = {"read_at": S, "scope_type": S, "scope_id": S, "source": S, "outcome": S, "reason": S, "read_by": S}
 
 FAMILY = schema.register(schema.Family("fdten_", "Tenant settings history", [schema.Migration(
     1, "Create the tenant settings history tables",

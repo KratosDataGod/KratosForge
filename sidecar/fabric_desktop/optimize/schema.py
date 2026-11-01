@@ -34,13 +34,16 @@ import polars as pl
 PREFIX = "fdopt_"
 SCHEMA = "dbo"
 S, I, F, B = pl.String, pl.Int64, pl.Float64, pl.Boolean
+# A column type as these tables spell it: the class (pl.String) or an instance (pl.Datetime("us")).
+# polars takes either in a schema.
+Dtype = pl.DataType | type[pl.DataType]
 
 # On every row.
-PROVENANCE: dict[str, pl.DataType] = {"record_id": S, "installation_id": S, "created_at": S, "app_version": S,
+PROVENANCE: dict[str, Dtype] = {"record_id": S, "installation_id": S, "created_at": S, "app_version": S,
                                       "schema_version": I}
 
 # Version 1. Times are ISO 8601 UTC strings, like the metadata framework's run log.
-TABLES_V1: dict[str, dict[str, pl.DataType]] = {
+TABLES_V1: dict[str, dict[str, Dtype]] = {
     # One row per installation that connected. installation_id is random (installation.py).
     "installations": {"label": S, "os": S, "registered_at": S},
     "analysis_runs": {"run_id": S, "started_at": S, "finished_at": S, "status": S, "scope": S,
@@ -89,7 +92,7 @@ DEFAULT_CONFIG = {
 }
 
 
-def columns(name: str, tables: dict[str, dict[str, pl.DataType]] | None = None) -> dict[str, pl.DataType]:
+def columns(name: str, tables: dict[str, dict[str, Dtype]] | None = None) -> dict[str, Dtype]:
     """Every column of table ``name`` (without the prefix): provenance first, then its own."""
     return PROVENANCE | (tables or TABLES_V1)[name]
 
@@ -103,7 +106,7 @@ class Migration:
     version: int
     description: str
     # The tables (by name, without prefix) with every column this version expects.
-    tables: dict[str, dict[str, pl.DataType]]
+    tables: dict[str, dict[str, Dtype]]
     # Extra steps beyond creating missing tables; each must be safe to run again.
     steps: tuple[Callable[[Any], None], ...] = ()
 
@@ -115,10 +118,10 @@ def latest() -> int:
     return max(m.version for m in MIGRATIONS)
 
 
-def expected(version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
+def expected(version: int | None = None) -> dict[str, dict[str, Dtype]]:
     """Every table and column a lakehouse at ``version`` (default: this app's) has, by full name."""
     version = latest() if version is None else version
-    out: dict[str, dict[str, pl.DataType]] = {}
+    out: dict[str, dict[str, Dtype]] = {}
     for m in MIGRATIONS:
         if m.version <= version:
             for name in m.tables:
@@ -160,10 +163,10 @@ class Family:
     def latest(self) -> int:
         return max(m.version for m in self.migrations)
 
-    def expected(self, version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
+    def expected(self, version: int | None = None) -> dict[str, dict[str, Dtype]]:
         """Every table and column this family has at ``version`` (default: this app's), by full name."""
         version = self.latest() if version is None else version
-        out: dict[str, dict[str, pl.DataType]] = {}
+        out: dict[str, dict[str, Dtype]] = {}
         for m in self.migrations:
             if m.version <= version:
                 for name in m.tables:

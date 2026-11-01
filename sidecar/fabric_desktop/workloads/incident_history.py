@@ -28,7 +28,7 @@ from ..redact import secrets
 from .. import jsonfile
 
 S = pl.String
-TABLES_V1: dict[str, dict[str, pl.DataType]] = {
+TABLES_V1: dict[str, dict[str, schema.Dtype]] = {
     "incident_event": {"incident_id": S, "number": S, "env": S, "workspace_id": S, "kind": S, "priority": S,
                        "at": S, "by": S, "what": S, "text": S},
     "incident_snapshot": {"incident_id": S, "number": S, "env": S, "workspace_id": S, "kind": S, "source": S,

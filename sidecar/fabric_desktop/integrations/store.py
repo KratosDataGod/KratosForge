@@ -21,7 +21,6 @@ import hashlib
 import json
 import secrets
 import sqlite3
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -71,37 +70,48 @@ class IntegrationStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
-        self._local = threading.local()
-        self._db().executescript(_SCHEMA)
+        with self._db() as db:
+            db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
+            db.executescript(_SCHEMA)
 
     @classmethod
     def at(cls, root: Path) -> "IntegrationStore":
         return cls(Path(root) / "integrations" / "integrations.sqlite")
 
-    def _db(self) -> sqlite3.Connection:
-        db = getattr(self._local, "db", None)
-        if db is None:
-            db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+    @contextmanager
+    def _db(self) -> Iterator[sqlite3.Connection]:
+        """A connection for one read or change, closed after it. One kept per thread was never closed:
+        each MCP call runs on a new worker thread, and on Windows an open handle keeps the file locked."""
+        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        try:
             db.row_factory = sqlite3.Row
-            db.execute("pragma journal_mode=wal")
-            self._local.db = db
-        return db
+            yield db
+        finally:
+            db.close()
+
+    def _rows(self, sql: str, args: Any = ()) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute(sql, args).fetchall()
+
+    def _one(self, sql: str, args: Any = ()) -> sqlite3.Row | None:
+        rows = self._rows(sql, args)
+        return rows[0] if rows else None
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        db = self._db()
-        db.execute("begin immediate")
-        try:
-            yield db
-        except BaseException:
-            db.execute("rollback")
-            raise
-        db.execute("commit")
+        with self._db() as db:
+            db.execute("begin immediate")
+            try:
+                yield db
+            except BaseException:
+                db.execute("rollback")
+                raise
+            db.execute("commit")
 
     # ---- settings
 
     def settings(self) -> dict[str, Any]:
-        rows = {r["key"]: json.loads(r["value"]) for r in self._db().execute("select key, value from settings")}
+        rows = {r["key"]: json.loads(r["value"]) for r in self._rows("select key, value from settings")}
         return {k: rows.get(k, v) for k, v in DEFAULT_SETTINGS.items()}
 
     def set_setting(self, key: str, value: Any) -> dict[str, Any]:
@@ -126,14 +136,13 @@ class IntegrationStore:
 
     def clients(self, include_revoked: bool = False) -> list[dict[str, Any]]:
         sql = "select * from clients" + ("" if include_revoked else " where revoked_at is null") + " order by created_at"
-        return [self._client(r) for r in self._db().execute(sql)]  # type: ignore[misc]
+        return [self._client(r) for r in self._rows(sql)]  # type: ignore[misc]
 
     def client(self, client_id: str) -> dict[str, Any] | None:
-        return self._client(self._db().execute("select * from clients where id = ?", (client_id,)).fetchone())
+        return self._client(self._one("select * from clients where id = ?", (client_id,)))
 
     def client_by_token(self, token: str) -> dict[str, Any] | None:
-        row = self._db().execute("select * from clients where token_hash = ? and revoked_at is null",
-                                 (token_hash(token),)).fetchone()
+        row = self._one("select * from clients where token_hash = ? and revoked_at is null", (token_hash(token),))
         return self._client(row)
 
     def add_client(self, name: str, kind: str = "other", transport: str = "stdio", grants: list[str] | None = None,
@@ -229,14 +238,14 @@ class IntegrationStore:
     def approval(self, approval_id: str) -> dict[str, Any] | None:
         with self._tx() as db:
             self._expire(db)
-        return self._approval(self._db().execute("select * from approvals where id = ?", (approval_id,)).fetchone())
+        return self._approval(self._one("select * from approvals where id = ?", (approval_id,)))
 
     def approvals(self, state: str = "pending", limit: int = 50) -> list[dict[str, Any]]:
         with self._tx() as db:
             self._expire(db)
         sql = "select * from approvals" + (" where state = ?" if state else "") + " order by created_at desc limit ?"
         args: tuple[Any, ...] = (state, limit) if state else (limit,)
-        return [self._approval(r) for r in self._db().execute(sql, args)]  # type: ignore[misc]
+        return [self._approval(r) for r in self._rows(sql, args)]  # type: ignore[misc]
 
     def decide(self, approval_id: str, approve: bool, note: str = "") -> dict[str, Any]:
         """The person's answer. Only the app's own engine calls this; no external interface can."""
@@ -268,6 +277,6 @@ class IntegrationStore:
         """Approvals used since ``since``, newest first, with what they were for."""
         sql = ("select u.used_at, a.* from approval_uses u join approvals a on a.id = u.approval_id where u.used_at >= ?"
                + (" and u.client_id = ?" if client_id else "") + " order by u.used_at desc limit ?")
-        rows = self._db().execute(sql, [since, *([client_id] if client_id else []), limit])
+        rows = self._rows(sql, [since, *([client_id] if client_id else []), limit])
         return [{**(self._approval(r) or {}), "used_at": r["used_at"]} for r in rows]
 

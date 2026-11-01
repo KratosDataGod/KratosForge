@@ -69,6 +69,13 @@ def test_a_non_ascii_utf16_secret_reads_back(advapi):
     assert dba.resolve_secret("credman:t") == "pässwörd-✓"
 
 
+def test_a_utf16_secret_with_no_zero_byte_is_read_as_utf8_the_documented_ambiguity(advapi):
+    # "中中" in UTF-16 is 2D 4E 2D 4E, which is also the UTF-8 text "-N-N". Pinned so a change to the
+    # order of the two readings is a deliberate one (see credman_text's docstring).
+    advapi("中中".encode("utf-16-le"))
+    assert dba.resolve_secret("credman:t") == "-N-N"
+
+
 def test_a_missing_entry_names_the_credential_and_frees_nothing(advapi):
     fake = advapi(None)
     with pytest.raises(dba.DatabricksAuthError, match="no generic credential named 'KratosForge/dbx'"):

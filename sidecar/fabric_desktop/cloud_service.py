@@ -688,7 +688,7 @@ class CloudMixin:
         """A Fabric run's status, and its per-entity results once the runner has saved them."""
         run = next((r for r in self.fabric_runs(200) if r.get("request_id") == request_id), None)
         if run is None:
-            raise KeyError(f"no Fabric run {request_id}")
+            raise LookupError(f"This PC has no record of the Fabric run {request_id}. Monitor lists the runs this app started.")
         out: dict[str, Any] = {"status": run["status"], "message": run.get("message", ""), "results": None}
         if run["status"] in TERMINAL:
             data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]

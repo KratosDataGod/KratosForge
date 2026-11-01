@@ -73,6 +73,32 @@ def test_a_failed_write_rolls_back_and_still_closes(tmp_path, tracked):
     assert_all_closed(tracked)
 
 
+def test_integration_store_closes_every_connection_from_any_thread(tmp_path, tracked):
+    import threading
+
+    from fabric_desktop.integrations.audit import IntegrationAudit
+    from fabric_desktop.integrations.store import IntegrationStore
+    store = IntegrationStore(tmp_path / "integrations" / "integrations.sqlite")
+    audit = IntegrationAudit(store)
+
+    done = []
+
+    def calls():  # MCP calls each run on a new worker thread
+        client, _ = store.add_client("Tool")
+        key = next(iter(store.settings()))
+        store.set_setting(key, store.settings()[key])
+        assert store.client(client["id"])["name"] == "Tool" and store.clients()
+        audit.recent()
+        done.append(True)
+    threads = [threading.Thread(target=calls) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert done == [True] * 3
+    assert_all_closed(tracked)
+
+
 def test_job_queue_closes_every_connection_from_any_thread(tmp_path, tracked):
     import threading
 

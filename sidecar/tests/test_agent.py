@@ -339,9 +339,15 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
 
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
     backend = LocalBackend(tmp_path / "leases")
-    order = []
+    order, waiting = [], threading.Event()
+
+    def sleep(_):
+        order.append("waited")
+        waiting.set()
+        threading.Event().wait(0.05)
+
     first = Leases(backend, "a", ttl=60, wait=30)
-    second = Leases(backend, "b", ttl=60, wait=30, sleep=lambda s: order.append("waited") or threading.Event().wait(0.05))
+    second = Leases(backend, "b", ttl=60, wait=30, sleep=sleep)
     with first.hold("t"):
         done = []
 
@@ -350,10 +356,13 @@ def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
                 done.append("b wrote")
         t = threading.Thread(target=run)
         t.start()
-        threading.Event().wait(0.2)
+        # Release only once b has found the lease taken: a fixed pause let a slow Windows runner
+        # start b after the release, so b never had to wait.
+        assert waiting.wait(10), "b never waited for the lease"
+        assert done == []
         order.append("a wrote")
     t.join(5)
-    assert done == ["b wrote"] and "waited" in order
+    assert done == ["b wrote"] and order[0] == "waited" and "a wrote" in order
     assert backend.read("t") is None  # released
 
 

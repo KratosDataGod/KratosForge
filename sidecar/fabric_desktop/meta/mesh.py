@@ -311,21 +311,21 @@ def validate(project: Project) -> list[str]:
                 errors.append(f"{where}: port {pn} names {ent or '?'}, which is not a managed entity")
         if p.status == "deprecated" and not p.spec.get("deprecated_on"):
             errors.append(f"{where}: a deprecated product needs deprecated_on, the date it stops")
-    for l in project.links.values():
-        where = f"links/{l.alias}"
-        if not _NAME.match(l.alias):
+    for link in project.links.values():
+        where = f"links/{link.alias}"
+        if not _NAME.match(link.alias):
             errors.append(f"{where}: name must be lowercase letters, digits or _")
-        if "/" not in l.product or not l.port:
+        if "/" not in link.product or not link.port:
             errors.append(f"{where}: product is \"<project>/<product>\" and port names one of its ports")
-        if l.accepts:
+        if link.accepts:
             try:
-                parse_accepts(l.spec.get("accepts"))
+                parse_accepts(link.spec.get("accepts"))
             except ValueError as exc:
                 errors.append(f"{where}: {exc}")
-        for env, v in l.spec.get("reads", {}).items():
+        for env, v in link.spec.get("reads", {}).items():
             if env not in ENVIRONMENTS or v not in ENVIRONMENTS:
                 errors.append(f"{where}: reads maps your environment to the product's (dev, test or prod)")
-        for env, loc in l.spec.get("location", {}).items():
+        for env, loc in link.spec.get("location", {}).items():
             table = str((loc or {}).get("table", ""))
             if env not in ENVIRONMENTS or not table.startswith(("abfss://", "https://")):
                 errors.append(f"{where}: location.{env} table must be a OneLake address (abfss://...)")

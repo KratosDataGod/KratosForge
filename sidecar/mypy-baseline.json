@@ -321,8 +321,6 @@
   "arg-type": 1
  },
  "fabric_desktop/meta/mesh.py": {
-  "assignment": 1,
-  "attr-defined": 8,
   "union-attr": 1
  },
  "fabric_desktop/meta/objectives.py": {
@@ -386,13 +384,6 @@
  },
  "fabric_desktop/notebook_resources.py": {
   "attr-defined": 1
- },
- "fabric_desktop/notebookutils_local.py": {
-  "arg-type": 1,
-  "attr-defined": 9,
-  "call-arg": 1,
-  "syntax": 1,
-  "valid-type": 3
  },
  "fabric_desktop/optimize/local_runs.py": {
   "arg-type": 1

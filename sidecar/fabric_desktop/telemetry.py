@@ -32,7 +32,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import app_settings, audit
+from . import app_settings, audit, jsonfile
 
 KEEP_DAYS = 30  # unsent days older than this are dropped, so a PC that never reaches the endpoint doesn't pile up
 # Only an exception class's own name (HTTPError, TimeoutError), so a message that starts "orders: ..." can't
@@ -100,10 +100,7 @@ class Telemetry:
             return {}
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
+        jsonfile.write_text(self.path, json.dumps(data, indent=1, sort_keys=True))
 
     def _install_id(self, data: dict[str, Any]) -> str:
         if not data.get("install_id"):

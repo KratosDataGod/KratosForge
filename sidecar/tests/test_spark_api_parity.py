@@ -35,7 +35,8 @@ def error(k, code):
 
 
 def test_an_unknown_time_zone_is_refused_and_unset_goes_back_to_utc(k):
-    assert error(k, "spark.conf.set('spark.sql.session.timeZone', 'Mars/Olympus')")["ename"] != "KeyError"
+    e = error(k, "spark.conf.set('spark.sql.session.timeZone', 'Mars/Olympus')")  # DuckDB's own reason
+    assert e["ename"] == "NotImplementedException" and "Unknown TimeZone 'Mars/Olympus'" in e["evalue"]
     assert last(k, "spark.conf.get('spark.sql.session.timeZone')") == "'UTC'"
     k.run("spark.conf.set('spark.sql.session.timeZone', 'America/New_York')")
     k.run("spark.conf.unset('spark.sql.session.timeZone')")

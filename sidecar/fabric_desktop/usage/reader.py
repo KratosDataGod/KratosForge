@@ -168,8 +168,19 @@ def zone(offset: str | None) -> dt.timezone:
     return dt.timezone(-delta if m.group(1) == "-" else delta)
 
 
+# Usage is from this era: a year outside it is a cell that can't be read, never a time a later step
+# (a day added to a date, a reconcile tolerance) could push off the calendar.
+YEARS = range(1970, 3000)
+
+
 def when(raw: str, order: str | None, tz: dt.timezone) -> dt.datetime | None:
-    """A time in UTC. Times without an offset are read in ``tz``; None when the cell isn't a time."""
+    """A time in UTC. Times without an offset are read in ``tz``; None when the cell isn't a time,
+    including one outside YEARS."""
+    t = _when(raw, order, tz)
+    return t if t is None or t.year in YEARS else None
+
+
+def _when(raw: str, order: str | None, tz: dt.timezone) -> dt.datetime | None:
     v = (raw or "").strip()
     if not v:
         return None
@@ -184,15 +195,15 @@ def when(raw: str, order: str | None, tz: dt.timezone) -> dt.datetime | None:
                 return None
             hour = hour % 12 + (12 if ampm == "pm" else 0)
         try:
-            t = dt.datetime(year, month, day, hour, minute, second, tzinfo=tz)
-        except ValueError:
+            # OverflowError: a time at the very edge of the calendar that leaves it once moved to UTC.
+            return dt.datetime(year, month, day, hour, minute, second, tzinfo=tz).astimezone(dt.timezone.utc)
+        except (ValueError, OverflowError):
             return None
-        return t.astimezone(dt.timezone.utc)
     try:
         t = dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
-    except ValueError:
+        return (t if t.tzinfo else t.replace(tzinfo=tz)).astimezone(dt.timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    return (t if t.tzinfo else t.replace(tzinfo=tz)).astimezone(dt.timezone.utc)
 
 
 def iso(t: dt.datetime | None) -> str | None:

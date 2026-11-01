@@ -182,7 +182,11 @@ def display(value: Any) -> dict[str, Any]:
     """The output a value shows as: a table, an image, HTML or text."""
     table = as_table(value)
     if table is not None:
-        rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
+        shown = table.slice(0, PREVIEW_ROWS)
+        # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
+        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        rows = [list(row) for row in zip(*columns)] if columns else \
+            [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}

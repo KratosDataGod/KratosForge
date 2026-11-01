@@ -297,7 +297,7 @@ test("A table's History in an environment with no workspace says what to do, in 
 // friendlyError (activity.js) drops the exception name only for the names it lists; the engine's
 // NotSetUp and NoMetadataProject (errors.py, meta_service.py) aren't among them, so the text shows
 // as "NotSetUp: Assign a workspace...". activity.js belongs to another open change.
-test("A not-set-up refusal reads without the engine's exception name", { skip, todo: "friendlyError doesn't list NotSetUp or NoMetadataProject" }, async () => {
+test("A not-set-up refusal reads without the engine's exception name", { skip }, async () => {
   const { dialog } = await openTableHistory("test");
   await dialog.locator(".error-panel").waitFor();
   sentence(await dialog.locator(".error-panel-text").textContent());
@@ -353,7 +353,7 @@ test("VL_Sources says why when the engine can't read it, and the rest of the tab
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("VL_Sources' not-set-up refusal reads without the engine's exception name", { skip, todo: "friendlyError doesn't list NoMetadataProject" }, async () => {
+test("VL_Sources' not-set-up refusal reads without the engine's exception name", { skip }, async () => {
   refusing("meta_varlib", NO_PROJECT);
   const card = await openSources();
   const p = card.locator("p", { hasText: "No metadata project is open" });
@@ -639,7 +639,7 @@ test("Inspect when the kernel doesn't answer says why under the summary", { skip
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("Inspect's kernel refusal reads without the engine's exception name", { skip, todo: "friendlyError doesn't list KernelGone" }, async () => {
+test("Inspect's kernel refusal reads without the engine's exception name", { skip }, async () => {
   instead("notebook_frame_profile", () => { throw new Error(NOT_ANSWERING); });
   await page().evaluate(() => { const o = state.notebook.cells[0].outputs.find((x) => x.frame); delete o.profile; o.view = "table"; render(); });
   await output(0).getByRole("button", { name: "Inspect" }).click();

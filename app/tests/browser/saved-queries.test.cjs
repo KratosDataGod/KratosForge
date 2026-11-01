@@ -90,6 +90,19 @@ test("a saved query opens in the tab that holds it, or in a new tab", { skip }, 
   if (SHOTS) { await page().waitForTimeout(800); await page().screenshot({ path: path.join(SHOTS, "wh-06-queries.png") }); }
 });
 
+test("the filter keeps the focus while a person types and the list redraws", { skip }, async () => {
+  const filter = aside().getByLabel("Filter queries");
+  await filter.click();
+  await page().keyboard.type("by reg");
+  await page().evaluate(() => sqlPage.whRedraw());
+  await page().keyboard.type("ion");
+  assert.strictEqual(await filter.inputValue(), "by region");
+  assert.ok(await filter.evaluate((el) => el === document.activeElement), "the filter keeps the focus");
+  assert.deepStrictEqual(await aside().locator(".wh-q-row .label").allTextContents(), ["Revenue by region"]);
+  await filter.fill("");
+  await aside().locator(".wh-q-row", { hasText: "Revenue 2026" }).waitFor();
+});
+
 test("delete asks first and removes the file; the open tab keeps its SQL", { skip }, async () => {
   await aside().getByRole("button", { name: "Delete Revenue 2026" }).click();
   const confirm = page().getByRole("dialog", { name: "Delete saved query" });

@@ -106,3 +106,19 @@ test("a start that failed adds engine_close's note to its error", { skip }, asyn
   assert.ok(app.calls.some((c) => c.method === "engine_close"));
   assert.ok((await logged()).some((i) => i.status === "info" && i.text === LOCAL));
 });
+
+test("a note is put in as text, in the toast and in Activity", { skip }, async () => {
+  const odd = "Couldn't close the <b>x</b> session. <img src=x onerror=\"window.__ran = 1\">";
+  next.state = { engine: "local-duckdb", label: "DuckDB", status: "ready", notes: [odd] };
+  await pickDuckDB();
+  const t = await toast();
+  assert.ok(t.text.endsWith(` ${odd}`), "shown as written");
+  assert.strictEqual(await page().locator("#toast img, #toast b").count(), 0, "no markup in the toast");
+  await page().evaluate(() => toggleTray(true));
+  const item = page().locator(".tray-item", { hasText: "Engine session not closed" });
+  await item.waitFor();
+  assert.ok((await item.locator(".tray-text").textContent()).includes(odd));
+  assert.strictEqual(await item.locator(".tray-text img, .tray-text b").count(), 0, "no markup in Activity");
+  assert.strictEqual(await page().evaluate(() => window.__ran), undefined);
+  await page().evaluate(() => toggleTray(false));
+});

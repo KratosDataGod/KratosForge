@@ -230,3 +230,16 @@ def test_array_sort_comparator_returning_null_stops_as_databricks_does():
 def test_a_kf_name_in_an_array_sort_comparator_is_refused_plainly():
     with pytest.raises(ValueError, match="names that start with kf_ are reserved"):
         _databricks("SELECT array_sort(array(3, 1), (kf_l, r) -> kf_l - r)")
+
+
+def test_array_sort_with_a_comparator_refuses_more_than_10000_elements():
+    """#1419: every pair is compared and DuckDB doesn't honour an interrupt inside one row's list, so
+    a longer array stops with a plain message instead of holding the query."""
+    with pytest.raises(duckdb.Error, match="sorts up to 10,000 elements"):
+        answer("SELECT array_sort(sequence(1, 10001), (l, r) -> r - l)", "databricks")
+
+
+def test_array_sort_with_a_comparator_still_sorts_a_short_array_near_the_limit():
+    # The limit is "more than 10,000" (sorting 10,000 itself takes about 35 s, too slow for a test).
+    assert answer("SELECT array_sort(sequence(1, 300), (l, r) -> r - l)[0]", "databricks") == 300
+    assert "LENGTH(kf_l) > 10000" in sql.duckdb_sql(_databricks("SELECT array_sort(a, (l, r) -> r - l) FROM t")[-1])

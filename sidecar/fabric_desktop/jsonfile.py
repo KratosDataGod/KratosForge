@@ -39,17 +39,24 @@ def write_text(path: Path, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        for attempt in range(_REPLACE_ATTEMPTS):
-            try:
-                os.replace(tmp, path)
-                return
-            except PermissionError:  # Windows: a reader has the file open right now
-                if attempt == _REPLACE_ATTEMPTS - 1:
-                    raise
-                time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+        replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+    """``os.replace``, waiting out Windows refusing it (PermissionError, WinError 5) while a reader, a
+    virus scanner or an indexer has either file open: about 1.5 s, then the error. Every swap of a
+    finished temporary file into place goes through here (tests/test_file_replace.py)."""
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
 
 
 def set_aside(path: Path, then: str = "it is being started again empty", keep: bool = False) -> Path:

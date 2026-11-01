@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .fabric_api import FabricClient
-from .redact import describe, secrets
+from .redact import describe, one_line, secrets
 
 _log = logging.getLogger(__name__)
 
@@ -86,7 +86,8 @@ def run_row(job: dict[str, Any], pipeline: dict[str, Any]) -> dict[str, Any]:
             "state": RUN_STATES.get(status, "unknown"), "native_status": status,
             "started": started, "ended": ended, "seconds": _seconds(started, ended),
             "invoke": _str(job.get("invokeType")),
-            "message": secrets((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "")[:TEXT_LIMIT]}
+            "message": one_line((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "",
+                                TEXT_LIMIT)}
 
 
 def _text(value: Any) -> dict[str, Any]:
@@ -161,7 +162,7 @@ class FabricPipelineRunsMixin:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in RUN_KINDS]
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
+                missed.append(f"items in workspace {one_line(ws['id'], 100)}: {describe(exc)}")
                 return []
 
         def runs(p: dict[str, Any]) -> list[dict[str, Any]]:
@@ -171,7 +172,7 @@ class FabricPipelineRunsMixin:
                 # missed read, never a scan that stops and leaves Monitor "Reading..." for good.
                 return [{**run_row(j, p), "kind": RUN_KINDS[p["type"]]} for j in jobs[:RUNS_PER_PIPELINE]]
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"runs of {RUN_KINDS[p['type']]} {p['id']}: {describe(exc)}")
+                missed.append(f"runs of {RUN_KINDS[p['type']]} {one_line(p['id'], 100)}: {describe(exc)}")
                 return []
 
         with ThreadPoolExecutor(max_workers=8) as pool:

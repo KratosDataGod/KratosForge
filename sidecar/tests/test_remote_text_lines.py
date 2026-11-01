@@ -42,6 +42,9 @@ def test_a_pipeline_runs_failure_reason_is_capped():
     row = fpr.run_row({"id": "j1", "status": "Failed", "failureReason": {"message": "y" * 50_000}}, {
         "workspace_id": "ws1", "workspace_name": "Sales", "id": "pl1", "displayName": "pl"})
     assert len(row["message"]) == fpr.TEXT_LIMIT
+    row = fpr.run_row({"id": "j1", "status": "Failed", "failureReason": {"message": ODD}}, {
+        "workspace_id": "ws1", "workspace_name": "Sales", "id": "pl1", "displayName": "pl"})
+    one_line_without_secrets(row["message"], fpr.TEXT_LIMIT)
 
 
 def test_a_live_test_jobs_failure_reason_is_one_line():

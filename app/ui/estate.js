@@ -595,7 +595,8 @@ function accessTable(d) {
     sel.addEventListener("change", async () => {
       const role = sel.value;
       const what = role ? `${cur ? "change" : "give"} ${p.name} ${role} on` : `remove ${p.name} from`;
-      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change"))) { sel.value = cur?.role || ""; return; }
+      // No access takes the person's access away: a danger confirm, which starts on Cancel.
+      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change", { danger: !role }))) { sel.value = cur?.role || ""; return; }
       const ok = await attempt(() => rpc("access_set_role", { workspace_id: w.workspace_id, role, assignment_id: cur?.assignment_id || "",
         principal_id: p.id, principal_type: p.type || "User" }), "Access not changed");
       if (ok) { toast(`Access changed for ${p.name}`, false, { log: true }); accessPage.data = null; render(); } else sel.value = cur?.role || "";
@@ -668,7 +669,7 @@ function lakehouseAccessBody(a, lh, redraw) {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
     const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (!res) return;
+    if (!res) { fill(who); return; }
     const list = res.readers;
     // Without the data access roles the list misses everyone they let in: say so (QA-005).
     const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;

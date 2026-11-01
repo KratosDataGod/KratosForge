@@ -593,3 +593,30 @@ def test_an_entry_with_no_usable_time_is_dropped(setup):
     from fabric_desktop import jsonfile
     jsonfile.write_json(setup.home / "pipeline-runs.json", {"dev": {RUN: {"request_id": "r0", "at": "yesterday"}}})
     assert ask(setup, required(setup), "r1")["state"] == "succeeded"
+
+
+def test_a_refused_mailbox_listing_is_one_line_and_still_retryable():
+    from fabric_desktop.retrying import is_retryable
+
+    class Refusing:
+        def __init__(self, status, body, headers=None):
+            self.status, self.body, self.headers, self.sent = status, body, headers or {}, 0
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.sent += 1
+            body = self.body
+            return type("Resp", (), {"status_code": self.status, "headers": {"Retry-After": "0", **self.headers},
+                                     "json": lambda _self: body, "close": lambda _self: None})()
+
+    dfs = Refusing(403, {"error": {"code": "AuthorizationPermissionMismatch", "message": "x"}})
+    control = OneLakeControl("ws", "meta-lh", lambda: "tok", session=dfs, sleep=lambda s: None)
+    with pytest.raises(requests.HTTPError) as err:
+        control.list("requests")
+    assert str(err.value) == "OneLake didn't list the requests mailbox folder (403: AuthorizationPermissionMismatch)."
+    assert "https://" not in str(err.value) and not is_retryable(err.value)
+
+    dfs = Refusing(429, {})
+    control = OneLakeControl("ws", "meta-lh", lambda: "tok", session=dfs, sleep=lambda s: None)
+    with pytest.raises(requests.HTTPError) as err:
+        control.list("requests")
+    assert dfs.sent > 1 and is_retryable(err.value)  # waited out first, then the agent tries next poll

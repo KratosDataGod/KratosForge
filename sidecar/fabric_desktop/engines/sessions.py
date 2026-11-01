@@ -83,15 +83,18 @@ class SessionManager:
                     raise SwitchNeeded(t)
                 if decision not in t["decisions"]:
                     raise ValueError(f"{decision!r} isn't possible here. Choose one of: {', '.join(t['decisions'])}.")
-            if nb is not None and t["needed"] and decision == "close":
-                nb.sessions.pop(nb.engine).close()
             session = nb.sessions.get(engine) if nb else None
             if session is None or session.closed:
+                # Opened before the old session closes: if it can't open, the notebook keeps the
+                # engine and session it had, never an engine with no session.
                 session = new.open_session(config or SessionConfig(notebook), authorization)
             if nb is None:
                 nb = self._notebooks[notebook] = _Notebook(engine)
+            old = nb.sessions.pop(nb.engine) if t["needed"] and decision == "close" else None
             nb.engine = engine
             nb.sessions[engine] = session
+            if old is not None:
+                old.close()
             return session
 
     def check(self, notebook: str, request: CellRequest) -> dict[str, Any]:
@@ -105,7 +108,8 @@ class SessionManager:
         if not verdict["ok"]:
             raise Unsupported(verdict["reason"])
         session = self.session(notebook)
-        assert session is not None
+        if session is None:
+            raise Unsupported("This notebook's engine has no open session. Pick its engine again.")
         result = session.execute(request, on_output)
         if self._on_usage:
             self._on_usage([UsageRecord(result.engine, "seconds", result.seconds, "measured", "engine session")])

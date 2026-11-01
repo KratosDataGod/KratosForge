@@ -57,6 +57,10 @@ _SECRET_KEYS = ("password", "passwd", "passphrase", "secret", "token", "apikey",
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 # The tenant's own domain, and the organization's name on a OneDrive for Business folder, name the company.
 _TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
+# contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
+_SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
+# a OneDrive web address names its owner: /personal/ann_contoso_com/
+_ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
 _ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
@@ -79,11 +83,13 @@ def secret_key(name: object) -> bool:
 
 
 def for_support(text: str) -> str:
-    """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), tenant domains,
-    the organization on OneDrive folders, user names in paths or ids."""
+    """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), the tenant's
+    onmicrosoft.com and SharePoint names, the organization on OneDrive folders, user names in paths or ids."""
     text = secrets(text)
     text = _EMAIL.sub("[email]", text)
     text = _TENANT_DOMAIN.sub(r"[tenant]\1", text)
+    text = _SHAREPOINT_HOST.sub(r"[tenant]\1\2", text)
+    text = _ONEDRIVE_PERSONAL.sub(r"\1[user]", text)
     text = _ONEDRIVE_ORG.sub(r"\1[organization]", text)
     text = _WIN_USER_PATH.sub(r"\1[user]", text)
     text = _UNIX_USER_PATH.sub(r"\1[user]", text)

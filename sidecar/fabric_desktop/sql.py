@@ -261,8 +261,9 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
 # the bound comparator; an element is never compared with itself). A NULL comparison is refused, as
 # Spark refuses it. Every pair is compared, so the work grows with the square of the array's length:
 # fine for the arrays a row usually holds, slow past a few thousand elements (about 1.5 s for 2,000).
-# DuckDB doesn't honour an interrupt inside one row's list, so a longer array is refused (#1419).
-_ARRAY_SORT_BY_LIMIT = 10_000
+# DuckDB doesn't honour an interrupt inside one row's list, so an array of more than
+# _ARRAY_SORT_BY_LIMIT (3,000) elements is refused, keeping a row to a few seconds (#1419).
+_ARRAY_SORT_BY_LIMIT = 3_000
 _ARRAY_SORT_BY = ("(LIST_TRANSFORM([{0}], kf_l -> CASE WHEN kf_l IS NULL THEN NULL WHEN LEN(kf_l) > "
                   f"{_ARRAY_SORT_BY_LIMIT} THEN ERROR('array_sort with a comparator sorts up to "
                   f"{_ARRAY_SORT_BY_LIMIT:,} elements on this PC, and this array has more, so nothing ran. Use "

@@ -624,7 +624,8 @@
       "evidence": [
         "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
         "docs/product/enterprise-gap-analysis.md FD-111 partial",
-        "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers"
+        "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
+        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met"
       ],
       "features": [
         "FEAT-NB-07"

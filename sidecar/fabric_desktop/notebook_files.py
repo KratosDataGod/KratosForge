@@ -18,7 +18,6 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import uuid
 from pathlib import Path
@@ -279,7 +278,7 @@ def remember_published(folder: Path, item_id: str, workspace_id: str, nb: dict[s
     tmp.write_text(json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
                                "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}),
                    encoding="utf-8")
-    os.replace(tmp, path)
+    jsonfile.replace(tmp, path)
 
 
 def published(folder: Path, item_id: str) -> dict[str, Any] | None:

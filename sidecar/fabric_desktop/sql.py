@@ -156,6 +156,98 @@ _EXCEPT = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_FILTER(
            "LIST_POSITION({0}, kf_v) = kf_i AND LIST_POSITION({1}, kf_v) IS NULL) END")
 
 
+# zip_with, map_filter, transform_values and transform_keys (#1371). Each user lambda argument is bound
+# to its value by a one-item LIST_TRANSFORM ({1} is the bound body), so the body keeps its own names.
+# zip_with pads the shorter array with NULL and is NULL when either array is; transform_keys refuses a
+# NULL or repeated key, as Databricks does (NULL_MAP_KEY, DUPLICATED_MAP_KEY).
+_ZIP_WITH = ("CASE WHEN ({0}) IS NULL OR ({1}) IS NULL THEN NULL ELSE LIST_TRANSFORM(RANGE(1, GREATEST(LEN({0}), "
+             "LEN({1})) + 1), kf_i -> (LIST_TRANSFORM([{{'a': ({0})[kf_i], 'b': ({1})[kf_i]}}], kf_p -> {2}))[1]) END")
+_MAP_FILTER = "MAP_FROM_ENTRIES(LIST_FILTER(MAP_ENTRIES({0}), kf_p -> {1}))"
+_TRANSFORM_VALUES = "MAP_FROM_ENTRIES(LIST_TRANSFORM(MAP_ENTRIES({0}), kf_p -> {{'key': kf_p.key, 'value': {1}}}))"
+_TRANSFORM_KEYS = ("(LIST_TRANSFORM([LIST_TRANSFORM(MAP_ENTRIES({0}), kf_p -> {{'key': {1}, 'value': kf_p.value}})], "
+                   "kf_l -> CASE WHEN kf_l IS NULL THEN NULL "
+                   "WHEN LIST_POSITION(LIST_TRANSFORM(kf_l, kf_n -> kf_n.key), NULL) IS NOT NULL THEN "
+                   "ERROR('[NULL_MAP_KEY] transform_keys made a NULL key. Databricks refuses a NULL map key.') "
+                   "WHEN LIST_UNIQUE(LIST_TRANSFORM(kf_l, kf_n -> kf_n.key)) <> LEN(kf_l) THEN "
+                   "ERROR('[DUPLICATED_MAP_KEY] transform_keys made the same key twice. Databricks refuses a "
+                   "duplicate map key.') ELSE MAP_FROM_ENTRIES(kf_l) END))[1]")
+_MAP_LAMBDAS = {"ZIP_WITH": (3, ("kf_p.a", "kf_p.b"), _ZIP_WITH),
+                "MAP_FILTER": (2, ("kf_p.key", "kf_p.value"), _MAP_FILTER),
+                "TRANSFORM_VALUES": (2, ("kf_p.key", "kf_p.value"), _TRANSFORM_VALUES),
+                "TRANSFORM_KEYS": (2, ("kf_p.key", "kf_p.value"), _TRANSFORM_KEYS)}
+# Calls whose rewrite wraps their arguments in kf_ lambdas (see _no_reserved_names).
+_KF_TEMPLATED = ({name for name, template in _ANON_TEMPLATES.items() if "kf_" in template} | set(_MAP_LAMBDAS)
+                 | {"FORALL"})
+
+
+def _no_reserved_names(statement: exp.Expression) -> None:
+    """The rewrites below wrap a person's SQL in lambdas whose arguments start with kf_. A name of
+    theirs that starts with kf_ (a lambda argument or a column) inside a call that is rewritten that
+    way would hide one of those, or be hidden by one, and fail or answer wrongly, so it is refused with
+    a plain message instead (#1371). Checked once, on the statement as written, before any rewrite, so
+    a rewrite's own kf_ names inside another rewritten call are never mistaken for the person's."""
+    for call in statement.find_all(exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.Soundex, exp.Exists,
+                                   exp.Reduce, exp.Anonymous):
+        if isinstance(call, exp.Anonymous) and str(call.this).upper() not in _KF_TEMPLATED:
+            continue
+        if isinstance(call, exp.Exists) and not isinstance(call.expression, exp.Lambda):
+            continue   # EXISTS (SELECT ...) is a subquery, not the rewritten exists(array, x -> ...)
+        if isinstance(call, exp.Reduce) and call.args.get("finish") is None:
+            continue   # aggregate without finish is left as sqlglot writes it
+        for ident in call.find_all(exp.Identifier):
+            if ident.name.lower().startswith("kf_"):
+                raise ValueError(f"The name {ident.name} can't be used inside this function on this PC: names "
+                                 "that start with kf_ are reserved here. Rename it (AS ... or another lambda "
+                                 "argument name) and run it again.")
+
+
+def _bind(func: exp.Lambda, values: tuple[str, ...]) -> str:
+    """DuckDB SQL for ``func``'s body with each of its arguments bound to the DuckDB SQL in ``values``.
+    The values name only the rewrite's own kf_ arguments, and a person's kf_ names were refused first
+    (_no_reserved_names), so neither can hide the other."""
+    text = duckdb_sql(func.this)
+    for param, value in reversed(list(zip(func.expressions, values))):
+        text = f"(LIST_TRANSFORM([{value}], {duckdb_sql(param)} -> {text}))[1]"
+    return text
+
+
+def _higher_order(node: exp.Anonymous) -> exp.Expression | None:
+    """zip_with, map_filter, transform_values or transform_keys as DuckDB SQL; None when the call isn't
+    one of them with a lambda of two arguments."""
+    name, args = str(node.this).upper(), list(node.expressions)
+    if name not in _MAP_LAMBDAS:
+        return None
+    count, values, template = _MAP_LAMBDAS[name]
+    func = args[-1] if args else None
+    if len(args) != count or not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
+        return None
+    text = template.format(*(duckdb_sql(a) for a in args[:-1]), _bind(func, values))
+    return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
+
+
+# aggregate/reduce with a finish lambda. DuckDB's LIST_REDUCE keeps the accumulator in the elements'
+# type, so the start rides in front of the elements as {s: start} and each step makes a new {s: ...};
+# a merge that returns another type than start is refused, as Spark refuses it, rather than cast.
+_REDUCE_FINISH = ("CASE WHEN ({0}) IS NULL THEN NULL ELSE (LIST_TRANSFORM([LIST_REDUCE(LIST_CONCAT("
+                  "[{{'s': {1}, 'x': NULL}}], LIST_TRANSFORM({0}, kf_e -> {{'s': NULL, 'x': kf_e}})), "
+                  "(kf_a, kf_b) -> {{'s': (LIST_TRANSFORM([{2}], kf_m -> CASE WHEN TYPEOF(kf_m) = TYPEOF(kf_a.s) "
+                  "THEN kf_m ELSE ERROR('aggregate''s merge lambda returns another type than its start value, which "
+                  "Databricks refuses. Cast the start value to the type merge returns.') END))[1], 'x': NULL}}).s], "
+                  "kf_f -> {3}))[1] END")
+
+
+def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
+    """aggregate/reduce with a finish lambda, whose accumulator may be another type than the elements
+    (a struct, say): NULL for a NULL array, as in Spark, which doesn't call finish then."""
+    merge, finish = node.args.get("merge"), node.args.get("finish")
+    if not (isinstance(finish, exp.Lambda) and len(finish.expressions) == 1
+            and isinstance(merge, exp.Lambda) and len(merge.expressions) == 2):
+        return None
+    text = _REDUCE_FINISH.format(duckdb_sql(node.this), duckdb_sql(node.args["initial"]),
+                                 _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
+    return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
+
+
 def _arity(template: str) -> int:
     return len(set(re.findall(r"(?<!\{)\{(\d)\}", template)))
 
@@ -191,12 +283,14 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     array_sort puts NULL last, percentile interpolates, array_distinct, array_union, array_intersect
     and array_except keep first-seen order and one NULL, arrays_overlap is NULL when only a NULL could match, last_day and
     next_day take text, pmod moves a negative remainder by the divisor, and bround, conv, soundex,
-    format_number and exists (with a lambda) are written in DuckDB SQL (#1168). Deepest first, so a rewritten argument is
+    format_number and exists (with a lambda) are written in DuckDB SQL (#1168), as are zip_with,
+    map_filter, transform_keys, transform_values and aggregate/reduce with a finish lambda (#1371). Deepest first, so a rewritten argument is
     written out already rewritten."""
     _spark_lambdas(statement)
+    _no_reserved_names(statement)
     found = list(statement.find_all(exp.DayOfWeek, *_SORTS, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
-                                    exp.MapContainsKey, exp.Anonymous))
+                                    exp.MapContainsKey, exp.Reduce, exp.Anonymous))
     for node in reversed(found):
         if isinstance(node, exp.MapContainsKey):
             # Spark's map_contains_key is array_contains(map_keys(m), k), NULL key included; sqlglot
@@ -226,8 +320,16 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
             node.replace(_from_template(_ANON_TEMPLATES["SOUNDEX"], [node.this]))
         elif isinstance(node, exp.Exists) and isinstance(node.expression, exp.Lambda):
             node.replace(_from_template(_EXISTS, [node.this, node.expression]))
+        elif isinstance(node, exp.Reduce):
+            finished = _reduce_finish(node)
+            if finished is not None:
+                node.replace(finished)
         elif isinstance(node, exp.Anonymous):
             name, args = str(node.this).upper(), list(node.expressions)
+            rewritten = _higher_order(node)
+            if rewritten is not None:
+                node.replace(rewritten)
+                continue
             if name == "BROUND" and len(args) == 1:
                 args.append(exp.Literal.number(0))
             if name == "FORMAT_NUMBER" and len(args) == 2:
@@ -363,7 +465,9 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
         for i, column in enumerate(select.expressions):
             if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not (
                     column.find(*_REWRITTEN) or any(str(a.this).upper() in _ANON_TEMPLATES
-                                                    for a in column.find_all(exp.Anonymous))):
+                                                    or str(a.this).upper() in _MAP_LAMBDAS
+                                                    for a in column.find_all(exp.Anonymous))
+                    or any(r.args.get("finish") is not None for r in column.find_all(exp.Reduce))):
                 continue
             name = column.sql("spark", normalize_functions="lower")
             select.expressions[i] = exp.alias_(column, name, quoted=True)

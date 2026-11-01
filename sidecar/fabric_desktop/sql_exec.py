@@ -72,7 +72,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, sql, sql_policy, warehouse
+from . import app_settings, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -766,7 +766,7 @@ class SqlExecutions:
                         writer.close()
             if export.cancel.is_set():
                 raise _Stopped()
-            os.replace(partial, export.path)  # over the empty file that reserved the name
+            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
             export.state = "completed"
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files

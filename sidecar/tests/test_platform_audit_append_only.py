@@ -66,7 +66,7 @@ def problems(source: str, name: str = "<code>") -> list[str]:
                 found.append(f"{name}:{node.lineno} {_first_keyword(sql)} on catalog.audit")
         elif isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp)) and not isinstance(parents.get(node), (ast.JoinedStr, ast.BinOp)):
             sql = _text(node)
-            if sql and NAMED.search(sql) and re.match(r"\s*(UPDATE|DELETE|MERGE|TRUNCATE|DROP|ALTER)\b", sql, re.I):
+            if sql and NAMED.search(sql) and re.match(r"\s*(WITH|UPDATE|DELETE|MERGE|TRUNCATE|DROP|ALTER)\b", sql, re.I):
                 found.append(f"{name}:{node.lineno} {_first_keyword(sql)} on catalog.audit")
         elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_upsert"
               and [getattr(a, "value", None) for a in node.args[1:3]] == ["catalog", "audit"]):
@@ -97,6 +97,7 @@ def test_plain_sql_text_and_upserts_are_caught():
     assert problems('db.run("UPDATE [catalog].[audit] SET by_user = NULL")')
     assert problems('db.run(\'DELETE FROM "catalog__audit"\')')
     assert problems('_upsert(db, "catalog", "audit", "id", {})')
+    assert problems('db.run("WITH old AS (SELECT id FROM catalog.audit) DELETE FROM catalog.audit WHERE id IN (SELECT id FROM old)")')
 
 
 def test_the_allowed_statements_pass():

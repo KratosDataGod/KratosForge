@@ -2645,6 +2645,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-detail .learn-importance { align-self: flex-start; }
 .learn-detail .learn-importance.critical { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .learn-detail .learn-code { margin: 0; }
+.learn-pattern { display: flex; flex-direction: column; gap: 8px; max-width: 640px; max-height: 60vh; font-size: 13px; }
+.learn-pattern .learn-code { margin: 0; white-space: pre; overflow-x: auto; }
 .learn-dismissed { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
 .learn-dismissed-list { list-style: none; margin: 0; padding: 0; width: 100%; }
 .learn-dismissed-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); }

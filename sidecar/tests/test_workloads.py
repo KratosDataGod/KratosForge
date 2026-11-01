@@ -569,9 +569,14 @@ def test_ten_thousand_workloads_filter_and_page_quickly():
     timings = []
     for kw in ({}, {"view": "attention"}, {"query": "pipeline_99 team"}, {"group": "owner", "offset": 5000},
                {"view": "unowned", "group": "environment"}):
-        t0 = time.perf_counter()
-        page = query.select(records, limit=100, **kw)
-        timings.append(time.perf_counter() - t0)
+        # The fastest of three: one run can be descheduled for a while when every core is busy (it took
+        # 1.05 s once beside 8 test workers, against 0.3 s alone); a slow select is slow on every run.
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            page = query.select(records, limit=100, **kw)
+            best = min(best, time.perf_counter() - t0)
+        timings.append(best)
         assert len(page["rows"]) <= 100
     page = query.select(records, view="attention", limit=100)
     assert page["total"] == len([i for i in range(0, 10_000, 2) if i % 17 == 0])

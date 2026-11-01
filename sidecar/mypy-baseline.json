@@ -1,7 +1,4 @@
 {
- "fabric_desktop/access_cache.py": {
-  "dict-item": 24
- },
  "fabric_desktop/advisor.py": {
   "assignment": 2
  },
@@ -25,9 +22,6 @@
   "arg-type": 2,
   "return-value": 1,
   "union-attr": 1
- },
- "fabric_desktop/capacity_history.py": {
-  "dict-item": 3
  },
  "fabric_desktop/capacity_history_service.py": {
   "list-item": 1
@@ -409,9 +403,6 @@
  "fabric_desktop/optimize/registry.py": {
   "var-annotated": 1
  },
- "fabric_desktop/optimize/schema.py": {
-  "dict-item": 134
- },
  "fabric_desktop/optimize/setup.py": {
   "misc": 3
  },
@@ -556,9 +547,6 @@
  "fabric_desktop/sqlcompat/rules.py": {
   "arg-type": 1
  },
- "fabric_desktop/tenant_history.py": {
-  "dict-item": 3
- },
  "fabric_desktop/tenant_history_service.py": {
   "var-annotated": 1
  },
@@ -611,9 +599,6 @@
  },
  "fabric_desktop/workloads/evaluate.py": {
   "union-attr": 1
- },
- "fabric_desktop/workloads/incident_history.py": {
-  "dict-item": 28
  },
  "fabric_desktop/workloads/incidents.py": {
   "arg-type": 1,

@@ -359,6 +359,24 @@ function learnFindingActions(f, ctx) {
   return [why, row, detail];
 }
 
+// ---------- Decision patterns (GD-05) ----------
+
+// A choice with no single right answer, explained where it's made (the engine picker): when each option
+// works and fails, cost and reliability, and an example that runs on this PC. From the docs that ship
+// with the app (learn/patterns.py), so it works offline. Copy example copies only; nothing runs.
+async function learnPatternDialog(id) {
+  const all = await attempt(() => rpc("learn_patterns"), "Couldn't read the decision patterns");
+  const p = all?.[id];
+  if (!p) return;
+  const body = h("div", { class: "scroll learn-pattern" }, markdown(p.body),
+    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code" }, p.example),
+      h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(p.example)
+        .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
+      h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null);
+  showDialog(p.title, body, [docLink(`decision-patterns.md#${id.toLowerCase()}`, "Open in the guide"),
+    btn("Close", null, closeDialog, "tool primary")]);
+}
+
 // ---------- Try the fix (GD-02, from the approved mockup) ----------
 
 // The engine offers a rewrite only where it keeps the result (learn/fixes.py), for the rules below.

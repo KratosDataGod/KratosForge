@@ -5516,7 +5516,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
-    learn: ["Learn", "Writing a Learn lesson"],
+    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.

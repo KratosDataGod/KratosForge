@@ -616,8 +616,12 @@ def test_the_projects_own_time_limit_is_shown_and_named(tmp_path):
                                      local_engine=local.engine)
     try:
         status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb")["id"], seconds=30)
-        assert status["state"] == "timed_out" and "project's time limit" in status["error"]
-        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project"
+        # This once ended "completed" on CI (flaky ledger). The query takes seconds, so whether it ran
+        # past the 1 s limit unstopped or finished early shows in how long it ran and what it returned.
+        seen = {k: status.get(k) for k in ("state", "error", "rows", "time_limit_minutes", "time_limit_from")}
+        seen["seconds"] = round((status.get("ended") or 0) - (status.get("started") or 0), 2)
+        assert status["state"] == "timed_out" and "project's time limit" in status["error"], seen
+        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project", seen
     finally:
         manager.shutdown()
         local.close_all()

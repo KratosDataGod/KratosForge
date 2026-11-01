@@ -72,7 +72,8 @@ def test_restore_previews_then_applies_and_keeps_what_it_replaced(app, tmp_path)
     assert (app / "notebooks" / "new.ipynb").exists()  # restore never deletes
     kept = app / backup.SAFETY / "20261017-120000" / "app" / "notebooks" / "sales.ipynb"
     assert kept.read_text() == '{"cells": ["changed"]}'
-    assert sqlite3.connect(app / "workloads.sqlite").execute("select name from w").fetchall() == [("orders",)]
+    with closing(sqlite3.connect(app / "workloads.sqlite")) as db:
+        assert db.execute("select name from w").fetchall() == [("orders",)]
     assert "set it again" in backup.describe(done)
 
 
@@ -184,7 +185,8 @@ def test_a_changed_or_unsafe_backup_is_refused_before_writing(app, tmp_path):
 def test_agent_queue_is_included_when_asked(app, tmp_path):
     home = tmp_path / "agent"
     home.mkdir()
-    sqlite3.connect(home / "queue.sqlite3").execute("create table q (id int)").connection.commit()
+    with closing(sqlite3.connect(home / "queue.sqlite3")) as db, db:
+        db.execute("create table q (id int)")
     (home / "agent.log").write_text("log")
     zip_path = backup.create(tmp_path / "out", app, home, now=NOW)["path"]
     assert "agent/queue.sqlite3" in zipfile.ZipFile(zip_path).namelist()

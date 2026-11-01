@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import threading
 import types
+from contextlib import closing
 
 import pytest
 
@@ -524,7 +525,7 @@ def test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalation
 def test_an_outbox_from_before_routes_is_upgraded_in_place(tmp_path):
     import sqlite3
     path = tmp_path / "alerts.sqlite3"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, "
                    "attempts INTEGER DEFAULT 0, error TEXT)")
         db.execute("INSERT INTO outbox (created, title, lines, attempts, error) VALUES (?, 'old', '[\"x\"]', 1, 'down')",

@@ -52,12 +52,12 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bdose[0-9a-f]{32}\b"), REMOVED),
     # A quoted secret value runs to its closing quote, spaces and all: JSON ("name": "value") and a
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end.
-    (re.compile(r"(?i)(\"(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:[^\"\\]|\\.)*"), r"\1" + REMOVED),
-    (re.compile(r"(?i)('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:[^'\\]|\\.)*"), r"\1" + REMOVED),
+    (re.compile(r"(?i)(\"(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:[^\"\\\n]|\\.)*"), r"\1" + REMOVED),
+    (re.compile(r"(?i)('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:[^'\\\n]|\\.)*"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*\")(?:[^\"\\]|\\.)*"), r"\1" + REMOVED),
-    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:[^'\\]|\\.)*"), r"\1" + REMOVED),
+    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*\")(?:[^\"\\\n]|\\.)*"), r"\1" + REMOVED),
+    (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:[^'\\\n]|\\.)*"), r"\1" + REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # A PEM private key (a Snowflake key pair's .p8, an SSH or TLS key), whole or cut off before its end line.
     (re.compile(r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)"),

@@ -302,13 +302,10 @@
   "union-attr": 1
  },
  "fabric_desktop/meta/engine.py": {
-  "arg-type": 18,
-  "assignment": 3,
-  "attr-defined": 2,
-  "call-arg": 1,
+  "arg-type": 4,
+  "assignment": 2,
+  "attr-defined": 1,
   "dict-item": 12,
-  "index": 3,
-  "misc": 4,
   "return-value": 1,
   "union-attr": 7
  },

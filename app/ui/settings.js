@@ -790,6 +790,8 @@ async function renderSettings() {
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
       h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
+  // Usage and Notifications are read above: whoever moved on to another page meanwhile stays there.
+  if (state.view !== "settings") return;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),

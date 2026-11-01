@@ -204,6 +204,10 @@ def test_an_operation_pointing_off_fabric_is_never_polled_with_the_token():
     with pytest.raises(FabricError, match="another site"):
         c.refresh_sql_endpoint("ws1", "sql1")
     assert len(s.calls) == 1 and slept == []
+    # The one request that carried the token went to Fabric's API, never to the Location's host.
+    (call,) = s.calls
+    assert call["url"].startswith(API + "/") and "evil.example" not in call["url"]
+    assert call["headers"]["Authorization"] == "Bearer tok-secret"
 
 
 def test_an_empty_role_update_reply_is_an_empty_result():

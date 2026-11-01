@@ -177,9 +177,22 @@ _MAP_LAMBDAS = {"ZIP_WITH": (3, ("kf_p.a", "kf_p.b"), _ZIP_WITH),
                 "TRANSFORM_KEYS": (2, ("kf_p.key", "kf_p.value"), _TRANSFORM_KEYS)}
 
 
+def _no_reserved_names(*nodes: exp.Expression) -> None:
+    """The rewrites below wrap a person's SQL in lambdas whose arguments start with kf_. A name of
+    theirs that starts with kf_ (a lambda argument or a column) would hide one of those, or be hidden
+    by one, and fail or answer wrongly, so it is refused with a plain message instead (#1371)."""
+    for node in nodes:
+        for ident in node.find_all(exp.Identifier):
+            if ident.name.lower().startswith("kf_"):
+                raise ValueError(f"The name {ident.name} can't be used inside this function on this PC: names "
+                                 "that start with kf_ are reserved here. Rename it (AS ... or another lambda "
+                                 "argument name) and run it again.")
+
+
 def _bind(func: exp.Lambda, values: tuple[str, ...]) -> str:
-    """DuckDB SQL for ``func``'s body with each of its arguments bound to the DuckDB SQL in ``values``
-    (which names only kf_ lambda arguments, so the user's names can't hide it)."""
+    """DuckDB SQL for ``func``'s body with each of its arguments bound to the DuckDB SQL in ``values``.
+    The values name only the rewrite's own kf_ arguments, and a person's kf_ names were refused first
+    (_no_reserved_names), so neither can hide the other."""
     text = duckdb_sql(func.this)
     for param, value in reversed(list(zip(func.expressions, values))):
         text = f"(LIST_TRANSFORM([{value}], {duckdb_sql(param)} -> {text}))[1]"
@@ -196,6 +209,7 @@ def _higher_order(node: exp.Anonymous) -> exp.Expression | None:
     func = args[-1] if args else None
     if len(args) != count or not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
         return None
+    _no_reserved_names(*args)
     text = template.format(*(duckdb_sql(a) for a in args[:-1]), _bind(func, values))
     return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
 
@@ -218,6 +232,7 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
     if not (isinstance(finish, exp.Lambda) and len(finish.expressions) == 1
             and isinstance(merge, exp.Lambda) and len(merge.expressions) == 2):
         return None
+    _no_reserved_names(node)
     text = _REDUCE_FINISH.format(duckdb_sql(node.this), duckdb_sql(node.args["initial"]),
                                  _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
     return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
@@ -228,6 +243,7 @@ def _arity(template: str) -> int:
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
+    _no_reserved_names(*args)
     return cast(exp.Expression, sqlglot.parse_one(template.format(*(duckdb_sql(a) for a in args)), read="duckdb"))
 
 

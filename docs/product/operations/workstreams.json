@@ -37,8 +37,12 @@
       },
       "ready": [
         {
-          "issue": 1288,
-          "title": "Hardening: the compute check reads notebook.run's own lakehouse, runMultiple's named notebooks, and %run -b Python files"
+          "issue": 1314,
+          "title": "Compute check: a useRootDefaultLakehouse that isn't true or false is Unknown"
+        },
+        {
+          "issue": 1316,
+          "title": "Local pipelines: an Until's timeout and a container's policy timeout stop a long-running iteration"
         }
       ],
       "backlog": [
@@ -52,7 +56,7 @@
         "PB-015 live Prove run waits on Chris's yes (card in the orchestrator thread)"
       ],
       "last_completed": "#933 MERGE on this PC and #1157 Prove for MERGE, UPDATE and DELETE; PB-014 analyzer is #1190, waiting on Chris's go",
-      "next_action": "Keep PB-015 moving; #1288 next, and file the next engine hardening stories."
+      "next_action": "Keep PB-015 moving; build #1314 and #1316 in parallel, and file the next hardening stories."
     },
     {
       "key": "fabric",
@@ -78,7 +82,7 @@
         {
           "issue": 1165,
           "title": "Platform setup: Fabric refuses to create UDF_Platform (\"Functions is null or empty\")",
-          "note": "Fixed by #1166, PASS, with Release management."
+          "note": "Fixed by #1166, with Release management."
         }
       ],
       "backlog": [
@@ -119,7 +123,7 @@
         "Databricks live runs need a workspace and Chris's yes"
       ],
       "last_completed": "#1201 (#1198) remote limit and Cancel; #1202 (#1199) Snowflake parity values; #1191, #1183, #1180",
-      "next_action": "File and start the next Databricks and Snowflake fidelity or hardening stories."
+      "next_action": "Land #1329; file and start the next fidelity and hardening stories."
     },
     {
       "key": "enterprise",
@@ -131,23 +135,8 @@
         "Metadata-driven data mesh",
         "Workload management workspace"
       ],
-      "active": {
-        "issue": 1261,
-        "title": "[HD] The withdrawal notice tells approvers what a partly carried-out request left in Fabric",
-        "note": "Built as #1267, with Release management."
-      },
-      "ready": [
-        {
-          "issue": 1269,
-          "title": "[HD] A long request target never cuts off what a notice says is left in Fabric",
-          "note": "Built as #1308 (stacked on #1267), in review."
-        },
-        {
-          "issue": 1270,
-          "title": "[HD] A domain approval retried after its progress record failed still records the domain it made",
-          "note": "Built as #1309 (stacked on #1267), in review."
-        }
-      ],
+      "active": {},
+      "ready": [],
       "backlog": [
         "PB-060",
         "PB-092"
@@ -161,7 +150,7 @@
         "PB-062 support bundle slice 1 merged (#1177); the Settings button (#1172) waits on the Save support bundle mockup card"
       ],
       "last_completed": "#1205 (#1195) partly carried-out requests say what was made; #1200 (#1194) audit rows pinned",
-      "next_action": "Land #1267, #1308 and #1309; file the next hardening stories."
+      "next_action": "Land #1309, #1335, #1348, #1351, #1353 and #1354; continue the audit-trail pass (access reviews, role changes, support bundle)."
     },
     {
       "key": "devex",
@@ -201,8 +190,17 @@
         "Run bug fix and security quality control",
         "Enterprise readiness program"
       ],
-      "active": {},
-      "ready": [],
+      "active": {
+        "issue": 1341,
+        "title": "Engine: DuckDB 2.0 readiness, so the engine suite passes on 2.0 before the pin moves",
+        "note": "Split into cause-group PRs; the pin stays below 2.0."
+      },
+      "ready": [
+        {
+          "issue": 1358,
+          "title": "format_number: doubles printed past their ~17 significant digits differ from Spark"
+        }
+      ],
       "backlog": [
         "PB-061"
       ],
@@ -214,7 +212,7 @@
         "PB-061 (#960) waits on Chris's policy-keys card; HD-057 card with Chris"
       ],
       "last_completed": "#1208 RPC fuzz (#1173); #1209 and #1212 subprocess timeouts (#1174); #1211 whole-file state writes (#1204)",
-      "next_action": "File and start the next two hardening stories."
+      "next_action": "#1341 by cause group; file other platform hardening."
     }
   ],
   "new_stories": {},

@@ -297,6 +297,17 @@ function drawSchedules(box) {
           s.last?.message ? h("div", { class: "reason" }, s.last.message) : null),
         h("td", { class: "n nowrap" },
           btn("Run now", "play", async () => {
+            // It starts a job on the workspace's capacity: the risk check, then a confirm, as Run in Fabric does.
+            // The risk check knows only the workloads in the workspaces this app works in; for any other
+            // item it would fail with a reason that reads as if the item were gone, so it's skipped and the
+            // confirm says so (as dfRunInFabric reads the same code). A failed lookup still runs the check.
+            const id = `fabric:${s.workspace_id}:${s.item_id}`;
+            const pre = await rpc("workload_preflight", { id, action: "run_item", env: null, assess: false }).catch(() => null);
+            const listed = pre?.code !== "not_in_inventory";
+            if (listed && !(await riskGate({ id, action: "run_item", title: `Run ${s.name} now?`, runLabel: "Run now" }))) return;
+            if (!(await confirmDialog(`Run ${s.name} now?`, `Starts one run of it in Fabric, in ${s.workspace_name}, which uses that workspace's capacity. `
+              + "Its schedule isn't changed." + (listed ? "" : " The risk check wasn't run: it covers only workloads in the workspaces this app works in."),
+              "Run now"))) return;
             const r = await attempt(() => rpc("run_fabric_item_now", { workspace_id: s.workspace_id, item_id: s.item_id,
               job_type: s.job_type, name: s.name, workspace_name: s.workspace_name }), "Not started");
             if (r) toast(`${s.name} started in Fabric. Follow it under Runs.`);

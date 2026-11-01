@@ -426,6 +426,31 @@ test("New shortcut clicked before the rules check answered waits for it, and a b
   assert.ok(callIndex("shortcut_preflight", from) < callIndex("shortcut_request", from));
 });
 
+test("an edit while Create waits for the rules check waits for the newer check, and stops when the rules now say no", { skip }, async () => {
+  await openShortcuts("all");
+  await page().getByRole("button", { name: "New shortcut" }).waitFor();
+  hold.shortcut_preflight = 600;
+  const from = app.calls.length;
+  await page().getByRole("button", { name: "New shortcut" }).click();
+  const d = dialog("New shortcut");
+  await d.waitFor();
+  // Dev at Dev is allowed: Create is clicked while that check is still out.
+  await fillDialog(d, { host: "lh-silver", where: "Tables/dbo", target: "lh-bronze", table: "Tables/dbo/orders", name: "bronze_again" });
+  await d.getByRole("button", { name: "Create shortcut" }).click();
+  // Then, before it answers, the target changes to Prod, which the rules stop.
+  await d.getByRole("combobox", { name: "Target lakehouse" }).selectOption("lh-gold");
+  await d.getByRole("combobox", { name: "Table" }).selectOption("Tables/dbo/sales");
+  await d.getByRole("button", { name: "Send as a request instead" }).waitFor();
+  await sleep(700);  // any check still out has answered
+  assert.deepStrictEqual(writes(from), [], "nothing is made from the edited values on the earlier check's verdict");
+  const checks = app.calls.slice(from).filter((c) => c.method === "shortcut_preflight").map((c) => c.params.source.item_id);
+  assert.strictEqual(checks.at(-1), "lh-gold", "the last check is of what the dialog shows");
+  delete hold.shortcut_preflight;
+  await d.getByRole("button", { name: "Cancel" }).click();
+  await d.waitFor({ state: "detached" });
+  assert.deepStrictEqual(writes(from), []);
+});
+
 test("Request a shortcut sends exactly what was entered, with the reason", { skip }, async () => {
   await openShortcuts("requests");
   const from = app.calls.length;

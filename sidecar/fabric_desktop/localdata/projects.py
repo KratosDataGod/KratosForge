@@ -102,7 +102,8 @@ class ProjectStore:
 
     def _index(self) -> dict[str, str]:
         try:
-            return json.loads(self.index_file.read_text(encoding="utf-8"))
+            index = jsonfile.read_json(self.index_file, {})
+            return index if isinstance(index, dict) else {}
         except (OSError, ValueError):
             return {}
 

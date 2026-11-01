@@ -92,7 +92,7 @@ class Sent:
 
     def _load(self) -> dict[str, list[str]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.path, {})
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}

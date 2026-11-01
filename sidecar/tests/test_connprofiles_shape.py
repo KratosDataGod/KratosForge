@@ -70,8 +70,22 @@ def test_shape_problems_are_listed_with_secret_problems_and_never_repeat_a_value
     assert not any("plain-value-123" in f for f in found)
 
 
-@pytest.mark.parametrize("key", ["staging", "dapi" + "0123456789abcdef" * 2, "x\nconnections[9] forged", "a" * 500])
+@pytest.mark.parametrize("key", ["qa", "dapi" + "0123456789abcdef" * 2, "x\nconnections[9] forged", "a" * 500])
 @pytest.mark.parametrize("section", ["environments", "deploy"])
 def test_an_unknown_environment_key_is_never_repeated_in_a_shape_problem(section, key):
     found = cp._shape_problems(profile(**{section: {key: "not an object"}}))
     assert found == [f"{section} has an entry that isn't an object."]
+
+
+@pytest.mark.parametrize("key", ["kind", "name", "id", "description"])
+@pytest.mark.parametrize("value", [["databricks"], {"a": 1}, 5])
+def test_a_top_level_field_that_isnt_text_says_so(key, value):
+    data = profile(**{key: value})
+    assert f"{key} must be text." in cp.problems(data)
+    with pytest.raises(cp.ProfileError):
+        cp.validate(data)
+
+
+@pytest.mark.parametrize("schema", [[1], {"v": 1}, "two"])
+def test_a_schema_of_the_wrong_type_is_a_problem_not_a_crash(schema):
+    assert any("schema" in f for f in cp.problems(profile(schema=schema)))

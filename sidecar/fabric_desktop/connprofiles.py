@@ -251,7 +251,8 @@ def _shape_problems(data: Any) -> list[str]:
     an address): a hand-edited or imported file says so instead of failing the check part way."""
     if not isinstance(data, dict):
         return ["A profile is a JSON object."]
-    out = []
+    out = [f"{key} must be text." for key in ("id", "name", "kind", "description")
+           if data.get(key) is not None and not isinstance(data[key], str)]
     conns = data.get("connections")
     if conns is not None and not isinstance(conns, list):
         out.append("connections must be a list.")

@@ -368,3 +368,75 @@ def test_a_definition_nested_too_deep_fails_that_warehouse_only(svc):
     svc.fake.definitions["q1"] = {"parts": [{"path": "RealTimeQueryset.json", "payload": base64.b64encode(deep.encode()).decode()}]}
     out = svc.wh_monitoring_build(WS, WS, DB, [{"id": WH, "name": "A"}, {"id": WH2, "name": "B"}], confirm=True)
     assert [r["state"] for r in out["results"]] == ["failed", "created"]
+
+
+# ---- a token that expires mid-session, and replies that aren't a KQL result (#1440)
+
+class _NotJson(Resp):
+    def json(self):
+        raise ValueError("Expecting value")
+
+
+def test_a_401_gets_a_fresh_token_once_and_returns_the_rows():
+    post = FakePost()
+    post.answers = [Resp(401, {"error": {"@message": "token expired"}}), Resp(200, _table(["a"], [[1]]))]
+    out = wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None, refresh=lambda: "new")
+    assert out["rows"] == [[1]]
+    assert [s["headers"]["Authorization"] for s in post.sent] == ["Bearer tok", "Bearer new"]
+    ids = [s["headers"]["x-ms-client-request-id"] for s in post.sent]
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.parametrize("refresh", [None, lambda: "tok", lambda: "", lambda: (_ for _ in ()).throw(RuntimeError())])
+def test_without_a_new_token_a_401_is_sent_once_and_keeps_its_message(refresh):
+    post = FakePost()
+    post.answers = [Resp(401, {})]
+    with pytest.raises(RuntimeError, match="Contributor"):
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None, refresh=refresh)
+    assert len(post.sent) == 1
+
+
+def test_a_second_401_with_the_new_token_is_not_tried_a_third_time():
+    post = FakePost()
+    post.answers = [Resp(401, {}), Resp(401, {})]
+    with pytest.raises(RuntimeError, match="Contributor") as err:
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None, refresh=lambda: "new")
+    assert len(post.sent) == 2 and "new" not in str(err.value)
+
+
+@pytest.mark.parametrize("answer", [_NotJson(200, None), Resp(200, [1, 2]), Resp(200, None), Resp(200, {"Tables": "x"}),
+                                    Resp(200, {"Tables": [1]}), _NotJson(500, None)])
+def test_a_reply_that_isnt_a_kql_result_fails_in_one_plain_line(answer):
+    post = FakePost()
+    post.answers = [answer] * wm.QUERY_ATTEMPTS
+    with pytest.raises(RuntimeError) as err:
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None)
+    assert "\n" not in str(err.value) and "Expecting" not in str(err.value)
+
+
+@pytest.mark.parametrize("body", [{}, {"Tables": None}, {"Tables": []}])
+def test_a_reply_with_no_tables_is_an_empty_result(body):
+    post = FakePost()
+    post.answers = [Resp(200, body)]
+    out = wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok")
+    assert out == {"columns": [], "rows": [], "truncated": False}
+
+
+def test_a_long_kusto_message_stays_one_bounded_line():
+    post = FakePost()
+    post.answers = [Resp(400, {"error": {"@message": "Semantic error\r\n\x1b[31m" + "y" * 2000}})]
+    with pytest.raises(RuntimeError) as err:
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok")
+    text = str(err.value)
+    assert "\n" not in text and "\x1b" not in text and "Semantic error" in text and "…" in text
+    assert len(text) < 300 + 100
+
+
+def test_the_service_hands_monitoring_a_kusto_refresh(svc, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(svc.auth.__class__, "refreshed_token", lambda self, scopes: seen.setdefault("s", scopes) and "new",
+                        raising=False)
+    monkeypatch.setattr(wm, "query", lambda *a, **kw: seen.update(refresh=kw["refresh"]()) or {"rows": []})
+    svc._wm_query({"cluster": URI, "name": "db"}, "x")
+    from fabric_desktop.auth import KUSTO_SCOPES
+    assert seen["refresh"] == "new" and seen["s"] == KUSTO_SCOPES

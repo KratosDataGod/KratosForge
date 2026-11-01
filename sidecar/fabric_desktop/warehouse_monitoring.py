@@ -189,29 +189,45 @@ def merge(current: dict[str, Any], source: dict[str, str], tabs: list[dict[str, 
 
 
 def query(post: Callable[..., Any], cluster_uri: str, database: str, kql: str, token: str,
-          sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+          sleep: Callable[[float], None] = time.sleep, refresh: Callable[[], str] | None = None) -> dict[str, Any]:
     """Run ``kql`` (one of this module's views) on a KQL database, read-only, and return its first
     table as {columns: [{name, type}], rows, truncated}. ``post`` is requests' post. The query only
     reads, so it is sent again after throttling (as Retry-After says), a 5xx, a timeout or a dropped
-    connection, like every other Fabric read (retrying.send_with_retry)."""
+    connection, like every other Fabric read (retrying.send_with_retry). After a 401, ``refresh`` gives a
+    new token once (as FabricClient does): Kusto refused the read unread, so it is sent once more."""
     uri = cluster(cluster_uri)
     props = {"Options": {"request_readonly": True, "servertimeout": "00:01:00", "truncationmaxrecords": MAX_ROWS + 1}}
     body = {"db": database, "csl": kql, "properties": json.dumps(props)}
 
+    bearer = [token]
+
     def send() -> Any:  # a new request id on every try, as Kusto asks
         return post(f"{uri}/v1/rest/query", json=body,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                    headers={"Authorization": f"Bearer {bearer[0]}", "Accept": "application/json",
                              "x-ms-app": "KratosForge", "x-ms-client-request-id": f"KratosForge;{uuid.uuid4()}"},
                     timeout=90)
 
     try:
         resp = send_with_retry(send, "POST", sleep=sleep, attempts=QUERY_ATTEMPTS, safe=True)
+        if resp.status_code == 401 and refresh is not None:
+            fresh = _fresh(refresh)
+            if fresh and fresh != token:  # once, and only with a token that is actually new
+                bearer[0] = fresh
+                resp = send_with_retry(send, "POST", sleep=sleep, attempts=QUERY_ATTEMPTS, safe=True)
     except (requests.ConnectionError, requests.Timeout) as exc:
         raise RuntimeError(f"The monitoring database couldn't be reached after {QUERY_ATTEMPTS} tries. "
                            f"Try again in a minute. ({type(exc).__name__})") from None
     if resp.status_code >= 400:
         raise RuntimeError(_kusto_error(resp))
-    tables = (resp.json() or {}).get("Tables") or []
+    try:
+        reply = resp.json()
+    except ValueError:
+        reply = None
+    tables = (reply.get("Tables") or []) if isinstance(reply, dict) else None
+    if not isinstance(tables, list) or not all(isinstance(t, dict) for t in tables):
+        # A proxy's sign-in page or a gateway's page: its text isn't repeated (it may echo the request).
+        raise RuntimeError(f"The monitoring database answered with something other than a KQL result "
+                           f"(HTTP {resp.status_code}). Check the network or proxy between this PC and Fabric.")
     if not tables:
         return {"columns": [], "rows": [], "truncated": False}
     first = tables[0]
@@ -221,12 +237,30 @@ def query(post: Callable[..., Any], cluster_uri: str, database: str, kql: str, t
             "rows": rows[:MAX_ROWS], "truncated": len(rows) > MAX_ROWS}
 
 
+_MESSAGE_MAX = 300  # characters of Kusto's own message in an error
+
+
+def _fresh(refresh: Callable[[], str]) -> str:
+    """A new token, or "" when none can be had without the person: the 401 is then reported as it came."""
+    try:
+        return refresh() or ""
+    except Exception:  # noqa: BLE001  # silent-ok: the caller reports the original 401
+        return ""
+
+
+def _one_line(text: str) -> str:
+    """Kusto's message as part of one line: whitespace and control characters folded, cut to _MESSAGE_MAX."""
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return text if len(text) <= _MESSAGE_MAX else text[:_MESSAGE_MAX - 1].rstrip() + "…"
+
+
 def _kusto_error(resp: Any) -> str:
     try:
-        err = (resp.json() or {}).get("error") or {}
-        message = err.get("@message") or err.get("message") or ""
+        body = resp.json()
     except ValueError:
-        message = ""
+        body = None
+    err = body.get("error") if isinstance(body, dict) else None
+    message = _one_line(str(err.get("@message") or err.get("message") or "")) if isinstance(err, dict) else ""
     if resp.status_code in (401, 403):
         return ("The monitoring database didn't let you read it. Reading it needs at least the Contributor role "
                 "in the workspace, or the KQL database shared with you." + (f" ({message})" if message else ""))

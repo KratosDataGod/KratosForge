@@ -39,7 +39,10 @@ class WarehouseMonitoringMixin:
                 "cluster": wm.cluster((db.get("properties") or {}).get("queryServiceUri"))}
 
     def _wm_query(self, db: dict[str, Any], kql: str) -> dict[str, Any]:
-        return wm.query(session().post, db["cluster"], db["name"], kql, self.auth.kusto_token())  # type: ignore[attr-defined]
+        from .auth import KUSTO_SCOPES
+        refreshed = getattr(self, "_refreshed", None)  # Service's: a new token after a 401, when it can
+        return wm.query(session().post, db["cluster"], db["name"], kql, self.auth.kusto_token(),  # type: ignore[attr-defined]
+                        refresh=refreshed(KUSTO_SCOPES) if callable(refreshed) else None)
 
     def wh_monitoring_status(self, workspace_id: str, database_workspace_id: str = "",
                              database_id: str = "") -> dict[str, Any]:

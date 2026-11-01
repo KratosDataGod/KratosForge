@@ -81,6 +81,11 @@ before(async () => {
   if (skip) return;
   app = await openApp({ mocks });
   await startupReads(app);
+  // The app's first approval polls come 5 s in and repeat while it is open: they belong to the baseline.
+  for (const end = Date.now() + 15000; !["integrations_pending", "editor_pending"].every((m) => app.calls.some((c) => c.method === m));
+    await new Promise((r) => setTimeout(r, 50))) {
+    if (Date.now() > end) throw new Error("the app's startup polls never came");
+  }
   baseline = new Set(app.calls.map((c) => c.method));
   first = app.calls.length;
   await page().evaluate(() => { state.user = "chris@contoso.com"; state.workspaces = null; go("workspaces"); });
@@ -191,7 +196,8 @@ test("another item type shows Fabric's page in the panel and reads nothing on th
   await panel().locator(".preview-fabric").waitFor();
   await page().waitForFunction(() => window.__fdShellCalls.some((c) => c.cmd === "fabric_view_show"));
   const shown = (await shellCalls()).filter((c) => c.cmd === "fabric_view_show");
-  assert.deepStrictEqual(shown.map((c) => c.page), [`https://app.fabric.microsoft.com/groups/${WS}/reports/${REPORT}?experience=fabric-developer`]);
+  // A redraw can place the view again, so the page is shown at least once and never another one.
+  assert.deepStrictEqual([...new Set(shown.map((c) => c.page))], [`https://app.fabric.microsoft.com/groups/${WS}/reports/${REPORT}?experience=fabric-developer`]);
   assert.deepStrictEqual(app.calls.slice(n).map((c) => c.method).filter((m) => m.startsWith("preview_")), []);
   assert.match(await panel().locator(".preview-head").textContent(), /Sales report/);
   assert.deepStrictEqual(axeSource ? await axeFindings(page(), ".preview-panel.open") : [], []);

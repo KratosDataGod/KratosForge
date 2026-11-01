@@ -513,9 +513,14 @@ def test_a_failed_check_fails_the_job_without_retrying(setup, tmp_path):
     job = agent.enqueue("dev", ["bronze.orders"])
     agent.step()
     finish(agent)
-    assert agent.queue.get(job["id"])["state"] == "failed"
-    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
-    assert line["outcome"] == "error" and "bronze.orders" in line["error"]
+    # This failed once in a full local run with only its summary line kept (flaky ledger), so each
+    # check says what it saw.
+    done = agent.queue.get(job["id"])
+    recent = agent.audit.recent(10)
+    assert done["state"] == "failed", (done, recent)
+    lines = [e for e in recent if e["action"] == "agent_job"]
+    assert len(lines) == 1, recent
+    assert lines[0]["outcome"] == "error" and "bronze.orders" in lines[0]["error"], lines[0]
 
 
 def test_a_job_from_a_crashed_agent_runs_again_after_restart(setup):

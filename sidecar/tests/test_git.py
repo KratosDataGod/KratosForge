@@ -646,3 +646,36 @@ def test_service_clone_is_added_to_the_list_and_notebooks_show_their_branch(tmp_
     info = svc.git_notebook_info("Sales")
     assert info["branch"] == "main" and info["state"] == "untracked" and info["path"] == "Sales.ipynb"
     assert svc.git_path_info(str(tmp_path / "elsewhere.txt")) is None
+
+
+def test_a_failed_clone_leaves_no_read_only_git_files_behind(tmp_path, monkeypatch):
+    """Windows refuses to delete a read-only file, and Git keeps its objects and packs read-only: the
+    cleanup after a failed clone makes them writable, so the next clone to that folder can start."""
+    import os
+    import stat
+
+    from fabric_desktop.git.ops import remove_clone
+
+    dest = tmp_path / "half-cloned"
+    pack = dest / ".git" / "objects" / "pack" / "pack-1.pack"
+    pack.parent.mkdir(parents=True)
+    pack.write_bytes(b"PACK")
+    (dest / "README.md").write_text("x")
+    os.chmod(pack, stat.S_IREAD)
+    real = os.unlink
+
+    def like_windows(path, *, dir_fd=None):
+        if not os.stat(path, dir_fd=dir_fd).st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        real(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", like_windows)
+    shutil_left = tmp_path / "ignored"
+    shutil_left.mkdir()
+    (shutil_left / "p.pack").write_bytes(b"PACK")
+    os.chmod(shutil_left / "p.pack", stat.S_IREAD)
+    import shutil
+    shutil.rmtree(shutil_left, ignore_errors=True)
+    assert shutil_left.exists(), "the stand-in refuses read-only files, as Windows does"
+    remove_clone(dest)
+    assert not dest.exists()

@@ -9,9 +9,11 @@ it fast-forwards, or merges when the person chose Merge.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -32,6 +34,22 @@ _PROGRESS = re.compile(r"(?P<phase>[A-Za-z][A-Za-z ]+):\s+(?P<pct>\d{1,3})%")
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
+
+
+def _writable_then_retry(func: Callable[..., Any], path: str, _exc: BaseException) -> None:
+    """Git keeps its objects and packs read-only, and Windows won't delete a read-only file: make it
+    writable and try once more. Anything else still in the way is left (the caller ignores it)."""
+    try:
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        func(path)
+    except OSError:
+        pass
+
+
+def remove_clone(dest: Path) -> None:
+    """Remove what a failed clone left, read-only Git objects included, so cloning to the same folder
+    again doesn't stop at "already exists and isn't empty"."""
+    shutil.rmtree(dest, onexc=_writable_then_retry)
 
 class Operations:
     def __init__(self) -> None:
@@ -57,7 +75,7 @@ class Operations:
 
         def cleanup(ok: bool) -> None:
             if not ok and created and dest.exists():  # only the folder this clone made
-                shutil.rmtree(dest, ignore_errors=True)
+                remove_clone(dest)
 
         args = ["clone", "--progress", "--", url, str(dest)]
         return self._start("clone", None, args, cwd=folder, target=str(dest), after=cleanup,

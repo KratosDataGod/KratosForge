@@ -25,6 +25,14 @@ from .usage import UsageRecord
 
 DECISIONS = ("close", "keep")
 _log = logging.getLogger(__name__)
+# What a remote session that couldn't be closed may use, and where the person stops it now:
+# by engine first, then by how the engine bills.
+_STOP: dict[str, tuple[str, str]] = {
+    "databricks-connect": ("compute (DBUs)", "end it on the cluster's page in Databricks"),
+    "databricks-sql": ("compute (DBUs)", "stop it on the SQL warehouse's page in Databricks"),
+    "fabric_capacity": ("capacity", "cancel it in Fabric's Monitor hub"),
+    "databricks_dbu": ("compute (DBUs)", ""),
+}
 
 
 class SwitchNeeded(RuntimeError):
@@ -48,6 +56,7 @@ class SessionManager:
         self._lock = threading.Lock()
         self._notebooks: dict[str, _Notebook] = {}
         self._notes: dict[str, list[str]] = {}
+        self._unclosed: list[tuple[str, EngineSession]] = []
 
     def engine_of(self, notebook: str) -> str | None:
         nb = self._notebooks.get(notebook)
@@ -97,8 +106,9 @@ class SessionManager:
             old = nb.sessions.pop(nb.engine) if t["needed"] and decision == "close" else None
             nb.engine = engine
             nb.sessions[engine] = session
-            if old is not None:
-                self._close(notebook, t["from"], old)
+            note = self._close(t["from"], old) if old is not None else None
+            if note:
+                self._notes.setdefault(notebook, []).append(note)
             return session
 
     def check(self, notebook: str, request: CellRequest) -> dict[str, Any]:
@@ -127,8 +137,10 @@ class SessionManager:
         """Close every session of ``notebook``, kept ones included."""
         with self._lock:
             nb = self._notebooks.pop(notebook, None)
-        for engine, session in (nb.sessions.items() if nb else ()):
-            self._close(notebook, engine, session)
+        notes = [n for engine, session in (nb.sessions.items() if nb else ()) if (n := self._close(engine, session))]
+        if notes:
+            with self._lock:
+                self._notes.setdefault(notebook, []).extend(notes)
 
     def notes(self, notebook: str) -> list[str]:
         """What the person should know from the last switch or close of ``notebook`` (a session that
@@ -136,27 +148,45 @@ class SessionManager:
         with self._lock:
             return self._notes.pop(notebook, [])
 
-    def _close(self, notebook: str, engine: str, session: EngineSession) -> None:
-        """Close a session the notebook has already let go of. A failure is logged and kept as a note
-        (notes()), never raised: the switch or close it belongs to has already happened."""
+    def _close(self, engine: str, session: EngineSession) -> str | None:
+        """Close a session the notebook has already let go of. A failure is logged and returned as a
+        note for the person, never raised: the switch or close it belongs to has already happened.
+        The session is kept to try once more at close_all (app exit)."""
         try:
             session.close()
+            return None
         except Exception as exc:  # noqa: BLE001 - logged and noted; the caller's step already succeeded
             detail = " ".join(redact.secrets(str(exc)).split())[:300]
             _log.warning("Closing a %s session failed (%s): %s", engine, type(exc).__name__, detail)
-            try:
-                desc = self._adapter_for(engine).describe()
-                label, remote = desc.label, desc.remote
-            except (KeyError, ValueError):
-                label, remote = engine, False
-            note = f"Couldn't close the {label} session."
-            if remote:
-                note += " It ends on its own after its idle timeout, and may use compute or capacity until then."
-            self._notes.setdefault(notebook, []).append(note)
+            self._unclosed.append((engine, session))
+            return self._note(engine)
+
+    def _note(self, engine: str) -> str:
+        try:
+            desc = self._adapter_for(engine).describe()
+            label, remote, billing = desc.label, desc.remote, desc.billing
+        except (KeyError, ValueError):
+            label, remote, billing = engine, False, "none"
+        note = f"Couldn't close the {label} session."
+        if not remote:
+            return note
+        meter, stop = _STOP.get(engine) or _STOP.get(billing) or ("compute or capacity", "")
+        return f"{note} It ends on its own after its idle timeout, and may use {meter} until then." + \
+            (f" To stop it now, {stop}." if stop else "")
 
     def close_all(self) -> None:
+        """Close every notebook's sessions, then try once more those whose close failed before."""
         for notebook in list(self._notebooks):
             self.close(notebook)
+        with self._lock:
+            retry, self._unclosed = self._unclosed, []
+        for engine, session in retry:
+            if session.closed:
+                continue
+            try:
+                session.close()
+            except Exception as exc:  # noqa: BLE001 - the app is exiting; logged, nothing else to do
+                _log.warning("Closing a %s session failed again at exit (%s)", engine, type(exc).__name__)
 
     def open_sessions(self) -> list[dict[str, Any]]:
         return [{"notebook": name, "engine": eid, "active": eid == nb.engine}

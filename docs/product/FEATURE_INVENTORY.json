@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "063b84ed88a73087b6f1235a55d78d27897617c8",
+    "commit": "761a7949f16e86888316360d22d49fce81890386",
     "date": "2026-11-01",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -29,7 +29,8 @@
       "Product check 2026-10-31 11:42 at f3750b9d6564608f0f15d931800990b65b3047a9: #1200 to #1202 linked to their rows and items. Other rows were not re-read.",
       "Product check 2026-10-31 23:42 at b3c5b223537fe655426559e62366a05137cec244: the PRs merged after f3750b9d (#1205 to #1357) were linked to their rows and items by title and changed files. Other rows were not re-read.",
       "Product check 2026-11-01 11:42 at 063b84ed88a73087b6f1235a55d78d27897617c8: the 98 PRs merged after b3c5b223 were linked to their programs and rows by title. No item finished; other rows were not re-read.",
-      "Acceptance of PB-027, PB-096, PB-098, PB-116, PB-117 and PB-118 recorded (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)."
+      "Acceptance of PB-027, PB-096, PB-098, PB-116, PB-117 and PB-118 recorded (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K).",
+      "Product check 2026-11-01 23:42 at 761a7949f16e86888316360d22d49fce81890386: the 27 PRs merged after 063b84ed were linked to their programs and rows by title. No item finished; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -95,10 +96,12 @@
         1338,
         1342,
         1363,
+        1401,
         1430,
         1431,
         1490,
-        1502
+        1502,
+        1512
       ]
     },
     {
@@ -2346,7 +2349,8 @@
         633,
         890,
         1446,
-        1449
+        1449,
+        1548
       ]
     },
     {
@@ -7770,12 +7774,20 @@
         1491,
         1495,
         1496,
+        1497,
         1498,
+        1499,
         1505,
         1506,
         1514,
         1517,
-        1523
+        1518,
+        1523,
+        1528,
+        1529,
+        1531,
+        1535,
+        1545
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8191,7 +8203,10 @@
         1161,
         1162,
         1175,
+        1182,
+        1184,
         1186,
+        1216,
         1233,
         1463
       ],

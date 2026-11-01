@@ -39,7 +39,7 @@ from urllib.parse import unquote, urlsplit
 import requests
 
 from . import http_session, lakehouse
-from .onelake import FileStore
+from .onelake import FileStore, error_code
 from .retrying import send_with_retry
 
 
@@ -421,7 +421,7 @@ def keyvault_error(resp: Any, vault: str, what: str, secret: str = "") -> reques
     except ValueError:
         body = None
     if isinstance(body, dict) and isinstance(body.get("error"), dict):
-        code = str(body["error"].get("code") or "")
+        code = error_code(body["error"].get("code"))
     status = resp.status_code
     if status == 404 and secret:
         text = (f"Key Vault {vault} has no secret named {secret!r}, or it is disabled or deleted. "

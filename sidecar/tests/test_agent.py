@@ -339,9 +339,15 @@ def test_leases_block_a_second_writer_until_released_or_expired(tmp_path):
 
 def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
     backend = LocalBackend(tmp_path / "leases")
-    order = []
+    order, waiting = [], threading.Event()
+
+    def sleep(_):
+        order.append("waited")
+        waiting.set()
+        threading.Event().wait(0.05)
+
     first = Leases(backend, "a", ttl=60, wait=30)
-    second = Leases(backend, "b", ttl=60, wait=30, sleep=lambda s: order.append("waited") or threading.Event().wait(0.05))
+    second = Leases(backend, "b", ttl=60, wait=30, sleep=sleep)
     with first.hold("t"):
         done = []
 
@@ -350,10 +356,13 @@ def test_hold_waits_for_the_lease_and_releases_it(tmp_path):
                 done.append("b wrote")
         t = threading.Thread(target=run)
         t.start()
-        threading.Event().wait(0.2)
+        # Release only once b has found the lease taken: a fixed pause let a slow Windows runner
+        # start b after the release, so b never had to wait.
+        assert waiting.wait(10), "b never waited for the lease"
+        assert done == []
         order.append("a wrote")
     t.join(5)
-    assert done == ["b wrote"] and "waited" in order
+    assert done == ["b wrote"] and order[0] == "waited" and "a wrote" in order
     assert backend.read("t") is None  # released
 
 
@@ -504,9 +513,14 @@ def test_a_failed_check_fails_the_job_without_retrying(setup, tmp_path):
     job = agent.enqueue("dev", ["bronze.orders"])
     agent.step()
     finish(agent)
-    assert agent.queue.get(job["id"])["state"] == "failed"
-    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
-    assert line["outcome"] == "error" and "bronze.orders" in line["error"]
+    # This failed once in a full local run with only its summary line kept (flaky ledger), so each
+    # check says what it saw.
+    done = agent.queue.get(job["id"])
+    recent = agent.audit.recent(10)
+    assert done["state"] == "failed", (done, recent)
+    lines = [e for e in recent if e["action"] == "agent_job"]
+    assert len(lines) == 1, recent
+    assert lines[0]["outcome"] == "error" and "bronze.orders" in lines[0]["error"], lines[0]
 
 
 def test_a_job_from_a_crashed_agent_runs_again_after_restart(setup):

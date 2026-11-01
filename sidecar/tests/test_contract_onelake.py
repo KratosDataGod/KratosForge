@@ -442,3 +442,14 @@ def test_a_refused_table_listing_gives_the_table_apis_code():
         TableCatalog(lambda: "tok", session=s).list_tables(WS, LH, "dbo")
     assert str(err.value) == "OneLake didn't list the tables in dbo (403: PERMISSION_DENIED)."
     assert "https://" not in str(err.value)
+
+
+@pytest.mark.parametrize("code, shown", [("AuthorizationFailure", "AuthorizationFailure"), ("a" * 64, "a" * 64),
+                                         ("a" * 65, ""), ("Bad code\nwith lines", ""), ("x" * 10000, ""), (None, "")])
+def test_an_error_code_is_shown_only_when_it_looks_like_one(code, shown):
+    from fabric_desktop.onelake import error_code
+    assert error_code(code) == shown
+    fs, _ = store([Reply(403, {"error": {"code": code}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == f"OneLake didn't list Files/in (403{': ' + shown if shown else ''})."

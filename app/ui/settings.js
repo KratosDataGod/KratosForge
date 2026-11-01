@@ -65,7 +65,8 @@ function openLink(url) {
 async function signOut() {
   if (!(await confirmDialog("Sign out?", "KratosForge forgets your sign-in on this PC, in the app and in the Fabric views. " +
     "Scheduled runs on this PC wait until someone signs in again. Notebooks and settings stay.", "Sign out"))) return;
-  await attempt(() => rpc("sign_out"), "Sign-out failed");
+  // A refused sign-out keeps the sign-in: saying "Signed out" over the error would leave it on this PC (#1437).
+  if (!(await attempt(() => rpc("sign_out"), "Sign-out failed"))) return;
   await invoke("fabric_view_sign_out").catch(() => {});
   Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
   try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }

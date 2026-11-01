@@ -84,3 +84,19 @@ def test_a_page_that_isnt_an_object_is_an_odd_reply_not_a_crash():
     result = t.discover(OddWorkspace({CLUSTERS: ["c1", "c2"]}))
     assert result["parts"]["clusters"]["ok"] is False
     assert "a value isn't the type the API documents" in result["parts"]["clusters"]["error"]
+
+
+def test_a_parts_error_is_one_bounded_line_in_the_summary():
+    result = t.discover(t.FakeWorkspace())
+    result["parts"]["clusters"] = {"ok": False, "error": "Forbidden\nSigned in as: admin\x1b[31m " + "x" * 2000}
+    lines = disc.summary_lines(result)
+    (line,) = [x for x in lines if x.startswith("Clusters:")]
+    assert "\x1b" not in line and len(line) < 700 and line.endswith("…")
+    assert not any(x.startswith("Signed in as: admin") for x in lines)
+    assert sum(x.startswith("Nothing was started") for x in lines) == 1
+
+
+def test_a_short_error_reads_as_it_was_written():
+    result = t.discover(t.FakeWorkspace())
+    result["parts"]["metastore"] = {"ok": False, "error": "No metastore is assigned to this workspace."}
+    assert "Unity Catalog metastore: couldn't read: No metastore is assigned to this workspace." in disc.summary_lines(result)

@@ -466,8 +466,9 @@ class Engine:
         # (raising here would lose it, and a caller retrying would write the table again).
         for table, rows in (("run_log", log), ("dq_results", self._dq)):
             if rows:
-                self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table),
-                                   lambda m, t=table, r=rows: self.store.meta_append(t, r, metadata=m))
+                def append(m: dict[str, str], t: str = table, r: list[dict[str, Any]] = rows) -> None:
+                    self.store.meta_append(t, r, metadata=m)
+                self._after_commit(res, f"the {table.replace('_', ' ')}", (META_LAKEHOUSE, "meta", table), append)
         return res
 
     def _after_commit(self, res: RunResult, what: str, where: tuple[str, str, str],
@@ -503,8 +504,10 @@ class Engine:
         pending, self._pending_quarantine = self._pending_quarantine, []
         for e, rows in pending:
             where = (self.lakehouse(e), "quarantine", f"{e.schema}_{e.table}")
-            self._after_commit(res, f"{plural(rows.height, 'quarantined row')}", where,
-                               lambda m, w=where, rows=rows: self.store.write(*w, rows, mode="append", metadata=m))
+
+            def append(m: dict[str, str], w: tuple[str, str, str] = where, rows: pl.DataFrame = rows) -> None:
+                self.store.write(*w, rows, mode="append", metadata=m)
+            self._after_commit(res, f"{plural(rows.height, 'quarantined row')}", where, append)
 
     def _step(self, res: RunResult, name: str, t0: float, rows: int, detail: str = "") -> None:
         res.steps.append(Step(name, rows, round(time.perf_counter() - t0, 3), detail))
@@ -1497,7 +1500,7 @@ class Engine:
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
             out, info = scd2_merge(existing, df, e, self.load_date)
-            problems = scd2_invariants(out, e.surrogate_key, e.keys)
+            problems = scd2_invariants(out, _surrogate_key(e), e.keys)
             if problems:
                 raise CheckStop("Type 2 checks failed: " + "; ".join(problems))
         elif backfill == "replay" and existing is not None and e.mode not in ("scd1", "scd2"):
@@ -1627,9 +1630,10 @@ def unknown_member(schema: pl.Schema, e: Entity) -> pl.DataFrame:
     row: dict[str, Any] = {}
     for c, t in schema.items():
         row[c] = "Unknown" if t == pl.String and c not in e.keys and not c.startswith("_") else None
-    row[e.surrogate_key] = -1
-    if e.date_column in schema:
-        row[e.date_column] = _unknown_date(schema[e.date_column])
+    row[_surrogate_key(e)] = -1
+    date_column = e.date_column
+    if date_column is not None and date_column in schema:
+        row[date_column] = _unknown_date(schema[date_column])
     if "valid_from" in schema:
         row |= {"valid_from": FAR_PAST, "valid_to": FAR_FUTURE, "is_current": True}
     return pl.DataFrame([row], schema=schema)
@@ -1706,11 +1710,20 @@ def _fit_to_table(e: Entity, df: pl.DataFrame, table: pl.Schema | None) -> pl.Da
     return df.with_columns(casts) if casts else df
 
 
+def _surrogate_key(e: Entity) -> str:
+    """A dimension's surrogate key column. Validation refuses a dimension without one; this names it
+    for a caller that skipped validation."""
+    sk = e.surrogate_key
+    if not sk:
+        raise CheckStop(f"{e.name}: dimensions need [scd] surrogate_key")
+    return sk
+
+
 def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
                next_key: int | None = None) -> tuple[pl.DataFrame, str]:
     """``existing`` may be only the rows of the incoming business keys (and the Unknown member), with
     ``next_key`` the table's highest surrogate key plus one: the result is then those rows merged."""
-    sk, bk = e.surrogate_key, e.keys
+    sk, bk = _surrogate_key(e), e.keys
     if existing is not None and "valid_from" in existing.columns:
         raise CheckStop(f"{e.name} is a Type 2 table; turning it back into Type 1 would lose history")
     if sk in incoming.columns:
@@ -1719,10 +1732,10 @@ def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
         if existing is None:
             return pl.concat([unknown_member(incoming.schema, e), incoming.filter(pl.col(sk) != -1)]).sort(sk), \
                 f"{incoming.height} new, keys from LH_Keys"
-        matched = incoming.join(existing.select(bk), on=bk, how="semi").height
+        updated = incoming.join(existing.select(bk), on=bk, how="semi").height
         untouched = existing.join(incoming.select(bk), on=bk, how="anti")
         out = pl.concat([untouched, incoming.filter(pl.col(sk) != -1)], how="diagonal_relaxed")
-        return out.sort(sk), f"{incoming.height - matched} new, {matched} updated, keys from LH_Keys"
+        return out.sort(sk), f"{incoming.height - updated} new, {updated} updated, keys from LH_Keys"
     if existing is None:
         rows = _by_key(incoming, bk).with_columns(pl.int_range(1, incoming.height + 1, dtype=pl.Int64).alias(sk))
         rows = _ordered(rows, e)
@@ -1741,7 +1754,7 @@ def scd2_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
                load_date: dt.date, next_key: int | None = None) -> tuple[pl.DataFrame, str]:
     """As scd1_merge: ``existing`` may be only the incoming keys' versions, with ``next_key``."""
     scd = e.spec["scd"]
-    sk, bk, tracked = e.surrogate_key, e.keys, list(scd["tracked"])
+    sk, bk, tracked = _surrogate_key(e), e.keys, list(scd["tracked"])
     # Each version gets its own key, so a key that came with the rows (from LH_Keys) is replaced.
     incoming = incoming.drop(sk, strict=False)
     type1 = [c for c in scd.get("type1", []) if c in incoming.columns]

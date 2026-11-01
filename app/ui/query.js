@@ -443,7 +443,7 @@ function renderQuery() {
       toast(out.message);
       delete state.tree[treeKey(ref, "tables")];
       p.tables = null;
-      if (here()) drawTables();
+      loadTables();  // read again, so the explorer lists the new table instead of "Loading tables..."
     }
   }
 
@@ -488,6 +488,14 @@ function renderQuery() {
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
   }
+  function loadTables() {
+    drawTables();
+    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
+      .then((t) => { p.tables = t; })
+      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${friendlyError(err).text}`, true); })
+      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) { editor.refresh(); editor.recheck(); } } });
+  }
+
   function drawTables() {
     if (!p.tables) {
       tablesBox.replaceChildren(h("div", { class: "tree-row muted" }, "Loading tables..."));
@@ -1062,12 +1070,7 @@ function renderQuery() {
   if (wh && !p.catalog && sqlWarehouseOk.has(sqlRefKey(ref))) loadCatalog();
   if (wh) whMonitorAutoCheck(ref);
   if (wh && !p.envRead) { p.envRead = true; whEnvRead(); }
-  if (!p.tables && !wh) {
-    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
-      .then((t) => { p.tables = t; })
-      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) { editor.refresh(); editor.recheck(); } } });
-  }
+  if (!p.tables && !wh) loadTables();
   editor.focus();
 }
 

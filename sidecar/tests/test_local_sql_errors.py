@@ -100,3 +100,24 @@ def test_close_is_final_and_safe_to_repeat(opened, engine):
     assert s.closed and s.cancel() is False
     with pytest.raises(SessionClosed):
         s.execute(CellRequest("SELECT 1", "sql"))
+
+
+def test_duckdb_cells_raise_no_warnings_on_either_duckdb(opened):
+    # DuckDB 2.0 warns that Arrow from an executed (DB-API) result copies every row once more; the
+    # engine reads a relation there instead (#1341). Warnings as errors: any warning fails the cell.
+    import warnings
+    s = opened("local-duckdb")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        r = s.execute(CellRequest("CREATE TABLE t AS SELECT * FROM range(3) r(id)", "sql"))
+        assert r.status == "ok", r.outputs
+        assert s.execute(CellRequest("SELECT id FROM t ORDER BY id", "sql")).outputs[0]["rows"] == [[0], [1], [2]]
+        # Several statements give the last one's rows; the ones before it still ran.
+        r = s.execute(CellRequest("INSERT INTO t VALUES (3); SELECT count(*) AS n FROM t", "sql"))
+        assert r.status == "ok" and r.outputs[0]["rows"] == [[4]], r.outputs
+        # Spark SQL, which runs with the zone set to UTC and back.
+        r = s.execute(CellRequest("SELECT max(id) AS m FROM t", "sql", dialect="spark"))
+        assert r.status == "ok" and r.outputs[0]["rows"] == [[3]], r.outputs
+        # A value that fails while the rows are read is an error, and the session still runs.
+        assert error_of(s.execute(CellRequest("SELECT 'x'::INT AS bad", "sql")))
+        assert s.execute(CellRequest("SELECT 1 AS id", "sql")).status == "ok"

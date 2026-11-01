@@ -1464,7 +1464,7 @@ function renderInspect(o, numeric) {
       const bins = new Array(12).fill(0);
       nums.forEach((v) => { bins[Math.min(11, Math.floor(((v - min) / (max - min || 1)) * 12))] += 1; });
       const top = Math.max(...bins);
-      picture = h("div", { class: "hist", "aria-label": `Distribution of ${c}` }, bins.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%` })));
+      picture = h("div", { class: "hist", role: "img", "aria-label": `Distribution of ${c}` }, bins.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%` })));
     } else if (present.length) {
       const counts = new Map();
       present.forEach((v) => counts.set(String(v), (counts.get(String(v)) || 0) + 1));

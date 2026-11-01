@@ -12,11 +12,16 @@ from typing import Any
 import duckdb
 
 
+def duckdb_major() -> int:
+    """DuckDB's major version: 1 or 2 while the engine runs on both (#1341)."""
+    return int(duckdb.__version__.split(".")[0])
+
+
 def keep_try_cast(con: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:
     """``con`` with DuckDB 2.0's type_pushdown optimizer off. It pushes a TRY_CAST over a file's
     column into the scan as a strict type, so ``SELECT TRY_CAST(x AS DOUBLE) FROM read_csv(...)`` fails
     on a value that doesn't fit instead of giving NULL. DuckDB 1.x has no such optimizer (nor the name)."""
-    if int(duckdb.__version__.split(".")[0]) >= 2:
+    if duckdb_major() >= 2:
         con.execute("SET disabled_optimizers = 'type_pushdown'")
     return con
 
@@ -36,3 +41,31 @@ def one_row(result: Any) -> tuple[Any, ...]:
     if row is None:
         raise LookupError("The query returned no rows.")
     return row
+
+
+def for_arrow(con: duckdb.DuckDBPyConnection, query: str, params: Any = None) -> Any:
+    """Run ``query`` and return its result for reading as Arrow (``arrow_reader``, ``to_arrow_table``).
+
+    DuckDB 2.0 warns that Arrow from an executed (DB-API) result copies every row once more and
+    points to a relation, so on 2.0 this is ``con.sql``: a statement that changes something runs at
+    once, a query runs as it is read (a failing value then fails while reading), and the result is
+    the one ``execute`` gave. On 1.x ``con.sql`` gives no result for a change, so this is ``execute``."""
+    if duckdb_major() >= 2:
+        return con.sql(query, params=params)
+    return con.execute(query, params) if params is not None else con.execute(query)
+
+
+def run_through(con: duckdb.DuckDBPyConnection, query: str, params: Any = None) -> None:
+    """Run a statement whose result isn't read, such as one before a query's last. On 2.0 an executed
+    result keeps the connection busy until it is read, so it is run to its end (a failing value still
+    fails here) before the next statement, which ``for_arrow`` may make a relation."""
+    con.execute(query, params) if params is not None else con.execute(query)
+    if duckdb_major() >= 2:
+        con.complete()  # type: ignore[attr-defined]  # DuckDB 2.0 only; the pinned 1.x stubs have no complete()
+
+
+def arrow_reader(result: Any, batch_rows: int) -> Any:
+    """A pyarrow RecordBatchReader over a relation or an executed result, ``batch_rows`` at a time.
+    On 2.0 a reader that isn't read to its end keeps the connection busy until it is closed."""
+    return (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)
+

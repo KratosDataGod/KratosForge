@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -61,35 +60,46 @@ class JobQueue:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.backoff_seconds, self.max_backoff_seconds = backoff_seconds, max_backoff_seconds
-        self._local = threading.local()
-        self._db().executescript(_SCHEMA)  # executescript commits on its own
-        if "requeued_by" not in {r["name"] for r in self._db().execute("pragma table_info(jobs)")}:
-            try:  # a queue file from before requeue
-                self._db().execute("alter table jobs add column requeued_by text")
-            except sqlite3.OperationalError as exc:
-                if "duplicate column" not in str(exc):  # another process added it first
-                    raise
+        with self._db() as db:
+            db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
+            db.executescript(_SCHEMA)  # executescript commits on its own
+            if "requeued_by" not in {r["name"] for r in db.execute("pragma table_info(jobs)")}:
+                try:  # a queue file from before requeue
+                    db.execute("alter table jobs add column requeued_by text")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc):  # another process added it first
+                        raise
 
-    def _db(self) -> sqlite3.Connection:
-        db = getattr(self._local, "db", None)
-        if db is None:
-            db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+    @contextmanager
+    def _db(self) -> Iterator[sqlite3.Connection]:
+        """A connection for one read or change, closed after it. One kept per thread was never closed
+        when its thread ended, and on Windows an open handle keeps the queue file locked."""
+        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        try:
             db.row_factory = sqlite3.Row
-            db.execute("pragma journal_mode=wal")
             db.execute("pragma synchronous=full")  # a job that says succeeded stays succeeded after a power cut
-            self._local.db = db
-        return db
+            yield db
+        finally:
+            db.close()
+
+    def _rows(self, sql: str, args: Any = ()) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute(sql, args).fetchall()
+
+    def _one(self, sql: str, args: Any = ()) -> sqlite3.Row | None:
+        rows = self._rows(sql, args)
+        return rows[0] if rows else None
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        db = self._db()
-        db.execute("begin immediate")  # one writer at a time, also across processes
-        try:
-            yield db
-        except BaseException:
-            db.execute("rollback")
-            raise
-        db.execute("commit")
+        with self._db() as db:
+            db.execute("begin immediate")  # one writer at a time, also across processes
+            try:
+                yield db
+            except BaseException:
+                db.execute("rollback")
+                raise
+            db.execute("commit")
 
     @staticmethod
     def _row(r: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -221,7 +231,7 @@ class JobQueue:
         where = (f"state in ({', '.join('?' * len(PRUNABLE))}) and finished_at is not null and finished_at < ?",
                  (*PRUNABLE, cutoff))
         if dry_run:
-            return [r["id"] for r in self._db().execute(f"select id from jobs where {where[0]}", where[1])]
+            return [r["id"] for r in self._rows(f"select id from jobs where {where[0]}", where[1])]
         with self._tx() as db:
             ids = [r["id"] for r in db.execute(f"select id from jobs where {where[0]}", where[1])]
             db.execute(f"delete from jobs where {where[0]}", where[1])
@@ -236,18 +246,18 @@ class JobQueue:
     # ---- reading
 
     def get(self, job_id: str) -> dict[str, Any] | None:
-        return self._row(self._db().execute("select * from jobs where id = ?", (job_id,)).fetchone())
+        return self._row(self._one("select * from jobs where id = ?", (job_id,)))
 
     def find(self, dedupe_key: str) -> dict[str, Any] | None:
         """The newest job with ``dedupe_key``, in any state."""
-        return self._row(self._db().execute("select * from jobs where dedupe_key = ? order by created_at desc limit 1",
-                                            (dedupe_key,)).fetchone())
+        return self._row(self._one("select * from jobs where dedupe_key = ? order by created_at desc limit 1",
+                                     (dedupe_key,)))
 
     def list(self, limit: int = 50, state: str | None = None) -> list[dict[str, Any]]:
         sql, args = "select * from jobs", ()
         if state:
             sql, args = sql + " where state = ?", (state,)
-        rows = self._db().execute(sql + " order by created_at desc limit ?", (*args, limit)).fetchall()
+        rows = self._rows(sql + " order by created_at desc limit ?", (*args, limit))
         return [self._row(r) for r in rows]  # type: ignore[misc]
 
     def counts(self, env: str | None = None) -> dict[str, int]:
@@ -255,21 +265,21 @@ class JobQueue:
         sql, args = "select state, count(*) as n from jobs", ()
         if env is not None:
             sql, args = sql + " where json_extract(payload, '$.env') = ?", (env,)
-        rows = self._db().execute(sql + " group by state", args).fetchall()
+        rows = self._rows(sql + " group by state", args)
         return {s: 0 for s in STATES} | {r["state"]: r["n"] for r in rows}
 
     def for_env(self, env: str, limit: int = 200) -> list[dict[str, Any]]:
         """An environment's newest jobs, plus every one still queued or running."""
-        rows = self._db().execute(
+        rows = self._rows(
             "select * from jobs where json_extract(payload, '$.env') = ? and (state in ('queued', 'running') or id in"
             " (select id from jobs where json_extract(payload, '$.env') = ? order by created_at desc limit ?))"
-            " order by created_at desc", (env, env, limit)).fetchall()
+            " order by created_at desc", (env, env, limit))
         return [self._row(r) for r in rows]  # type: ignore[misc]
 
     # ---- schedules: when each fires next, kept here so a restart neither skips nor doubles a run
 
     def schedule_next(self, schedule_id: str) -> float | None:
-        row = self._db().execute("select next_at from schedule_state where id = ?", (schedule_id,)).fetchone()
+        row = self._one("select next_at from schedule_state where id = ?", (schedule_id,))
         return row["next_at"] if row else None
 
     def set_schedule_next(self, schedule_id: str, next_at: float) -> None:
@@ -278,7 +288,4 @@ class JobQueue:
                        " on conflict(id) do update set next_at = excluded.next_at", (schedule_id, next_at))
 
     def close(self) -> None:
-        db = getattr(self._local, "db", None)
-        if db is not None:
-            db.close()
-            self._local.db = None
+        """Nothing stays open between calls; kept for callers that close the queue when they're done."""

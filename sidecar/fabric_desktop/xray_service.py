@@ -274,22 +274,22 @@ class XRayMixin:
 
         The risk check is run again first (FINOPS-004): blocked is refused, and going ahead past
         warnings needs ``risk_id``, the id of the assessment the person saw, and is recorded the way
-        risk_acknowledge records it. A pass or an unknown result records nothing."""
+        risk_acknowledge records it, before the job is submitted. A pass or an unknown result records nothing."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
         current = self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, False)
         if current["result"] == risk.BLOCKED:
             raise PermissionError("A blocked run can't be started: " + current["summary"])
-        ack = None
         if current["result"] == risk.WARNING:
+            if not risk_id:
+                raise ValueError("Check the risks first: this run has warnings to accept.")
             if current["id"] != risk_id:
                 raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
-            ack = self._risk_ack_record(current, risk_id)  # type: ignore[attr-defined]
+            # Written before the job is submitted, so a failed write starts nothing (fails closed).
+            self._risk_ack_write(self._risk_ack_record(current, risk_id))  # type: ignore[attr-defined]
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
-        if ack:
-            self._risk_ack_write(ack)  # type: ignore[attr-defined]
         self._xray_mark_submitted(finding_id, job_id, workspace_id, lakehouse_id)
         return self._log_fabric_run({"kind": "Table maintenance", "name": f"{lakehouse_name} {label}".strip(),  # type: ignore[attr-defined]
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,

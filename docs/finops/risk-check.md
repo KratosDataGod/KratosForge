@@ -63,6 +63,8 @@ The assessment is checked again first:
 - A blocked result can't be acknowledged.
 - If the findings changed since you looked, the acknowledgement is refused and you need to look again.
 
+A pass or an unknown result records nothing. X-ray's **Optimize** checks again and records going ahead past warnings itself, before it submits the Fabric job.
+
 Checking is never audited, because it only reads. That includes `meta_risk_gate`, the batch check behind Data mesh **Run all**, which returns each entity's assessment, the blocked entities, the ones waiting on them, and the ones that can start.
 
 ## For AI tools

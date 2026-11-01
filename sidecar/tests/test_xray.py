@@ -322,11 +322,20 @@ def test_optimize_checks_the_risk_again_and_records_going_ahead_past_warnings(va
     monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("not_running", cached=True), raising=False)
     warned = svc.xray_optimize_check(*args)["risk"]
     assert warned["result"] == "warning"
-    with pytest.raises(ValueError, match="findings changed"):
+    with pytest.raises(ValueError, match="Check the risks first"):
         svc.xray_optimize(*args)  # no risk id: going ahead past warnings must name the ones seen
     with pytest.raises(ValueError, match="findings changed"):
         svc.xray_optimize(*args, risk_id=passed["id"])  # an assessment that isn't the current one
     assert len(jobs) == 1 and not acks.exists()
+    real_write = svc._risk_ack_write
+
+    def broken_write(_record):
+        raise OSError("disk full")
+    monkeypatch.setattr(svc, "_risk_ack_write", broken_write)
+    with pytest.raises(OSError, match="disk full"):  # the record is written first: a failed write starts nothing
+        svc.xray_optimize(*args, risk_id=warned["id"])
+    assert len(jobs) == 1
+    monkeypatch.setattr(svc, "_risk_ack_write", real_write)
     svc.xray_optimize(*args, risk_id=warned["id"])
     assert len(jobs) == 2
     (rec,) = svc.risk_acknowledgements()

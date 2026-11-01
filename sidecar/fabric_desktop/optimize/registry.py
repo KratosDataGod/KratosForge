@@ -25,7 +25,7 @@ class Registry:
 
     def _load(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.path, {})
         except (OSError, ValueError):
             data = {}
         if not isinstance(data, dict) or not isinstance(data.get("connections"), list):

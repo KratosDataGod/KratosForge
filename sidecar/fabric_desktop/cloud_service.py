@@ -634,8 +634,10 @@ class CloudMixin:
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:
-            state = json.loads(self._bundles_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            state = jsonfile.read_json(self._bundles_file, {})
+        except OSError:
+            state = {}
+        if not isinstance(state, dict):
             state = {}
         key = f"{env}:{ws}"
         known = state.get(key, {})

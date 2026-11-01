@@ -73,7 +73,7 @@ class GitMixin:
 
     def _git_saved(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.git_repos_file.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.git_repos_file, None)
             if isinstance(data, dict) and isinstance(data.get("repos"), list):
                 return data
         except (OSError, ValueError):

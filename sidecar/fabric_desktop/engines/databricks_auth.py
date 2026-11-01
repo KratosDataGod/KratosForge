@@ -63,8 +63,19 @@ def resolve_secret(ref: str, environ: Mapping[str, str] | None = None) -> str:
     return _credman_read(name)
 
 
+# Windows' own limit on a credential's secret (CRED_MAX_CREDENTIAL_BLOB_SIZE, 5 * 512 bytes): a size
+# beyond it isn't a credential Credential Manager wrote, so nothing past it is read.
+CRED_MAX_BLOB = 5 * 512
+
+
+def _advapi() -> Any:
+    import ctypes
+    return ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+
+
 def _credman_read(target: str) -> str:
-    """A generic credential's secret from Windows Credential Manager (CredReadW)."""
+    """A generic credential's secret from Windows Credential Manager (CredReadW). Errors name the
+    credential, never its secret."""
     if sys.platform != "win32":
         raise DatabricksAuthError("credman: references are read from Windows Credential Manager, on Windows only.")
     import ctypes
@@ -77,19 +88,43 @@ def _credman_read(target: str) -> str:
                     ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
                     ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
 
-    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi = _advapi()
     found = ctypes.POINTER(_Credential)()
     if not advapi.CredReadW(target, 1, 0, ctypes.byref(found)):  # 1 = CRED_TYPE_GENERIC
         raise DatabricksAuthError(f"Windows Credential Manager has no generic credential named {target!r}.")
     try:
-        blob = ctypes.string_at(found.contents.CredentialBlob, found.contents.CredentialBlobSize)
+        size = int(found.contents.CredentialBlobSize)
+        if size > CRED_MAX_BLOB:
+            raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager is larger than "
+                                      f"Windows allows ({CRED_MAX_BLOB} bytes), so it wasn't read.")
+        blob = ctypes.string_at(found.contents.CredentialBlob, size) if size else b""
     finally:
         advapi.CredFree(found)
-    # Credential Manager's own editor saves UTF-16; cmdkey and most tools too.
-    try:
-        text = blob.decode("utf-16-le")
-    except UnicodeDecodeError:
-        text = blob.decode("utf-8", "replace")
+    return credman_text(blob, target)
+
+
+def credman_text(blob: bytes, target: str) -> str:
+    """A Credential Manager secret as text. Credential Manager's own editor and cmdkey save UTF-16;
+    some tools save UTF-8. A UTF-16 secret of ASCII holds NUL bytes, so a blob with none (past its
+    terminating NULs) that reads as UTF-8 is UTF-8: read as UTF-16 it would become other characters,
+    a wrong secret. A blob that is neither is refused rather than guessed, and the error never
+    quotes it."""
+    text = None
+    bare = blob.rstrip(b"\x00")   # without the terminating NULs some tools store with the secret
+    if b"\x00" not in bare:
+        try:
+            text = bare.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+    if text is None and len(blob) % 2 == 0:
+        try:
+            text = blob.decode("utf-16-le")
+        except UnicodeDecodeError:
+            text = None
+    if text is None:
+        raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager isn't readable text "
+                                  "(UTF-16 or UTF-8). Save the secret again with Credential Manager or cmdkey.")
+    text = text.rstrip("\x00")
     if not text:
         raise DatabricksAuthError(f"The credential {target!r} in Windows Credential Manager is empty.")
     return text

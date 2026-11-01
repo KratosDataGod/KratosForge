@@ -5,6 +5,8 @@ test_databricks_discovery.py; nothing reaches a workspace."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import test_databricks_discovery as t
@@ -42,6 +44,8 @@ class OddWorkspace(t.FakeWorkspace):
     (CLUSTERS, {"clusters": [{"cluster_id": "c", "autotermination_minutes": float("-inf")}]}, "clusters",
      "'-inf' isn't a number"),
     (WAREHOUSES, {"warehouses": [{"id": "w", "auto_stop_mins": float("nan")}]}, "warehouses", "'nan' isn't a number"),
+    (WAREHOUSES, json.loads('{"warehouses": [{"id": "w", "auto_stop_mins": 1e400}]}'), "warehouses",
+     "'inf' isn't a number"),   # a number too large for a float, as JSON writes it
     (ME, ["dev@contoso.com"], "identity", "doesn't know"),
     (METASTORE, ["ms1"], "metastore", "doesn't know"),
     (CATALOGS, {"catalogs": ["main"]}, "catalogs", "a catalog isn't an object"),

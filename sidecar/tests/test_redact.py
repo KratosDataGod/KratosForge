@@ -119,6 +119,8 @@ def test_describe_and_one_line_keep_text_from_a_file_or_reply_to_one_short_line(
     assert len(long) == len("RuntimeError: ") + redact.DESCRIBE_MAX and long.endswith("…")
     assert redact.one_line("y" * 400) == "y" * 299 + "…"
     assert redact.one_line({"code": "Bad"}) == "{'code': 'Bad'}"
+    hidden = redact.one_line("Authorization: Bearer\x00abcdefghijklmnop")
+    assert "abcdefghijklmnop" not in hidden and "[removed]" in hidden, hidden
 
 
 G1, G2, G3 = ("11111111-2222-3333-4444-555555555555", "72f988bf-86f1-41af-91ab-2d7cd011db47",

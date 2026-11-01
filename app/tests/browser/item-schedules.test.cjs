@@ -275,16 +275,25 @@ for (const r of REMOVES) {
     assert.strictEqual(await rowOf(again, r.keep).count(), 1, "the other schedule stays");
   });
 
-  // openScheduleDialog (schedules.js) asks with confirmDialog, which replaces the Schedule dialog, so
-  // after Cancel or Remove the person is back on the page and the list it redraws is never shown.
-  // schedules.js belongs to an open PR (#1467), so this is left for a follow-up.
-  test(`${r.name}: after the Remove confirm, the Schedule dialog is still open`, { skip,
-    todo: "schedules.js: the Remove confirm replaces the Schedule dialog" }, async () => {
-    const d = await r.open();
-    const c = await askRemove(d, r.text, r.what);
+  // The Remove confirm takes the Schedule dialog's place (confirmDialog), and openScheduleDialog puts it
+  // back afterwards: after Cancel the list is unchanged, and after Remove it is redrawn without that row.
+  test(`${r.name}: after the Remove confirm, the Schedule dialog is back with its list`, { skip }, async () => {
+    let d = await r.open();
+    let c = await askRemove(d, r.text, r.what);
     await c.getByRole("button", { name: "Cancel" }).click();
     await c.waitFor({ state: "detached" });
-    await page().getByRole("dialog", { name: /^Schedule / }).waitFor({ timeout: 1000 });
+    d = page().getByRole("dialog", { name: /^Schedule / });
+    await d.waitFor({ timeout: 2000 });
+    assert.strictEqual(await rowOf(d, r.text).count(), 1, "Cancel leaves the row");
+    const from = app.calls.length;
+    c = await askRemove(d, r.text, r.what);
+    await c.getByRole("button", { name: "Remove" }).click();
+    await c.waitFor({ state: "detached" });
+    await sent(from, r.sent.method);
+    d = page().getByRole("dialog", { name: /^Schedule / });
+    await d.waitFor({ timeout: 2000 });
+    await rowOf(d, r.text).waitFor({ state: "detached", timeout: 3000 });
+    assert.strictEqual(await rowOf(d, r.keep).count(), 1, "the other schedule stays");
   });
 }
 

@@ -44,7 +44,7 @@ from .engines.contract import CellRequest, SessionConfig
 from .engines import databricks_auth
 from .engines.databricks_auth import TokenProvider
 from .engines.databricks_sql import Client, DatabricksError
-from .livetest import MARKER, Check, scrub
+from .livetest import MARKER, Check, cell, scrub
 
 SCHEMA = "databricks-live-test-result@1"
 # Long enough that a 2X-Small warehouse or a small cluster is still busy when the cancel arrives.
@@ -464,17 +464,17 @@ def summary(result: dict[str, Any]) -> str:
     wh = result["warehouse"]
     lines = [f"# KratosForge Databricks live test {result['run_id']}", "",
              f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['host'] or 'from the CLI profile'}, "
-             f"warehouse {wh['name'] or wh['id']}"
-             + (f", cluster {result['cluster']['name'] or result['cluster']['id']}" if result["cluster"] else "")
+             f"warehouse {cell(wh['name'], 200) or cell(wh['id'], 100)}"
+             + (f", cluster {cell(result['cluster']['name'], 200) or cell(result['cluster']['id'], 100)}"
+                if result["cluster"] else "")
              + f", started {result['started_at']}.", ""]
     if result["refused"]:
-        lines += ["Nothing was run, because:", ""] + [f"- {r}" for r in result["refused"]] + [""]
+        lines += ["Nothing was run, because:", ""] + [f"- {cell(r)}" for r in result["refused"]] + [""]
     lines += ["| Check | Result | Seconds | Detail |", "| --- | --- | --- | --- |"]
     for c in result["checks"]:
-        detail = c["detail"].replace("|", "\\|").replace("\n", " ")
-        lines.append(f"| {c['title']} | {mark[c['status']]} | {c['seconds']} | {detail} |")
+        lines.append(f"| {cell(c['title'], 200)} | {mark[c['status']]} | {c['seconds']} | {cell(c['detail'])} |")
     if result["left_running"]:
         lines += ["", "**Started by this run and left to its auto-stop**" +
                   (" (stopping it failed)" if result["stop_compute"] else " (add --stop-compute to stop it)") + ":", ""]
-        lines += [f"- {t['kind']} {t['id']}" for t in result["left_running"]]
+        lines += [f"- {t['kind']} {cell(t['id'], 100)}" for t in result["left_running"]]
     return "\n".join(lines) + "\n"

@@ -159,3 +159,23 @@ def test_a_kf_column_outside_any_rewritten_call_still_runs():
     con = duckdb.connect()
     statements = _databricks("SELECT kf_x + 1 FROM (SELECT 1 AS kf_x)")
     assert con.execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("query, want", [
+    ("SELECT array_distinct(array_except(array(1, 2, 2, 3), array(2)))", [1, 3]),
+    ("SELECT aggregate(zip_with(array(1, 2), array(10, 20), (x, y) -> x + y), 0, (acc, v) -> acc + v, acc -> acc * 2)",
+     66),
+    ("SELECT map_filter(transform_values(map(1, 10, 2, 20), (k, v) -> v + k), (k, v) -> v > 15)", {2: 22}),
+    ("SELECT array_union(array_intersect(array(1, 2), array(2, 3)), array_distinct(array(4, 4)))", [2, 4]),
+])
+def test_rewritten_calls_inside_rewritten_calls_still_run(query, want):
+    """The kf_ check reads the statement as written, so a rewrite's own kf_ names inside another
+    rewritten call are never taken for the person's (#1400 review)."""
+    for dialect in ("databricks", "spark"):
+        statements = _databricks(query) if dialect == "databricks" else sql.parse(query, "spark")
+        assert duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == want, dialect
+
+
+def test_a_kf_name_in_aggregate_without_finish_is_left_alone():
+    statements = _databricks("SELECT aggregate(kf_a, 0, (acc, x) -> acc + x) FROM (SELECT array(1, 2) AS kf_a)")
+    assert duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0] == 3

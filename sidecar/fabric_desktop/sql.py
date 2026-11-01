@@ -175,14 +175,24 @@ _MAP_LAMBDAS = {"ZIP_WITH": (3, ("kf_p.a", "kf_p.b"), _ZIP_WITH),
                 "MAP_FILTER": (2, ("kf_p.key", "kf_p.value"), _MAP_FILTER),
                 "TRANSFORM_VALUES": (2, ("kf_p.key", "kf_p.value"), _TRANSFORM_VALUES),
                 "TRANSFORM_KEYS": (2, ("kf_p.key", "kf_p.value"), _TRANSFORM_KEYS)}
+# Calls whose rewrite wraps their arguments in kf_ lambdas (see _no_reserved_names).
+_KF_TEMPLATED = ({name for name, template in _ANON_TEMPLATES.items() if "kf_" in template} | set(_MAP_LAMBDAS)
+                 | {"FORALL"})
 
 
-def _no_reserved_names(*nodes: exp.Expression) -> None:
+def _no_reserved_names(statement: exp.Expression) -> None:
     """The rewrites below wrap a person's SQL in lambdas whose arguments start with kf_. A name of
-    theirs that starts with kf_ (a lambda argument or a column) would hide one of those, or be hidden
-    by one, and fail or answer wrongly, so it is refused with a plain message instead (#1371)."""
-    for node in nodes:
-        for ident in node.find_all(exp.Identifier):
+    theirs that starts with kf_ (a lambda argument or a column) inside a call that is rewritten that
+    way would hide one of those, or be hidden by one, and fail or answer wrongly, so it is refused with
+    a plain message instead (#1371). Checked once, on the statement as written, before any rewrite, so
+    a rewrite's own kf_ names inside another rewritten call are never mistaken for the person's."""
+    for call in statement.find_all(exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.Soundex, exp.Exists,
+                                   exp.Reduce, exp.Anonymous):
+        if isinstance(call, exp.Anonymous) and str(call.this).upper() not in _KF_TEMPLATED:
+            continue
+        if isinstance(call, exp.Reduce) and call.args.get("finish") is None:
+            continue   # aggregate without finish is left as sqlglot writes it
+        for ident in call.find_all(exp.Identifier):
             if ident.name.lower().startswith("kf_"):
                 raise ValueError(f"The name {ident.name} can't be used inside this function on this PC: names "
                                  "that start with kf_ are reserved here. Rename it (AS ... or another lambda "
@@ -209,7 +219,6 @@ def _higher_order(node: exp.Anonymous) -> exp.Expression | None:
     func = args[-1] if args else None
     if len(args) != count or not isinstance(func, exp.Lambda) or len(func.expressions) != 2:
         return None
-    _no_reserved_names(*args)
     text = template.format(*(duckdb_sql(a) for a in args[:-1]), _bind(func, values))
     return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
 
@@ -232,7 +241,6 @@ def _reduce_finish(node: exp.Reduce) -> exp.Expression | None:
     if not (isinstance(finish, exp.Lambda) and len(finish.expressions) == 1
             and isinstance(merge, exp.Lambda) and len(merge.expressions) == 2):
         return None
-    _no_reserved_names(node)
     text = _REDUCE_FINISH.format(duckdb_sql(node.this), duckdb_sql(node.args["initial"]),
                                  _bind(merge, ("kf_a.s", "kf_b.x")), _bind(finish, ("kf_f",)))
     return cast(exp.Expression, sqlglot.parse_one(text, read="duckdb"))
@@ -243,7 +251,6 @@ def _arity(template: str) -> int:
 
 
 def _from_template(template: str, args: list[exp.Expression]) -> exp.Expression:
-    _no_reserved_names(*args)
     return cast(exp.Expression, sqlglot.parse_one(template.format(*(duckdb_sql(a) for a in args)), read="duckdb"))
 
 
@@ -278,6 +285,7 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
     map_filter, transform_keys, transform_values and aggregate/reduce with a finish lambda (#1371). Deepest first, so a rewritten argument is
     written out already rewritten."""
     _spark_lambdas(statement)
+    _no_reserved_names(statement)
     found = list(statement.find_all(exp.DayOfWeek, *_SORTS, exp.Quantile, exp.ArrayDistinct,
                                     exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay, exp.Soundex, exp.Exists,
                                     exp.MapContainsKey, exp.Reduce, exp.Anonymous))

@@ -76,12 +76,9 @@ def test_a_cli_with_nothing_on_stderr_still_says_how_to_sign_in(cli):
 # ---------------------------------------------------------------- the token endpoint (M2M)
 
 
-@pytest.mark.parametrize("lifetime", ["inf", "-inf", "nan", -60, "-1", 0.0000])
+@pytest.mark.parametrize("lifetime", ["inf", "-inf", "nan", -60, "-1", 0, 0.0, "0", ""])
 def test_a_lifetime_that_would_keep_a_token_forever_or_refetch_on_every_call_is_refused(lifetime):
     body = {"access_token": "t", "expires_in": lifetime}
-    if lifetime == 0.0:   # 0 is "no lifetime given", as before: kept until it fails
-        assert m2m(body) == ("t", None)
-        return
     with pytest.raises(dba.DatabricksAuthError, match="didn't answer with the OAuth token it documents"):
         m2m(body)
 
@@ -91,6 +88,11 @@ def test_a_token_that_isnt_text_is_refused_never_sent_as_its_repr(token):
     with pytest.raises(dba.DatabricksAuthError, match="didn't answer with the OAuth token") as exc:
         m2m({"access_token": token, "expires_in": 3600})
     assert SECRET not in str(exc.value)
+
+
+def test_a_reply_with_no_lifetime_is_kept_until_it_fails():
+    assert m2m({"access_token": "t"}) == ("t", None)
+    assert m2m({"access_token": "t", "expires_in": None}) == ("t", None)
 
 
 def test_a_documented_reply_keeps_its_token_and_lifetime():

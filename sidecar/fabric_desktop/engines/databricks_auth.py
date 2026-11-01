@@ -220,7 +220,7 @@ def _m2m_token(host: str, client_id: str, secret: str, http: Any, clock: Callabl
     try:
         data = resp.json()
         lifetime = data.get("expires_in")
-        seconds = float(lifetime) if lifetime else None
+        seconds = float(lifetime) if lifetime is not None else None   # missing: no known expiry
     except (ValueError, TypeError, AttributeError):
         raise refused from None
     # A lifetime that is infinite, NaN or not positive would keep a token forever or fetch one on every call.

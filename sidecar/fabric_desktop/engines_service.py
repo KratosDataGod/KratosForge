@@ -358,7 +358,10 @@ class EnginesMixin:
         out = dict(choice) | {"status": status}
         if job and job.error:
             out["error"] = job.error
-        return _with_notes(out, job.notes if job else [])
+        notes: list[str] = []
+        if job and job.notes:
+            notes, job.notes = job.notes, []    # said once, not on every poll
+        return _with_notes(out, notes)
 
     # ---- running cells
 

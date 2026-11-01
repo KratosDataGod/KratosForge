@@ -44,7 +44,7 @@ import pyarrow as pa
 
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
-from ..duckdb_rows import first_row, keep_try_cast
+from ..duckdb_rows import duckdb_major, first_row, keep_try_cast
 
 _T = "unit_tests"
 _LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
@@ -334,11 +334,21 @@ class DuckDBSession(_SqlSession):
                 self._con.execute("SET TimeZone = ?", [str(zone[0])])
 
     def _execute(self, code: str, request: CellRequest) -> tuple[pa.Table | None, int]:
-        cur = self._con.execute(code)
-        if cur.description is None:
-            return None, 0
-        reader = getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch
-        table, total = _drain(reader(), request.preview_rows, request.result_rows)
+        if duckdb_major() >= 2:
+            # DuckDB 2.0 warns that Arrow from a DB-API result (execute) copies every row once more,
+            # and points to a relation's reader. con.sql runs each statement and gives the last one's
+            # result, the same result execute gave there (a Count or Success row for a change).
+            rel = self._con.sql(code)
+            if rel is None:
+                return None, 0
+            reader = rel.to_arrow_reader()
+        else:
+            # On 1.x con.sql gives no result for a change, where execute gives its Count, so keep execute.
+            cur = self._con.execute(code)
+            if cur.description is None:
+                return None, 0
+            reader = (getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch)()
+        table, total = _drain(reader, request.preview_rows, request.result_rows)
         return self._keep(table, total, request)
 
     def _interrupt(self) -> None:

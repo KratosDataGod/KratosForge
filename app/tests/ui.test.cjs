@@ -2482,22 +2482,23 @@ test("the update splash lists the build's notes and each change since the build 
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
-test("removing a schedule asks first, in red, and says what stops", () => {
+test("removing a schedule asks first, in red, and says what stops", async () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
   assert.strictEqual(removes.length, 3);
   for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
-  ctx.confirmDialog = (...args) => args;
-  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  vm.runInContext(/(?:async )?function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = async (...args) => args;
+  ctx.document = { getElementById: () => ({ firstElementChild: null }) };  // asked with no dialog open
+  const [title, text, ok, opts] = await ctx.f("nb_sales", "Daily at 06:00 UTC", false);
   assert.strictEqual(title, "Remove the schedule for nb_sales?");
   assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true))[1], /Fabric deletes the schedule/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true, false))[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 

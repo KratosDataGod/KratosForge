@@ -33,10 +33,14 @@ def test_every_swap_into_place_waits_out_a_busy_file():
         if rel in OWN:
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("replace", "rename")
-                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "os"):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("replace", "rename")
+                    and isinstance(node.func.value, ast.Name)):
+                continue
+            name = node.func.value.id
+            # os.replace(a, b), or a temporary file's own Path.replace(b) / rename(b)
+            if name == "os" or (len(node.args) == 1 and ("tmp" in name.lower() or "partial" in name.lower())):
                 bare.append(f"{rel}:{node.lineno}")
-    assert not bare, f"Use jsonfile.replace, or add the file to OWN with its reason: {bare}"
+    assert not bare, f"Use jsonfile.write_text or jsonfile.replace, or add the file to OWN with its reason: {bare}"
 
 
 def test_replace_tries_again_while_windows_refuses_it(tmp_path, monkeypatch):

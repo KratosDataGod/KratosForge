@@ -15,7 +15,7 @@ Every change made through the platform adds a row to `catalog.audit` in the plat
 | `target` | What it was done to: a request's target, a product id, a domain, a source, a person |
 | `detail` | JSON with the ids and facts for that action, listed below |
 
-Rows are only ever added: no platform function changes or deletes one. Who can change the table directly is decided by who can write to `SQL_Platform` in Fabric, so keep write access to the Platform workspace for the central team.
+Rows are only ever added: no platform function changes or deletes one, and a test fails the build if one does. Who can change the table directly is decided by who can write to `SQL_Platform` in Fabric, so keep write access to the Platform workspace for the central team.
 
 ## A request, from sent to closed
 

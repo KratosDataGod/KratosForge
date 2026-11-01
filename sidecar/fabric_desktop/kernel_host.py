@@ -200,6 +200,8 @@ class Host:
 
 
 def main() -> None:
+    from . import net_trust
+    net_trust.use_system_store()  # a notebook's own HTTPS too (net_trust.py)
     # Side by side's core cap, before any library starts a thread pool (cpu_cap.py).
     from . import cpu_cap
     cpu_cap.from_env()

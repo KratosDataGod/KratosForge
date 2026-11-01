@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import cleanup, envprofile, lakehouse, notebook_cells, receipts, redact, validate
+from . import cleanup, envprofile, jsonfile, lakehouse, notebook_cells, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
 
@@ -87,10 +87,7 @@ class ValidateMixin:
     def _validation_keep(self, record: dict[str, Any]) -> None:
         rows = [r for r in self._validations_saved() if r.get("id") != record["id"]] + [_public(record)]
         path = self._validations_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(rows[-MAX_KEPT:], indent=1), encoding="utf-8")
-        tmp.replace(path)
+        jsonfile.write_text(path, json.dumps(rows[-MAX_KEPT:], indent=1))
 
     def _validate_running(self) -> dict[str, Any] | None:
         return next((r for r in self._validations().values() if r["state"] == "running"), None)

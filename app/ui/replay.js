@@ -142,7 +142,7 @@ function replayLoad(nb, force = false) {
   v.checkedFor = lh;
   rpc("replay_check", { name: nb.name, lakehouse_ref: nb.lakehouse || null })
     .then((c) => { v.check = c; v.problem = ""; })
-    .catch((e) => { v.problem = String(e?.message || e); })
+    .catch((e) => { v.problem = friendlyError(e).text; })  // a plain sentence, never the exception name (#1442)
     .finally(() => { if (state.notebook === nb) replayPaint(nb); });
 }
 

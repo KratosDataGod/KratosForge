@@ -62,6 +62,14 @@
     {"level": "secrets", "in": "api_key = 'a b c' next", "out": "api_key = '[removed]' next"},
     {"level": "secrets", "in": "client_secret: \"it\\\"s x y\", n=1", "out": "client_secret: \"[removed]\", n=1"},
     {"level": "secrets", "in": "PWD=\"p a s s\";Server=x", "out": "PWD=\"[removed]\";Server=x"},
-    {"level": "secrets", "in": "the password isn't set", "out": "the password isn't set"}
+    {"level": "secrets", "in": "the password isn't set", "out": "the password isn't set"},
+    {"level": "secrets", "in": "connect failed: password=\"no end quote\nnext line stays\nand this", "out": "connect failed: password=\"[removed]\nnext line stays\nand this"},
+    {"level": "secrets", "in": "token='cut off\r\nGET /status 200", "out": "token='[removed]\nGET /status 200"},
+    {"level": "secrets", "in": "{\"password\": \"cut off\nTraceback (most recent call last):", "out": "{\"password\": \"[removed]\nTraceback (most recent call last):"},
+    {"level": "secrets", "in": "{'secret': 'cut off\n  File \"x.py\", line 1", "out": "{'secret': '[removed]\n  File \"x.py\", line 1"},
+    {"level": "secrets", "in": "connect failed: password=\"abc\ndefSECRETrest\" user=ann", "out": "connect failed: password=\"[removed]\" user=ann"},
+    {"level": "secrets", "in": "{\"client_secret\": \"line one\nline two\", \"n\": 1}", "out": "{\"client_secret\": \"[removed]\", \"n\": 1}"},
+    {"level": "secrets", "in": "private_key=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\" next", "out": "private_key=\"[removed]\" next"},
+    {"level": "secrets", "in": "{'passphrase': '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----'}", "out": "{'passphrase': '[removed]'}"}
   ]
 }

@@ -390,8 +390,9 @@ function usageImportDialog() {
   const out = h("div", { class: "usage-preview" });
   const input = h("input", { type: "file", accept: ".csv,text/csv" });
   const tz = h("input", { value: "UTC", size: 8, title: "The export doesn't say its time zone. UTC, or an offset such as +02:00." });
+  let shown = null, seq = 0;  // the options of the preview the dialog shows, which Import sends
   const go = btn("Import", "save", async () => {
-    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: state.options }), "Not imported");
+    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: shown }), "Not imported");
     if (res) { closeDialog(); toast(`Imported ${res.rows} row${res.rows === 1 ? "" : "s"} of measured usage`); render(); }
   }, "tool primary");
   go.disabled = true;
@@ -400,7 +401,10 @@ function usageImportDialog() {
     if (!state.text) return;
     state.options.tz = tz.value.trim() || "UTC";
     fill(out, h("p", { class: "muted-text" }, "Checking the file..."));
-    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options: state.options }), "Not read");
+    const n = ++seq, options = { ...state.options };
+    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options }), "Not read");
+    if (n !== seq) return;  // a newer preview, of the options chosen since, answers instead
+    shown = options;
     if (!p) { fill(out); return; }
     fill(out, ...usagePreview(p, (opt, value) => { Object.assign(state.options, opt === "period" ? value : { [opt]: value }); check(); }));
     go.disabled = !p.ready;

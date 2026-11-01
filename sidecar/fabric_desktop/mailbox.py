@@ -75,7 +75,7 @@ from . import jsonfile
 from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
-from .onelake import DFS_HOST
+from .onelake import DFS_HOST, _onelake_error
 from .paging import Pages
 from .redact import describe
 from .retrying import send_with_retry
@@ -128,7 +128,8 @@ class OneLakeControl(OneLakeBackend):
                                                           timeout=60), "GET", sleep=self._sleep)
             if resp.status_code == 404:
                 return []  # no request has been written yet
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise _onelake_error(resp, f"list the {folder} mailbox folder")
             names += [p["name"].rsplit("/", 1)[-1] for p in resp.json().get("paths", [])
                       if str(p.get("isDirectory", "")).lower() != "true"]
             token = resp.headers.get("x-ms-continuation")

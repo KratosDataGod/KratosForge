@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import time
@@ -27,6 +26,7 @@ from typing import Any
 from .jsonfile import write_json
 from .meta import diff as diff_mod
 from .notebook import check_notebook_name, from_ipynb
+from . import jsonfile
 
 COALESCE_MINUTES = 5
 KEEP_DAYS = 30
@@ -68,7 +68,7 @@ def _write(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(record), encoding="utf-8")
-    os.replace(tmp, path)
+    jsonfile.replace(tmp, path)
 
 
 def _read(path: Path) -> dict[str, Any] | None:

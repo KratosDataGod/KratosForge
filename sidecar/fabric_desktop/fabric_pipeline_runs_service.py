@@ -86,7 +86,7 @@ def run_row(job: dict[str, Any], pipeline: dict[str, Any]) -> dict[str, Any]:
             "state": RUN_STATES.get(status, "unknown"), "native_status": status,
             "started": started, "ended": ended, "seconds": _seconds(started, ended),
             "invoke": _str(job.get("invokeType")),
-            "message": secrets((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "")}
+            "message": secrets((_str(reason.get("message")) if isinstance(reason, dict) else str(reason)) or "")[:TEXT_LIMIT]}
 
 
 def _text(value: Any) -> dict[str, Any]:

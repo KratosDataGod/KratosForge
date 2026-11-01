@@ -274,7 +274,8 @@ class Client:
             body = resp.json()
         except ValueError:
             body = {}
-        message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+        # The workspace's own message, as one bounded line: it reaches the CLI, the UI and the log.
+        message = redact.one_line(body.get("message") or "", 600) if isinstance(body, dict) else ""
         code = str(body.get("error_code") or "") if isinstance(body, dict) else ""
         return f"Databricks refused the request (HTTP {resp.status_code}). " + \
             (f"{message} " if message else "") + refusal_hint(resp.status_code, path, code)

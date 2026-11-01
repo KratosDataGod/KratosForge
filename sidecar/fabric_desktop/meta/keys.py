@@ -41,7 +41,7 @@ from ..redact import one_line
 
 if TYPE_CHECKING:
     from .project import Entity, Project
-    from .store import Store
+    from .store import Dtype, Store
 
 KEYS_LAKEHOUSE = "LH_Keys"
 KEY_SCHEMA = "sk"
@@ -66,7 +66,7 @@ _CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 MAX_ATTEMPTS = 10  # each retry follows another run's commit, so many runs at once still get through
 
 
-def key_schema() -> dict[str, pl.DataType]:
+def key_schema() -> dict[str, Dtype]:
     return {"sk": pl.Int32, "bk": pl.String, "create_date": pl.Datetime("us", "UTC")}
 
 
@@ -88,7 +88,7 @@ class KeyTable:
     def table(self) -> str:
         return self.name
 
-    def schema(self) -> dict[str, pl.DataType]:
+    def schema(self) -> dict[str, Dtype]:
         s = key_schema()
         return {self.sk: s["sk"], self.bk: s["bk"], "create_date": s["create_date"]}
 
@@ -578,7 +578,7 @@ def config_tables(project: Project) -> dict[str, pl.DataFrame]:
         schema={"source_system_id": pl.Int32, "source_system_code": pl.String, "source_system_name": pl.String,
                 "system_type": pl.String, "owner": pl.String, "description": pl.String, "is_active": pl.Boolean,
                 "_metadata_version": pl.String, "_loaded_at": pl.Datetime("us", "UTC")})
-    conn_schema: dict[str, pl.DataType] = {"source_system_id": pl.Int32, "environment": pl.String}
+    conn_schema: dict[str, Dtype] = {"source_system_id": pl.Int32, "environment": pl.String}
     conn_schema |= {f: (pl.Int32 if f == "port" else pl.String) for f in CONNECTION_FIELDS}
     conn_schema["_loaded_at"] = pl.Datetime("us", "UTC")
     rows = []

@@ -85,11 +85,15 @@ function whHistory(ref, actions) {
     const d = new Date(at);
     return d.toDateString() === new Date().toDateString() ? timeText(d) : dateText(d);
   };
+  // The heading and filter stay in the page; only the list under them is redrawn, so a redraw
+  // (each letter typed, a run finishing, the catalog arriving) never takes the focus from the filter.
+  const list = h("div");
+  box.append(h("div", { class: "wh-q-head" }, "This PC's runs"), filter, list);
   function draw() {
     const term = (sqlPage.whHistoryFilter || "").trim().toLowerCase();
     const all = sqlHistory(ref);
     const shown = all.filter((e) => !term || e.sql.toLowerCase().includes(term));
-    const rows = [h("div", { class: "wh-q-head" }, "This PC's runs"), filter];
+    const rows = [];
     if (!shown.length) rows.push(h("p", { class: "muted-text wh-note" }, term ? "Nothing matches." : "No runs yet. Each query you run here is kept, newest first."));
     for (const e of shown) {
       const state = SQL_STATE[e.state]?.[1] || e.state;
@@ -112,7 +116,7 @@ function whHistory(ref, actions) {
       h("p", { class: "muted-text wh-note" }, `Everyone's queries on ${ref.name}, from its queryinsights views. Each opens in a new tab and runs a query in Fabric (uses capacity).`),
       ...SQL_INSIGHTS.map(([name, about, sql]) => h("button", { class: "tree-row", title: about, onclick: () => actions.insight(name, sql) },
         icon("history", 14), h("span", { class: "label" }, name))));
-    box.replaceChildren(...rows);
+    list.replaceChildren(...rows);
   }
   draw();
   return { el: box, draw };

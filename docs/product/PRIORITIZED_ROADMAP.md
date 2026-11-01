@@ -292,3 +292,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-31 | Morning check for #1196 and #1200 to #1202 | Product management thread |
 | 2026-10-31 | Evening check for #1205 to #1357; PB-014 and PB-062 to In progress | Product management thread |
 | 2026-11-01 | Morning check for #1381 to #1523 (hardening and tests); PB-014 review: Changes Required on criterion 2 (#1362) | Product management thread |
+| 2026-11-01 | Chris accepted PB-027, PB-096, PB-098, PB-116, PB-117 and PB-118 (three with documented limitations; PB-098 reworded) | Product management thread |

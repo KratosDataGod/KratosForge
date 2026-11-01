@@ -1282,7 +1282,8 @@
       "capability": "Completion of table and column names from the attached lakehouse's Delta schemas.",
       "evidence": [
         "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)",
-        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce"
+        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-NB-08"
@@ -1307,7 +1308,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
@@ -4173,7 +4174,8 @@
       "capability": "Each client run through docs/product/ai-integration-client-checklist.md and recorded.",
       "evidence": [
         "AI integration thread notes",
-        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in"
+        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: Claude Code and curl ran without a Fabric sign-in on Linux; the sign-in steps, step 12 and a Windows run are still to do, and clients not run stay Untested"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -4200,7 +4202,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.75,
         "cost": 1.0,
@@ -4258,7 +4260,8 @@
       "problem": "server.py METHODS and the capability registry can drift apart.",
       "capability": "METHODS generated from, or checked against, the capability registry.",
       "evidence": [
-        "server.py METHODS"
+        "server.py METHODS",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: criterion reworded to 'A test fails when lists meant to agree disagree'; METHODS and the registry differ by design"
       ],
       "features": [
         "FEAT-SHL-02"
@@ -4267,7 +4270,7 @@
         "PB-095"
       ],
       "acceptance": [
-        "A test fails when a method is in one list and not the other"
+        "A test fails when lists meant to agree disagree"
       ],
       "scores": {
         "developer_value": 2,
@@ -4285,7 +4288,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.6,
         "cost": 1.0,
@@ -5476,7 +5479,7 @@
     {
       "id": "PB-116",
       "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         891,
         1133
@@ -5489,10 +5492,10 @@
       "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
       "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
       "evidence": [
-        "Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main",
         "Story KF-FABRIC-SPARK in the orchestration plan (#864)",
         "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)",
-        "Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)"
+        "Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)",
+        "Implementation review docs/product/reviews/PB-116-891.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: one recorded live run (2026-10-29); a policy-approved engine skips the per-session confirm; capacity use shows in Fabric's Capacity Metrics app"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -5529,7 +5532,7 @@
     {
       "id": "PB-117",
       "title": "Snowflake pillar: audit, ADRs and parity matrix",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         993,
         995,
@@ -5549,7 +5552,8 @@
         "No Snowflake code or docs on main",
         "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
         "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview",
-        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d"
+        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -5587,7 +5591,7 @@
     {
       "id": "PB-118",
       "title": "Databricks notebook conversion says what it could not carry over",
-      "state": "In review",
+      "state": "Accepted",
       "category": "SQL, Python, and Notebook Development",
       "effort": "S",
       "issues": [
@@ -5598,7 +5602,8 @@
       "evidence": [
         "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)",
         "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4",
-        "Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept"
+        "Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept",
+        "Implementation review docs/product/reviews/PB-118-1053.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-NB-26",

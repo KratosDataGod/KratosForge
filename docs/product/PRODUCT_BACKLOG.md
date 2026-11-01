@@ -95,7 +95,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | In progress |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | In progress |
 | [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
-| [PB-117](#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | P3 | Fabric and Databricks unified development | M | In review |
+| [PB-117](#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | P3 | Fabric and Databricks unified development | M | Accepted |
 
 ### PB-012
 
@@ -203,11 +203,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-117
 
-**Snowflake pillar: audit, ADRs and parity matrix** · P3 (score 1.56) · M · confidence Medium · In review
+**Snowflake pillar: audit, ADRs and parity matrix** · P3 (score 1.56) · M · confidence Medium · Accepted
 
 - **Problem:** Snowflake is one of the three target platforms and has no work at all.
 - **Proposed capability:** An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.
-- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview; 114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d
+- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview; 114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** No code and no Snowflake account spend before Chris's go
 - **Owner:** Fabric and Databricks unified development (KF-SNOWFLAKE-RESEARCH)
@@ -229,11 +229,11 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-024](#pb-024) | Native Warehouse connectivity | P3 | Build full warehouse development experience | L | In review |
 | [PB-025](#pb-025) | SQL object explorer | P2 | Build full warehouse development experience | M | Accepted |
 | [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | Accepted |
-| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | In review |
+| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | Accepted |
 | [PB-028](#pb-028) | Package install magics that work on this PC | P2 | Prove | S | Accepted |
 | [PB-106](#pb-106) | Warehouse development program | P2 | Build full warehouse development experience | XL | In progress |
 | [PB-114](#pb-114) | Fabric SQL database connectivity | P3 | Build full warehouse development experience | L | Proposed |
-| [PB-118](#pb-118) | Databricks notebook conversion says what it could not carry over | P3 | Fabric and Databricks unified development | S | In review |
+| [PB-118](#pb-118) | Databricks notebook conversion says what it could not carry over | P3 | Fabric and Databricks unified development | S | Accepted |
 
 ### PB-020
 
@@ -335,11 +335,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-027
 
-**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · In review
+**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · Accepted
 
 - **Problem:** Completion knows only what the kernel has run, so column names of attached tables aren't offered.
 - **Proposed capability:** Completion of table and column names from the attached lakehouse's Delta schemas.
-- **Current-state evidence:** notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke); A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce
+- **Current-state evidence:** notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke); A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-NB-08](FEATURE_INVENTORY.md#feat-nb-08)
 - **Dependencies:** none
 - **Owner:** Prove (Prove plan #12)
@@ -396,11 +396,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-118
 
-**Databricks notebook conversion says what it could not carry over** · P3 (score 1.76) · S · confidence Medium · In review
+**Databricks notebook conversion says what it could not carry over** · P3 (score 1.76) · S · confidence Medium · Accepted
 
 - **Problem:** Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.
 - **Proposed capability:** A loss report on every Databricks import and export, extending the existing converter.
-- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4; Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept
+- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4; Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept; Implementation review docs/product/reviews/PB-118-1053.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-NB-26](FEATURE_INVENTORY.md#feat-nb-26), [FEAT-NB-12](FEATURE_INVENTORY.md#feat-nb-12)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-DBX-LOSS-REPORT)
@@ -662,7 +662,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Accepted |
 | [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-110](#pb-110) | Semantic model interchange (Apache Ossie) | P3 | TMDL and OSI semantic model conversion | M | In progress |
-| [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | In review |
+| [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | Accepted |
 | [PB-121](#pb-121) | Power BI embedding (Embed Studio) | P3 | Power BI embedding (PBE) | L | In progress |
 
 ### PB-018
@@ -775,11 +775,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-116
 
-**Fabric Spark interactive sessions (Livy) as a Preview engine** · P2 (score 1.8) · M · confidence Medium · In review
+**Fabric Spark interactive sessions (Livy) as a Preview engine** · P2 (score 1.8) · M · confidence Medium · Accepted
 
 - **Problem:** Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.
 - **Proposed capability:** A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.
-- **Current-state evidence:** Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main; Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md); Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)
+- **Current-state evidence:** Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md); Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm); Implementation review docs/product/reviews/PB-116-891.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: one recorded live run (2026-10-29); a policy-approved engine skips the per-session confirm; capacity use shows in Fabric's Capacity Metrics app
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-FABRIC-SPARK)
@@ -1424,9 +1424,9 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-095](#pb-095) | MCP server and local API for external AI tools | P2 | Bring your own AI integration | XL | Accepted |
-| [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | In review |
+| [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | Accepted |
 | [PB-097](#pb-097) | Extensions | P3 | Git-native development | XL | Proposed |
-| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | In review |
+| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | Accepted |
 | [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | In progress |
 | [PB-120](#pb-120) | Platform support levels and one engine contract | P1 | Fabric and Databricks unified development | L | In progress |
 
@@ -1447,11 +1447,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-096
 
-**Run the AI client checklist for each named tool** · P1 (score 2.75) · S · confidence High · In review
+**Run the AI client checklist for each named tool** · P1 (score 2.75) · S · confidence High · Accepted
 
 - **Problem:** Only the MCP SDK client and plain HTTP were tested; named AI tools are marked Untested.
 - **Proposed capability:** Each client run through docs/product/ai-integration-client-checklist.md and recorded.
-- **Current-state evidence:** AI integration thread notes; Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in
+- **Current-state evidence:** AI integration thread notes; Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: Claude Code and curl ran without a Fabric sign-in on Linux; the sign-in steps, step 12 and a Windows run are still to do, and clients not run stay Untested
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
 - **Dependencies:** [PB-095](#pb-095)
 - **Owner:** Bring your own AI integration (PR-AI-011)
@@ -1474,17 +1474,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-098
 
-**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · In review
+**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · Accepted
 
 - **Problem:** server.py METHODS and the capability registry can drift apart.
 - **Proposed capability:** METHODS generated from, or checked against, the capability registry.
-- **Current-state evidence:** server.py METHODS
+- **Current-state evidence:** server.py METHODS; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: criterion reworded to 'A test fails when lists meant to agree disagree'; METHODS and the registry differ by design
 - **Inventory features:** [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
 - **Dependencies:** [PB-095](#pb-095)
 - **Owner:** Bring your own AI integration (PR-AI-003)
 - **Pull requests:** [#1152](https://github.com/KratosDataGod/KratosForge/pull/1152)
 - **Acceptance criteria:**
-    - A test fails when a method is in one list and not the other
+    - A test fails when lists meant to agree disagree
 
 ### PB-109
 

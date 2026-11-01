@@ -506,9 +506,120 @@ def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
     return tree
 
 
+class _JsonNull:
+    """Spark's NullType while inferring: merges into anything, and is STRING when it stays alone."""
+
+
+def _infer_json_type(value: Any) -> Any:
+    """Spark's JsonInferSchema.inferField with default options, over a value json.loads gave:
+    "BIGINT", "DOUBLE", "BOOLEAN", "STRING", _JsonNull, ("ARRAY", element) or ("STRUCT", {name: type})."""
+    if value is None or value == "":
+        return _JsonNull   # Spark infers an empty string as NullType too
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, int):
+        if not -2**63 <= value < 2**63:
+            raise ValueError("schema_of_json was given a whole number too big for BIGINT, which Databricks infers as "
+                             "a DECIMAL this PC doesn't work out, so nothing ran.")
+        return "BIGINT"
+    if isinstance(value, float):
+        return "DOUBLE"
+    if isinstance(value, str):
+        return "STRING"
+    if isinstance(value, list):
+        element: Any = _JsonNull
+        for item in value:
+            element = _merge_json_types(element, _infer_json_type(item))
+        return ("ARRAY", element)
+    return ("STRUCT", {name: _infer_json_type(item) for name, item in sorted(value.items())})
+
+
+def _merge_json_types(a: Any, b: Any) -> Any:
+    """Spark's JsonInferSchema.compatibleType: BIGINT with DOUBLE is DOUBLE, structs merge field by field,
+    arrays merge their elements, NullType takes the other type, and any other mix is STRING."""
+    if a == b:
+        return a
+    if a is _JsonNull:
+        return b
+    if b is _JsonNull:
+        return a
+    if (a, b) in (("BIGINT", "DOUBLE"), ("DOUBLE", "BIGINT")):
+        return "DOUBLE"
+    if isinstance(a, tuple) and isinstance(b, tuple) and a[0] == b[0] == "ARRAY":
+        return ("ARRAY", _merge_json_types(a[1], b[1]))
+    if isinstance(a, tuple) and isinstance(b, tuple) and a[0] == b[0] == "STRUCT":
+        names = sorted(set(a[1]) | set(b[1]))
+        return ("STRUCT", {n: _merge_json_types(a[1].get(n, _JsonNull), b[1].get(n, _JsonNull)) for n in names})
+    return "STRING"
+
+
+def _canonical_json_type(t: Any) -> Any:
+    """Spark's canonicalizeType: NullType becomes STRING and a struct with no fields is dropped (None)."""
+    if t is _JsonNull:
+        return "STRING"
+    if isinstance(t, tuple) and t[0] == "ARRAY":
+        element = _canonical_json_type(t[1])
+        return None if element is None else ("ARRAY", element)
+    if isinstance(t, tuple):
+        fields = {n: c for n, f in t[1].items() if n and (c := _canonical_json_type(f)) is not None}
+        return ("STRUCT", fields) if fields else None
+    return t
+
+
+def _json_type_sql(t: Any) -> str:
+    """DataType.sql as Spark writes it: STRUCT<`name`: TYPE, ...>, with backticks doubled in a name."""
+    if isinstance(t, str):
+        return t
+    if t[0] == "ARRAY":
+        return f"ARRAY<{_json_type_sql(t[1])}>"
+    return "STRUCT<" + ", ".join("`" + n.replace("`", "``") + "`: " + _json_type_sql(f) for n, f in t[1].items()) + ">"
+
+
+def schema_of_json(text: str) -> str:
+    """Spark's schema_of_json for ``text``, worked out here (#1447): its SchemaOfJson keeps a top-level
+    struct (or an array of structs) whose fields all drop as STRUCT<>, and anything else that drops as
+    STRING."""
+    import json
+
+    def no_repeats(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        if len({k for k, _ in pairs}) != len(pairs):
+            raise ValueError("schema_of_json was given a JSON object that repeats a key, so nothing ran. Remove "
+                             "the repeated key.")
+        return dict(pairs)
+
+    try:
+        value = json.loads(text, object_pairs_hook=no_repeats)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"schema_of_json was given text that isn't JSON ({exc.msg}), so nothing ran.") from exc
+    inferred = _infer_json_type(value)
+    result: Any
+    if isinstance(inferred, tuple) and inferred[0] == "STRUCT":
+        result = _canonical_json_type(inferred) or ("STRUCT", {})
+    elif isinstance(inferred, tuple) and inferred[0] == "ARRAY" and isinstance(inferred[1], tuple) \
+            and inferred[1][0] == "STRUCT":
+        result = ("ARRAY", _canonical_json_type(inferred[1]) or ("STRUCT", {}))
+    else:
+        result = _canonical_json_type(inferred) or "STRING"
+    return _json_type_sql(result)
+
+
 def _spark_json(statement: exp.Expression) -> exp.Expression:
     """from_json with a written-out schema and str_to_map, which DuckDB doesn't have, written in DuckDB
-    SQL that answers as Spark does (#1404). Anything this can't read exactly is refused."""
+    SQL that answers as Spark does (#1404), and schema_of_json of a literal, worked out here as its
+    schema text (#1447) before from_json reads it. Anything this can't read exactly is refused."""
+    for call in list(statement.find_all(exp.Anonymous)):
+        if str(call.this).upper() != "SCHEMA_OF_JSON":
+            continue
+        args = list(call.expressions)
+        if len(args) != 1:
+            raise ValueError("schema_of_json options (the second argument) aren't read on this PC, so nothing ran. "
+                             "Run the query on Databricks, or leave the options out.")
+        if not (isinstance(args[0], exp.Literal) and args[0].is_string):
+            raise ValueError("schema_of_json takes JSON written out as text, as Databricks requires, so nothing ran.")
+        literal = exp.Literal.string(schema_of_json(args[0].name))
+        if call is statement:
+            return literal
+        call.replace(literal)
     for node in reversed(list(statement.find_all(exp.FromJson, exp.StrToMap))):
         if isinstance(node, exp.FromJson):
             if node.args.get("options") is not None:

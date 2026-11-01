@@ -235,7 +235,7 @@ CASES: tuple[Case, ...] = (
     Case('to_json (map)', 'JSON', "SELECT to_json(map('a', named_struct('b', 1)))", '{"a":{"b":1}}', 'same'),
     Case('json_tuple', 'JSON', 'SELECT j.*, \'Spark SQL\' FROM json_tuple(\'{"a":1, "b":2}\', \'a\', \'b\') AS j', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
     Case('json_tuple (in the select list)', 'JSON', 'SELECT json_tuple(\'{"a":1, "b":2}\', \'a\', \'c\'), \'Spark SQL\'', '1', 'error', 'DuckDB has no json_tuple. Use get_json_object for each field.'),
-    Case('schema_of_json', 'JSON', 'SELECT schema_of_json(\'[{"col":0}]\')', 'ARRAY<STRUCT<`col`: BIGINT>>', 'error', 'DuckDB has no schema_of_json.'),
+    Case('schema_of_json', 'JSON', 'SELECT schema_of_json(\'[{"col":0}]\')', 'ARRAY<STRUCT<`col`: BIGINT>>', 'same'),
     Case('lag', 'Window', "SELECT lag(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),
     Case('lag (default)', 'Window', "SELECT lag(b, 1, 0) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a DESC LIMIT 1", 0, 'same'),  # by hand: no row before, so the default
     Case('lag (offset 2)', 'Window', "SELECT lag(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) AS tab(a, b) ORDER BY a, b DESC LIMIT 1", 1, 'same'),  # by hand: two rows back

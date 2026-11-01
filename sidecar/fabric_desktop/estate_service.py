@@ -280,8 +280,16 @@ class EstateMixin:
 
     def create_shortcut(self, workspace_id: str, item_id: str, where: str, name: str,
                         source: dict[str, Any], lakehouse_name: str = "", workspace_name: str = "",
-                        target_workspace_name: str = "", note: str = "", via_request: bool = False) -> list[dict[str, Any]]:
+                        target_workspace_name: str = "", note: str = "") -> list[dict[str, Any]]:
         """Make a shortcut, if the platform's shortcut rules allow it, and record who made it."""
+        return self._create_shortcut(workspace_id, item_id, where, name, source, lakehouse_name, workspace_name,
+                                     target_workspace_name, note, via_request=False)
+
+    def _create_shortcut(self, workspace_id: str, item_id: str, where: str, name: str,
+                         source: dict[str, Any], lakehouse_name: str = "", workspace_name: str = "",
+                         target_workspace_name: str = "", note: str = "", *, via_request: bool) -> list[dict[str, Any]]:
+        """create_shortcut, and for platform_decide only: ``via_request`` is set once an approver's
+        right to decide the request was checked. Not an RPC method, so no caller can pass it."""
         where, name, target = shortcuts_mod.location(where), shortcuts_mod.check_name(name), shortcuts_mod.target(source)
         self._sc_guard(workspace_id, source, workspace_name, target_workspace_name, via_request)  # type: ignore[attr-defined]
         api = self._scoped(ONELAKE_SCOPES)

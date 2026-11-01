@@ -32,6 +32,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .redact import secrets
+from . import jsonfile
 
 SCHEMA = "fabric-desktop-backup@1"
 MANIFEST = "manifest.json"
@@ -294,7 +295,7 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                         keep.parent.mkdir(parents=True, exist_ok=True)
                         shutil.move(companion, keep.with_name(keep.name + suffix))
                         moved = True
-            tmp.replace(dest)
+            jsonfile.replace(tmp, dest)
     kept = moved or any(i["replaces"] for i in plan)
     result.update(applied=True, safety=str(safety) if kept else None)
     return result

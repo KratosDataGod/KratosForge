@@ -81,10 +81,7 @@ class GitMixin:
         return {"repos": [], "current": None}
 
     def _git_save(self, data: dict[str, Any]) -> None:
-        self.git_repos_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.git_repos_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        jsonfile.replace(tmp, self.git_repos_file)
+        jsonfile.write_text(self.git_repos_file, json.dumps(data, indent=2))
 
     def _git_remember(self, repo: Repository) -> None:
         with self._git_lock():

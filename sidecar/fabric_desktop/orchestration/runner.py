@@ -642,9 +642,9 @@ class _Context:
 
         for i, item in enumerate(items):
             while not gate.acquire(timeout=0.2):
-                if self.run.cancelled:
+                if self.run.cancelled or _past(self.until):
                     break
-            if self.run.cancelled:
+            if self.run.cancelled or _past(self.until):  # an enclosing Until's timeout: start no more (#1393)
                 break
             t = threading.Thread(target=one, args=(i, item), daemon=True, name=f"foreach-{i}")
             threads.append(t)

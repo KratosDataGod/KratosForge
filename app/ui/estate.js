@@ -390,8 +390,9 @@ function usageImportDialog() {
   const out = h("div", { class: "usage-preview" });
   const input = h("input", { type: "file", accept: ".csv,text/csv" });
   const tz = h("input", { value: "UTC", size: 8, title: "The export doesn't say its time zone. UTC, or an offset such as +02:00." });
+  let shown = null, seq = 0;  // the options of the preview the dialog shows, which Import sends
   const go = btn("Import", "save", async () => {
-    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: state.options }), "Not imported");
+    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: shown }), "Not imported");
     if (res) { closeDialog(); toast(`Imported ${res.rows} row${res.rows === 1 ? "" : "s"} of measured usage`); render(); }
   }, "tool primary");
   go.disabled = true;
@@ -400,7 +401,10 @@ function usageImportDialog() {
     if (!state.text) return;
     state.options.tz = tz.value.trim() || "UTC";
     fill(out, h("p", { class: "muted-text" }, "Checking the file..."));
-    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options: state.options }), "Not read");
+    const n = ++seq, options = { ...state.options };
+    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options }), "Not read");
+    if (n !== seq) return;  // a newer preview, of the options chosen since, answers instead
+    shown = options;
     if (!p) { fill(out); return; }
     fill(out, ...usagePreview(p, (opt, value) => { Object.assign(state.options, opt === "period" ? value : { [opt]: value }); check(); }));
     go.disabled = !p.ready;
@@ -595,7 +599,8 @@ function accessTable(d) {
     sel.addEventListener("change", async () => {
       const role = sel.value;
       const what = role ? `${cur ? "change" : "give"} ${p.name} ${role} on` : `remove ${p.name} from`;
-      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change"))) { sel.value = cur?.role || ""; return; }
+      // No access takes the person's access away: a danger confirm, which starts on Cancel.
+      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change", { danger: !role }))) { sel.value = cur?.role || ""; return; }
       const ok = await attempt(() => rpc("access_set_role", { workspace_id: w.workspace_id, role, assignment_id: cur?.assignment_id || "",
         principal_id: p.id, principal_type: p.type || "User" }), "Access not changed");
       if (ok) { toast(`Access changed for ${p.name}`, false, { log: true }); accessPage.data = null; render(); } else sel.value = cur?.role || "";
@@ -668,7 +673,7 @@ function lakehouseAccessBody(a, lh, redraw) {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
     const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (!res) return;
+    if (!res) { fill(who); return; }
     const list = res.readers;
     // Without the data access roles the list misses everyone they let in: say so (QA-005).
     const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;

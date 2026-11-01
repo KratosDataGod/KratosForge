@@ -36,6 +36,8 @@ async function runSideBySide() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  // The Fabric side runs on the workspace's capacity: the risk check, then a confirm, as Prove does.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run ${nb.name} side by side?`, runLabel: "Run side by side" }))) return;
   const confirm = await confirmSbsWrites(nb);
   if (!confirm) return;
   await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
@@ -118,16 +120,21 @@ async function addBenchmarkNotebooks() {
 // ---------- the panel above the cells ----------
 
 // Both runs write the attached lakehouse's real tables, so the person confirms which ones first.
+// A notebook that writes no tables still asks, as the Fabric run uses capacity.
 // Resolves to the confirmation the engine needs, or null when they cancel.
 async function confirmSbsWrites(nb) {
   const writes = await attempt(() => rpc("side_by_side_writes", { cells: notebookPayload().cells }), "Could not check the notebook");
   if (!writes) return null;
   const confirm = { confirm_writes: writes.tables, confirm_unknown: writes.unknown };
-  if (!writes.tables.length && !writes.unknown) return confirm;
+  const capacity = "The Fabric run uses Fabric capacity for one notebook run.";
+  if (!writes.tables.length && !writes.unknown) {
+    return (await confirmDialog(`Run ${nb.name} side by side?`, "Runs it on this PC, then publishes it and runs it in Fabric. "
+      + `${capacity} It writes no tables.`, "Run side by side")) ? confirm : null;
+  }
   return new Promise((resolve) => {
     const done = (value) => { closeDialog(); resolve(value); };
     showDialog("Overwrite these tables twice?", h("div", { class: "dialog-text" },
-      h("p", {}, `Side by side runs this notebook on this PC and then in Fabric, and both runs write to ${nb.lakehouse.name} for real. What's in these tables now is replaced, then replaced again:`),
+      h("p", {}, `Side by side runs this notebook on this PC and then in Fabric, and both runs write to ${nb.lakehouse.name} for real. ${capacity} What's in these tables now is replaced, then replaced again:`),
       writes.tables.length ? h("ul", {}, writes.tables.map((t) => h("li", { class: "mono" }, t))) : null,
       writes.unknown ? h("p", {}, "Some cells can write tables reading the code can't see: ", writes.reasons.join("; "), ".") : null,
       h("p", {}, "Prove runs both sides from the same table versions and keeps their writes in a sandbox, so your tables aren't changed.")), [

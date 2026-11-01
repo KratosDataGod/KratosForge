@@ -13,6 +13,8 @@ from .service import Service
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import net_trust
+    net_trust.use_system_store()  # before any HTTPS: a network that inspects HTTPS signs with a root Windows trusts
     parser = argparse.ArgumentParser(prog="fabric-desktop")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="run the JSON-lines server for the desktop app")

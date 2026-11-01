@@ -32,6 +32,7 @@ from typing import Any
 from .orchestration.adapters import ActivityFailed
 from .orchestration.definition import Activity
 from .pipeline_script import LocalScripts
+from .onelake import read_storage_options
 from .redact import describe
 
 LOOKUP_ROWS = 5000                 # Fabric's Lookup returns at most this many rows
@@ -218,7 +219,7 @@ class LocalData:
         first = props.get("firstRowOnly", True) is not False
         _, options = self.svc._proof_location(ref)
         from deltalake import DeltaTable
-        data = DeltaTable(uri, version=version, storage_options=options()).to_pyarrow_dataset()
+        data = DeltaTable(uri, version=version, storage_options=_short(options())).to_pyarrow_dataset()
         rows = [{k: _json_value(v) for k, v in r.items()}
                 for r in data.head(1 if first else LOOKUP_ROWS).to_pylist()]
         out: dict[str, Any] = ({"firstRow": rows[0]} if rows else {}) if first else {"count": len(rows), "value": rows}
@@ -259,7 +260,7 @@ class LocalData:
         if "structure" in fields or "columnCount" in fields:
             _, options = self.svc._proof_location(ref)
             from deltalake import DeltaTable
-            schema = DeltaTable(uri, version=version, storage_options=options()).to_pyarrow_dataset().schema
+            schema = DeltaTable(uri, version=version, storage_options=_short(options())).to_pyarrow_dataset().schema
             if "structure" in fields:
                 out["structure"] = [{"name": f.name, "type": _type_name(f.type)} for f in schema]
             if "columnCount" in fields:
@@ -311,3 +312,9 @@ def _type_name(t: Any) -> str:
         if check(t):
             return name
     return str(t)
+
+
+def _short(options: dict[str, str]) -> dict[str, str]:
+    """OneLake's short read limits for a Lookup or Get Metadata (#1303's read_storage_options): an
+    offline PC fails the activity within about a minute instead of retrying for up to 30 (#1448)."""
+    return read_storage_options(options["bearer_token"]) if "bearer_token" in options else options

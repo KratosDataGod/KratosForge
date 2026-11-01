@@ -454,7 +454,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             try:
                 return ref["lakehouse_id"], [f"{schema}.{t}" for schema in catalog.list_schemas(ref["workspace_id"], ref["lakehouse_id"])
                                              for t in catalog.list_tables(ref["workspace_id"], ref["lakehouse_id"], schema)]
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - one lakehouse's tables missing from the list, not the whole list
+                _log.warning("Couldn't list the tables of lakehouse %s: %s", ref["lakehouse_id"], describe(exc))
                 return ref["lakehouse_id"], []
 
         def run() -> None:

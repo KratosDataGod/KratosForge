@@ -80,6 +80,29 @@ def test_scan_finds_what_needs_attention(tmp_path):
     assert {p["phase"] for p in seen} >= {"Finding lakehouses", "Reading table logs"}
 
 
+def test_a_lakehouse_or_workspace_the_scan_skips_is_logged_with_why(tmp_path, caplog):
+    """Skipped parts are listed in the report; the log says why, so a support case can be traced."""
+    _lake(tmp_path)
+
+    class Patchy(FakeFabric):
+        def list_lakehouses(self, ws):
+            if ws == "ws-fin":
+                raise RuntimeError("capacity paused")
+            return super().list_lakehouses(ws)
+
+    def files(ws, lh, directory):
+        if lh == "lh-flat":
+            raise RuntimeError("403 from OneLake")
+        return _files(tmp_path)(ws, lh, directory)
+
+    with caplog.at_level("WARNING", logger="fabric_desktop.xray"):
+        out = xray.Scanner(Patchy(), files, _health(tmp_path), lambda _: None).scan()
+    assert "Finance" in out["skipped"] and "Sales / LH_Flat" in out["skipped"]
+    logged = [r.getMessage() for r in caplog.records]
+    assert any("Finance" in m and "capacity paused" in m for m in logged), logged
+    assert any("LH_Flat" in m and "403 from OneLake" in m for m in logged), logged
+
+
 def test_cost_findings_point_at_local_notebooks():
     report = {"days": 30, "by_item": [
         {"kind": "Notebook run", "name": "Daily load", "env": "", "cost": 42.5, "fabric_runs": 30, "cu_hours": 236.0},

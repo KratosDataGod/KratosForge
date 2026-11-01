@@ -843,7 +843,9 @@ class CloudMixin:
         refreshed = True
         try:  # so the endpoint sees tables this app wrote; the model reads through it
             fabric.refresh_sql_endpoint(store.workspace_of(lakehouse), endpoint["id"])
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the model still builds; the reply says the refresh didn't happen
+            _log.warning("Couldn't refresh %s's SQL analytics endpoint before building the model: %s", lakehouse,
+                         describe(exc))
             refreshed = False
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"],
                                self.model_descriptions(project, layer))  # type: ignore[attr-defined]

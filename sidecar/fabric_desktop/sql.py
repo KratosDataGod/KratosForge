@@ -759,6 +759,12 @@ def _as_timestamp(value: exp.Expression) -> str:
     return f"TRY_CAST({duckdb_sql(value)} AS TIMESTAMP)"
 
 
+# Spark's hash is Murmur3 (32-bit, seed 42) and xxhash64 is XXH64 (seed 42); DuckDB's hash is
+# neither, so these can't run here until they are written to give Spark's value (EA-017).
+_SPARK_HASHES = ("HASH", "XXHASH64")
+_SPARK_HASH = ("{name}() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's {name} gives "
+               "a different number from the hash this PC has. Run it in Fabric, or use md5() or sha2(x, 256) "
+               "if any stable hash will do.")
 _SLICE_INDEX_0 = ("The index 0 is invalid. An index shall be either < 0 or > 0 "
                   "(the first element has index 1).")
 _SLICE_LENGTH = "Unexpected value for length in function slice: length must be greater than or equal to 0."
@@ -802,7 +808,13 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     months_between counts the time of day and rounds to 8 digits, as in Spark.
 
     first(x, true) and last(x, true) skip NULLs as aggregates too (DuckDB takes IGNORE NULLS only
-    in a window)."""
+    in a window).
+
+    hash and xxhash64 are refused: DuckDB's hash is another function, so the value would differ
+    from Fabric's without a word (EA-017)."""
+    for call in node.find_all(exp.Anonymous):
+        if str(call.this).upper() in _SPARK_HASHES:
+            raise ValueError(_SPARK_HASH.format(name=str(call.this).lower()))
     for ignore in list(node.find_all(exp.IgnoreNulls)):
         agg = ignore.this
         if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):

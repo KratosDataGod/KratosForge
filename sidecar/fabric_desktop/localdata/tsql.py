@@ -7,6 +7,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
+- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
@@ -211,14 +212,16 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions and averages are done as DuckDB does them "
-                "(T-SQL divides and averages integers as integers)."]
+        return ["Couldn't tell the column types, so divisions, averages and casts to integers are done as DuckDB "
+                "does them (T-SQL divides and averages integers as integers, and cuts a decimal cast to an integer "
+                "toward zero)."]
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't match the query's columns to their types, so divisions and averages are done as DuckDB "
-                "does them (T-SQL divides and averages integers as integers)."]
+        return ["Couldn't match the query's columns to their types, so divisions, averages and casts to "
+                "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
+                "decimal cast to an integer toward zero)."]
     notes: list[str] = []
     for node, info in zip(here, there):
         if isinstance(node, exp.Div):
@@ -230,7 +233,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                              "and T-SQL divides two integers as integers.")
         elif isinstance(node, exp.Avg):
             if _is(info.this.type, _INTEGERS):
-                node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT")))
+                # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
+                whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):
@@ -244,6 +249,11 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
+            to = node.args.get("to")
+            if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
+                    and _unknown(info.this.type):
+                notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
+                             "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             _truncated(node, info.this.type)
             _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes
@@ -441,8 +451,11 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous)):
-        if isinstance(node, exp.Length):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+        if isinstance(node, exp.DateDiff):
+            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+                _sunday_weeks(node)
+        elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
@@ -544,6 +557,19 @@ def _string_split(node: exp.Anonymous) -> None:
         node.replace(query)
     else:
         raise ValueError(_NOT_YET + "STRING_SPLIT runs here only in FROM or CROSS APPLY.")
+
+
+def _sunday_weeks(node: exp.DateDiff) -> None:
+    """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
+    (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    def monday(day: exp.Expression) -> exp.Expression:
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
+
+    days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
+                                                        monday(node.this)])
+    node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
 
 
 def _first_line(exc: Any) -> str:

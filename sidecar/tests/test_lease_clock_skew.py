@@ -114,3 +114,24 @@ def test_without_a_date_from_onelake_the_body_decides_as_before():
     assert pc(dfs, "a", 0).try_acquire(KEY)
     dfs.now += 130
     assert pc(dfs, "b", 0).try_acquire(KEY)
+
+
+# ---- the mailbox's grace periods (a half-written request, a run Fabric couldn't look up)
+
+def test_a_control_files_age_is_on_onelakes_clock():
+    from fabric_desktop.leases import Stored
+    from fabric_desktop.mailbox import _age
+    # Written 10 s ago by OneLake's clock; this PC's clock is 300 s fast.
+    assert _age(Stored(b"", "e", START - 10, START), START + 300) == 10
+    # A folder on this PC: its own clock.
+    assert _age(Stored(b"", "e", START - 10), START) == 10
+
+
+def test_a_half_written_request_in_onelake_gets_its_grace_on_a_fast_pc():
+    from fabric_desktop.mailbox import OneLakeControl, WRITING_GRACE, _age
+    dfs = Dfs()
+    control = OneLakeControl("ws", "meta-lh", lambda: "tok", session=dfs)
+    assert control.create("requests/r1.json", b'{"env": "de')
+    dfs.now += 1
+    stored = control.read("requests/r1.json")
+    assert _age(stored, dfs.now + 300) < WRITING_GRACE  # still being written, perhaps: look again later

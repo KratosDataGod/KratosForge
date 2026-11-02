@@ -13,7 +13,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlsplit
 
 from . import notebook_cells
 from .fabric_api import FabricClient
@@ -23,6 +22,7 @@ from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
 from .redact import describe
+from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .workloads.notify import Outbox, send, single
 
@@ -40,19 +40,6 @@ class TeamsUnreachable(Exception):
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
 TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job"}
 STALE_LOCK_SECONDS = 12 * 3600
-
-
-def _without_webhook(text: str, url: Any) -> str:
-    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
-    secret in the path, which requests puts in connection errors and redact.secrets doesn't know."""
-    if not isinstance(url, str) or not url:
-        return text
-    parts = urlsplit(url)
-    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
-                        key=len, reverse=True):
-        if len(piece) > 1:
-            text = text.replace(piece, "[webhook]")
-    return text
 
 
 def _now() -> str:

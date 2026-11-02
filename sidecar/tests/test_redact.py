@@ -199,3 +199,14 @@ def test_a_folded_cookie_line_keeps_the_next_lines_text():
     # one_line removes secrets, folds the lines, then removes them again: the second pass must not
     # take the next line's error as the cookie's value.
     assert redact.one_line("Cookie: sess=abc123\nThe request was refused.") == "Cookie: [removed] The request was refused."
+
+
+def test_without_webhook_hides_a_webhook_urls_path_and_query_wherever_it_appears():
+    from fabric_desktop import agent, schedule_service
+    url = "https://contoso.webhook.office.com/webhookb2/abc-123@def/IncomingWebhook/s3cr3tpath/x?sig=q"
+    error = f"HTTPSConnectionPool(host='contoso.webhook.office.com'): /webhookb2/abc-123@def/IncomingWebhook/s3cr3tpath/x?sig=q; {url}"
+    out = redact.without_webhook(error, url)
+    assert "s3cr3tpath" not in out and "sig=q" not in out and "[webhook]" in out
+    assert redact.without_webhook("text", None) == "text" and redact.without_webhook("text", "") == "text"
+    # The agent and the schedule alerts use this one function.
+    assert agent._without_webhook is schedule_service._without_webhook is redact.without_webhook

@@ -36,6 +36,13 @@ def test_integers_divide_and_average_as_integers(engine):
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
+def test_an_integer_average_over_a_window_is_an_integer(engine):
+    # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
+    r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
+                     "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+
+
 def test_len_weekday_week_and_plus_on_text(engine):
     r = tsql(engine, "SELECT LEN(name) AS n, DATEPART(weekday, day) AS wd, DATEPART(week, day) AS wk, "
                      "name + '!' AS s FROM dbo.orders ORDER BY id")
@@ -92,6 +99,16 @@ def test_session_options_are_dropped(engine):
 def test_a_division_of_unknown_types_is_reported():
     texts, notes = translate("SELECT x / y FROM nowhere")
     assert texts == ["SELECT x / y FROM nowhere"] and "Couldn't tell the types in x / y" in notes[0]
+
+
+def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
+    texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
+    # BIT is a boolean here (DuckDB's BIT is a bit string).
+    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BOOLEAN), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
+    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number."]
+    # A literal's type is known, so it gets no note.
+    assert translate("SELECT CAST(3.7 AS INT)")[1] == []
 
 
 def test_the_result_says_what_fabric_warehouse_would_reject(engine):
@@ -185,6 +202,28 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("start, end, weeks", [
+    ("2024-01-06", "2024-01-07", 1),  # Saturday to Sunday crosses one Sunday
+    ("2024-01-07", "2024-01-13", 0),  # Sunday to Saturday crosses none
+    ("2024-03-05", "2024-03-10", 1),  # Tuesday to Sunday
+    ("2024-03-01", "2024-03-31", 5),
+    ("2024-03-31", "2024-03-01", -5),
+    ("2024-03-05", "2024-03-05", 0),
+    ("2024-01-06 23:59:00", "2024-01-07 00:01:00", 1),  # the time of day doesn't count
+    ("2023-12-30", "2024-01-01", 1),  # across a year: Sunday 31 December
+])
+def test_datediff_week_counts_the_sundays_crossed(engine, start, end, weeks):
+    for unit in ("week", "wk", "ww"):
+        assert tsql(engine, f"SELECT DATEDIFF({unit}, '{start}', '{end}')")["rows"] == [[weeks]]
+
+
+def test_datediff_week_on_date_columns(engine):
+    r = tsql(engine, "SELECT id, DATEDIFF(week, day, DATEADD(day, 7, day)) FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 1], [2, 1]]
+    # Sunday 18 October 2026 back to Sunday 4 January 2026: 41 Sundays.
+    assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
 
 
 @pytest.mark.parametrize("value, pattern, matches", [

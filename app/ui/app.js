@@ -2393,15 +2393,26 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here?.reasons?.length) {  // Unknown cells (here.unknown) aren't shown as blockers
+  const unknown = here?.unknown || [];
+  const place = where.fabric ? "in Fabric" : "on this PC";
+  const cells = (n) => `${n} cell${n === 1 ? "" : "s"}`;
+  if (here?.reasons?.length) {
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),
         h("b", { class: "grow" }, where.fabric ? "This notebook can't run in Fabric yet" : "This notebook only runs in Fabric"),
         other?.ok ? btn(where.fabric ? "Run on this PC" : "Run in Fabric", where.fabric ? "desktop" : "cloud",
           () => setNotebookCompute(switchTo), "tool small") : null),
-      computeReasons(here.reasons)));
-  } else if (where.fabric) {
+      computeReasons(here.reasons),
+      unknown.length ? [h("p", { class: "compute-unknown-head" }, `The check also can't tell for ${cells(unknown.length)}:`), computeReasons(unknown)] : null));
+  } else if (unknown.length) {
+    slot.append(h("div", { class: "compute-unknown" },
+      h("div", { class: "row" }, icon("help", 16),
+        h("b", { class: "grow" }, `The check can't tell whether ${cells(unknown.length)} run${unknown.length === 1 ? "s" : ""} ${place}`)),
+      computeReasons(unknown),
+      h("p", { class: "muted-text" }, "Prove and the risk check count these cells as not checked. Run them to find out, or write the names they use in the code.")));
+  }
+  if (!here?.reasons?.length && where.fabric) {
     const run = nb.fabricRun;
     slot.append(h("div", { class: "callout compute-callout" }, icon("cloud", 18),
       h("span", { class: "grow" }, `Run all publishes this notebook and runs it on ${publishWorkspaceName(nb)}'s Fabric capacity. `,

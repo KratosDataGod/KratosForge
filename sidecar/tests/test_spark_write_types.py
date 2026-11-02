@@ -53,3 +53,38 @@ def test_only_128_bit_columns_change_and_odd_names_are_quoted():
     assert out.columns == ['we"ird', "d", "it's"]
     plain = con.sql("SELECT 1 AS a")
     assert _spark_types(plain) is plain
+
+
+def test_128_bit_integers_inside_nested_columns_become_bigint():
+    con = duckdb.connect()
+    rel = con.sql("""SELECT {'s': CAST(1 AS HUGEINT), 'HUGEINT': 2, 'odd "name"': CAST(3 AS HUGEINT)} AS a,
+                     [CAST(1 AS HUGEINT), NULL] AS b, MAP([1], [CAST(2 AS UHUGEINT)]) AS m,
+                     CAST([1, 2] AS HUGEINT[2]) AS arr, {'x': [{'y': CAST(4 AS HUGEINT)}]} AS deep,
+                     {'d': CAST(1 AS DECIMAL(38,0))} AS keep, CAST(NULL AS STRUCT(s HUGEINT)) AS empty""")
+    out = _spark_types(rel)
+    assert [str(t) for t in out.types] == [
+        'STRUCT(s BIGINT, HUGEINT INTEGER, "odd ""name""" BIGINT)', "BIGINT[]", "MAP(INTEGER, BIGINT)",
+        "BIGINT[2]", "STRUCT(x STRUCT(y BIGINT)[])", "STRUCT(d DECIMAL(38,0))", "STRUCT(s BIGINT)"]
+    row = list(out.fetchall()[0])
+    row[3] = list(row[3])  # an ARRAY comes back as a tuple on some DuckDB versions
+    assert row == [{"s": 1, "HUGEINT": 2, 'odd "name"': 3}, [1, None], {1: 2}, [1, 2],
+                   {"x": [{"y": 4}]}, {"d": 1}, None]
+    assert out.columns == rel.columns
+
+
+def test_a_nested_value_too_big_for_bigint_stops_the_write(lake):
+    status, text = run("from pyspark.sql import functions as F\n"
+                       "spark.sql('SELECT struct(sum(n) AS t) AS s FROM VALUES (9223372036854775807L), (1L) AS v(n)')"
+                       ".write.mode('overwrite').saveAsTable('dbo.nested_big')")
+    assert status == "error" and "too big for a long (BIGINT)" in text
+    assert not (lake / "dbo" / "nested_big").exists()
+
+
+def test_a_struct_of_sums_and_a_list_of_sums_are_written_as_bigint(lake):
+    status, text = run("spark.sql('SELECT k, struct(sum(n) AS t) AS s, array(sum(n)) AS l FROM VALUES (\\'a\\', 1), "
+                       "(\\'a\\', 2) AS v(k, n) GROUP BY k').write.mode('overwrite').saveAsTable('dbo.nested')")
+    assert status == "ok", text
+    table = DeltaTable(str(lake / "dbo" / "nested")).to_pyarrow_table()
+    assert table.schema.field("s").type == pa.struct([("t", pa.int64())])
+    assert pa.types.is_list(table.schema.field("l").type) and table.schema.field("l").type.value_type == pa.int64()
+    assert table.column("s").to_pylist() == [{"t": 3}] and table.column("l").to_pylist() == [[3]]

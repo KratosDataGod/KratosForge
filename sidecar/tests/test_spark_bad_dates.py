@@ -76,11 +76,16 @@ def test_timestamp_and_whole_number_casts_compose_on_column_cast():
                        "out = e.select(F.col('s').cast('timestamp').alias('ts'), F.col('x').cast('int').alias('i'),"
                        " F.col('t').cast(TimestampType()).alias('tt'), F.col('s').cast(DateType()).alias('d'),"
                        " F.col('x').cast('long').alias('l'), F.col('x').cast('string').alias('str'))\n"
-                       "print([tuple(r) for r in out.collect()])")
+                       "print([type(out.schema[c].dataType).__name__ for c in ('ts', 'tt')])\n"
+                       # DuckDB 1.x hands a TimestampType back with its zone (UTC here), 2.x as a naive local
+                       # time, as Spark does: the type above says which it is, the values are compared without it.
+                       "print([tuple(v.replace(tzinfo=None) if hasattr(v, 'hour') else v for v in r)"
+                       " for r in out.collect()])")
     assert status == "ok", text
-    rows = text.strip()
-    assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5" in rows and ", None, 3, '3.7')" in rows
-    assert "(datetime.datetime(2024, 1, 2, 0, 0, tzinfo=<UTC>), -3, None, datetime.date(2024, 1, 2), -3, '-3.7')" in rows
+    types, rows = text.strip().splitlines()
+    assert types == "['TimestampType', 'TimestampType']"  # cast('timestamp') is TimestampType, not NTZ
+    assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5), None, 3, '3.7')" in rows
+    assert "(datetime.datetime(2024, 1, 2, 0, 0), -3, None, datetime.date(2024, 1, 2), -3, '-3.7')" in rows
 
 
 def test_time_cast_keeps_duckdbs_cast_for_numbers():

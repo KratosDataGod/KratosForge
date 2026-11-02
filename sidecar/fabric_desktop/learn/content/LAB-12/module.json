@@ -1,0 +1,112 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-12",
+  "kind": "lab",
+  "title": "The Forge Trial: raw data to a trusted answer",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 60,
+  "objectives": [
+    "Profile a raw delivery and name every problem in it",
+    "Build a clean Silver set: one row per key, bad rows out",
+    "Answer a Gold question from it, with keys that all match"
+  ],
+  "prerequisites": [
+    "LAB-01",
+    "LAB-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "profile",
+      "prompt": "raw_orders is a raw delivery. Count its problems: return problem and row_count for 'duplicate order_id' (extra copies beyond the first), 'missing customer' and 'amount not positive', in problem order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-profile.sql",
+      "solution": "solution-profile.sql",
+      "hints": [
+        "The starter counts duplicate rows only.",
+        "Extra copies are count(*) - count(DISTINCT order_id). The other two are count(*) FILTER (WHERE ...) in DuckDB, or SUM(CASE WHEN ... THEN 1 ELSE 0 END) anywhere.",
+        "Stack the three answers with UNION ALL, then ORDER BY problem."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "problem",
+          "row_count"
+        ],
+        "rows": [
+          [
+            "amount not positive",
+            1
+          ],
+          [
+            "duplicate order_id",
+            2
+          ],
+          [
+            "missing customer",
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": "silver",
+      "prompt": "Return the clean orders: order_id, customer_id and amount, keeping only the latest load of each order_id (loaded_at), and leaving out rows with no customer or an amount that isn't positive. In order_id order.",
+      "engine": "duckdb",
+      "starter": "starter-silver.sql",
+      "solution": "solution-silver.sql",
+      "hints": [
+        "The starter drops the bad rows but keeps every copy of a reloaded order.",
+        "row_number() OVER (PARTITION BY order_id ORDER BY loaded_at DESC) numbers each order's copies, newest first. Keep number 1.",
+        "Pick the latest copy first, then filter: otherwise an old copy can stand in for a newer bad one."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    },
+    {
+      "id": "gold",
+      "prompt": "Finance wants revenue by region from the clean orders. Return region and revenue, in region order. Every clean order's customer is in customers.",
+      "engine": "duckdb",
+      "starter": "starter-gold.sql",
+      "solution": "solution-gold.sql",
+      "hints": [
+        "The starter adds up raw_orders, so reloaded orders count twice and bad rows count too.",
+        "Start from the clean orders of the last exercise (a CTE), then JOIN customers on customer_id and GROUP BY region."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/functions/window_functions"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

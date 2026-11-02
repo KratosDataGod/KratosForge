@@ -82,14 +82,17 @@ extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its author
 [tool.ruff.lint]
 select = ["E9", "F", "B"]
 # Bugbear rules still to roll out, a few at a time, each with its findings fixed or marked:
-# B905 (zip without strict=), B017 (pytest.raises(Exception) in tests), and B023 (a closure using a loop
-# variable: most hits are reviewed false positives, called inside the loop). Blind excepts (BLE) come
-# after these, alongside tests/test_silent_except.py.
-ignore = ["B905", "B017", "B023"]
+# B017 (pytest.raises(Exception) in tests) and B023 (a closure using a loop variable: most hits are
+# reviewed false positives, called inside the loop). Blind excepts (BLE) stay off: tests/test_silent_except.py
+# already requires every broad handler to log, narrow or say why it is silent.
+ignore = ["B017", "B023"]
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
-"tests/**" = ["F811"]
+# B905 (zip() without strict=) is on in the subpackages and the top-level modules from s to x; the
+# rest of the top-level modules and the tests follow.
+"tests/**" = ["F811", "B905"]
+"fabric_desktop/[a-r]*.py" = ["B905"]
 
 # CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
 # in mypy-baseline.json, and only new ones fail.

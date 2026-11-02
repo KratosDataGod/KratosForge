@@ -219,7 +219,7 @@ def _bind(func: exp.Lambda, values: tuple[str, ...]) -> str:
         if isinstance(ident, exp.Identifier) and ident.name.lower() in names:
             ident.set("quoted", True)
     text = duckdb_sql(func.this)
-    for param, value in reversed(list(zip(func.expressions, values))):
+    for param, value in reversed(list(zip(func.expressions, values, strict=True))):
         text = f"(LIST_TRANSFORM([{value}], {duckdb_sql(param)} -> {text}))[1]"
     return text
 

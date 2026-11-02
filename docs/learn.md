@@ -40,8 +40,18 @@ A lesson marked **Draft** is still being written and may change.
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
+| LM-23 | Warehouse or lakehouse: where T-SQL writes | Microsoft Fabric | SQ004 |
+| LM-24 | Shortcuts and OneLake security | Microsoft Fabric | |
+| LM-25 | V-Order, OPTIMIZE and VACUUM | Microsoft Fabric | NB020 |
+| LAB-07 | A Gold layer that stays in Direct Lake: tables, the report's grain, and an Unknown member | Microsoft Fabric | |
 | LM-10 | QUALIFY: filter on a window function | Snowflake | |
+| LM-28 | Semi-structured data: nested records and arrays | Snowflake | |
+| LM-29 | Time travel and restoring a table | Snowflake | |
+| LAB-09 | Port Snowflake SQL to a Fabric Warehouse: standard functions, no QUALIFY, and division that keeps its fraction | Snowflake | |
 | LM-11 | MERGE: update, insert and delete in one step | Databricks | |
+| LM-26 | Three-part names: Unity Catalog and Fabric | Databricks | SQ005 |
+| LM-27 | Clustering and file pruning | Databricks | |
+| LAB-08 | Port a Databricks notebook to Fabric: names, functions and the write | Databricks | SQ005, SQ010 |
 | LM-12 | Incremental loads: a watermark that misses nothing | Python & Data Engineering | |
 | LM-19 | Lazy pipelines: filter and choose columns early | Python & Data Engineering | SQ002 |
 | LM-20 | Data quality checks in code | Python & Data Engineering | |
@@ -56,6 +66,7 @@ A lesson marked **Draft** is still being written and may change.
 | LM-35 | Monitoring and incidents | Enterprise Architecture | |
 | LAB-10 | Ship a domain data product | Enterprise Architecture | SQ004, SQ010 |
 | LAB-11 | Incident: late and broken data | Enterprise Architecture | |
+| LAB-12 | The Forge Trial: raw data to a trusted answer (capstone, listed under Labs) | Enterprise Architecture | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
 teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:

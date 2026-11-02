@@ -209,7 +209,7 @@ class Scanner:
             row["bytes"] += h.get("bytes") or 0
             row["files"] += h.get("files") or 0
             row["issues"] += len(found)
-        for lh, (ts, has_files) in zip(lhs, listed):
+        for lh, (ts, has_files) in zip(lhs, listed, strict=True):
             if not ts and not has_files:
                 findings.append({k: lh[k] for k in ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name")} | {
                     "kind": "empty", "severity": "low", "title": f"{lh['lakehouse_name']} is empty",

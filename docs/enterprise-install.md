@@ -1,6 +1,6 @@
 # Enterprise install
 
-This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
+This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md). To follow it step by step, use the [IT deployment checklist](it-deployment-checklist.md).
 
 > **What has been tested:** the policy keys on this page are covered by automated tests on every build. The deployment steps below have **not** been tried in an Intune or Configuration Manager tenant yet. Try them on a pilot group first.
 
@@ -45,6 +45,22 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
 
 5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric, Preview features, telemetry and AI tools until the file is fixed; people can still sign in and work on their PC ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
+
+## Changes to the policy file
+
+Each time the engine starts, and each time someone opens Settings, KratosForge compares `policy.json` with what it saw last and writes any difference to the PC's [audit trail](user-guide.md#audit-trail):
+
+| What happened | What is recorded |
+|---|---|
+| The first look on this PC | `policy_file_seen`, with the file's SHA-256 |
+| The file changed | `policy_file_changed`, with the SHA-256 before and after |
+| The file broke and the last copy that could be read applies | `policy_file_changed`, with `state` `last_good` (`fail_closed` when there's no good copy) |
+| The file was removed | `policy_file_changed`, with no SHA-256 and `state` `none` |
+| Nothing changed | Nothing |
+
+Each entry says `managed: false` when the account signed in to the PC could change or replace the file at the time, which isn't how you push it. **Settings > Help and about** shows the file's SHA-256 and its last change. Compare it with `Get-FileHash` of the file you shipped.
+
+This makes a change visible; it doesn't stop one. Nothing is blocked. A local administrator can change the file, and their change looks the same as your push except for the hash. The account signed in to the PC can delete or edit the audit trail and the record of what was last seen (`%LOCALAPPDATA%\FabricDesktop\policy-seen.json`), and so could hide a change, so ship the audit files to a log store when that matters.
 
 ## Keep the exe and the engine in step
 

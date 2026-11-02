@@ -331,7 +331,18 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
-                "policy_problems": app_settings.policy_problems()}
+                "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}
+
+    def policy_record(self) -> dict[str, Any] | None:
+        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py).
+        app_settings stays READ_ONLY in audit.py: opening Settings isn't audited, but a policy file that
+        changed since the last look is, as its own policy_file_changed entry."""
+        from . import policy_watch
+        try:
+            return policy_watch.check(self.root, self.audit)
+        except Exception:  # noqa: BLE001 - a record that can't be made never stops Settings or the engine
+            _log.exception("Couldn't record the policy file's state")
+            return None
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
@@ -960,7 +971,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
         columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-                "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+                "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
@@ -1194,7 +1205,7 @@ def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
     (time.monotonic)."""
     columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
 

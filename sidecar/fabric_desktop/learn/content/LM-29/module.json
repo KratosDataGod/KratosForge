@@ -1,0 +1,72 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-29",
+  "kind": "module",
+  "title": "Time travel and restoring a table",
+  "path": "snowflake",
+  "level": "intermediate",
+  "minutes": 12,
+  "objectives": [
+    "Read a table as it was at an earlier version",
+    "Restore after a bad change without a backup copy",
+    "Know how long history is kept and what removes it"
+  ],
+  "prerequisites": [
+    "LM-07"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Snowflake",
+    "Fabric lakehouse",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "as-of-version-2",
+      "prompt": "Version 3 deleted order 1 by mistake. table_versions holds the table as of each version. Return the table as of version 2: order_id and amount, in order_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter reads the newest version, the one with the mistake.",
+        "WHERE version = 2 is what VERSION AS OF 2 reads."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "order_id",
+          "amount"
+        ],
+        "rows": [
+          [
+            1,
+            10
+          ],
+          [
+            2,
+            25
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://docs.snowflake.com/en/user-guide/data-time-travel",
+    "https://delta.io/blog/2023-02-01-delta-lake-time-travel/"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

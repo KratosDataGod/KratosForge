@@ -166,7 +166,7 @@ def verdicts(query: str, writes: bool = False) -> list[sql_policy.Verdict]:
     if not statements:
         raise ValueError("The query is empty.")
     out = []
-    for v, st in zip(sql_policy.classify(statements), statements):
+    for v, st in zip(sql_policy.classify(statements), statements, strict=True):
         if v.statement > 1:
             v = sql_policy.Verdict(v.statement, "fabric_mutation", "a warehouse run is one query at a time")
         elif v.kind == "read_only":

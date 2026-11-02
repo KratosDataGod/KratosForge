@@ -1,0 +1,82 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-28",
+  "kind": "module",
+  "title": "Semi-structured data: nested records and arrays",
+  "path": "snowflake",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Reach into nested fields with dot paths",
+    "Turn an array into one row per element",
+    "Compare Snowflake's VARIANT and FLATTEN with Fabric and Spark"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Snowflake",
+    "Fabric Warehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "flatten-items",
+      "prompt": "Each event's payload holds a customer and an array of items. Return one row per item: event_id, customer_id, sku and qty, in event_id then sku order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "payload.customer.id reaches the customer's id. The items are an array: one event row holds several.",
+        "unnest(payload.items) AS item gives one row per item; then item.sku and item.qty."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "event_id",
+          "customer_id",
+          "sku",
+          "qty"
+        ],
+        "rows": [
+          [
+            1,
+            7,
+            "ANV",
+            1
+          ],
+          [
+            1,
+            7,
+            "HAM",
+            2
+          ],
+          [
+            2,
+            8,
+            "TNG",
+            3
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://docs.snowflake.com/en/user-guide/querying-semistructured"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

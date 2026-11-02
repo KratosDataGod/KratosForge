@@ -202,7 +202,7 @@ def hashed(e: Entity, left: pads.Dataset, right: pads.Dataset) -> dict[str, Any]
         "only_left": {"count": 0, "rows": []}, "only_right": {"count": 0, "rows": []},
         "changed": {"count": 0, "by_column": {}, "rows": []},
         "totals": [{"column": c, "left": x, "right": y, "diff": _diff(x, y)}
-                   for c, x, y in zip(totals, a["totals"], b["totals"])],
+                   for c, x, y in zip(totals, a["totals"], b["totals"], strict=True)],
         "compared_on_keys": False, "method": "hashed", "limit_rows": LIMIT_ROWS,
         "checksum": {"left": a["checksum"], "right": b["checksum"], "match": match},
         "note": (f"More than {LIMIT_ROWS:,} rows, so row counts, totals and a checksum of every row in the shared columns "

@@ -456,7 +456,7 @@ def _assignable(src: pa.DataType, dst: pa.DataType) -> bool:
         return _assignable(src.key_type, dst.key_type) and _assignable(src.item_type, dst.item_type)
     if pa.types.is_struct(src) and pa.types.is_struct(dst):
         return [c.name for c in src] == [c.name for c in dst] and \
-            all(_assignable(a.type, b.type) for a, b in zip(src, dst))
+            all(_assignable(a.type, b.type) for a, b in zip(src, dst, strict=True))
     return False
 
 
@@ -482,7 +482,7 @@ class Conform:
             else:
                 columns = [batch.column(batch.schema.get_field_index(f.name)) for f in target]
             out = []
-            for column, f in zip(columns, target):
+            for column, f in zip(columns, target, strict=True):
                 try:
                     out.append(column.cast(f.type))
                 except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:

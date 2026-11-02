@@ -339,7 +339,7 @@ class Agent:
                                             claim=job.get("claim_id"))
             except Exception as exc:  # noqa: BLE001 - try again at the next beat
                 self.log.warning("couldn't renew the job's lease; trying again", extra=fields(
-                    job_id=job["id"], error=f"{type(exc).__name__}: {exc}"))
+                    job_id=job["id"], error=describe(exc)))
                 continue
             if not ours:
                 self.log.warning("lost the job's lease", extra=fields(job_id=job["id"]))

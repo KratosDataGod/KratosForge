@@ -563,7 +563,10 @@ class LocalEngine:
                     _one_read(con, statements)
                 result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
                 for i, step in enumerate(statements):
-                    if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
+                    # Between statements, or before DuckDB saw the interrupt: DuckDB drops an interrupt
+                    # that comes before a statement starts, so a limit that ran out while the query was
+                    # being read and checked would otherwise let it run on.
+                    if state["cancelled"] or state["timed_out"]:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
                     as_of += self._make_as_of(con, step["as_of"])

@@ -43,7 +43,7 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.duckdb_sql(spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")))
+    return spark_sql.duckdb_sql(spark_sql.spark_substring(spark_sql.spark_integer_casts(sqlglot.parse_one(text, read="spark"))))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -928,6 +928,25 @@ def _collect_structs_as_rows(collect: Any) -> Any:
     return collect_rows
 
 
+# Column.cast to a whole-number type truncates as Spark does (EA-003); DuckDB's cast rounds.
+_INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYINT"),
+                   "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
+                   "int": ("INTEGER", "INT"), "integer": ("INTEGER", "INT"),
+                   "bigint": ("BIGINT", "BIGINT"), "long": ("BIGINT", "BIGINT")}
+_INT_CAST_TYPES = {"ByteType": "tinyint", "ShortType": "smallint", "IntegerType": "int", "LongType": "bigint"}
+
+
+def _int_cast(original: Any) -> Any:
+    def cast(self: Column, dataType: Any) -> Column:
+        name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
+        target = _INT_CAST_NAMES.get(name or "")
+        if target is None:
+            return original(self, dataType)
+        named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
+        cast_sql = spark_sql.spark_integer_cast("kf_cast", *target, "legacy")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
+    return cast
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
@@ -938,6 +957,7 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]

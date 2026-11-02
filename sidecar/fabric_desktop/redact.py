@@ -104,6 +104,23 @@ def secret_key(name: object) -> bool:
     return any(part in key for part in _SECRET_KEYS) or key.startswith("sas") or key.endswith("sas")
 
 
+def walk(value: Any, *, stringify: bool = False) -> Any:
+    """``value`` with every string run through secrets() and the text of every field named like a
+    secret (secret_key) blanked; dicts, lists and tuples are walked (a tuple comes back as a list).
+    Numbers, flags and None stay. Anything else stays as it is, or with ``stringify`` becomes its
+    str() with secrets removed, for a writer that would print it anyway (json default=str)."""
+    if isinstance(value, str):
+        return secrets(value)
+    if isinstance(value, dict):
+        return {k: REMOVED if secret_key(k) and isinstance(v, str) else walk(v, stringify=stringify)
+                for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [walk(v, stringify=stringify) for v in value]
+    if not stringify or isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return secrets(str(value))
+
+
 def for_support(text: str) -> str:
     """``text`` safe to paste into a public issue: no secrets, emails (a guest's too), the tenant's
     onmicrosoft.com and SharePoint names, the organization on OneDrive folders, user names in paths or ids."""

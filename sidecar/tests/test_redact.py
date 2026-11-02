@@ -171,3 +171,25 @@ def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
         requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
     stored = notify.failure(caught.value)
     assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored
+
+
+def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
+    from fabric_desktop import logs
+    from fabric_desktop.integrations import core
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+
+    class Thing:
+        def __str__(self):
+            return f"Bearer {token}"
+
+    value = {"password": "hunter2", "token_count": 3, "nested": [("x", f"Authorization: Bearer {token}")],
+             "ok": True, "none": None, "obj": Thing()}
+    walked = redact.walk(value)
+    assert walked["password"] == redact.REMOVED and walked["token_count"] == 3
+    assert walked["ok"] is True and walked["none"] is None and isinstance(walked["obj"], Thing)
+    assert walked["nested"][0][0] == "x" and token not in walked["nested"][0][1]
+    as_text = redact.walk(value, stringify=True)
+    assert isinstance(as_text["obj"], str) and token not in as_text["obj"]
+    # The log formatter and integration results are the same walk, one printing objects and one not.
+    assert logs._redacted(value) == as_text
+    assert core.redact_result(value) == walked

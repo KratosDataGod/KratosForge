@@ -29,7 +29,7 @@ test("Back and Forward buttons walk the pages you opened", { skip }, async () =>
   assert.strictEqual(await page().getAttribute("#nav-back", "title"), "Back (Alt+Left)");
   assert.strictEqual(await page().getAttribute("#nav-forward", "title"), "Forward (Alt+Right)");
   await rail("Create").click();
-  assert.ok(await page().isVisible(".nav-buttons"), "the arrows stay hidden once there is a page to go back to");
+  assert.ok(await page().isVisible(".nav-buttons"), "the arrows show once there is a page to go back to");
   await rail("Settings").click();
   assert.strictEqual(await view(), "settings");
   await page().click("#nav-back");

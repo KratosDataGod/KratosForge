@@ -7,7 +7,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
-- Evening check, 2026-11-01: 35 PRs merged after 063b84ed, besides the product data and docs PRs.
+- Evening check, 2026-11-01: 35 PRs merged after 063b84ed. 5 were product data and docs PRs; the other 30 were linked.
   The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
   adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
   GD-08, Preview). The rest is hardening: redaction of Basic credentials and Databricks secrets,

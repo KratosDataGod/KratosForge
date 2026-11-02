@@ -793,7 +793,7 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
-def refuse_spark_hashes(node: exp.Expression) -> None:
+def refuse_spark_hashes(node: exp.Expr) -> None:
     """ValueError if Spark SQL ``node`` calls hash or xxhash64 (_SPARK_HASH). Every Spark path calls
     it: spark_substring, and the Local data engine's Spark SQL."""
     for call in node.find_all(exp.Anonymous):

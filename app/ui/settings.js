@@ -110,7 +110,7 @@ function redactReport(text, level = "support") {
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}/gi, "$1[removed]")
     .replace(/(\b(?:basic|Basic|BASIC)\s+)(?=[A-Za-z0-9+/]*(?:[0-9+/=]|[a-z][A-Z]))[A-Za-z0-9+/]{8,}={0,2}/g, "$1[removed]")
-    .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/(\bsig=)[^&\s"'<>]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")

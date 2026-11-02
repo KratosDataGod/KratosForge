@@ -33,8 +33,8 @@ PYTHON = EngineDescriptor(
         "session": Support("native", "A Python process per session; closing it ends the process tree.", _T),
         "execute": Support("native", evidence=_T),
         "cancel": Support("partial", "Interrupts the cell and keeps variables, and stops DuckDB queries, also on "
-                          "connections the notebook opened. Polars and other native code finish first; Stop "
-                          "ends the process.", _T),
+                          "connections the notebook opened. Polars, other native code and queries on connections "
+                          "opened in threads the cell starts finish first; Stop ends the process.", _T),
         "stream": Support("native", "Printed output shows while the cell runs.", _T),
         "variables": Support("native", "Names, types and short values of the session's variables.", _T),
         "debug": Support("unsupported", "No step debugger yet; watches and variable history are in the notebook."),

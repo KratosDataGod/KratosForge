@@ -34,7 +34,7 @@ APIs and clients, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Partial (DuckDB queries stop, also on a notebook's own duckdb.connect; Polars finishes first) | No | Native | No | Nothing | Tested |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Partial (DuckDB queries stop, also on a notebook's own duckdb.connect; Polars, and queries on connections opened in threads the cell starts, finish first) | No | Native | No | Nothing | Tested |
 | DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |

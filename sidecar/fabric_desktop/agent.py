@@ -396,12 +396,17 @@ class Agent:
         summary = self._summary(results)
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
         retry = [r["entity"] for r in failed if r.get("retryable")]
-        self._audit(job, "error" if failed else "ok", seconds,
-                    error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
         if not failed:
-            self.queue.succeed(job["id"], owner, summary, claim=claim)
-            self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
-        elif len(retry) == len(failed):
+            if self.queue.succeed(job["id"], owner, summary, claim=claim):
+                self._audit(job, "ok", seconds, **summary)
+                self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
+            else:  # its lease ran out at the end: the job's next attempt records how it went
+                why = "this run's lease on the job ran out before it could record it, so the job runs again"
+                self._audit(job, "lease_lost", seconds, error=why, **summary)
+                self.log.warning("job finished, but its lease ran out", extra=fields(**ctx, seconds=seconds, **summary))
+            return
+        self._audit(job, "error", seconds, error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
+        if len(retry) == len(failed):
             # Only busy tables or network trouble: try again, for just those and what they block.
             skipped = [r["entity"] for r in results if r["status"] == "skipped"]
             error = "; ".join(f"{r['entity']}: {r['message']}" for r in failed)

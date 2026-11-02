@@ -208,13 +208,14 @@ class JobQueue:
 
     def cancel(self, job_id: str, reason: str, owner: str | None = None, claim: str | None = None) -> bool:
         """Stop a queued job (waiting to start or to retry) from running. With ``owner``, also a job
-        that worker has just claimed and not yet started (with ``claim``, only that claim of it); a
-        job that is writing is never stopped."""
+        that worker has just claimed and not yet started; with ``claim``, only that claim of it, and
+        never a queued job, so a run whose lease ran out can't cancel the job's next attempt. A job
+        that is writing is never stopped."""
         with self._tx() as db:
             cur = db.execute("update jobs set state = 'cancelled', finished_at = ?, lease_until = null, error = ?"
-                             " where id = ? and (state = 'queued' or (state = 'running' and owner = ?"
-                             " and (? is null or claim_id = ?)))",
-                             (self.clock(), reason, job_id, owner, claim, claim))
+                             " where id = ? and ((state = 'queued' and ? is null)"
+                             " or (state = 'running' and owner = ? and (? is null or claim_id = ?)))",
+                             (self.clock(), reason, job_id, claim, owner, claim, claim))
             return cur.rowcount == 1
 
     def requeue(self, job_id: str, by: str) -> dict[str, Any]:

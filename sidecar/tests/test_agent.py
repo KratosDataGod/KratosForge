@@ -235,6 +235,10 @@ def test_a_run_whose_job_was_claimed_again_cant_renew_or_finish_the_new_attempt(
     assert not q.fail(job["id"], "etl-01", "boom", claim=old)
     assert q.retry_later(job["id"], "etl-01", "timeout", claim=old) is None
     assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)
+    clock.t += 61
+    assert q.recover() == [job["id"]] and q.get(job["id"])["state"] == "queued"
+    assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)  # nor the queued retry
+    second = q.claim("etl-01", 60)
     assert q.get(job["id"])["state"] == "running"
     assert q.heartbeat(job["id"], "etl-01", 60, claim=second["claim_id"])
     assert q.succeed(job["id"], "etl-01", {"ok": 2}, claim=second["claim_id"])
@@ -301,6 +305,22 @@ def test_a_run_that_lost_its_lease_stops_and_leaves_the_job_to_the_next_attempt(
     agent.run_job(claimed)
     after = agent.queue.get(job["id"])
     assert after["state"] == "running" and after["claim_id"] == "a-newer-claim"  # the newer attempt's, untouched
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "lease_lost", line
+
+
+def test_a_run_whose_lease_ran_out_at_the_end_is_not_recorded_as_ok(setup, monkeypatch):
+    agent = Agent(setup)
+    job = agent.enqueue("dev")
+    claimed = agent.queue.claim(setup.name, setup.job_lease_seconds)
+
+    def run_environment(env, entities, backfill, cascade, job=None, guard=None):
+        with agent.queue._tx() as db:  # claimed again just as it finished
+            db.execute("update jobs set claim_id = 'a-newer-claim' where id = ?", (claimed["id"],))
+        return [{"entity": "silver.orders", "status": "ok", "rows_written": 1}]
+    monkeypatch.setattr(agent.runtime, "run_environment", run_environment)
+    agent.run_job(claimed)
+    assert agent.queue.get(job["id"])["state"] == "running"
     [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
     assert line["outcome"] == "lease_lost", line
 

@@ -13,7 +13,7 @@
 
 **Accept** (recommended).
 
-Recommended by: Product management thread. Decided by (product owner): pending.
+Recommended by: Product management thread. Decided by (product owner): Chris, 'Accept both as recommended' on the decision card on 2026-11-02 (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ).
 
 ## Acceptance criteria
 

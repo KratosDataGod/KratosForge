@@ -369,7 +369,7 @@ async function learnPatternDialog(id) {
   const p = all?.[id];
   if (!p) return;
   const body = h("div", { class: "scroll learn-pattern" }, markdown(p.body),
-    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code" }, p.example),
+    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code", tabindex: "0", role: "region", "aria-label": "Example code" }, p.example),
       h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(p.example)
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null);

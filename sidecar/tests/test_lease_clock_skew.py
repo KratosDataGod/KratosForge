@@ -5,6 +5,7 @@ over a lease its holder left to expire."""
 
 from email.utils import formatdate
 
+import pytest
 import requests
 
 from fabric_desktop.leases import Leases, OneLakeBackend
@@ -114,3 +115,12 @@ def test_without_a_date_from_onelake_the_body_decides_as_before():
     assert pc(dfs, "a", 0).try_acquire(KEY)
     dfs.now += 130
     assert pc(dfs, "b", 0).try_acquire(KEY)
+
+
+@pytest.mark.parametrize("ttl", ["NaN", "Infinity", "-Infinity", 0, -5, 1e400])
+def test_a_lease_length_that_isnt_a_positive_number_is_this_writers(ttl):
+    import json as _json
+    from fabric_desktop.leases import Stored
+    leases = pc(Dfs(), "b", 0)
+    body = '{"owner": "a", "expires": 1, "ttl": %s}' % (_json.dumps(ttl) if not isinstance(ttl, str) else ttl)
+    assert leases._length(Stored(body.encode(), "e", START, START)) == leases.ttl

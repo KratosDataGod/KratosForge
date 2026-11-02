@@ -43,6 +43,7 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("TRY_CAST 'yes' AS bit", "SELECT TRY_CAST('yes' AS bit)", None),
     ("DATALENGTH of varchar", "SELECT DATALENGTH('abc')", 3),
     ("DATALENGTH counts bytes", "SELECT DATALENGTH('é')", 2),
+    ("DATALENGTH of nvarchar", "SELECT DATALENGTH(N'ab')", 4),
     ("DATEPART quarter of a string literal", "SELECT DATEPART(quarter, '2024-03-05')", 1),
     ("DATEPART weekday of a string literal", "SELECT DATEPART(weekday, '2024-03-05')", 3),  # Tuesday, DATEFIRST 7
     ("PATINDEX", "SELECT PATINDEX('%b%', 'abc')", 2),
@@ -109,6 +110,7 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT TOP 50 PERCENT WITH TIES id FROM dbo.orders ORDER BY boxes",
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
+    "SELECT DATALENGTH(5)",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -123,3 +125,8 @@ def test_a_loud_gap_never_gives_a_wrong_answer(engine, sql, want):
     except Exception:  # noqa: BLE001 - stopping is what a loud gap does
         return
     assert _same(got, want), f"{sql} gave {got!r}, T-SQL gives {want!r}"
+
+
+def test_string_split_takes_a_one_character_separator(engine):
+    with pytest.raises(Exception, match="separator of one character"):
+        engine.execute("SELECT value FROM STRING_SPLIT('a||b', '||')", dialect="tsql")

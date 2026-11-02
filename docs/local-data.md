@@ -128,9 +128,9 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
 | `PATINDEX('%b%', s)`, `PATINDEX('%[0-9]%', s)` | Where the `LIKE` pattern first matches, from 1, or `0`. A pattern with no leading `%` must match from the start. The pattern has to be written out as text |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
-| `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true` |
-| `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (bytes) |
-| `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column (`enable_ordinal` isn't run here yet) |
+| `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true`. A `BIT` column in a table made before this release keeps DuckDB's bit-string type until the table is created again |
+| `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (UTF-8 bytes, as varchar; an `N'...'` literal counts 2 bytes a character, and a number is refused) |
+| `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column. The separator is one character, as in T-SQL (`enable_ordinal` isn't run here yet) |
 | `TOP 5 WITH TIES ... ORDER BY total` | The first 5 rows and every row tied with the fifth (not with `PERCENT` or `DISTINCT`) |
 | `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |

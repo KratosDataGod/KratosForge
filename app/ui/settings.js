@@ -184,6 +184,94 @@ function reportProblem() {
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
 }
 
+// ---------- Save support bundle (PB-062) ----------
+
+// A zip for whoever is helping: the engine writes it (support_bundle.py) with every file redacted, to a
+// folder the person picks. Nothing is sent from the app.
+const BUNDLE_FILES = {
+  "about.json": "App and engine build, Python, Windows version, and where each setting comes from",
+  "sidecar.log": "The last 2,000 lines of the engine's log",
+  "sidecar.prev.log": "The last 2,000 lines of the engine's log from the run before",
+  "agent.log": "The last 2,000 lines of the agent's log, on this server",
+  "CONTENTS.txt": "What is in the zip and what was taken out",
+};
+const BUNDLE_MISSING = {
+  "sidecar.log": "The engine hasn't written a log yet. CONTENTS.txt says so.",
+  "agent.log": "The agent hasn't written a log yet. CONTENTS.txt says so.",
+};
+
+function bundleRows(shown) {
+  const rows = shown.files.map((f) => ({ name: f.name, what: BUNDLE_FILES[f.name] || "", size: sizeText(f.bytes) }));
+  for (const name of shown.missing || []) {
+    rows.push({ name, missing: true, what: BUNDLE_MISSING[name] || "Not on this PC. CONTENTS.txt says so.", size: "–" });
+  }
+  // CONTENTS.txt last, as drawn.
+  return [...rows.filter((r) => r.name !== "CONTENTS.txt"), ...rows.filter((r) => r.name === "CONTENTS.txt")];
+}
+
+async function saveSupportBundle() {
+  const shown = await attempt(() => rpc("support_bundle_preview"), "Couldn't read what a support bundle would hold");
+  if (!shown) return;
+  const rows = bundleRows(shown);
+  const folder = h("input", { id: "sb-folder", class: "mono grow", readonly: true, value: shown.folder });
+  const choose = btn("Choose folder…", "folderOpen", async () => {
+    choose.disabled = true;  // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: folder.value || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { choose.disabled = false; });
+    if (chosen) { folder.value = chosen; problem.replaceChildren(); problem.hidden = true; }
+  }, "tool outline", { type: "button" });
+  const contents = h("pre", { class: "mono small", hidden: true }, shown.contents);
+  const toggle = btn("Show CONTENTS.txt", null, () => {
+    contents.hidden = !contents.hidden;
+    toggle.setAttribute("aria-expanded", String(!contents.hidden));
+    toggle.textContent = contents.hidden ? "Show CONTENTS.txt" : "Hide CONTENTS.txt";
+  }, "tool outline", { type: "button", "aria-expanded": "false" });
+  const problem = h("div", { class: "callout git-warn small", role: "alert", hidden: true });
+  const save = btn("Save", null, async () => {
+    save.disabled = true;
+    try {
+      const res = await rpc("support_bundle_save", { folder: folder.value });
+      closeDialog();
+      toast(`Saved ${res.name} in ${res.folder}.`, false, {
+        log: true, title: `Support bundle saved to ${res.folder}`, action: { label: "Show in folder", run: () => rpc("support_bundle_reveal", { path: res.path }).catch((e) => toast(friendlyError(e).text, true)) },
+      });
+    } catch (e) {
+      problem.replaceChildren(h("span", { class: "pill-s fail" }, "Not saved"), " ", friendlyError(e).text);
+      problem.hidden = false;
+      save.disabled = false;
+    }
+  }, "tool primary");
+  const anyMissing = rows.some((r) => r.missing);
+  showDialog("Save support bundle", h("div", { class: "setup bundle" },
+    h("p", {}, "A zip for whoever is helping you with a problem. Nothing is sent from KratosForge: you choose where it's saved and who gets it."),
+    h("h3", {}, "What's in it"),
+    h("table", { class: "vars bundle-files" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "File"), h("th", { scope: "col" }, "What it is"), h("th", { scope: "col", class: "num" }, "Size"))),
+      h("tbody", {}, rows.map((r) => h("tr", {},
+        h("td", { class: "name" }, r.name),
+        h("td", {}, r.missing ? [h("span", { class: "pill-s wrn" }, "Not on this PC"), " "] : null, r.what),
+        h("td", { class: "num" }, r.size))))),
+    h("p", { class: "muted-text small" }, anyMissing
+      ? "Save still works: about.json and CONTENTS.txt are always there. Other settings show their values, with the same details taken out."
+      : "Other settings show their values, with the same details taken out."),
+    h("h3", {}, "Taken out of every file"),
+    h("ul", {},
+      h("li", {}, "Tokens, keys and passwords"),
+      h("li", {}, "Email addresses and user names in paths"),
+      h("li", {}, "Tenant, workspace and item ids"),
+      h("li", {}, "Settings that hold a secret, such as a connection string, show only whether they're set")),
+    h("p", { class: "muted-text small" }, "No table data, notebook contents or sign-in cache is read."),
+    h("div", {}, toggle), contents,
+    h("h3", {}, "Where it's saved"),
+    h("label", { class: "field", for: "sb-folder" }, "Folder"),
+    h("div", { class: "row" }, folder, window.__TAURI__?.core ? choose : null),
+    h("p", { class: "muted-text small" }, "Saved as ", h("span", { class: "mono" }, "fabric-desktop-support-….zip"),
+      ". Read it before you send it on: logs can name your notebooks and warehouses."),
+    problem),
+  [btn("Cancel", null, closeDialog, "tool outline"), save]);
+}
+
 // ---------- Check for updates ----------
 
 // What a manual update check found (check_for_update): "newer" offers Install and restart; every
@@ -775,6 +863,7 @@ async function renderSettings() {
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
       btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
+      btn("Save support bundle", "save", saveSupportBundle, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),

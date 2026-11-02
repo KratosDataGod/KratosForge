@@ -2662,3 +2662,10 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-fix-times th, .learn-fix-times td { padding: 2px 16px 2px 0; text-align: left; }
 .learn-fix-times td { font-variant-numeric: tabular-nums; }
 .learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
+/* Save support bundle (PB-062): sizes line up on the right; a long description wraps. */
+table.bundle-files { table-layout: auto; }
+table.bundle-files td { white-space: normal; }
+table.bundle-files .num { text-align: right; white-space: nowrap; color: inherit; }
+.setup.bundle h3 { margin: 6px 0 0; font-size: 14px; }
+.setup.bundle ul { margin: 0; padding-left: 18px; }
+.setup.bundle pre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; }

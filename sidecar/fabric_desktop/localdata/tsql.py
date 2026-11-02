@@ -74,6 +74,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _converts(tree)
             notes += _types(tree, schema)
             notes += _likes(tree)
+            _patindex(tree)
             _functions(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
@@ -302,6 +303,40 @@ def _likes(tree: exp.Expression) -> list[str]:
             match = exp.Not(this=match)
         (escape or like).replace(match)
     return notes
+
+
+def _patindex(tree: exp.Expression) -> None:
+    """``PATINDEX(pattern, s)``: where in ``s`` the LIKE pattern first matches, from 1, or 0; DuckDB has
+    no PATINDEX. A pattern that starts with ``%`` is looked for anywhere, the rest of it matched from
+    there to the end (``PATINDEX('%b%', 'abc')`` is 2); without one it must match from the start, so the
+    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal."""
+    for node in list(tree.find_all(exp.Anonymous)):
+        if node.name.upper() != "PATINDEX":
+            continue
+        if len(node.expressions) != 2:
+            raise ValueError("This T-SQL can't be run on the local engine: PATINDEX takes a pattern and a text.")
+        pattern, text = node.expressions
+        if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+            raise ValueError("This T-SQL can't be run on the local engine: PATINDEX needs its pattern written out "
+                             "as text ('%b%'), not taken from a column or an expression.")
+        core = pattern.name.lstrip("%")
+        body = _like_regex(core)[len("(?s)"):]
+        if not core:  # '%' alone matches from the first character (UNVERIFIED for an empty text)
+            found: exp.Expression = exp.Literal.number(1)
+        elif core == pattern.name:  # anchored at the start: the whole text has to match
+            found = exp.Case(
+                ifs=[exp.If(this=exp.RegexpFullMatch(this=text.copy(), expression=exp.Literal.string("(?s)" + body)),
+                            true=exp.Literal.number(1))], default=exp.Literal.number(0))
+        else:  # the shortest lead-in after which the rest matches to the end
+            before = exp.func("REGEXP_REPLACE", text.copy(), exp.Literal.string(f"(?s)^(.*?){body}$"),
+                              exp.Literal.string("\\1"))
+            # Anonymous: LENGTH here counts trailing spaces (LEN, which _functions rewrites, doesn't).
+            length = exp.Anonymous(this="LENGTH", expressions=[before])
+            matches = exp.RegexpFullMatch(this=text.copy(), expression=exp.Literal.string("(?s).*" + body))
+            found = exp.Case(ifs=[exp.If(this=matches, true=length + exp.Literal.number(1))],
+                             default=exp.Literal.number(0))
+        node.replace(exp.Case(ifs=[exp.If(this=exp.Is(this=text.copy(), expression=exp.null()), true=exp.null())],
+                              default=found))
 
 
 def _like_regex(pattern: str, escape: str = "") -> str:

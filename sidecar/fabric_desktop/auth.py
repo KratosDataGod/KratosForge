@@ -169,8 +169,6 @@ def write_cache(path: Path, text: str) -> None:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
-        f.flush()
-        os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new cache
     if os.name != "nt":
         tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
     jsonfile.replace(tmp, path)

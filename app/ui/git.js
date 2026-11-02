@@ -22,6 +22,8 @@ function gitPillText(st) {
   const parts = [where];
   if (st.ahead) parts.push(`↑${st.ahead}`);
   if (st.behind) parts.push(`↓${st.behind}`);
+  // Said in words, not a bare dot: people who don't think in Git still read "3 unsaved changes".
+  if (st.changed) return `${parts.join(" ")} · ${st.changed} unsaved change${st.changed === 1 ? "" : "s"}`;
   return parts.join(" ");
 }
 
@@ -924,10 +926,12 @@ function renderGitPill() {
   if (!slot) return;
   const st = gitPage.status;
   if (!st || !previewShown()) { slot.replaceChildren(); return; }
-  const changed = st.changed ? ` · ${st.changed} changed` : "";
-  slot.replaceChildren(h("button", { class: `pill git-pill${st.conflicts.length ? " bad" : ""}`, title: `${st.name}: ${st.summary} Open Source control.`,
+  const changed = st.changed ? ` · ${st.changed} unsaved change${st.changed === 1 ? "" : "s"}` : "";
+  const saved = st.changed ? ` ${st.changed} file${st.changed === 1 ? "" : "s"} changed since your last commit.` : " Everything is committed.";
+  slot.replaceChildren(h("button", { class: `pill git-pill${st.conflicts.length ? " bad" : ""}`,
+    title: `Your project ${st.name} is on the version "${st.branch || "no branch"}".${saved} Click to open Source control. (${st.summary})`,
     "aria-label": `Branch ${st.branch || "none"} in ${st.name}${changed}`, onclick: () => go("source") },
-  icon("branch", 14), gitPillText(st), st.changed ? h("span", { class: "git-dot", "aria-hidden": "true" }) : null));
+  icon("branch", 14), gitPillText(st)));
 }
 
 const gitNotebookCache = {};

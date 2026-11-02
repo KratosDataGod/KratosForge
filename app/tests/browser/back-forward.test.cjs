@@ -25,9 +25,11 @@ after(async () => { await app?.close(); });
 test("Back and Forward buttons walk the pages you opened", { skip }, async () => {
   assert.strictEqual(await view(), "home");
   assert.ok(await page().isDisabled("#nav-back"), "Back is enabled with nowhere to go");
+  assert.strictEqual(await page().isVisible(".nav-buttons"), false, "the arrows show with nowhere to go");
   assert.strictEqual(await page().getAttribute("#nav-back", "title"), "Back (Alt+Left)");
   assert.strictEqual(await page().getAttribute("#nav-forward", "title"), "Forward (Alt+Right)");
   await rail("Create").click();
+  assert.ok(await page().isVisible(".nav-buttons"), "the arrows stay hidden once there is a page to go back to");
   await rail("Settings").click();
   assert.strictEqual(await view(), "settings");
   await page().click("#nav-back");
@@ -67,6 +69,7 @@ test("a restart reopens the last page", { skip }, async () => {
   assert.strictEqual(await view(), "create");
   assert.strictEqual(await page().locator("#rail-main .rail-item[aria-current=page]").textContent(), "Create");
   assert.ok(await page().isDisabled("#nav-back"), "a fresh start has no history to go back to");
+  assert.strictEqual(await page().isVisible(".nav-buttons"), false);
   assert.deepStrictEqual(app.errors, []);
   assert.deepStrictEqual(app.violations, [], "the shell's Content Security Policy blocked something");
 });

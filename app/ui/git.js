@@ -189,8 +189,13 @@ async function gitSwitchRepo(path) {
 async function renderSourceControl() {
   if (!gitPage.info) {
     setView(h("div", { class: "page" }, h("h1", {}, "Source control"), loading("Loading…")));
-    const ok = await attempt(gitLoadInfo, "Couldn't read Git on this PC");
-    if (!ok || state.view !== "source") return;
+    // A refusal replaces Loading… with why and a Retry, which otherwise stayed on the page for good.
+    try { await gitLoadInfo(); } catch (err) {
+      if (state.view === "source") setView(h("div", { class: "page" }, h("h1", {}, "Source control"),
+        errorPanel(err, { label: "Couldn't read Git on this PC", retry: () => renderSourceControl() })));
+      return;
+    }
+    if (state.view !== "source") return;
   }
   const info = gitPage.info;
   const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview"));

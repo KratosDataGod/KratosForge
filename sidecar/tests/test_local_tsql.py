@@ -36,6 +36,13 @@ def test_integers_divide_and_average_as_integers(engine):
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
+def test_an_integer_average_over_a_window_is_an_integer(engine):
+    # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
+    r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
+                     "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+
+
 def test_len_weekday_week_and_plus_on_text(engine):
     r = tsql(engine, "SELECT LEN(name) AS n, DATEPART(weekday, day) AS wd, DATEPART(week, day) AS wk, "
                      "name + '!' AS s FROM dbo.orders ORDER BY id")
@@ -92,6 +99,15 @@ def test_session_options_are_dropped(engine):
 def test_a_division_of_unknown_types_is_reported():
     texts, notes = translate("SELECT x / y FROM nowhere")
     assert texts == ["SELECT x / y FROM nowhere"] and "Couldn't tell the types in x / y" in notes[0]
+
+
+def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
+    texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
+    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
+    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number."]
+    # A literal's type is known, so it gets no note.
+    assert translate("SELECT CAST(3.7 AS INT)")[1] == []
 
 
 def test_the_result_says_what_fabric_warehouse_would_reject(engine):
@@ -152,6 +168,17 @@ def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
     # Already whole, or to a type that isn't an integer: unchanged.
     r = tsql(engine, "SELECT CAST(qty AS BIGINT) AS a, CAST(3.7 AS DECIMAL(5, 0)) AS b FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[7, "4"]]  # decimals come back as text; T-SQL rounds to a DECIMAL with a smaller scale
+
+
+def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
+    """CAST('3.7' AS INT) fails in T-SQL (DuckDB gives 4); spaces around a whole number are fine, and
+    '' is 0. TRY_CAST and TRY_CONVERT give NULL where CAST fails."""
+    r = tsql(engine, "SELECT CAST(' -5 ' AS INT) AS a, CAST('+7' AS BIGINT) AS b, CAST('' AS INT) AS c, "
+                     "CAST(CAST(NULL AS VARCHAR) AS INT) AS d, TRY_CAST('3.7' AS INT) AS e, TRY_CONVERT(INT, '1e3') AS f")
+    assert r["rows"] == [[-5, 7, 0, None, None, None]]
+    for sql in ("SELECT CAST('3.7' AS INT)", "SELECT CONVERT(BIGINT, '1e3')", "SELECT CAST('5 x' AS SMALLINT)"):
+        with pytest.raises(Exception, match="Conversion failed"):
+            tsql(engine, sql)
 
 
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
@@ -239,3 +266,50 @@ def test_dateadd_and_datetrunc_keep_a_date_a_date(engine):
 def test_date_parts_tsql_doesnt_take_are_refused(engine, sql, says):
     with pytest.raises(ValueError, match=says):
         tsql(engine, sql)
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
+    ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
+    ("x.y", "x[.]y", True), ("xzy", "x[.]y", False), ("a\\b", "a[\\]b", True), ("ab", "[ab]%", True),
+    ("line\nbreak", "line[^x]%", True), ("[a]", "[[]a]", True), ("-", "[-]", True), ("a(b", "a(b%", True),
+])
+def test_like_takes_tsql_character_ranges(engine, value, pattern, matches):
+    v, p = value.replace("'", "''"), pattern.replace("'", "''")
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(matches)]]
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' NOT LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(not matches)]]
+
+
+def test_like_with_ranges_keeps_its_escape_character(engine):
+    sql = "SELECT CASE WHEN 'a[b' LIKE 'a![[b]' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[1]]
+
+
+def test_a_like_pattern_that_isnt_text_is_reported():
+    texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
+    assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
+    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges."]
+
+
+def test_several_like_patterns_that_arent_text_make_one_note():
+    assert len(translate("SELECT 1 FROM dbo.t WHERE a LIKE b OR c LIKE d OR e NOT LIKE f")[1]) == 1
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b", "[z-a]", False), ("b", "[^z-a]", True), ("y", "[a-cz-x]", False), ("b", "[a-cz-x]", True),
+    ("]", "[!]]", True), ("x", "[!]x]", True), ("a", "[!]x]", False), ("-", "[a!-c]", True), ("b", "[a!-c]", False),
+])
+def test_like_ranges_backwards_and_with_the_escape_character(engine, value, pattern, matches):
+    sql = f"SELECT CASE WHEN '{value}' LIKE '{pattern}' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[int(matches)]]
+
+
+def test_set_datefirst_7_is_skipped_and_others_refused(engine):
+    assert tsql(engine, "SET DATEFIRST 7\nGO\nSELECT DATEPART(weekday, CAST('2024-03-03' AS DATE))")["rows"] == [[1]]
+    with pytest.raises(ValueError, match="doesn't run other DATEFIRST settings"):
+        tsql(engine, "SET DATEFIRST 1\nGO\nSELECT 1")
+
+
+def test_a_like_without_ranges_stays_a_like():
+    assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]

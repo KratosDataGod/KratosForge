@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 REMOVED = "[removed]"
 
@@ -106,10 +107,40 @@ def secrets(text: str) -> str:
     return text
 
 
+def without_webhook(text: str, url: Any) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and secrets() doesn't know (QA-016)."""
+    if not isinstance(url, str) or not url:
+        return text
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
+    return text
+
+
 def secret_key(name: object) -> bool:
     """Whether a field called ``name`` holds a secret: its text value is blanked, not pattern-matched."""
     key = str(name).lower().replace("-", "").replace("_", "")
     return any(part in key for part in _SECRET_KEYS) or key.startswith("sas") or key.endswith("sas")
+
+
+def walk(value: Any, *, stringify: bool = False) -> Any:
+    """``value`` with every string run through secrets() and the text of every field named like a
+    secret (secret_key) blanked; dicts, lists and tuples are walked (a tuple comes back as a list).
+    Numbers, flags and None stay. Anything else stays as it is, or with ``stringify`` becomes its
+    str() with secrets removed, for a writer that would print it anyway (json default=str)."""
+    if isinstance(value, str):
+        return secrets(value)
+    if isinstance(value, dict):
+        return {k: REMOVED if secret_key(k) and isinstance(v, str) else walk(v, stringify=stringify)
+                for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [walk(v, stringify=stringify) for v in value]
+    if not stringify or isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return secrets(str(value))
 
 
 def for_support(text: str) -> str:

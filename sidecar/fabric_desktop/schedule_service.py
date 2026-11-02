@@ -13,7 +13,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlsplit
 
 from . import notebook_cells
 from .fabric_api import FabricClient
@@ -23,6 +22,7 @@ from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
 from .redact import describe
+from .redact import without_webhook as _without_webhook
 from .time_zones import time_zones
 from .workloads.notify import Outbox, send, single
 
@@ -42,19 +42,6 @@ TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefi
 STALE_LOCK_SECONDS = 12 * 3600
 
 
-def _without_webhook(text: str, url: Any) -> str:
-    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
-    secret in the path, which requests puts in connection errors and redact.secrets doesn't know."""
-    if not isinstance(url, str) or not url:
-        return text
-    parts = urlsplit(url)
-    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
-                        key=len, reverse=True):
-        if len(piece) > 1:
-            text = text.replace(piece, "[webhook]")
-    return text
-
-
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -70,11 +57,42 @@ def _read_lock(path: Path) -> dict[str, Any]:
     return {"pid": int(text)} if text.isdigit() else {}
 
 
-def _pid_alive(pid: Any) -> bool:
+def process_identity(pid: int) -> str | None:
+    """What tells process ``pid`` apart from a later one given the same PID: when it started, in the
+    OS's own units (Windows' creation time, Linux's start tick). None where that can't be read."""
+    if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
+        import ctypes
+        from ctypes import wintypes
+
+        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]  # starttime, field 22
+    except (OSError, IndexError):
+        return None
+
+
+def _pid_alive(pid: Any, identity: Any = None) -> bool:
     """Whether process ``pid`` is still running. Unknown counts as running, so a lock is only taken
-    over when its process has certainly ended (or the lock is past STALE_LOCK_SECONDS)."""
+    over when its process has certainly ended (or the lock is past STALE_LOCK_SECONDS). With the
+    ``identity`` the lock recorded (process_identity), a PID now used by another process, once the
+    lock's own has ended, counts as ended: that one can be told apart."""
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return True
+    if isinstance(identity, str) and identity:
+        now = process_identity(pid)
+        if now is not None and now != identity:
+            return False  # the PID was reused: the lock's process has ended
     if pid == os.getpid():
         return True
     if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
@@ -276,7 +294,7 @@ class ScheduleMixin:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             return None
-        os.write(fd, json.dumps({"pid": os.getpid(), **(run or {})}).encode())
+        os.write(fd, json.dumps({"pid": os.getpid(), "process": process_identity(os.getpid()), **(run or {})}).encode())
         os.close(fd)
         return path
 
@@ -299,7 +317,7 @@ class ScheduleMixin:
                 held, age = _read_lock(path), time.time() - path.stat().st_mtime
             except FileNotFoundError:
                 return True, False  # its run just ended
-            if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid")):
+            if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid"), held.get("process")):
                 return False, False
             path.unlink(missing_ok=True)
         finally:
@@ -315,8 +333,15 @@ class ScheduleMixin:
             label = target_label(self.pc_schedules.get(schedule_id)["target"])
         except (KeyError, ValueError, OSError):  # the schedule was removed since
             label = schedule_id
-        row = {"schedule_id": schedule_id, "label": label, "trigger": held.get("trigger") or "schedule",
-               "started": held.get("started"), "ended": None, "seconds": None, "pid": held.get("pid"),
+        # Only what this app writes in a lock goes into the history, and only from this schedule's own
+        # lock: the file is anyone's to edit, and the history is what Monitor shows.
+        if held.get("schedule_id") not in (None, schedule_id):
+            held = {}
+        trigger = held.get("trigger") if held.get("trigger") in ("schedule", "manual") else "schedule"
+        started = held.get("started") if isinstance(held.get("started"), str) and len(held["started"]) <= 40 else None
+        pid = held.get("pid") if isinstance(held.get("pid"), int) and not isinstance(held.get("pid"), bool) else None
+        row = {"schedule_id": schedule_id, "label": label, "trigger": trigger,
+               "started": started, "ended": None, "seconds": None, "pid": pid,
                "status": "failed", "interrupted": True,
                "message": "Stopped before it finished: its process ended (it was killed, or the PC shut down "
                           "or restarted). What it changed before then is kept; run it again to finish."}

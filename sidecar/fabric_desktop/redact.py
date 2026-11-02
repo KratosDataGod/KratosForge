@@ -38,7 +38,7 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # A password given to a command as its own argument: --password value (--password=value is below).
     (re.compile(r"(?i)(--(?:password|passwd|pwd)\s+)(?:\"[^\"\n]*\"?|'[^'\n]*'?|[^\s\"']+)"), r"\1" + REMOVED),
     # A Cookie or Set-Cookie header's value, to the end of its line: a session cookie signs a person in.
-    (re.compile(r"(?i)(\b(?:set-)?cookie\s*:[ \t]*)[^\r\n]+"), r"\1" + REMOVED),
+    (re.compile(r"(?i)(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+"), r"\1" + REMOVED),
     # An OAuth authorization code in a redirect's query or fragment (?code=...): it can be traded for tokens.
     (re.compile(r"(?i)([?&#]code=)[^&\s\"'<>#]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
@@ -66,8 +66,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end. With a
     # closing quote the value runs to it, across lines; without one it stops at the end of its line,
     # so one stray quote doesn't blank the rest of a report.
-    (re.compile(r"(?i)(\"(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)(\"(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
     (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),

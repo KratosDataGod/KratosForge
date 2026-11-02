@@ -179,6 +179,15 @@ def test_lakehouse_tables_page_with_nulls_types_and_repeated_names(runs, lake):
     assert not page["has_next"] and not page["has_previous"]
 
 
+def test_table_gives_the_whole_result_with_unique_names_for_compare(runs, lake):
+    status = wait(runs, runs.start("SELECT id, country, amount, id FROM sales ORDER BY id", lake)["id"])
+    st, table = runs.table(status["id"])
+    assert st["state"] == "completed" and table.num_rows == 3 and len(set(table.column_names)) == 4
+    failed = wait(runs, runs.start("SELECT * FROM nowhere", lake)["id"])
+    with pytest.raises(ValueError, match="no rows to compare"):
+        runs.table(failed["id"])
+
+
 def test_pages_move_forward_and_back_without_counting(runs, lake):
     run = wait(runs, runs.start("SELECT range AS n FROM range(2500)", lake)["id"])
     first = runs.page(run["id"])
@@ -607,8 +616,12 @@ def test_the_projects_own_time_limit_is_shown_and_named(tmp_path):
                                      local_engine=local.engine)
     try:
         status = wait(manager, manager.start(LOCAL_SLOW, target="local", project=pid, dialect="duckdb")["id"], seconds=30)
-        assert status["state"] == "timed_out" and "project's time limit" in status["error"]
-        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project"
+        # This once ended "completed" on CI (flaky ledger). The query takes seconds, so whether it ran
+        # past the 1 s limit unstopped or finished early shows in how long it ran and what it returned.
+        seen = {k: status.get(k) for k in ("state", "error", "rows", "time_limit_minutes", "time_limit_from")}
+        seen["seconds"] = round((status.get("ended") or 0) - (status.get("started") or 0), 2)
+        assert status["state"] == "timed_out" and "project's time limit" in status["error"], seen
+        assert status["time_limit_minutes"] == round(1 / 60, 2) and status["time_limit_from"] == "project", seen
     finally:
         manager.shutdown()
         local.close_all()

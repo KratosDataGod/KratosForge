@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from . import policy
@@ -238,10 +239,32 @@ class IntegrationsMixin:
 
     def integrations_activity(self, limit: int = 100, client_id: str = "") -> list[dict[str, Any]]:
         """Every call external tools made, newest first, from the audit trail (audit.py). Calls that
-        started an execution show where it got to."""
-        from .audit import IntegrationAudit
+        started an execution show where it got to. An approved call shows once: its "started" line
+        drops out when its outcome line is there. One that never finished stays as "started", and an
+        approval used with no line at all (the process was killed as it started) shows as
+        "unfinished", from the approvals table."""
+        from .audit import IntegrationAudit, arguments
         from .executions import KEEP_RECORDS, ExecutionManager
-        rows = IntegrationAudit(self.integration_store).recent(limit, client_id)
+        trail = IntegrationAudit(self.integration_store)
+        rows = trail.recent(limit, client_id)
+        finished = {r["approval_id"] for r in rows if r.get("approval_id") and r.get("outcome") != "started"}
+        rows = [r for r in rows if not (r.get("outcome") == "started" and r.get("approval_id") in finished)]
+        seen = {r["approval_id"] for r in rows if r.get("approval_id")}
+        oldest = datetime.fromisoformat(rows[-1]["at"]).timestamp() if len(rows) >= limit else 0.0
+        uses = [u for u in self.integration_store.approval_uses(oldest, client_id) if u["id"] not in seen]
+        seen = trail.approvals_recorded([u["id"] for u in uses])  # lines outside this page still count
+        for use in uses:
+            if use["id"] in seen:
+                continue
+            rows.append({"at": datetime.fromtimestamp(use["used_at"], timezone.utc).isoformat(timespec="milliseconds"),
+                         "seconds": 0, "channel": "", "client_id": use["client_id"], "client": use["client_name"],
+                         "capability": use["capability"], "permission": use["permission"], "decision": "approved",
+                         "outcome": "unfinished", "execution_id": "", "arguments": arguments(use["arguments"]),
+                         "approval_id": use["id"],
+                         "error": "Approved and started, but no record of how it ended: the tool or KratosForge "
+                                  "was stopped before the call finished."})
+        rows.sort(key=lambda r: r.get("at", ""), reverse=True)
+        rows = rows[:limit]
         if any(row.get("execution_id") for row in rows):
             states = {e["id"]: e.get("state") for e in ExecutionManager(self).list(None, KEEP_RECORDS)}
             for row in rows:

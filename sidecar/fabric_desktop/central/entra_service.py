@@ -17,7 +17,7 @@ from typing import Any
 
 from .. import http_session, sql_exec
 from ..auth import GRAPH_GROUP_SCOPES
-from ..redact import describe
+from ..redact import describe, one_line
 from ..retrying import send_with_retry
 from . import core, entra
 from .requests_service import call_or_repair
@@ -159,7 +159,7 @@ class EntraGroupsMixin:
         if r.status_code == 404:
             return None
         if not r.ok:
-            raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {r.text[:200]}")
+            raise RuntimeError(f"Microsoft Graph answered {r.status_code}: {one_line(r.text, 200)}")
         return r.json()
 
     def _entra_group_name(self, group_id: str) -> str:

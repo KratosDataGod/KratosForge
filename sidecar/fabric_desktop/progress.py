@@ -2,8 +2,8 @@
 
 The profile stores **evidence rows**, one per verified accomplishment, each a reference to a record
 the app already keeps: a Validate result (its id and the notebook's code revision), a proof's run
-receipt, or a Learn exercise whose checks all passed on this PC (the lesson's id and content version;
-rules v2). It
+receipt, a Learn exercise whose checks all passed on this PC (the lesson's id and content version;
+rules v2), or a best-practice fix applied after Compare found the same rows (GD-06, rules v3). It
 never copies code, cell outputs, table names or rows, tokens or connection strings. Everything else
 (XP, level, achievements, skill coverage, the professional report) is worked out from the rows and
 the rules below every time it is shown, so excluding a row takes it out of all of them.
@@ -27,7 +27,7 @@ from typing import Any
 from . import jsonfile
 
 SCHEMA = "kratosforge/profile@1"
-RULES_VERSION = 2   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements
+RULES_VERSION = 3   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked
 LEVEL_CURVE = "v1"
 
 PASSED = ("ready", "ready_with_warnings")
@@ -39,7 +39,11 @@ DIMENSIONS = ("Data Engineering", "Engineering Quality", "Performance & Optimiza
 EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality"),
                     "prove.match": ("Engineering Quality", "Performance & Optimization"),
                     "lab.pass": ("Learning & Growth",),
-                    "module.complete": ("Learning & Growth",)}
+                    "module.complete": ("Learning & Growth",),
+                    "fix.checked": ("Engineering Quality",)}
+# A checked fix also counts toward its rule's area (rules v3): a guide's area to a skill.
+FIX_AREA_DIMENSIONS = {"Performance": "Performance & Optimization", "Security": "Security & Governance",
+                       "Reliability": "Reliability & Operations"}
 # A Learn exercise also counts toward the skill its checks show (rules v2).
 CHECK_DIMENSIONS = {"faster_than": "Performance & Optimization", "table_shape": "Architecture & Reusability",
                     "integrity": "Architecture & Reusability", "defects_found": "Engineering Quality"}
@@ -219,6 +223,27 @@ def from_lab(result: dict[str, Any], module: dict[str, Any], origin: str = "live
             "ref": {"source": "learn", "id": f"{mid}/{exercise}", "revision": f"v{version}"},
             "status": "verified", "verdict": "passed", "detail": {"checks": kinds, "level": module.get("level")},
             "measurement": {**timed, "kind": "measured", "source": "Learn speed check on this PC"} if timed else None,
+            "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, str], where: str,
+             origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for a best-practice fix applied after Compare ran the SQL as written and as
+    fixed and found the same rows (GD-06), or None unless it did. It keeps the rule, the two runs' ids,
+    the row count and each run's measured time (one run each), never the SQL or its rows."""
+    if compared.get("result") != "match" or not runs.get("before") or not runs.get("after") or not rule_id:
+        return None
+    seconds = compared.get("seconds") or {}
+    timed = all(isinstance(seconds.get(k), (int, float)) for k in ("before", "after"))
+    dims = list(EVENT_DIMENSIONS["fix.checked"]) + ([FIX_AREA_DIMENSIONS[area]] if area in FIX_AREA_DIMENSIONS else [])
+    return {"id": evidence_id("fix.checked", rule_id, f"{runs['before']}|{runs['after']}"), "type": "fix.checked",
+            "at": _now(), "artifact": {"kind": "rule", "name": str(rule_id), "where": str(where or "")[:200]},
+            "ref": {"source": "compare", "id": str(runs["after"]), "revision": str(runs["before"])},
+            "status": "verified", "verdict": "same",
+            "detail": {"rows": (compared.get("rows") or {}).get("after"), "level": compared.get("level"),
+                       "target": compared.get("target")},
+            "measurement": {"before_seconds": seconds["before"], "after_seconds": seconds["after"], "kind": "measured",
+                            "source": "Compare, one run each, the fixed one second"} if timed else None,
             "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
@@ -491,6 +516,11 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if proved:
         lines.append(f"{len(proved)} proof{'s' if len(proved) != 1 else ''} whose results matched in Microsoft Fabric, "
                      "each with a run receipt. *(Verified)*")
+    fixed = [r for r in rows if r["type"] == "fix.checked"]
+    if fixed:
+        rules = sorted({r["artifact"]["name"] for r in fixed})
+        lines.append(f"{len(fixed)} best-practice fix{'es' if len(fixed) != 1 else ''} ({', '.join(md(x) for x in rules)}) "
+                     "applied after running the query as written and as fixed and finding the same rows. *(Verified)*")
     if not rows:
         lines.append("No validations in this period. *(Not measured)*")
     lines += ["", "## Performance and efficiency", ""]
@@ -501,7 +531,13 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
                  if isinstance(mm.get(k), (int, float))]
         lines.append(f"- {md(r['artifact']['name'])}: {', '.join(parts)} end to end, measured in the same proof. "
                      f"*(Verified, {refs[r['id']]})*")
-    if not timed:
+    for r in fixed:
+        mm = r.get("measurement") or {}
+        if isinstance(mm.get("before_seconds"), (int, float)) and isinstance(mm.get("after_seconds"), (int, float)):
+            lines.append(f"- {md(r['artifact']['name'])} fix{' on ' + md(r['artifact']['where']) if r['artifact'].get('where') else ''}: "
+                         f"{mm['before_seconds']:g} s as written, {mm['after_seconds']:g} s fixed, one run each, measured. "
+                         f"*(Verified, {refs[r['id']]})*")
+    if not timed and not any(r.get("measurement") for r in fixed):
         lines.append("No before and after measurements in this period. *(Not measured)*")
     lines += ["", "## Learning", ""]
     finished = {r["ref"]["id"]: r for r in rows if r["type"] == "module.complete"}
@@ -535,6 +571,10 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
         if ref.get("source") == "learn":
             lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Learn {md(ref.get('id') or '')} · version "
                          f"{md((ref.get('revision') or '').removeprefix('v'))} · {r['verdict']}")
+            continue
+        if ref.get("source") == "compare":
+            lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Compare for {md(r['artifact']['name'])} · runs "
+                         f"{md(ref.get('revision') or '')} and {md(ref.get('id') or '')} · {r['verdict']}")
             continue
         source = (f"Run receipt {ref.get('id')} (SHA-256)" if ref.get("source") == "receipt"
                   else f"Validate {ref.get('id')}")

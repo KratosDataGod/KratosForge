@@ -25,7 +25,7 @@ from typing import Any
 from .auth import CONNECTION_SCOPES, GATEWAY_SCOPES, SignInError
 from .fabric_api import FabricClient
 from .orchestration import mashup
-from .redact import describe, secrets
+from .redact import describe, one_line, secrets
 
 _log = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ class FabricConnectionsMixin:
                          "item_name": it.get("displayName") or "", "item_type": ITEM_TYPES[it["type"]]}
                         for it in client.list_items(ws["id"]) if it.get("type") in ITEM_TYPES]
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
+                missed.append(f"items in workspace {one_line(ws['id'], 100)}: {describe(exc)}")
                 return []
 
         def uses(it: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
@@ -178,7 +178,7 @@ class FabricConnectionsMixin:
                     return it, dataflow_connection_ids(result)
                 return it, connection_ids(definition_parts(result))
             except Exception as exc:  # noqa: BLE001
-                missed.append(f"definition of {it['item_id']}: {describe(exc)}")
+                missed.append(f"definition of {one_line(it['item_id'], 100)}: {describe(exc)}")
                 return it, set()
 
         with ThreadPoolExecutor(max_workers=8) as pool:

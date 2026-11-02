@@ -22,6 +22,7 @@ from typing import Any, Callable
 from ..central.core import PlatformError, zone_key
 from ..central.policy import BUILTIN_TEMPLATES, clean_definition
 from .cli import GitError
+from ..redact import one_line
 from .scopes import _replace_in
 
 # Each kind of object: its folder (or single file), in the order a deploy would apply them.
@@ -294,12 +295,12 @@ def to_files(defs: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]
 
 def _load(path: Path, problems: list[str], rel: str) -> dict[str, Any] | None:
     if path.is_symlink():
-        problems.append(f"{rel} is a link, so it isn't read.")
+        problems.append(f"{one_line(rel, 200)} is a link, so it isn't read.")
         return None
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeDecodeError) as e:
-        problems.append(f"{rel} can't be read: {e}")
+        problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
         return None
 
 
@@ -307,7 +308,7 @@ def _parse(text: str, problems: list[str], rel: str) -> dict[str, Any] | None:
     try:
         return tomllib.loads(text)
     except ValueError as e:
-        problems.append(f"{rel} can't be read: {e}")
+        problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
         return None
 
 
@@ -330,12 +331,12 @@ def committed_files(repo: Any, commit: str = "HEAD") -> tuple[dict[str, str], li
         if kind != "blob" or not is_platform_file(rel):
             continue  # .gitkeep, deeper folders and anything else the reader doesn't use either
         if mode == "120000":
-            problems.append(f"{rel} is a link, so it isn't read.")
+            problems.append(f"{one_line(rel, 200)} is a link, so it isn't read.")
             continue
         try:
             texts[rel] = repo.git("cat-file", "blob", sha, read_only=True)
         except (GitError, UnicodeDecodeError) as e:
-            problems.append(f"{rel} can't be read: {e}")
+            problems.append(f"{one_line(rel, 200)} can't be read: {one_line(e)}")
     return texts, problems
 
 

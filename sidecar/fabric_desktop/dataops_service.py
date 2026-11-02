@@ -17,8 +17,8 @@ from typing import Any
 import polars as pl
 import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
-import requests
 
+from . import http_session, jsonfile
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -29,8 +29,9 @@ from .meta import store as store_mod
 from .meta.project import ENVIRONMENTS
 from .meta_service import NoMetadataProject
 from . import sealed_settings
-from .redact import describe
-from .workloads.notify import failure
+from .redact import describe, one_line
+from .retrying import send_with_retry
+from .workloads.notify import LINE_MAX, failure
 
 _log = logging.getLogger(__name__)
 
@@ -355,7 +356,7 @@ class DataOpsMixin:
             return 0, failure(exc)
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         sent.update({k: now for k in keys})
-        (self.root / "freshness_alerts.json").write_text(json.dumps(sent, indent=1), encoding="utf-8")  # type: ignore[attr-defined]
+        jsonfile.write_text(self.root / "freshness_alerts.json", json.dumps(sent, indent=1))  # type: ignore[attr-defined]
         return len(lines), None
 
     def _alerts_unreadable(self) -> bool:
@@ -378,7 +379,10 @@ class DataOpsMixin:
 
 
 def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
-    """A message for a Teams Workflows webhook ("When a Teams webhook request is received")."""
+    """A message for a Teams Workflows webhook ("When a Teams webhook request is received"). Each
+    title and line is one line with anything credential-shaped removed, also for one queued by
+    an older build."""
+    title, lines = one_line(title, LINE_MAX), [one_line(line, LINE_MAX) for line in lines]
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": True}]
     body += [{"type": "TextBlock", "text": line, "wrap": True, "spacing": "Small"} for line in lines[:20]]
     if len(lines) > 20:
@@ -389,6 +393,22 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
 
 
 def post_teams(url: str, title: str, lines: list[str]) -> None:
-    r = requests.post(url, json=teams_card(title, lines), timeout=15)
+    """Post one card. A write: only Teams' throttling (429, refused unread) is sent again, as
+    Retry-After says; after a 5xx or a dropped connection the card may have been posted, so the
+    caller's outbox decides whether to send it again."""
+    http = http_session.session()
+    r = send_with_retry(lambda: http.post(url, json=teams_card(title, lines), timeout=15), "POST")
     if r.status_code >= 300:
-        raise RuntimeError(f"Teams answered {r.status_code}: {r.text[:200]}")
+        raise RuntimeError(f"Teams answered {r.status_code}{_teams_error(r)}")
+
+
+def _teams_error(resp: Any) -> str:
+    """Teams' own error message, on one line, from its JSON body; nothing when there isn't one."""
+    try:
+        body = resp.json()
+    except (ValueError, AttributeError):
+        return ""
+    err = body.get("error") if isinstance(body, dict) else None
+    message = (err.get("message") if isinstance(err, dict) else err) if err else (body.get("message") if isinstance(body, dict) else None)
+    text = one_line(message or "", 200)
+    return f": {text}" if text else ""

@@ -128,10 +128,22 @@ function profileLearnRow(r) {
     `Learn ${r.ref.id} · ${what} version ${String(r.ref.revision).replace(/^v/, "")}`];
 }
 
+// A best-practice fix applied after Compare found the same rows (GD-06, rules v3).
+function profileFixRow(r) {
+  const d = r.detail || {};
+  const m = r.measurement || {};
+  const rows = typeof d.rows === "number" ? `${d.rows.toLocaleString()} row${d.rows === 1 ? "" : "s"}` : "rows";
+  const times = typeof m.before_seconds === "number" && typeof m.after_seconds === "number"
+    ? ` Measured, one run each: ${m.before_seconds} s as written, ${m.after_seconds} s fixed.` : "";
+  return [`Fixed ${r.artifact.name}${r.artifact.where ? ` on ${r.artifact.where}` : ""}, and checked it`,
+    `Compare ran the query as written and as fixed: the same ${rows}${d.level === "complete" ? ", every row compared" : ""}.${times}`,
+    `Compare · runs ${String(r.ref.revision).slice(0, 12)} and ${String(r.ref.id).slice(0, 12)}`];
+}
+
 function profileRow(r) {
   const d = r.detail || {};
   const proved = r.type === "prove.match";
-  const learned = r.ref?.source === "learn" ? profileLearnRow(r) : null;
+  const learned = r.ref?.source === "learn" ? profileLearnRow(r) : r.type === "fix.checked" ? profileFixRow(r) : null;
   const m = r.measurement || {};
   const times = [["this PC", m.pc_seconds], ["Fabric", m.fabric_seconds]].filter(([, v]) => typeof v === "number")
     .map(([where, v]) => `${where} ${v} s`).join(", ");

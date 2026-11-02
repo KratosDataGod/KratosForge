@@ -3,33 +3,59 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-10-29 23:42 UTC, main 02118fa4.** Covers the PRs merged from #135 to #1146.
+**Product check of 2026-11-01 23:42 UTC, main 761a7949.** Covers the PRs merged from #135 to #1549.
 
 ## Summary
 
-- 59 PRs merged since the morning check's commit (188d5a93). The first recorded live run on a Fabric
-  tenant happened: on 2026-10-29 the KUDP comparison signed in, listed workspaces and lakehouses, and
-  ran 10 Spark SQL queries in a Fabric Spark session against DuckDB on this PC. Eight matched. One
-  difference is real (decimal division) and one was a local bug, fixed by #1144
-  ([platforms.md](../platforms.md#live-runs)).
-- New programs, now tracked in the backlog:
-  - Learn (PB-119, LX-01 to LX-08, Preview).
-  - Platform support levels and one engine contract (PB-120, KUDP).
-  - Power BI embedding (PB-121, PBE). Its design is proposed; the host frame and engine calls are built.
-- Also merged:
-  - The notebook engine picker (Preview, #1096).
-  - MERGE, UPDATE and DELETE on this PC (Preview, PB-015).
-  - Fabric Spark sessions through Livy (PB-116).
-  - The Databricks conversion loss report (PB-118).
-  - Running several notebooks at once from Home (#1131).
-  - Three new notebook rules (#1116).
-- PB-116 and PB-118 moved to In review. PB-015 stays In progress: its Prove run on PC and Fabric is
-  still to do.
-- 25 items are In review and wait on the product owner (acceptance batch 2 covers 23 of them; PB-116
-  and PB-118 are new).
+- Evening check, 2026-11-01: 35 PRs merged after 063b84ed. 5 were product data and docs PRs; the other 30 were linked.
+  The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
+  adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
+  GD-08, Preview). The rest is hardening: redaction of Basic credentials and Databricks secrets,
+  reply text from Fabric, Databricks, OneLake and Graph kept to one short line, files and
+  connections closed, and type-check fixes.
+- Acceptance, 2026-11-01: the product owner accepted PB-027, PB-096, PB-098, PB-116, PB-117 and
+  PB-118, three of them with documented limitations. PB-098's criterion now reads "a test fails
+  when lists meant to agree disagree".
+- Morning check, 2026-11-01: 103 PRs merged after b3c5b223 (#1359 to #1523), all hardening and tests.
+  The remaining screens and their writes have real-browser tests, and several gained the danger or
+  risk-check confirm they lacked. Databricks sign-in, profiles and discovery refuse replies that
+  aren't the documented ones. More engine readers work on DuckDB 2.0, and CI runs on it, though 2.0
+  isn't allowed yet. Errors stay one bounded line. App state files are written safely. Engine HTTPS
+  trusts the Windows certificate store, and support bundles leave out tenant and OneDrive names.
+  No backlog item finished. PB-014's review asks for Unknown cells in the notebook (#1362).
+- Evening check, 2026-10-31: 99 PRs merged after f3750b9d (#1205 to #1357), the full-speed day.
+  Most are hardening and tests. The engine is ready for DuckDB 2.0 (#1341's parts), OneLake reads,
+  writes, shortcut checks and leases wait out throttling, governance requests say what stays in
+  Fabric after a decline or withdrawal, and ten more screens have real-browser tests. Also: the
+  compute check follows %run and notebook.run and reports Unknown (PB-014), support bundle slice 1
+  (PB-062), Learn GD-03, GD-06 and GD-10, and Databricks, Spark and Snowflake SQL that answers as
+  those platforms do. PB-014 and PB-062 are now In progress.
+- Morning check, 2026-10-31: three more PRs merged. Snowflake functions are checked value by
+  value against Snowflake's docs (PB-117, #1202), a time limit or early Cancel says truthfully
+  whether a remote statement stopped (#1201), and every platform role write leaves an audit row
+  (PB-052, #1200). PB-117 moved to In review in the queue refresh (#1196).
+- Evening check, 2026-10-30: 23 PRs merged after 02118fa4, besides the product data PRs.
+- Acceptance batch 2 (2026-10-30, #1163): the product owner accepted 19 items, 10 of them with
+  documented limitations, and approved the changed criteria for PB-031, PB-049 and PB-072.
+- Merged:
+  - Learn guidance levels, with Professional the default (GD-01, #1161), and Try the fix and Compare
+    beside SQL findings (GD-02, #1162). Also Explain and Lesson buttons (#1160) and the Microsoft
+    Fabric path (#1159). All Preview.
+  - The Getting started panel on Home (#1147).
+  - Column completion in notebook `%%sql` cells, offline too (PB-027, #901).
+  - Prove takes Spark notebooks with MERGE, UPDATE and DELETE (PB-015, #1157).
+  - The AI client checklist run with Claude Code, Codex CLI and curl (PB-096, #1185).
+  - The remaining allow_ policy switches fail closed (PB-061, #1150). The engine's method lists are
+    checked against each other (PB-098, #1152). HD-050 slices 6 and 7 (#1153, #1156).
+  - Databricks SQL whole results and functions (#1180, #1183), and retries for remote Spark and
+    Databricks calls (#1191).
+- PB-027 and PB-096 moved to In review. PB-061 is In progress: the keys FD-105 lists are still to
+  decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 18 are Proposed, 26 In progress, 25 In review and 40 Accepted.
+- Backlog: 111 items (5 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 27 In progress, 5 In review and 65 Accepted.
+- PB-119 split (2026-11-01): Learn v1 is In review, Guided Development is PB-122 (In progress, 8 of 10 rows merged)
+  and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
 
 ## Workstreams
 
@@ -52,7 +78,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 25 In review items and the PB-049 and PB-072 criteria changes, a tenant run of
+two release gates. Also waiting: acceptance of the 5 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

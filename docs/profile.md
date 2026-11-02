@@ -9,7 +9,7 @@ with, and nothing in it is sent anywhere.
 
 ## What gets recorded
 
-Three things:
+Four things:
 
 - A notebook that passes [Validate](validate-notebook.md) with a clean run (Ready, or Ready with
   warnings) and reads or writes at least one lakehouse table.
@@ -21,6 +21,11 @@ Three things:
   the lesson is recorded too. The profile keeps the lesson's id, the exercise, the content version,
   which kinds of check passed and, for a speed check, the times measured on this PC; never your
   answer or the lab's data.
+- A best-practice fix applied with **Try the fix** after **Compare** ran the query as written and as
+  fixed and found the same rows ([Learn](learn.md#beside-a-finding)). Only Apply records it, and only
+  when that Compare matched; a fix applied without a Compare, or after one that found different rows,
+  isn't recorded. The profile keeps the rule, the two runs' ids, the row count and each run's measured
+  time (one run each); never the SQL or its rows. It earns no XP.
 
 Each one is recorded as a line that says what passed, when, and the id of the Validate result, run
 receipt or Learn lesson.
@@ -71,7 +76,7 @@ A proof runs the notebook in Fabric, which uses some capacity, so Proof Forged i
 to level up. New revisions of a notebook already counted earn no XP. Nothing rewards
 hours, run counts, lines of code or compute used.
 
-Levels (rules version 2; version 2 added Learn and kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
+Levels (rules version 3; version 2 added Learn, version 3 added checked fixes, and both kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
 XP, level 5 is 800, level 10 is 2,700 and level 50 is 34,300. Titles: 1-4 Apprentice, 5-9 Forge
 Initiate, 10-14 Iron Forger, 15-19 Steel Forger, 20-29 Master Forger, 30-39 Forge Architect, 40-49
 Wolf Guardian, 50+ Legend of the Forge. A later rules version won't change what you've already
@@ -90,7 +95,9 @@ artifacts over 60+ days, of 2+ kinds). Not seen yet and Not tracked yet mean exa
 a low rating. This version tracks Data Engineering, Engineering Quality and (through proofs) Performance &
 Optimization, and through Learn also Learning & Growth (every passed exercise) and, by the kind of
 check passed, Performance & Optimization (speed), Architecture & Reusability (table shape, integrity)
-and Engineering Quality (finding planted data quality problems).
+and Engineering Quality (finding planted data quality problems). A checked fix counts toward Engineering
+Quality, and toward its rule's area where there is a skill for it (Performance & Optimization for a
+performance rule).
 
 ## Excluding an accomplishment
 
@@ -103,12 +110,18 @@ and Engineering Quality (finding planted data quality problems).
 executive summary, key contributions, engineering quality, performance and efficiency, learning,
 technical competencies and an evidence appendix. A proof adds a key contribution, its measured times under
 performance and efficiency, and its run receipt in the appendix. Learning lists each Learn lesson or
-lab you finished and how many exercises passed. Every line says where it came from:
+lab you finished and how many exercises passed. Checked fixes are counted under engineering quality,
+with each one's two measured times under performance and efficiency, labeled one run each. The report
+says what was checked, never that a skill was mastered. Every line says where it came from:
 
 - **Verified**: from a recorded accomplishment, with its evidence reference (E1, E2, ...).
 - **Entered by you**: your own executive summary, if you write one.
 - **Generated summary**: fixed wording filled in from verified accomplishments. Nothing is inferred.
 - **Not measured**: there is no measurement for it in the period.
+
+The report names the notebooks and warehouses your accomplishments came from, such as a notebook
+you validated or the warehouse a checked fix ran on, so read it before you share it. To leave an
+accomplishment out, **Exclude** it on Overview.
 
 XP, levels and achievements are left out unless you tick **Include KratosForge achievements**.
 **Save Markdown** saves a new file in Downloads (it never replaces one), and **Copy summary**

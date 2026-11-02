@@ -4,6 +4,7 @@ import base64
 import json
 
 import pytest
+import requests
 
 from fabric_desktop import app_settings, audit, server
 from fabric_desktop import warehouse_monitoring as wm
@@ -21,8 +22,8 @@ URI = "https://trd-abc123.z4.kusto.fabric.microsoft.com"
 
 
 class Resp:
-    def __init__(self, status, body):
-        self.status_code, self._body = status, body
+    def __init__(self, status, body, headers=None):
+        self.status_code, self._body, self.headers = status, body, headers or {}
 
     def json(self):
         return self._body
@@ -41,6 +42,8 @@ class FakePost:
     def __call__(self, url, json=None, headers=None, timeout=None):
         self.sent.append({"url": url, "body": json, "headers": headers})
         answer = self.answers.pop(0) if self.answers else Resp(200, _table(["LastSeen", "Items"], [["2026-10-26T20:00:00Z", 2]]))
+        if isinstance(answer, Exception):
+            raise answer
         return answer
 
 
@@ -163,6 +166,43 @@ def test_a_refusal_says_which_role_reads_monitoring():
     post.answers = [Resp(403, {"error": {"@message": "Principal is not authorized"}})]
     with pytest.raises(RuntimeError, match="Contributor"):
         wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok")
+
+
+def test_throttling_is_waited_out_as_retry_after_says():
+    post, waits = FakePost(), []
+    post.answers = [Resp(429, {}, {"Retry-After": "7"}), Resp(200, _table(["a"], [[1]]))]
+    out = wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=waits.append)
+    assert out["rows"] == [[1]] and waits == [7.0] and len(post.sent) == 2
+    ids = [s["headers"]["x-ms-client-request-id"] for s in post.sent]
+    assert ids[0] != ids[1]  # each try is its own request
+
+
+@pytest.mark.parametrize("first", [Resp(503, {}), requests.Timeout("read timed out"),
+                                   requests.ConnectionError("connection reset")])
+def test_a_5xx_a_timeout_or_a_dropped_connection_is_tried_again(first):
+    post = FakePost()
+    post.answers = [first, Resp(200, _table(["a"], [[1]]))]
+    assert wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None)["rows"] == [[1]]
+
+
+def test_a_lasting_outage_says_try_again_and_keeps_kustos_message():
+    post = FakePost()
+    post.answers = [Resp(503, {"error": {"@message": "Service is overloaded"}})] * wm.QUERY_ATTEMPTS
+    with pytest.raises(RuntimeError, match=r"busy or out of reach.*Try again in a minute.*Service is overloaded"):
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None)
+    assert len(post.sent) == wm.QUERY_ATTEMPTS
+    post.answers = [requests.ConnectionError("reset")] * wm.QUERY_ATTEMPTS
+    with pytest.raises(RuntimeError, match="couldn't be reached after 3 tries"):
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refusal_is_not_tried_again(status):
+    post = FakePost()
+    post.answers = [Resp(status, {})]
+    with pytest.raises(RuntimeError, match="Contributor"):
+        wm.query(post, URI, "db", wm.view_kql("summary", WH), "tok", sleep=lambda s: None)
+    assert len(post.sent) == 1
 
 
 # ---- the queryset

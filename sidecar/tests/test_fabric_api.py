@@ -245,3 +245,39 @@ def test_a_definition_with_no_result_is_a_clear_error():
 def test_more_details_that_isnt_a_list_is_ignored():
     err = _operation_failed("op1", {"status": "Failed", "error": {"message": "Bad", "moreDetails": "oops"}})
     assert str(err) == "Fabric's operation op1 failed: Bad."
+
+
+class _Answer:
+    def __init__(self, status, body):
+        self.status_code, self._body, self.headers = status, body, {}
+
+    def json(self):
+        return self._body
+
+
+def test_a_long_fabric_message_is_one_bounded_line():
+    from fabric_desktop.fabric_api import _error
+    body = {"errorCode": "InvalidRequest", "message": "x" * 5000 + "\nsecond line",
+            "moreDetails": [{"message": "detail\r\nwith\tbreaks"}], "requestId": "abc-123"}
+    err = _error("POST", "https://api.fabric.microsoft.com/v1/workspaces/w/items", _Answer(400, body))
+    text = str(err)
+    assert "\n" not in text and "\r" not in text and "\t" not in text
+    assert text.startswith("POST /workspaces/w/items failed with 400 InvalidRequest: " + "x" * 299 + "…")
+    assert "detail with breaks" in text and text.endswith("Request id abc-123.")
+    assert len(text) < 500 and err.code == "InvalidRequest" and err.request_id == "abc-123"
+
+
+@pytest.mark.parametrize("code", ["has space", "x" * 65, "<html>", "line\nbreak"])
+def test_an_odd_fabric_code_or_request_id_is_left_out(code):
+    from fabric_desktop.fabric_api import _error
+    err = _error("GET", "https://api.fabric.microsoft.com/v1/workspaces", _Answer(400, {
+        "errorCode": code, "message": "Bad", "requestId": "id with spaces"}))
+    assert err.code is None and str(err) == "GET /workspaces failed with 400: Bad." and not err.request_id
+
+
+def test_a_failed_operation_is_one_bounded_line_too():
+    err = _operation_failed("op1", {"status": "Failed", "error": {
+        "errorCode": "Bad code!", "message": "a\nb" + "y" * 1000, "requestId": "r1"}})
+    text = str(err)
+    assert "\n" not in text and err.code is None and "(Bad code!)" not in text and len(text) < 400
+    assert text.startswith("Fabric's operation op1 failed: a b") and text.endswith("Request id r1.")

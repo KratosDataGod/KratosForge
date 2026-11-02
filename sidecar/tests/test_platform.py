@@ -3,6 +3,7 @@
 import json
 import threading
 import types
+from contextlib import closing
 
 import polars as pl
 import pytest
@@ -72,7 +73,8 @@ def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     inserts = [p for sql, p in conn.statements if "IDENTITY_INSERT" in sql]
     assert out == {"imported": 2500, "already_there": 0}
     assert sum(len(p) for p in inserts) == 2500 * 3 and len(inserts) == 5
-    assert "RESEED, 2500" in conn.statements[-1][0]
+    keys_sql = [sql for sql, _ in conn.statements if "[audit]" not in sql]  # the import's audit row comes last (#1194)
+    assert "RESEED, 2500" in keys_sql[-1]
 
 
 def test_keys_are_issued_in_batches(platform):
@@ -680,6 +682,17 @@ def test_requests_for_key_tables_sources_and_access(platform):
     with pytest.raises(core.PlatformError, match="owner or a platform admin"):
         ana.call("revoke_grant", product_id="crm/c360", project="ledger")
     assert bo.call("revoke_grant", product_id="crm/c360", project="ledger") == []
+    # The revoke row keeps what gave the access, since the grant row is gone (#1352).
+    revoked = next(e for e in bo.call("audit", limit=50) if e["action"] == "revoke access")
+    detail = json.loads(revoked["detail"])
+    assert detail.pop("granted_at") and detail == {"project": "ledger", "request": acc["id"], "granted_by": "bo@example.com"}
+    # Taking it away again finds nothing to take: it says so and the audit trail gains no second revoke (#1237).
+    revokes = len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"])
+    with pytest.raises(core.PlatformError, match="ledger has no access to crm/c360 to take away"):
+        bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"]) == revokes == 1
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):  # the role check comes first
+        ana.call("revoke_grant", product_id="crm/c360", project="nowhere")
 
     # Declined and withdrawn requests stay in the list with who and when.
     nope = ana.call("request", kind="key_table", target="vendor")
@@ -912,7 +925,7 @@ def test_a_platform_made_before_source_ids_gets_them_keeping_its_sources(tmp_pat
     import sqlite3
     path = tmp_path / "old.sqlite"
     LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # the source table as schema 4 made it
+    with closing(sqlite3.connect(path)) as conn, conn:  # the source table as schema 4 made it
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -987,7 +1000,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     import sqlite3
     path = tmp_path / "old.sqlite"
     platform = LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
+    with closing(sqlite3.connect(path)) as conn, conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -996,7 +1009,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with platform._db() as db:
         got = {s["name"]: s for s in core.list_sources(db)}
     assert (got["crm"]["source_id"], got["crm"]["code"], got["sap"]["source_id"], got["sap"]["active"]) == (1, "CRM", 2, True)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
 

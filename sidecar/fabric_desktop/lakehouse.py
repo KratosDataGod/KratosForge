@@ -31,7 +31,7 @@ from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, resolve_schema_mode, stage_locally
+from .publish import publish, refuse_conversions, resolve_schema_mode, stage_locally
 from .redact import describe
 from .retrying import data_upload_dropped
 
@@ -682,7 +682,9 @@ def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_m
     from . import delta_profile
 
     def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
-        delta_profile.check_target(uri, proof.options())
+        target = delta_profile.open_target(uri, proof.options())
+        if target is not None and resolve_schema_mode(how, schema) != "overwrite":
+            refuse_conversions(data.schema, target, f"{ref.schema}.{ref.table}")
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
                         schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())

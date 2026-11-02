@@ -22,7 +22,6 @@ import decimal
 import json
 import logging
 import math
-import os
 import random
 import threading
 import uuid
@@ -35,6 +34,8 @@ from xml.sax.saxutils import escape
 import pyarrow as pa
 
 from .redact import describe
+from .duckdb_rows import for_arrow, one_row
+from . import jsonfile
 
 _log = logging.getLogger(__name__)
 
@@ -275,8 +276,8 @@ class Frames:
             order = ""
             if sort is not None and 0 <= int(sort) < len(cols):
                 order = f" ORDER BY {cols[int(sort)]} {'DESC' if desc else 'ASC'} NULLS LAST"
-            total = con.execute(f"SELECT count(*) FROM t{where}", params).fetchone()[0] if q else table.num_rows
-            rows = _rows(con.execute(f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
+            total = one_row(con.execute(f"SELECT count(*) FROM t{where}", params))[0] if q else table.num_rows
+            rows = _rows(for_arrow(con, f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
         finally:
             con.close()
         return {"frame": fid, "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema],
@@ -389,7 +390,7 @@ class Frames:
             if kind == "histogram":
                 if cy is None:
                     raise ValueError("Pick a number column for Values.")
-                lo, hi = con.execute(f"SELECT min({cy})::DOUBLE, max({cy})::DOUBLE FROM t WHERE {_finite(cy)}").fetchone()
+                lo, hi = one_row(con.execute(f"SELECT min({cy})::DOUBLE, max({cy})::DOUBLE FROM t WHERE {_finite(cy)}"))
                 n = max(1, min(int(bins), 100))
                 counts = [0] * n
                 if lo is not None:
@@ -404,7 +405,7 @@ class Frames:
             if kind == "scatter":
                 if cy is None:
                     raise ValueError("Pick a number column for Values.")
-                total = con.execute(f"SELECT count(*) FROM t WHERE {_finite(cx)} AND {_finite(cy)}").fetchone()[0]
+                total = one_row(con.execute(f"SELECT count(*) FROM t WHERE {_finite(cx)} AND {_finite(cy)}"))[0]
                 every = max(1, -(-total // CHART_POINTS))
                 pts = con.execute(
                     f"SELECT {cx}::DOUBLE, {cy}::DOUBLE, {('CAST(' + cs + ' AS VARCHAR)') if cs else 'NULL'} FROM "
@@ -429,7 +430,7 @@ class Frames:
             ordered = kind in ("line", "area")
             # The x values to keep: line and area in x order, bar and pie the largest.
             keep_order = f"min({cx})" if ordered else f"{value} DESC"
-            cats = _rows(con.execute(f"SELECT {cx}, {value} AS v FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST "
+            cats = _rows(for_arrow(con, f"SELECT {cx}, {value} AS v FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST "
                                      f"LIMIT {CHART_CATEGORIES + 1}"))
             truncated = len(cats) > CHART_CATEGORIES
             cats = cats[:CHART_CATEGORIES]
@@ -449,7 +450,7 @@ class Frames:
             params = [[n for n in names if n not in (OTHER, None)]] if cs and OTHER in names else []
             # A join, not IN: it matches NULL keys too, and DuckDB needs pytz for IN over time zone timestamps.
             keep = f"(SELECT {cx} AS k FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST LIMIT {CHART_CATEGORIES}) AS keep"
-            for k, sname, v in _rows(con.execute(
+            for k, sname, v in _rows(for_arrow(con, 
                     f"SELECT t.{cx}, {fold} AS s, {value} FROM t JOIN {keep} ON t.{cx} IS NOT DISTINCT FROM keep.k {where} "
                     f"GROUP BY t.{cx}, s", params)):
                 if sname in values and _chart_key(k) in index:
@@ -467,21 +468,21 @@ class Frames:
         floating = pa.types.is_floating(t)
         missing_sql = f"{c} IS NULL" + (f" OR isnan({c})" if floating else "")
         present = f"NOT ({missing_sql})"
-        missing, distinct = con.execute(
-            f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t").fetchone()
+        missing, distinct = one_row(con.execute(
+            f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t"))
         col: dict[str, Any] = {"name": f.name, "type": type_name(t), "kind": kind, "missing": missing,
                                "distinct": distinct or 0}
         if floating:
-            infinite = con.execute(f"SELECT count(*) FROM t WHERE isinf({c})").fetchone()[0]
+            infinite = one_row(con.execute(f"SELECT count(*) FROM t WHERE isinf({c})"))[0]
             if infinite:
                 col["infinite"] = infinite
                 present = f"isfinite({c})"
         if kind == "number":
-            if not con.execute(f"SELECT count(*) FROM t WHERE {present}").fetchone()[0]:
+            if not one_row(con.execute(f"SELECT count(*) FROM t WHERE {present}"))[0]:
                 return col
-            lo, hi, mean, std, q1, med, q3 = con.execute(
+            lo, hi, mean, std, q1, med, q3 = one_row(con.execute(
                 f"SELECT min({c}), max({c}), avg({c}::DOUBLE), stddev_samp({c}::DOUBLE), quantile_cont({c}, 0.25), "
-                f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}").fetchone()
+                f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}"))
             col.update(min=_num(lo), max=_num(hi), mean=_num(mean), std=_num(std), q1=_num(q1), median=_num(med), q3=_num(q3))
             span = float(hi) - float(lo)
             bins = [0] * HISTOGRAM_BINS
@@ -491,10 +492,10 @@ class Frames:
                 bins[int(b)] = count
             col["histogram"] = bins
         elif kind == "date" and n - missing:
-            lo, hi = con.execute(f"SELECT CAST(min({c}) AS VARCHAR), CAST(max({c}) AS VARCHAR) FROM t WHERE {present}").fetchone()
+            lo, hi = one_row(con.execute(f"SELECT CAST(min({c}) AS VARCHAR), CAST(max({c}) AS VARCHAR) FROM t WHERE {present}"))
             col.update(min=str(lo), max=str(hi))
         elif n - missing:
-            col["top"] = [[r[0], r[1]] for r in _rows(con.execute(
+            col["top"] = [[r[0], r[1]] for r in _rows(for_arrow(con, 
                 f"SELECT CAST({c} AS VARCHAR) AS v, count(*) AS k FROM t WHERE {present} GROUP BY v ORDER BY k DESC, v LIMIT 5"))]
         return col
 
@@ -520,7 +521,7 @@ class Frames:
                     pq.write_table(table.rename_columns(_unique(table.schema.names)), sink)
                 else:
                     write_xlsx(table, sink)
-            os.replace(partial, target)  # over the empty file that reserved the name
+            jsonfile.replace(partial, target)  # over the empty file that reserved the name
         except BaseException:
             with_suppressed_unlink(partial)
             raise

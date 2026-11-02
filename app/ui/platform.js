@@ -974,6 +974,41 @@ async function confirmCopyJob(r) {
   return ok ? (central ? {} : { env: env.value }) : null;
 }
 
+// What approving a request made in Fabric before a later step failed (detail.made), still there after
+// declining it: the same sentences as left_in_fabric in central/requests_service.py.
+function leftInFabric(r) {
+  const d = r.detail || {}, made = d.made || {};
+  if (r.kind === "workspace" && made.workspace_id) {
+    return [`The workspace ${d.name || r.target || made.workspace_id}, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted`];
+  }
+  if (r.kind === "workspace_access" && made.assigned && made.change !== "kept") {
+    const who = d.principal || {};
+    const label = who.name || who.email || who.id || "They";
+    const whom = who.type === "Group" ? `The group ${label}` : label;
+    const role = d.role || "role", ws = d.workspace_name || d.workspace_id || "the workspace";
+    if (made.change === "gave") return [`${whom} keeps the ${role} role in ${ws} that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted`];
+    if (made.change === "raised" && made.from) return [`${whom} keeps the ${role} role in ${ws} that approving this request raised from ${made.from}: set it back in the workspace's Manage access in Fabric if it isn't wanted`];
+    // The same role was there, or a request recorded before #1207: say both, so no one removes access they had before.
+    return [`${whom} has the ${role} role${made.change === "same" ? "" : " or a higher one"} in ${ws}: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric`];
+  }
+  if (r.kind === "source" && made.copy_job_id) {
+    return [`The Copy job ${made.copy_job_name || made.copy_job_id}, made by this request, is still in the landing workspace${made.schedule_id ? " and its daily schedule still runs it" : ""}: delete it there if it isn't wanted`];
+  }
+  if (r.kind === "shortcut" && made.shortcut_id) {
+    const sc = `The shortcut ${d.name || r.target} in ${d.lakehouse_name || "its lakehouse"}`;
+    return [made.found ? `${sc} is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts`
+      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`];
+  }
+  if (r.kind === "domain" && made.domain_id) {
+    const name = d.name || r.target || made.domain_id;
+    if (made.found) return [`The domain ${name} is in the platform${made.fabric_domain_id ? " and Fabric" : ""}: it was there before this request, or approving it made it. Check which before deleting it`];
+    return [made.fabric_domain_id
+      ? `The domain ${name}, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted`
+      : `The domain ${name}, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted`];
+  }
+  return [];
+}
+
 function requestTable(rows, rerender, compact = false) {
   if (!rows.length) return h("p", { class: "muted-text" }, "Nothing waiting.");
   const decide = async (r, approve) => {
@@ -981,7 +1016,10 @@ function requestTable(rows, rerender, compact = false) {
     let extra = {};
     if (!approve) {
       const input = h("input", { placeholder: "Why, so they know what to do next" });
-      const ok = await new Promise((resolve) => showDialog(`Decline ${(REQUEST_KIND[r.kind] || "request").toLowerCase()} ${r.target}?`, h("label", { class: "field" }, "Note", input), [
+      const left = leftInFabric(r);
+      const body = left.length ? h("div", {}, h("p", { class: "wrn-text" }, `Declining deletes nothing in Fabric. ${left.join(". ")}.`),
+        h("label", { class: "field" }, "Note", input)) : h("label", { class: "field" }, "Note", input);
+      const ok = await new Promise((resolve) => showDialog(`Decline ${(REQUEST_KIND[r.kind] || "request").toLowerCase()} ${r.target}?`, body, [
         btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
         btn("Decline", null, () => { note = input.value.trim(); closeDialog(); resolve(true); }, "tool primary")]));
       if (!ok) return;
@@ -1018,14 +1056,17 @@ function requestTable(rows, rerender, compact = false) {
         r.can_decide ? btn(r.kind === "workspace" ? "Approve and create" : r.kind === "source" && r.detail?.copy ? "Approve and make it" : r.kind === "data" ? "Accept" : "Approve", null, () => decide(r, true), "tool primary small") : null,
         r.can_decide ? btn("Decline", null, () => decide(r, false), "tool outline small") : null,
         r.mine && r.status === "waiting" ? btn("Withdraw", null, async () => {
-          if (await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn")) rerender();
+          const res = await platformCall("platform_withdraw", { id: r.id }, "Not withdrawn");
+          if (!res) return;
+          if (res.next?.length) toast(`Withdrew ${r.target}; ${res.next.join("; ")}`, false, { log: true });
+          rerender();
         }, "tool outline small") : null))))));
 }
 
 // What Requests reads and writes, on Data mesh > Requests (mesh-requests.js).
 const REQUESTS_HOW = {
   reads: "The requests in the platform's catalog (SQL_Platform in Fabric, or a file on this PC), when the tab opens. For each waiting workspace access request you can decide, the role that person or group has in the workspace today (its role assignments in Fabric, read as you once per workspace, never stored). New request also lists the domains, capacities, workspaces and policies you can see, to pick from, and Request a source lists the Fabric connections you can use (never their credentials).",
-  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog; a project's domain set in the catalog when it asked to join one. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step.",
+  changes: "Sending adds a request to the catalog. Approving makes what was asked for first, as you: a key table or source in the platform (for a source asking for a Copy job, first the Copy job CJ_Landing_<source> in the landing workspace, writing to LH_Landing/Files/<source>/<table>/, and its daily schedule, Preview); a shortcut in OneLake; a workspace in Fabric on its capacity, with its admins added; a role in a workspace; a domain created in Fabric and kept in the platform (in the platform only when its parent isn't in Fabric; creating it in Fabric needs a Fabric administrator); an exception recorded in the platform for its policy; access to a data product given in the catalog; a project's domain set in the catalog when it asked to join one. Then the request is marked approved. Accepting a data request records your reply and builds nothing. Declining records your note; Withdraw marks your own request withdrawn. If a step fails, the request stays waiting and the error names the step. Declining or withdrawing a request whose approval already made something (a workspace, a role, a Copy job, a domain, a shortcut) deletes nothing in Fabric: the confirm and the message after say what is still there, to delete in Fabric if it isn't wanted.",
   results: "Everyone sees requests here and in the bell, and the platform's Teams routes get a notice (no email yet). A workspace's domain in Fabric is set by a Fabric administrator in Fabric's admin portal. Every change is on Platform > Govern > Audit.",
   more: [["Who decides", "A data product's owner decides who else may read it and changes to it. A domain's owners answer requests for a new data product and decide which projects join their domain. Platform admins decide key tables, sources, workspaces, workspace access, domains and policy exceptions, and can decide any request."]],
   anchor: "data-mesh",

@@ -156,7 +156,7 @@ async function refreshProveCheck(nb) {
       followProof(nb, p.record.id);
     }
   } catch (e) {
-    p.problem = String(e?.message || e);
+    p.problem = friendlyError(e).text;
   }
   drawProve(nb);
 }
@@ -166,6 +166,11 @@ async function refreshProveCheck(nb) {
 async function startProof(nb) {
   const p = nb.prove;
   if (!(await ensureSignedIn())) return;
+  // The Fabric side runs on the workspace's capacity: the risk check, then a confirm, as Run in Fabric
+  // and the Fabric step do.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Prove ${nb.name}?`, runLabel: "Start proof" }))) return;
+  if (!(await confirmDialog(`Prove ${nb.name}?`, "Runs it on this PC, then publishes a copy and runs it in Fabric, which uses "
+    + "Fabric capacity for one notebook run. Writes go to the proof's sandbox, not the lakehouse's tables.", "Start proof"))) return;
   const rules = p.rules || {};
   await nbInputsSaved();  // nbinputs.js: both runs get the values the Parameters bar shows
   const run = await attempt(() => rpc("prove_start", { ...publishPayload(), rules }), "Could not start the proof");
@@ -359,7 +364,7 @@ function editProveRules(nb) {
       closeDialog();
       drawProve(nb);
     } catch (e) {
-      problem.textContent = String(e?.message || e);
+      problem.textContent = friendlyError(e).text;
     }
   };
   showDialog("How results are compared", h("div", { class: "prove-form" },
@@ -531,7 +536,7 @@ async function proveReverify(r, view, draw, offset, save = false) {
     if (view.result.method !== "keyed" && view.status === "changed") view.status = "only_pc";
     draw();
   } catch (e) {
-    if (view.problem) view.problem.textContent = String(e?.message || e);
+    if (view.problem) view.problem.textContent = friendlyError(e).text;
   }
 }
 
@@ -616,21 +621,17 @@ async function showReceipt(nb, id) {
   overlay.querySelector(".dialog").classList.add("wide");
 }
 
-function deleteProofOutputs(nb, r) {
-  showDialog("Delete this proof's outputs?", h("p", { class: "dialog-text" },
-    `Deletes Files/_fabric_desktop/proofs/${r.id}/ in ${r.lakehouse?.name || "the lakehouse"}: the tables both runs wrote and the Fabric run's log. `,
-    "The lakehouse's own tables aren't touched, and the receipt stays. Verifying again won't be possible."), [
-    btn("Cancel", null, closeDialog, "tool outline"),
-    btn("Delete", "delete", async () => {
-      closeDialog();
-      const out = await attempt(() => rpc("prove_delete_outputs", { id: r.id }), "Could not delete the outputs");
-      if (out) {
-        nb.prove.record = await rpc("prove_status", { id: r.id }).catch(() => ({ ...r, outputs_deleted_at: new Date().toISOString() }));
-        drawProve(nb);
-        toast("Deleted the proof's outputs.");
-      }
-    }, "tool danger"),
-  ]);
+// The shared danger confirm (UX-018): drawn red, Cancel has focus.
+async function deleteProofOutputs(nb, r) {
+  if (!(await confirmDialog("Delete this proof's outputs?",
+    `Deletes Files/_fabric_desktop/proofs/${r.id}/ in ${r.lakehouse?.name || "the lakehouse"}: the tables both runs wrote and the Fabric run's log. `
+    + "The lakehouse's own tables aren't touched, and the receipt stays. Verifying again won't be possible.", "Delete", { danger: true }))) return;
+  const out = await attempt(() => rpc("prove_delete_outputs", { id: r.id }), "Could not delete the outputs");
+  if (out) {
+    nb.prove.record = await rpc("prove_status", { id: r.id }).catch(() => ({ ...r, outputs_deleted_at: new Date().toISOString() }));
+    drawProve(nb);
+    toast("Deleted the proof's outputs.");
+  }
 }
 
 registerFeature({

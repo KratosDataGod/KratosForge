@@ -111,6 +111,18 @@ def test_describe_is_log_safe():
     assert redact.describe(KeyError()) == "KeyError"
 
 
+def test_describe_and_one_line_keep_text_from_a_file_or_reply_to_one_short_line():
+    forged = "bad name\nERROR: forged line\r\x1b[31m\tend"
+    assert redact.describe(ValueError(forged)) == "ValueError: bad name ERROR: forged line [31m end"
+    assert redact.one_line(f"Bearer {JWT}\nnext") == "Bearer [removed] next"
+    long = redact.describe(RuntimeError("x" * 5000))
+    assert len(long) == len("RuntimeError: ") + redact.DESCRIBE_MAX and long.endswith("…")
+    assert redact.one_line("y" * 400) == "y" * 299 + "…"
+    assert redact.one_line({"code": "Bad"}) == "{'code': 'Bad'}"
+    hidden = redact.one_line("Authorization: Bearer\x00abcdefghijklmnop")
+    assert "abcdefghijklmnop" not in hidden and "[removed]" in hidden, hidden
+
+
 G1, G2, G3 = ("11111111-2222-3333-4444-555555555555", "72f988bf-86f1-41af-91ab-2d7cd011db47",
               "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 
@@ -159,3 +171,31 @@ def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
         requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
     stored = notify.failure(caught.value)
     assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored
+
+
+def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
+    from fabric_desktop import logs
+    from fabric_desktop.integrations import core
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+
+    class Thing:
+        def __str__(self):
+            return f"Bearer {token}"
+
+    value = {"password": "hunter2", "token_count": 3, "nested": [("x", f"Authorization: Bearer {token}")],
+             "ok": True, "none": None, "obj": Thing()}
+    walked = redact.walk(value)
+    assert walked["password"] == redact.REMOVED and walked["token_count"] == 3
+    assert walked["ok"] is True and walked["none"] is None and isinstance(walked["obj"], Thing)
+    assert walked["nested"][0][0] == "x" and token not in walked["nested"][0][1]
+    as_text = redact.walk(value, stringify=True)
+    assert isinstance(as_text["obj"], str) and token not in as_text["obj"]
+    # The log formatter and integration results are the same walk, one printing objects and one not.
+    assert logs._redacted(value) == as_text
+    assert core.redact_result(value) == walked
+
+
+def test_a_folded_cookie_line_keeps_the_next_lines_text():
+    # one_line removes secrets, folds the lines, then removes them again: the second pass must not
+    # take the next line's error as the cookie's value.
+    assert redact.one_line("Cookie: sess=abc123\nThe request was refused.") == "Cookie: [removed] The request was refused."

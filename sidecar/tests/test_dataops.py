@@ -3,9 +3,11 @@
 import datetime as dt
 import shutil
 import time
+import types
 
 import polars as pl
 import pytest
+import requests
 
 from fabric_desktop import dataops_service
 from fabric_desktop.meta import freshness
@@ -360,3 +362,46 @@ def test_a_table_missing_on_one_side_isnt_loaded_on_the_other(svc, monkeypatch):
     monkeypatch.setattr(type(svc), "_table", lambda *a: pytest.fail("the table was read into memory"))
     out = svc.meta_compare("silver.orders", "dev", "test")
     assert out["rows"]["right"] is None and out["rows"]["left"] > 0 and "the right" in out["note"]
+
+
+
+# ---- posting to Teams
+
+def _answer(status, body=None, headers=None):
+    return types.SimpleNamespace(status_code=status, headers=headers or {}, json=lambda: body if body is not None else {})
+
+
+def _teams(monkeypatch, answers):
+    """post_teams against a fake Teams webhook that gives ``answers`` in turn (a response or an error)."""
+    from fabric_desktop import retrying
+    sent = []
+
+    def post(url, json, timeout):
+        sent.append(url)
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    monkeypatch.setattr(dataops_service.http_session, "session", lambda: types.SimpleNamespace(post=post))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    return sent
+
+
+def test_teams_throttling_is_waited_out_through_the_shared_session(monkeypatch):
+    sent = _teams(monkeypatch, [_answer(429, headers={"Retry-After": "1"}), _answer(202)])
+    dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert len(sent) == 2
+
+
+def test_a_teams_5xx_is_sent_once_and_says_why_on_one_line(monkeypatch):
+    sent = _teams(monkeypatch, [_answer(503, {"error": {"message": "Service\n  unavailable"}}), _answer(202)])
+    with pytest.raises(RuntimeError) as raised:
+        dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert str(raised.value) == "Teams answered 503: Service unavailable" and len(sent) == 1
+
+
+def test_a_dropped_connection_to_teams_is_sent_once(monkeypatch):
+    sent = _teams(monkeypatch, [requests.ConnectionError("reset"), _answer(202)])
+    with pytest.raises(requests.ConnectionError):
+        dataops_service.post_teams("https://example.invalid/hook", "Title", ["line"])
+    assert len(sent) == 1

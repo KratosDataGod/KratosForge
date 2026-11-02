@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from . import access
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 MAX_TABLES = 500          # a first look, not an inventory: the biggest estates are read in part
 STALE_DAYS = 30
@@ -146,7 +150,8 @@ class Scanner:
             out += [base | {"schema": top["name"], "table": e["name"]} for e in inner if e["is_dir"]]
         try:
             has_files = bool(self.files(lh["workspace_id"], lh["lakehouse_id"], "Files"))
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - unknown: assume it has files, so no "no files" finding is made up
+            _log.warning("Couldn't list Files in %s / %s: %s", lh.get("workspace_name"), lh.get("lakehouse_name"), describe(exc))
             has_files = True
         return out, has_files
 
@@ -165,8 +170,9 @@ class Scanner:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], "lakehouse_id": lh["id"],
                          "lakehouse_name": lh["displayName"]} for lh in self.fabric.list_lakehouses(ws["id"])]
-            except Exception:
-                skipped.append(ws["name"])  # a paused capacity, or no access
+            except Exception as exc:  # noqa: BLE001 - a paused capacity, or no access: listed as skipped
+                _log.warning("X-ray skipped workspace %s: %s", ws["name"], describe(exc))
+                skipped.append(ws["name"])
                 return []
 
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
@@ -220,7 +226,8 @@ class Scanner:
         self.gate.wait()
         try:
             return self._tables(lh)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the scan goes on; the report lists it as skipped
+            _log.warning("X-ray skipped %s / %s: %s", lh["workspace_name"], lh["lakehouse_name"], describe(exc))
             skipped.append(f"{lh['workspace_name']} / {lh['lakehouse_name']}")
             return [], True
 

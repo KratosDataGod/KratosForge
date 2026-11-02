@@ -2,8 +2,10 @@
 
 import datetime as dt
 import json
+import sqlite3
 import threading
 import types
+from contextlib import closing
 
 import pytest
 
@@ -524,7 +526,7 @@ def test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalation
 def test_an_outbox_from_before_routes_is_upgraded_in_place(tmp_path):
     import sqlite3
     path = tmp_path / "alerts.sqlite3"
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, "
                    "attempts INTEGER DEFAULT 0, error TEXT)")
         db.execute("INSERT INTO outbox (created, title, lines, attempts, error) VALUES (?, 'old', '[\"x\"]', 1, 'down')",
@@ -729,3 +731,30 @@ def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, m
     assert item["error"].startswith("ConnectionError: ")  # what went wrong is kept
     for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
         assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked
+
+
+def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_path):
+    secret = "Login failed: password=hunter2\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123 " + "x" * 2000
+    c = {"change": "opened", "incident": {"kind": "run_failed", "name": "silver.orders", "env": "prod",
+                                          "title": "silver.orders failed in Prod\n" + secret, "text": secret, "owner": ""}}
+    posted, down = [], [True]
+
+    def post(url, title, lines):
+        if down[0]:
+            raise ConnectionError("no network")
+        posted.append((title, lines))
+    outbox = Outbox(tmp_path / "outbox.sqlite")
+    assert send([c], single("https://hook"), outbox, "KratosForge", post)["queued"] == 1
+    with closing(sqlite3.connect(tmp_path / "outbox.sqlite")) as db:
+        stored = json.dumps(db.execute("SELECT title, lines FROM outbox").fetchall())
+    down[0] = False
+    send([], single("https://hook"), outbox, "KratosForge", post)
+    for text in (stored, json.dumps(posted)):
+        assert "hunter2" not in text and "eyJhbGciOiJIUzI1NiJ9" not in text and "[removed]" in text
+    from fabric_desktop.dataops_service import teams_card
+    for title, lines in posted:  # as the card goes to Teams ("Delayed: " is added to the title)
+        blocks = teams_card(title, lines)["attachments"][0]["content"]["body"]
+        assert all("\n" not in b["text"] and len(b["text"]) <= 500 for b in blocks)
+    # a row an older build queued unredacted is cleaned when it's sent
+    card = json.dumps(teams_card("New: " + secret, [secret]))
+    assert "hunter2" not in card and "eyJhbGciOiJIUzI1NiJ9" not in card and "\\n" not in card

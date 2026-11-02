@@ -33,6 +33,15 @@ import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 
+from .. import sql_dialects
+
+
+def _duckdb(node: exp.Expr) -> str:
+    """``node`` as DuckDB SQL, refused when sqlglot would leave part of it out (#1253)."""
+    from .. import sql
+    return sql.duckdb_sql(node)
+
+
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,255}$")
 # Characters Fabric (Spark, the SQL endpoint) can't take in a column name without column mapping,
 # which is outside the Fabric-safe profile.
@@ -158,7 +167,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
                 parts += [c.name for c in cols]
         replace = bool(tree.args.get("replace"))
         return Write(target.db or None, target.name, "overwrite" if replace else "create",
-                     query.sql(dialect="duckdb"), if_not_exists=bool(tree.args.get("exists")), replace=replace,
+                     _duckdb(query), if_not_exists=bool(tree.args.get("exists")), replace=replace,
                      partition_by=parts)
     if isinstance(tree, exp.Insert):
         target = tree.this
@@ -170,7 +179,7 @@ def parse_tree(tree: exp.Expression, is_delta: Any) -> Write | None:
         if not isinstance(target, exp.Table) or not is_delta(target.db or None, target.name) or tree.expression is None:
             return None
         return Write(target.db or None, target.name, "overwrite" if tree.args.get("overwrite") else "append",
-                     tree.expression.sql(dialect="duckdb"), by_position=not tree.args.get("by_name"))
+                     _duckdb(tree.expression), by_position=not tree.args.get("by_name"))
     return None
 
 
@@ -183,9 +192,9 @@ def rewrite_as_of(sql: str, start: int = 0) -> tuple[str, list[AsOf]]:
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {exc}") from None
+        raise ValueError(f"Could not read the query's AT (VERSION/TIMESTAMP => ...) clause: {sql_dialects.parse_problem(exc)}") from None
     found = rewrite_tree(tree, start)
-    return (tree.sql(dialect="duckdb"), found) if found else (sql, [])
+    return (_duckdb(tree), found) if found else (sql, [])
 
 
 def rewrite_tree(tree: exp.Expression, start: int = 0) -> list[AsOf]:
@@ -369,6 +378,63 @@ def fits(source: pa.Schema, target: pa.Schema) -> list[str]:
         elif not _assignable(f.type, target.field(f.name).type):
             problems.append(f"{f.name} is {f.type}, the table has {target.field(f.name).type}")
     return problems
+
+
+def conversions(source: pa.Schema, target: pa.Schema) -> list[tuple[str, pa.DataType, pa.DataType]]:
+    """The columns of ``source`` whose values would change if they were added to a table of
+    ``target`` (EA-001): delta-rs casts an append to the table's types without saying so, so 2.75
+    in an INT column becomes 2, a timestamp in a DATE column loses its time, and '12' in an INT
+    column becomes 12. Each is (column, source type, table type). A type of the same kind that
+    holds every value (INT into BIGINT, FLOAT into DOUBLE, a date into a timestamp) is fine, and
+    so is a whole number delta-rs can't fit: it stops the write itself. Matched by lower-case
+    name; a column the table hasn't got is a schema change, not a conversion."""
+    table = {f.name.lower(): f.type for f in target}
+    return [(f.name, f.type, table[f.name.lower()]) for f in source
+            if f.name.lower() in table and not _keeps_values(f.type, table[f.name.lower()])]
+
+
+def _text(t: pa.DataType) -> bool:
+    return pa.types.is_string(t) or pa.types.is_large_string(t) or getattr(pa.types, "is_string_view", bool)(t)
+
+
+def _keeps_values(src: pa.DataType, dst: pa.DataType) -> bool:
+    if src.equals(dst) or pa.types.is_null(src):
+        return True
+    if pa.types.is_integer(src):
+        # Another whole number: delta-rs refuses one that doesn't fit. A float holds every whole
+        # number only up to its mantissa (24 bits in a float, 53 in a double), so a bigint into
+        # either, or an int into a float, can round (16777217 becomes 16777216).
+        if pa.types.is_integer(dst) or pa.types.is_decimal(dst):
+            return True
+        if pa.types.is_floating(dst):
+            return src.bit_width <= 16 or (src.bit_width <= 32 and dst.bit_width >= 64)
+        return False
+    if pa.types.is_floating(src):
+        return pa.types.is_floating(dst) and dst.bit_width >= src.bit_width
+    if pa.types.is_decimal(src):
+        # delta-rs refuses another precision or scale itself. A float rounds most decimals
+        # (decimal(38, 18) into a double keeps about 16 digits), and a whole number drops the fraction.
+        return pa.types.is_decimal(dst)
+    if pa.types.is_date(src):
+        return pa.types.is_date(dst) or pa.types.is_timestamp(dst)
+    if pa.types.is_timestamp(src):
+        return pa.types.is_timestamp(dst)
+    if _text(src):
+        return _text(dst)
+    if pa.types.is_binary(src) or pa.types.is_large_binary(src):
+        return pa.types.is_binary(dst) or pa.types.is_large_binary(dst)
+    if pa.types.is_boolean(src):
+        return pa.types.is_boolean(dst)
+    if pa.types.is_list(src) or pa.types.is_large_list(src):
+        return (pa.types.is_list(dst) or pa.types.is_large_list(dst)) and _keeps_values(src.value_type, dst.value_type)
+    if pa.types.is_map(src):
+        return pa.types.is_map(dst) and _keeps_values(src.key_type, dst.key_type) and _keeps_values(src.item_type, dst.item_type)
+    if pa.types.is_struct(src):
+        if not pa.types.is_struct(dst):
+            return False
+        fields = {f.name.lower(): f.type for f in dst}
+        return all(f.name.lower() not in fields or _keeps_values(f.type, fields[f.name.lower()]) for f in src)
+    return False
 
 
 def _numeric(t: pa.DataType) -> bool:

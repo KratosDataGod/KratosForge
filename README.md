@@ -75,7 +75,7 @@ Some files, folders and settings keep a legacy name so nothing breaks: [which on
 ```powershell
 git clone https://github.com/KratosDataGod/KratosForge
 cd KratosForge\sidecar
-python -m pip install -e ".[dev]"     # Python 3.11 or later
+python -m pip install -e ".[dev]"     # Python 3.12 or later
 python -m pytest -q                   # every test runs without Fabric
 ```
 

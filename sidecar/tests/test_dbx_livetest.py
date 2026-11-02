@@ -5,8 +5,10 @@ a person's, on a workspace they set aside for tests."""
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -257,3 +259,87 @@ def test_the_command_line_dry_run_signs_in_to_nothing(tmp_path, monkeypatch, cap
     assert "Dry run: nothing was signed in to, started or written." in capsys.readouterr().out
     assert code("--profile", "kf-test", "--dry-run") == 2
     assert code("--profile", "kf-test", "--host", HOST, "--warehouse", "wh1", "--dry-run") == 2
+
+# ---------------------------------------------------------------- this PC first (KF-DBX-PREFLIGHT)
+
+
+def _fake_cli(tmp_path):
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    exe = folder / ("databricks.exe" if sys.platform == "win32" else "databricks")
+    exe.write_text("")
+    exe.chmod(0o755)
+    return {"PATH": str(folder)}, str(exe)
+
+
+def _answers(stdout="Databricks CLI v0.230.0\n", code=0):
+    calls = []
+
+    def run(args, **kw):
+        calls.append(args)
+        assert kw.get("timeout") and kw.get("stdin") is not None
+        return SimpleNamespace(returncode=code, stdout=stdout, stderr="")
+    return run, calls
+
+
+def _cfg(tmp_path, text):
+    path = tmp_path / ".databrickscfg"
+    path.write_text(text)
+    return path
+
+
+PROFILE = {"platform": "databricks", "host": "", "credential": {"method": "cli-profile", "profile": "kf-test"}}
+
+
+def test_a_ready_pc_passes_every_check_and_only_asks_the_cli_its_version(tmp_path):
+    environ, exe = _fake_cli(tmp_path)
+    run, calls = _answers()
+    cfg = _cfg(tmp_path, f"[kf-test]\nhost = {HOST}\ntoken = " + "dapi" + "0" * 32 + "\n")
+    found = dl.pc_checks(PROFILE, environ=environ, cfg_path=cfg, run=run, version=(3, 12, 7))
+    assert all(ok for ok, _ in found), found
+    assert calls == [[exe, "--version"]]
+    text = " ".join(t for _, t in found)
+    assert "Python 3.12.7" in text and "0.230.0" in text and HOST in text and "dapi" not in text
+
+
+@pytest.mark.parametrize("version,stdout,code,cfg,want", [
+    ((3, 11, 9), None, 0, None, "needs 3.12 or later"),
+    ((3, 12, 0), "Databricks CLI v0.18.0\n", 0, None, "needs 0.205 or later"),
+    ((3, 12, 0), "Version 0.17.7\n", 2, None, "old Python databricks-cli"),
+    ((3, 12, 0), None, 0, "[other]\nhost = x\n", "no profile named 'kf-test'"),
+    ((3, 12, 0), None, 0, "[kf-test]\nhost = https://example.com\n", "Sign in with: databricks auth login"),
+])
+def test_each_missing_piece_is_named(tmp_path, version, stdout, code, cfg, want):
+    environ, _ = _fake_cli(tmp_path)
+    run, _ = _answers(stdout or "Databricks CLI v0.230.0\n", code)
+    path = _cfg(tmp_path, cfg or f"[kf-test]\nhost = {HOST}\n")
+    found = dl.pc_checks(PROFILE, environ=environ, cfg_path=path, run=run, version=version)
+    bad = [t for ok, t in found if not ok]
+    assert len(bad) == 1 and want in bad[0], found
+
+
+def test_no_cli_on_path_is_named_and_nothing_is_run(tmp_path):
+    run, calls = _answers()
+    found = dl.pc_checks(PROFILE, environ={"PATH": str(tmp_path)}, cfg_path=tmp_path / "none", run=run,
+                                   version=(3, 12, 0))
+    bad = [t for ok, t in found if not ok]
+    assert calls == [] and any("isn't on PATH" in t for t in bad) and any("no Databricks CLI configuration" in t
+                                                                         for t in bad)
+
+
+def test_a_host_sign_in_checks_the_address_not_a_profile(tmp_path):
+    environ, _ = _fake_cli(tmp_path)
+    run, _ = _answers()
+    conn = {"platform": "databricks", "host": HOST, "credential": {"method": "oauth-u2m"}}
+    assert all(ok for ok, _ in dl.pc_checks(conn, environ=environ, run=run, version=(3, 12, 0)))
+    conn["host"] = "https://evil.example.com"
+    assert not all(ok for ok, _ in dl.pc_checks(conn, environ=environ, run=run, version=(3, 12, 0)))
+
+
+def test_the_command_line_refuses_to_sign_in_when_this_pc_isnt_ready(monkeypatch, capsys):
+    monkeypatch.setattr(dl, "pc_checks", lambda conn: [(True, "Python ok."), (False, "No CLI.")])
+    monkeypatch.setattr(dba, "provider_for", lambda conn: pytest.fail("signed in on a PC that isn't ready"))
+    with pytest.raises(SystemExit) as exit:
+        cli.main(["live-test-databricks", "--profile", "kf-test", "--warehouse", "wh1", "--yes"])
+    out = capsys.readouterr().out
+    assert exit.value.code == 2 and "NO  No CLI." in out and "Nothing was signed in to or started." in out

@@ -1,6 +1,7 @@
 """Shortcut fixes: find a lakehouse that moved, repoint many at once, and accept a crossed environment."""
 
 import time
+from contextlib import closing
 
 import pytest
 
@@ -233,7 +234,8 @@ def test_an_older_platform_gets_the_new_table_and_columns(tmp_path):
     conn.close()
     p = LocalPlatform(path, lambda: "ana@contoso.com")
     assert p.call("list_shortcut_risks") == []
-    cols = {r[1] for r in sqlite3.connect(path).execute('PRAGMA table_info("catalog__shortcut")')}
+    with closing(sqlite3.connect(path)) as conn:
+        cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__shortcut")')}
     assert {"target_workspace_name", "target_lakehouse_name"} <= cols
 
 

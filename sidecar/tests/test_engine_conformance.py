@@ -41,6 +41,7 @@ def _sql_engine(engine: str, make: str) -> Harness:
         engine, lambda: registry.adapter(engine), lambda a: a.open_session(SessionConfig("nb")),
         ok_cell=sql("SELECT 1 AS id, 'a' AS name"), error_cell=sql("SELECT * FROM no_such_table"),
         refused_cells=(CellRequest("print(1)", "python"), sql("SELECT 1", "tsql")),
+        result_cell=sql("SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3"),
         leave_state=leave, sees_state=lambda s: "kudp_probe" in tables(s))
 
 
@@ -114,14 +115,17 @@ def databricks_connect(tmp_path, monkeypatch):
 def fabric_spark(tmp_path, monkeypatch):
     monkeypatch.setattr(app_settings, "value", lambda key: True if key == "allow_fabric_runs" else None)
     livy = fs_t.FakeLivy()
+    failing = fs_t.FakeLivy()
+    failing.error_text = "[TABLE_OR_VIEW_NOT_FOUND] no_such_table; Authorization: Bearer " + fs_t.TOKEN + " " + _JWT
     config = SessionConfig("nb", options={"workspace_id": fs_t.WS, "lakehouse_id": fs_t.LH})
     return Harness(
         "fabric-spark", lambda: fs_t.adapter(livy), lambda a: a.open_session(config, fs_t.ok()),
         ok_cell=CellRequest("print('hi')", "pyspark"), error_cell=CellRequest("boom", "python"),
         refused_cells=(CellRequest("x", "r"), sql("SELECT 1", "tsql")),
         result_cell=sql("SELECT id, name, amount FROM sales"),
+        open_failing=lambda _a: fs_t.adapter(failing).open_session(config, fs_t.ok()),
         open_unauthorized=lambda a: a.open_session(config), contacted=lambda: len(livy.calls),
-        secrets=(fs_t.TOKEN,))
+        secrets=(fs_t.TOKEN, _JWT))
 
 
 def _runtimes(tmp_path):
@@ -222,3 +226,49 @@ def _overclaiming_harness():
 def test_an_adapter_that_overclaims_fails_the_checks(check, message):
     with pytest.raises(AssertionError, match=message):
         CHECKS[check](_overclaiming_harness())
+
+
+class _Cutting:
+    """Returns the first rows asked for when the result has more, instead of an error."""
+
+    def __init__(self):
+        self.engine, self.closed = "local-duckdb", False
+
+    def open_session(self, config, authorization=None):
+        return self
+
+    def execute(self, request, on_output=None):
+        import pyarrow as pa
+        rows = min(request.result_rows, 3)
+        return CellResult("ok", [], 0.0, rows, self.engine, table=pa.table({"i": list(range(rows))}))
+
+    def close(self):
+        self.closed = True
+
+
+def test_an_engine_that_cuts_a_result_fails_the_checks():
+    h = Harness("local-duckdb", _Cutting, lambda a: a.open_session(SessionConfig("nb")),
+                ok_cell=sql("SELECT 1"), error_cell=sql("SELECT nope"))
+    with pytest.raises(AssertionError, match="came back 'ok'"):
+        CHECKS["result_never_cut"](h)
+
+
+def test_a_remote_engine_that_sends_a_refused_cell_to_the_platform_fails_the_checks():
+    sent = []
+
+    class Chatty:
+        engine, closed = "databricks-sql", False
+
+        def execute(self, request, on_output=None):
+            sent.append(request)    # reached the warehouse before saying no
+            return CellResult("error", [{"type": "error", "ename": "Unsupported", "evalue": "no tsql"}],
+                              0.0, None, self.engine)
+
+        def close(self):
+            self.closed = True
+
+    h = Harness("databricks-sql", lambda: None, lambda _a: Chatty(), ok_cell=sql("SELECT 1"),
+                error_cell=sql("SELECT nope"), refused_cells=(sql("SELECT 1", "tsql"),),
+                contacted=lambda: len(sent))
+    with pytest.raises(AssertionError, match="sent a sql/tsql cell it can't run to the platform"):
+        CHECKS["refused"](h)

@@ -26,12 +26,18 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
 import uuid
 from typing import Any, Callable
+
+import requests
+
+from .retrying import TRANSIENT_STATUS, send_with_retry
 
 TABLE = "WarehouseExecutions"
 HOST_SUFFIX = ".kusto.fabric.microsoft.com"
 MAX_ROWS = 500
+QUERY_ATTEMPTS = 3  # each try can take up to its 90 s timeout, so three keep a view under five minutes
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _NS = uuid.UUID("6f1d2a8e-4b8f-4c55-9d43-2b0c5e7a9f10")  # tab and data source ids: the same ones on every build
 WINDOWS = {"1h": "1h", "24h": "24h", "7d": "7d", "30d": "30d"}
@@ -182,15 +188,27 @@ def merge(current: dict[str, Any], source: dict[str, str], tabs: list[dict[str, 
     return {**current, "dataSources": [source, *sources], "tabs": [*tabs, *kept]}
 
 
-def query(post: Callable[..., Any], cluster_uri: str, database: str, kql: str, token: str) -> dict[str, Any]:
+def query(post: Callable[..., Any], cluster_uri: str, database: str, kql: str, token: str,
+          sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """Run ``kql`` (one of this module's views) on a KQL database, read-only, and return its first
-    table as {columns: [{name, type}], rows, truncated}. ``post`` is requests' post."""
+    table as {columns: [{name, type}], rows, truncated}. ``post`` is requests' post. The query only
+    reads, so it is sent again after throttling (as Retry-After says), a 5xx, a timeout or a dropped
+    connection, like every other Fabric read (retrying.send_with_retry)."""
     uri = cluster(cluster_uri)
     props = {"Options": {"request_readonly": True, "servertimeout": "00:01:00", "truncationmaxrecords": MAX_ROWS + 1}}
-    resp = post(f"{uri}/v1/rest/query", json={"db": database, "csl": kql, "properties": json.dumps(props)},
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
-                         "x-ms-app": "KratosForge", "x-ms-client-request-id": f"KratosForge;{uuid.uuid4()}"},
-                timeout=90)
+    body = {"db": database, "csl": kql, "properties": json.dumps(props)}
+
+    def send() -> Any:  # a new request id on every try, as Kusto asks
+        return post(f"{uri}/v1/rest/query", json=body,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                             "x-ms-app": "KratosForge", "x-ms-client-request-id": f"KratosForge;{uuid.uuid4()}"},
+                    timeout=90)
+
+    try:
+        resp = send_with_retry(send, "POST", sleep=sleep, attempts=QUERY_ATTEMPTS, safe=True)
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        raise RuntimeError(f"The monitoring database couldn't be reached after {QUERY_ATTEMPTS} tries. "
+                           f"Try again in a minute. ({type(exc).__name__})") from None
     if resp.status_code >= 400:
         raise RuntimeError(_kusto_error(resp))
     tables = (resp.json() or {}).get("Tables") or []
@@ -212,6 +230,9 @@ def _kusto_error(resp: Any) -> str:
     if resp.status_code in (401, 403):
         return ("The monitoring database didn't let you read it. Reading it needs at least the Contributor role "
                 "in the workspace, or the KQL database shared with you." + (f" ({message})" if message else ""))
+    if resp.status_code in TRANSIENT_STATUS:
+        return (f"The monitoring database is busy or out of reach (it answered {resp.status_code} after "
+                f"{QUERY_ATTEMPTS} tries). Try again in a minute." + (f" ({message})" if message else ""))
     return f"The monitoring database answered {resp.status_code}" + (f": {message}" if message else ".")
 
 

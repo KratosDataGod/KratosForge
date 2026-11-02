@@ -33,6 +33,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from .. import redact
+from ..retrying import send_remote
 from .authorization import require
 from .capabilities import EngineDescriptor, Support
 from .contract import RESULT_BYTES, CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
@@ -98,28 +99,73 @@ class FabricSparkError(RuntimeError):
     """Fabric refused or failed a request; the message says what to check."""
 
 
+_UNTRACKED = ("The cell may still run in Fabric, and it can't be followed or cancelled from here: stop the "
+              "engine to end the session.")
+
+
+class NotLivyReply(FabricSparkError):
+    """A 2xx reply that isn't the JSON object Livy documents."""
+
+
 def _checked(value: str, pattern: re.Pattern[str], what: str) -> str:
     if not isinstance(value, str) or not pattern.fullmatch(value):
         raise FabricSparkError(f"That isn't a Fabric {what} ID.")
     return value
 
 
-class LivyClient:
-    """The Livy calls for one lakehouse. Writes are sent once; errors never quote the token."""
+_MESSAGE_MAX = 300  # characters of Livy's own message in an error
 
-    def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None):
+
+def _one_line(text: str) -> str:
+    """Livy's message as part of one line: whitespace and control characters folded, cut to _MESSAGE_MAX."""
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return text if len(text) <= _MESSAGE_MAX else text[:_MESSAGE_MAX - 1].rstrip() + "…"
+
+
+class LivyClient:
+    """The Livy calls for one lakehouse. A write is sent again only after a 429; errors never quote the token."""
+
+    def __init__(self, token: Callable[[], str], workspace_id: str, lakehouse_id: str, http: Any = None,
+                 sleep: Callable[[float], None] = time.sleep, refresh: Callable[[], str] | None = None):
         if http is None:
             from ..http_session import session
             http = session()
         self._token = token
+        # A new token after a 401 (as FabricClient): Fabric refused the call unread, so it is sent once more.
+        self._refresh = refresh
         self._http = http
+        self._sleep = sleep
+        self.stopped: Callable[[], bool] = lambda: False  # the session points this at its Cancel
         self.base = (f"{API}/workspaces/{_checked(workspace_id, _GUID, 'workspace')}/lakehouses/"
                      f"{_checked(lakehouse_id, _GUID, 'lakehouse')}/{LIVY}/sessions")
 
-    def _call(self, method: str, path: str = "", **kwargs: Any) -> dict[str, Any]:
-        headers = {"Authorization": f"Bearer {self._token()}"}
+    def _fresh_token(self) -> str:
+        """A new token, or "" when none can be had without the person: the 401 then says to sign in again."""
         try:
-            resp = self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
+            return (self._refresh or (lambda: ""))() or ""
+        except Exception:  # noqa: BLE001  # silent-ok: the caller reports the original 401 and says to sign in again
+            return ""
+
+    def _call(self, method: str, path: str = "", repeatable: bool | None = None, **kwargs: Any) -> dict[str, Any]:
+        """One Livy call. Throttling (429) is tried again; 502/503/504 too when the call is
+        ``repeatable`` (left out: GETs are). Cancels and deletes are never cut short by Cancel itself."""
+        if repeatable is None:
+            repeatable = method == "GET"
+        undo = method == "DELETE" or path.endswith("/cancel")
+        token = self._token()
+        headers = {"Authorization": f"Bearer {token}"}
+
+        def send() -> Any:
+            return self._http.request(method, self.base + path, headers=headers, timeout=60, **kwargs)
+        stop = (lambda: False) if undo else self.stopped
+        try:
+            resp, tries = send_remote(send, repeatable, self._sleep, stop)
+            if resp.status_code == 401 and self._refresh is not None:
+                fresh = self._fresh_token()
+                if fresh and fresh != token:  # once, and only with a token that is actually new
+                    headers["Authorization"] = f"Bearer {fresh}"
+                    resp, more = send_remote(send, repeatable, self._sleep, stop)
+                    tries += more
         except Exception as exc:  # noqa: BLE001 - a network failure becomes the person's message
             raise FabricSparkError(f"Couldn't reach Fabric: {type(exc).__name__}.") from None
         if resp.status_code >= 400:
@@ -127,16 +173,25 @@ class LivyClient:
                 body = resp.json()
             except ValueError:
                 body = {}
-            message = redact.secrets(str(body.get("message") or "")) if isinstance(body, dict) else ""
+            message = _one_line(redact.secrets(str(body.get("message") or ""))) if isinstance(body, dict) else ""
             hint = {401: "Sign in again.", 403: "You need Contributor on the workspace.",
                     404: "Check the workspace and lakehouse.", 429: "The capacity is busy; try again shortly.",
                     430: "The capacity's Spark limit is reached; close another session or try later."}
-            raise FabricSparkError(f"Fabric refused the request (HTTP {resp.status_code}). "
-                                   + (f"{message} " if message else "") + hint.get(resp.status_code, ""))
-        try:
-            return resp.json() if resp.content else {}
-        except ValueError:
+            raise FabricSparkError((f"Fabric refused the request (HTTP {resp.status_code}). "
+                                    + (f"{message} " if message else "") + hint.get(resp.status_code, "")).rstrip()
+                                   + (f" Tried {tries} times." if tries > 1 else ""))
+        if not resp.content:
             return {}
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            # A proxy's sign-in page or a gateway's error page: never read as an empty answer, and its
+            # text isn't repeated (it may echo the request).
+            raise NotLivyReply(f"Fabric answered with something other than the JSON object Livy documents "
+                               f"(HTTP {resp.status_code}). Check the network or proxy between this PC and Fabric.")
+        return body
 
     def create(self, name: str, conf: dict[str, str]) -> dict[str, Any]:
         return self._call("POST", json={"name": name, "conf": conf})
@@ -151,10 +206,11 @@ class LivyClient:
         return self._call("GET", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}")
 
     def cancel(self, sid: str, n: str) -> None:
-        self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}/cancel")
+        self._call("POST", f"/{_checked(sid, _ID, 'session')}/statements/{_checked(n, _ID, 'statement')}/cancel",
+                   repeatable=True)
 
     def delete(self, sid: str) -> None:
-        self._call("DELETE", f"/{_checked(sid, _ID, 'session')}")
+        self._call("DELETE", f"/{_checked(sid, _ID, 'session')}", repeatable=True)
 
 
 def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, Any]], int | None]:
@@ -171,12 +227,19 @@ def _outputs(output: dict[str, Any], preview_rows: int) -> tuple[list[dict[str, 
         from .local_sql import _table_output
         fields = [str(f.get("name")) for f in (table.get("schema") or {}).get("fields") or []]
         rows = table["data"]
-        try:
-            arrow = pa.Table.from_pylist([dict(zip(fields, r)) for r in rows[:preview_rows]]) if rows else \
-                pa.table({f: pa.array([], pa.string()) for f in fields})
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            arrow = pa.table({f: pa.array([None if r[i] is None else str(r[i]) for r in rows[:preview_rows]],
-                                          pa.string()) for i, f in enumerate(fields)})
+        if any(not isinstance(r, list) or len(r) != len(fields) for r in rows):
+            # Never NULLs Fabric didn't send, nor a value cut off (#1369).
+            return [{"type": "error", "ename": "FabricSparkError",
+                     "evalue": "Fabric sent a result that doesn't have one value per column."}], None
+        shown = rows[:preview_rows]
+        arrays = []
+        for i in range(len(fields)):   # by position, so columns that share a name all stay (#1369)
+            values = [r[i] for r in shown]
+            try:
+                arrays.append(pa.array(values) if values else pa.array([], pa.string()))
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                arrays.append(pa.array([None if v is None else str(v) for v in values], pa.string()))
+        arrow = pa.Table.from_arrays(arrays, names=fields) if fields else pa.table({})
         return [_table_output(arrow, len(rows))], len(rows)
     text = data.get("text/plain")
     return ([{"type": "stream", "text": str(text)}] if text not in (None, "") else []), None
@@ -275,8 +338,12 @@ class FabricSparkSession:
         self._statement = ""
         self._cancelled = False
         self._closed = False
+        client.stopped = lambda: self._cancelled
         conf = {k: str(v) for k, v in (config.options.get("conf") or {}).items()}
-        created = client.create(f"KratosForge {config.notebook}"[:100], conf)
+        try:
+            created = client.create(f"KratosForge {config.notebook}"[:100], conf)
+        except NotLivyReply:
+            created = {}   # the request reached Fabric's side, so a session may exist: say so below
         self.id = str(created.get("id", ""))
         if not self.id:
             self._closed = True
@@ -315,6 +382,8 @@ class FabricSparkSession:
         whole = request.result_rows > 0
         if whole and request.language != "sql":
             raise Unsupported("Fabric Spark returns whole results for SQL cells only.")
+        if not request.code.strip():
+            raise Unsupported("There's no code in this cell, so nothing was sent to Fabric.")
         code = _result_code(request.code, request.result_rows) if whole else request.code
         kind = "pyspark" if whole else kind
         if not self._lock.acquire(blocking=False):
@@ -323,22 +392,34 @@ class FabricSparkSession:
         started = self._clock()
         t0 = time.perf_counter()
         try:
-            reply = self._client.submit(self.id, code, kind)
+            try:
+                reply = self._client.submit(self.id, code, kind)
+            except NotLivyReply as exc:
+                raise FabricSparkError(f"{exc} {_UNTRACKED}") from None
             self._statement = str(reply.get("id", ""))
-            if self._cancelled:
-                self._client.cancel(self.id, self._statement)
+            if not _ID.fullmatch(self._statement):
+                self._statement = ""
+                raise FabricSparkError(f"Fabric took the cell but didn't say which statement it is. {_UNTRACKED}")
+            if self._cancelled:  # Cancel was pressed while the cell was being sent
+                try:
+                    self._client.cancel(self.id, self._statement)
+                except Exception:  # noqa: BLE001 - a refused cancel must not hide that the cell may still run
+                    raise FabricSparkError(self._abandon(FabricSparkError("Cancelled."))) from None
             while reply.get("state") not in ("available", "error", "cancelled"):
                 if self._clock() - started > self._max_seconds:
-                    self._client.cancel(self.id, self._statement)
-                    raise FabricSparkError(f"The cell was still running after {self._max_seconds / 60:.0f} minutes, "
-                                           "so it was cancelled.")
+                    raise FabricSparkError(self._abandon(FabricSparkError(
+                        f"The cell was still running after {self._max_seconds / 60:.0f} minutes.")))
                 self._sleep(POLL_SECONDS)
-                reply = self._client.statement(self.id, self._statement)
+                try:
+                    reply = self._client.statement(self.id, self._statement)
+                except Exception as exc:  # noqa: BLE001 - any failed poll (network, sign-in) stops the statement
+                    raise FabricSparkError(self._abandon(exc)) from None
         except FabricSparkError as exc:
             out = {"type": "error", "ename": "FabricSparkError", "evalue": str(exc)}
             if on_output:
                 on_output(out)
-            return CellResult("error", [out], time.perf_counter() - t0, None, self.engine)
+            return CellResult("cancelled" if self._cancelled else "error", [out], time.perf_counter() - t0, None,
+                              self.engine)
         finally:
             self._statement = ""
             self._lock.release()
@@ -366,6 +447,18 @@ class FabricSparkSession:
             return [{"type": "error", "ename": type(exc).__name__, "evalue": str(exc)}], None, None, "error"
         note = [{"type": "stream", "text": f"Kept as text: {', '.join(as_text)}.\n"}] if as_text else []
         return [*note, _table_output(table.slice(0, request.preview_rows), table.num_rows)], table.num_rows, table, "ok"
+
+    def _abandon(self, exc: Exception) -> str:
+        """The failed poll's (or time limit's, or failed Cancel's) message, once the statement has been asked
+        to stop: a statement this PC
+        lost track of must not keep the session busy (and using capacity) with no one watching it."""
+        problem = str(exc) if isinstance(exc, FabricSparkError) else f"Couldn't check the cell: {type(exc).__name__}."
+        try:
+            self._client.cancel(self.id, self._statement)
+        except Exception:  # noqa: BLE001 - the first failure is the one to report
+            return (f"{problem} The cell may still be running in the Fabric Spark session: stop it from "
+                    "the Monitor hub in Fabric, or close the session here.")
+        return f"{problem} The cell was stopped in Fabric."
 
     def cancel(self) -> bool:
         if not self._lock.locked():
@@ -407,8 +500,9 @@ class FabricSparkAdapter:
 
     def __init__(self, token: Callable[[], str] | None = None,
                  client_for: Callable[[str, str], LivyClient] | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, refresh: Callable[[], str] | None = None):
         self._token = token
+        self._refresh = refresh
         self._client_for = client_for
         self._sleep = sleep
 
@@ -426,7 +520,7 @@ class FabricSparkAdapter:
         if self._client_for is not None:
             client = self._client_for(ws, lh)
         elif self._token is not None:
-            client = LivyClient(self._token, ws, lh)
+            client = LivyClient(self._token, ws, lh, sleep=self._sleep, refresh=self._refresh)
         else:
             raise Unsupported("Fabric Spark sessions use the app's Fabric sign-in. Sign in first.")
         return FabricSparkSession(config, client, self._sleep)

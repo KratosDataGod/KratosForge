@@ -791,10 +791,13 @@ async function gitOpenCommit(commit) {
   render();
 }
 
+// The row isn't a button itself: it holds the Open button, and a button can't hold another (axe
+// nested-interactive). The file's name is the button that shows its changes; a click anywhere else
+// on the row does the same.
 function gitFileList(files, base, target) {
-  return h("div", {}, files.map((f) => h("div", { class: `git-file${gitPage.selected?.path === f.path && gitPage.selected.target === target ? " on" : ""}`, role: "button", tabindex: "0",
+  return h("div", {}, files.map((f) => h("div", { class: `git-file${gitPage.selected?.path === f.path && gitPage.selected.target === target ? " on" : ""}`,
     onclick: () => { gitPage.selected = { path: f.path, group: "commit", base, target }; gitPage.diff = null; render(); gitLoadDiff(); } },
-    h("span", { class: "git-name" }, f.path), h("b", { class: `git-mark ${f.state.replace(" ", "-")}` }, GIT_MARK[f.state] || "M"),
+    h("button", { class: "git-name", title: `Show the changes to ${f.path}` }, f.path), h("b", { class: `git-mark ${f.state.replace(" ", "-")}` }, GIT_MARK[f.state] || "M"),
     h("span", { class: "git-actions" }, f.state !== "deleted" ? h("button", { class: "tool small", title: "Open this version (read-only)", "aria-label": `Open ${f.path} at this commit`,
       onclick: (e) => { e.stopPropagation(); gitShowVersion(target, f.path); } }, icon("open", 14)) : null))));
 }
@@ -1084,18 +1087,23 @@ async function gitLocationsDialog(root, label, after) {
       workspaces.map((w) => opt(w.id, w.displayName, cur?.workspace_id === w.id)));
     const lh = h("select", { "aria-label": `${env} lakehouse` });
     const sql = h("select", { "aria-label": `${env} SQL database` });
+    // The saved lakehouse and SQL database stay picked while Fabric's lists load, and when a list
+    // doesn't show them, so saving never drops a location nobody changed.
+    const saved = (key, list = []) => cur && ws.value === cur.workspace_id && cur[`${key}_id`] && !list.some((x) => x.id === cur[`${key}_id`])
+      ? [opt(cur[`${key}_id`], cur[`${key}_name`] || cur[`${key}_id`], true)] : [];
     const fill = async () => {
-      lh.replaceChildren(opt("", "—", true));
-      sql.replaceChildren(opt("", "none", true));
+      const [keepLh, keepSql] = [saved("lakehouse"), saved("sql")];
+      lh.replaceChildren(opt("", "—", !keepLh.length), ...keepLh);
+      sql.replaceChildren(opt("", "none", !keepSql.length), ...keepSql);
       lh.disabled = sql.disabled = !ws.value || ws.value === "this_pc";
       if (lh.disabled) return;
       const id = ws.value;
       const [lakes, items] = await Promise.all([rpc("list_lakehouses", { workspace_id: id }).catch(() => []),
         rpc("list_items", { workspace_id: id }).catch(() => [])]);
       if (ws.value !== id) return;
-      lh.replaceChildren(opt("", "—", !cur?.lakehouse_id), ...lakes.map((l) => opt(l.id, l.displayName, cur?.lakehouse_id === l.id)));
-      sql.replaceChildren(opt("", "none", !cur?.sql_id), ...(items || []).filter((i) => i.type === "SQLDatabase")
-        .map((i) => opt(i.id, i.displayName, cur?.sql_id === i.id)));
+      const dbs = (items || []).filter((i) => i.type === "SQLDatabase");
+      lh.replaceChildren(opt("", "—", !cur?.lakehouse_id), ...saved("lakehouse", lakes), ...lakes.map((l) => opt(l.id, l.displayName, cur?.lakehouse_id === l.id)));
+      sql.replaceChildren(opt("", "none", !cur?.sql_id), ...saved("sql", dbs), ...dbs.map((i) => opt(i.id, i.displayName, cur?.sql_id === i.id)));
     };
     ws.onchange = fill;
     fill();
@@ -1204,7 +1212,7 @@ function gitCapacityTab(st) {
     c ? h("span", { class: "muted-text small" }, `Read from Fabric at ${read} · ${c.same} same · ${c.differs} differ · ${c.not_in_git} not in Git · ${c.not_visible} not visible to you`) : null,
     h("span", { class: "spacer" }),
     btn("Refresh", "sync", gitCapacityReload, "tool outline small"),
-    d ? btn("Copy report", "copy", () => gitCapacityCopy(d), "tool outline small") : null,
+    d ? btn("Copy report", "copyArrowRight", () => gitCapacityCopy(d), "tool outline small") : null,
     btn("Write Fabric's state to capacity.toml…", "arrowDownload", () => gitCapacityWrite(st.root), "tool primary")),
     h("p", { class: "muted-text small" }, "It only reads: no capacity is changed and no workspace is moved. Fix drift in the Fabric admin portal, or edit capacity.toml and commit if Git is the one that's wrong."));
   const how = howItWorks("source.capacity", {

@@ -25,8 +25,15 @@ A lesson marked **Draft** is still being written and may change.
 | LM-03 | Joins without surprise row counts | Data Fundamentals | SQ006 |
 | LM-04 | Grouping and aggregation | Data Fundamentals | SQ009 |
 | LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
+| LM-13 | NULL: the value that isn't there | Data Fundamentals | |
+| LM-14 | Dates, times and time zones | Data Fundamentals | SQ002 |
 | LAB-01 | From raw data to a checked answer: find six planted problems, then a clean answer | Data Fundamentals | |
+| LM-15 | Window functions: running totals and rankings | SQL Development | |
+| LM-16 | CTEs: queries you can read top to bottom | SQL Development | SQ002 |
+| LM-17 | Anti-joins and safe de-duplication | SQL Development | |
+| LM-18 | Reading a query plan | SQL Development | SQ006 |
 | LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
+| LAB-05 | Build a type 2 slowly changing dimension: close the old row, add the new one | SQL Development | |
 | LM-06 | Lakehouses and the medallion layers | Microsoft Fabric | |
 | LM-07 | OneLake and Delta tables: files and a log | Microsoft Fabric | NB020 |
 | LM-08 | Notebooks: let the engine do the work | Microsoft Fabric | NB003 |

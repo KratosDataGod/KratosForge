@@ -206,7 +206,8 @@
         "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a",
         "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.",
         "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).",
-        "Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f"
+        "Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f",
+        "Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check"
       ],
       "features": [
         "FEAT-AUTH-03"
@@ -5749,7 +5750,8 @@
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
         "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
         "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)",
-        "Lab time and memory limits now have tests (#1552) on main at 32cbd98f"
+        "Lab time and memory limits now have tests (#1552) on main at 32cbd98f",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept"
       ],
       "features": [
         "FEAT-DEV-04",

@@ -346,9 +346,17 @@ class Store:
             return {} if current is None else \
                 {f.name.lower(): f.type for f in pa.schema(current.schema().to_arrow())}
         try:
-            return local_delta.delta_safe(columns, existing if append else None)
+            safe = local_delta.delta_safe(columns, existing if append else None)
         except ValueError as exc:
             raise ValueError(f"Table {schema}.{table}: {exc}") from None
+        if append:
+            # An append or a MERGE keeps the table's types, and delta-rs would cast to them without a
+            # word (EA-001): stop one that would change values, as write_table does.
+            current = open_table(uri, self.options())
+            if current is not None:
+                from ..publish import refuse_conversions
+                refuse_conversions(safe, current, f"{schema}.{table}")
+        return safe
 
     def _merge_source(self, uri: str, schema: str, table: str, df: pl.DataFrame) -> pa.Table:
         """``df`` as Arrow a MERGE can take: types made Fabric-safe as for an append, so a TIME column

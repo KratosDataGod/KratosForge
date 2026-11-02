@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-01",
+  "updated": "2026-11-02",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -205,7 +205,9 @@
         "auth.py writes a plain cache file",
         "PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a",
         "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.",
-        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save)."
+        "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).",
+        "Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f",
+        "Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check"
       ],
       "features": [
         "FEAT-AUTH-03"
@@ -243,7 +245,10 @@
         "priority": "P1"
       },
       "prs": [
-        593
+        593,
+        1554,
+        1557,
+        1590
       ]
     },
     {
@@ -4310,7 +4315,8 @@
         "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
         "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
         "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
-        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949"
+        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
+        "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4392,7 +4398,31 @@
         1490,
         1498,
         1502,
-        1512
+        1512,
+        1572,
+        1573,
+        1576,
+        1578,
+        1582,
+        1583,
+        1585,
+        1586,
+        1588,
+        1591,
+        1598,
+        1599,
+        1600,
+        1602,
+        1608,
+        1610,
+        1612,
+        1613,
+        1615,
+        1618,
+        1619,
+        1620,
+        1621,
+        1628
       ]
     },
     {
@@ -4444,7 +4474,8 @@
       "capability": "Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.",
       "evidence": [
         "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
-        "Backlog not yet pushed (push freeze)"
+        "Backlog not yet pushed (push freeze)",
+        "Enterprise engineering audit baseline (#1571, docs/audits/): readiness scorecard 54/100 at b75dcf5 and the EA-nnn remediation backlog; EA fixes, the hashed engine build (#1573, #1636, #1637), type-check slices and redaction merged on main at 32cbd98f"
       ],
       "features": [
         "FEAT-SHL-09",
@@ -4579,7 +4610,32 @@
         1546,
         1547,
         1548,
-        1549
+        1549,
+        1555,
+        1556,
+        1559,
+        1560,
+        1561,
+        1567,
+        1569,
+        1570,
+        1571,
+        1574,
+        1575,
+        1577,
+        1581,
+        1584,
+        1589,
+        1593,
+        1597,
+        1606,
+        1617,
+        1624,
+        1627,
+        1630,
+        1636,
+        1637,
+        1638
       ],
       "issues": [
         910,
@@ -4822,7 +4878,8 @@
         1535,
         1536,
         1537,
-        1544
+        1544,
+        1565
       ]
     },
     {
@@ -5684,14 +5741,17 @@
         1140,
         1158,
         1159,
-        1160
+        1160,
+        1552
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
       "capability": "A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
         "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
-        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)"
+        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)",
+        "Lab time and memory limits now have tests (#1552) on main at 32cbd98f",
+        "Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -5702,7 +5762,7 @@
       ],
       "acceptance": [
         "The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)",
-        "A lab runs on this PC with generated data, with no file or network access (test_learn_labs)",
+        "A lab runs on this PC with generated data, with no file or network access, and a run or check stops at 30 seconds with memory held at 1 GB (test_learn_labs, including test_a_run_and_a_check_are_stopped_at_the_time_limit and test_the_limits_are_30_seconds_and_1gb_and_an_answer_cant_raise_the_memory)",
         "Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)",
         "Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)",
         "docs/learn.md and docs/learn/writing-lessons.md match the code"
@@ -5777,7 +5837,16 @@
         1517,
         1518,
         1528,
-        1531
+        1531,
+        1562,
+        1566,
+        1579,
+        1587,
+        1601,
+        1607,
+        1609,
+        1625,
+        1626
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",

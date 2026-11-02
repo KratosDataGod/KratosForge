@@ -44,7 +44,7 @@ from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, refuse_spark_hashes
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -563,7 +563,10 @@ class LocalEngine:
                     _one_read(con, statements)
                 result: duckdb.DuckDBPyConnection | duckdb.DuckDBPyRelation | None = None
                 for i, step in enumerate(statements):
-                    if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
+                    # Between statements, or before DuckDB saw the interrupt: DuckDB drops an interrupt
+                    # that comes before a statement starts, so a limit that ran out while the query was
+                    # being read and checked would otherwise let it run on.
+                    if state["cancelled"] or state["timed_out"]:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
                     as_of += self._make_as_of(con, step["as_of"])
@@ -642,6 +645,7 @@ class LocalEngine:
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
+                refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)
                 change = self._own_change(delta_dml.parse_tree(tree))

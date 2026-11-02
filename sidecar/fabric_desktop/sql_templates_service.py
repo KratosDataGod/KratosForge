@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import re
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -176,10 +175,7 @@ class SqlTemplatesMixin:
     @staticmethod
     def _write_over(path: Path, text: str) -> None:
         """Replaces ``path`` in one step, through a fresh temp file (never one, or a link, already there)."""
-        tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
-        with open(tmp, "x", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        jsonfile.replace(tmp, path)
+        jsonfile.write_text(path, text, newline="\n")
 
     def sql_templates_list(self) -> dict[str, Any]:
         """Every template in every place, and the places a template can be saved to. A file that

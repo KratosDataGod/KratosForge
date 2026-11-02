@@ -223,7 +223,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
             _truncated(node, info.this.type)
-            _sized_text(node, info.this.type)
+            _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes
 
 
@@ -231,9 +231,27 @@ def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
     """``CAST(3.7 AS INT)`` is 3 in T-SQL, which cuts a decimal or float toward zero on the way to an
     integer type; DuckDB rounds it to 4. TRUNC first, so -3.7 is -3 as well."""
     to = node.args.get("to")
-    if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-            and _is(source, _NUMBERS - _INTEGERS):
+    if not (isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT}):
+        return
+    if _is(source, _NUMBERS - _INTEGERS):
         node.set("this", exp.Trunc(this=node.this))
+    elif _is(source, _TEXT):
+        _whole_text(node, to)
+
+
+def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
+    """Text to an integer type: T-SQL takes only a whole number, with spaces around it, and '' as 0;
+    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4."""
+    text = node.this
+    whole = exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
+    blank = exp.EQ(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string(""))
+    message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
+    other: exp.Expression = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
+    node.replace(exp.Case(ifs=[exp.If(this=whole, true=node.copy()),
+                               exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
+                               exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Cast(
+                                   this=exp.Null(), to=to.copy()))],
+                          default=other))
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}

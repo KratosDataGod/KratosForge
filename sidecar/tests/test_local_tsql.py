@@ -140,6 +140,17 @@ def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
     assert r["rows"] == [[7, "4"]]  # decimals come back as text; T-SQL rounds to a DECIMAL with a smaller scale
 
 
+def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
+    """CAST('3.7' AS INT) fails in T-SQL (DuckDB gives 4); spaces around a whole number are fine, and
+    '' is 0. TRY_CAST and TRY_CONVERT give NULL where CAST fails."""
+    r = tsql(engine, "SELECT CAST(' -5 ' AS INT) AS a, CAST('+7' AS BIGINT) AS b, CAST('' AS INT) AS c, "
+                     "CAST(CAST(NULL AS VARCHAR) AS INT) AS d, TRY_CAST('3.7' AS INT) AS e, TRY_CONVERT(INT, '1e3') AS f")
+    assert r["rows"] == [[-5, 7, 0, None, None, None]]
+    for sql in ("SELECT CAST('3.7' AS INT)", "SELECT CONVERT(BIGINT, '1e3')", "SELECT CAST('5 x' AS SMALLINT)"):
+        with pytest.raises(Exception, match="Conversion failed"):
+            tsql(engine, sql)
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")

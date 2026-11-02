@@ -7,7 +7,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+import pytest
 
 from fabric_desktop import auth
 
@@ -109,3 +112,73 @@ def test_a_file_that_cant_be_read_for_a_moment_keeps_the_sign_in(tmp_path, monke
     assert app.signed_in_user() == "ana@contoso.com"  # the lookup works on what it had
     monkeypatch.setattr(auth, "read_cache", real)
     assert app.signed_in_user() is None  # and the next one reads the change
+
+
+REFRESHER = """
+import sys
+from fabric_desktop import auth
+sys.path.insert(0, sys.argv[2])
+from test_token_cache_shared import OWN_APP, sign_in
+a = auth.Authenticator(OWN_APP, cache_path=auth.Path(sys.argv[1]))
+print("ready", flush=True)
+sys.stdin.readline()
+sign_in(a, "ana", token="refreshed")
+"""
+
+
+def test_a_refresh_elsewhere_lands_before_or_after_a_sign_out_never_in_between(tmp_path):
+    path = tmp_path / "msal_cache.bin"
+    app = auth.Authenticator(OWN_APP, cache_path=path)
+    sign_in(app, "ana")
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(SIDECAR), os.environ.get("PYTHONPATH", "")])}
+    run = subprocess.Popen([sys.executable, "-c", REFRESHER, str(path), str(Path(__file__).parent)], env=env,
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    assert run.stdout.readline().strip() == "ready"  # it has read the file while ana was signed in
+    modify, started = app.cache.modify, []
+
+    def first_removal_then_let_the_refresh_in(*args, **kwargs):
+        modify(*args, **kwargs)
+        if not started:
+            started.append(1)
+            run.stdin.write("go\n")
+            run.stdin.flush()
+            time.sleep(1)  # the refresh tries to save while the sign-out is half done
+    app.cache.modify = first_removal_then_let_the_refresh_in
+    app.sign_out()
+    assert run.wait(timeout=60) == 0
+    assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
+
+
+def test_a_change_waits_out_a_read_that_fails_for_a_moment(tmp_path, monkeypatch):
+    path = tmp_path / "msal_cache.bin"
+    app = auth.Authenticator(OWN_APP, cache_path=path)
+    sign_in(app, "ana")
+    scheduled = auth.Authenticator(OWN_APP, cache_path=path)
+    app.sign_out()
+    real, fails = auth.read_cache, [1]
+
+    def busy_once(p):
+        if fails:
+            fails.pop()
+            raise PermissionError(13, "being used by another process")
+        return real(p)
+    monkeypatch.setattr(auth, "read_cache", busy_once)
+    sign_in(scheduled, "ana", token="refreshed")  # its read under the lock fails once
+    assert not fails and users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
+
+
+def test_a_change_that_cant_read_the_file_writes_nothing(tmp_path, monkeypatch):
+    path = tmp_path / "msal_cache.bin"
+    app = auth.Authenticator(OWN_APP, cache_path=path)
+    sign_in(app, "ana")
+    scheduled = auth.Authenticator(OWN_APP, cache_path=path)
+    app.sign_out()
+    monkeypatch.setattr(auth.jsonfile, "_REPLACE_BACKOFF", 0)
+
+    def busy(p):
+        raise PermissionError(13, "being used by another process")
+    monkeypatch.setattr(auth, "read_cache", busy)
+    with pytest.raises(OSError):
+        sign_in(scheduled, "ana", token="refreshed")
+    monkeypatch.undo()
+    assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()

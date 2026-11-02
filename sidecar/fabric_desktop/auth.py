@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -206,16 +207,21 @@ class SharedTokenCache(msal.SerializableTokenCache):
     def _accounts(self) -> set[str]:
         return {a.get("home_account_id") or "" for a in msal.TokenCache.search(self, self.CredentialType.ACCOUNT)}
 
-    def _reload(self) -> None:
+    def _reload(self, strict: bool = False) -> None:
+        """Read the file again if it changed since this process last read or wrote it. A read that
+        fails (Windows: a virus scan, or a reader with it open) keeps what's in memory, and _seen, so
+        the next lookup reads it again; ``strict`` raises the OSError instead."""
         seen = self._signature()
         if seen == self._seen:
             return
         before = self._accounts()
         try:
             text, self.migrate = read_cache(self.path)
-        except OSError as exc:  # Windows: another process swapping the file in, or a virus scan
+        except OSError as exc:
+            if strict:
+                raise
             _log.warning("Couldn't read the saved sign-in just now; trying again at the next lookup: %s", describe(exc))
-            return  # keep what's in memory, and _seen, so the next lookup reads it again
+            return
         try:
             self.deserialize(text)
         except ValueError:  # a damaged cache file: sign in again rather than fail every call
@@ -240,17 +246,30 @@ class SharedTokenCache(msal.SerializableTokenCache):
             with _file_lock(self.lock_path):
                 self._depth = 1
                 try:
-                    self._reload()
+                    self._reload_for_change()
                     yield True
                 finally:
                     self._depth = 0
+
+    def _reload_for_change(self) -> None:
+        """A change must start from the file's latest contents, or writing it would undo what another
+        process wrote (a sign-out). The read is tried for about 1.5 s, as jsonfile.replace waits; then
+        the OSError is raised and nothing is changed or written."""
+        for attempt in range(jsonfile._REPLACE_ATTEMPTS):
+            try:
+                self._reload(strict=True)
+                return
+            except OSError:
+                if attempt == jsonfile._REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(jsonfile._REPLACE_BACKOFF * (2 ** attempt))
 
     def write(self) -> None:
         """Write the cache as it is now; call it holding ``locked()``. OSError as write_cache says."""
         write_cache(self.path, self.serialize())
         self._seen = self._signature()
 
-    def _write_quietly(self) -> None:
+    def write_or_retry_later(self) -> None:
         try:
             self.write()
         except OSError as exc:  # keep the token; the change is written with the next one
@@ -268,17 +287,17 @@ class SharedTokenCache(msal.SerializableTokenCache):
             before = self._accounts()
             super().add(event, **kwargs)
             for home in (self._accounts() - before) & self.removed_elsewhere:
-                self._forget(home)
+                self.forget(home)
             if outer:
-                self._write_quietly()
+                self.write_or_retry_later()
 
     def modify(self, credential_type, old_entry, new_key_value_pairs=None) -> None:
         with self.locked() as outer:
             super().modify(credential_type, old_entry, new_key_value_pairs)
             if outer:
-                self._write_quietly()
+                self.write_or_retry_later()
 
-    def _forget(self, home: str) -> None:
+    def forget(self, home: str) -> None:
         """Every entry of the account ``home``, which another process signed out."""
         kinds = (self.CredentialType.ACCESS_TOKEN, self.CredentialType.REFRESH_TOKEN,
                  self.CredentialType.ID_TOKEN, self.CredentialType.ACCOUNT)
@@ -350,13 +369,13 @@ class Authenticator:
         """Each change is written as it's made (SharedTokenCache). This writes what is left: a plain
         file being encrypted (force), or a change whose write failed."""
         if self.cache.has_state_changed or force:
-            with self.cache.locked():
-                try:
+            try:
+                with self.cache.locked():
                     self.cache.write()
-                except OSError as exc:
-                    if force:
-                        raise
-                    _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
+            except OSError as exc:
+                if force:
+                    raise
+                _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
 
     def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
         scopes = self.scopes_for(scopes)
@@ -445,9 +464,14 @@ class Authenticator:
         return self._token(KUSTO_SCOPES)
 
     def sign_out(self) -> None:
-        for account in self.app.get_accounts():
-            self.app.remove_account(account)
-        self._save()
+        """Every account and its tokens, removed in one change under the cache's lock, so a token
+        refresh in another process lands before it or after it, never in between."""
+        with self.cache.locked() as outer:
+            for account in self.app.get_accounts():
+                self.app.remove_account(account)
+                self.cache.forget(account.get("home_account_id") or "")
+            if outer:
+                self.cache.write_or_retry_later()
 
     def signed_in_user(self) -> str | None:
         accounts = self.app.get_accounts()

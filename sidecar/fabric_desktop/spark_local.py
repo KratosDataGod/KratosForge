@@ -309,6 +309,7 @@ CHECKED_REFUSALS = {
     "forPath": "DeltaTable.forPath of a literal path outside Tables/ (REFUSED_CODE)",
     "_in_fabric": "restoreToVersion, restoreToTimestamp, vacuum or optimize on a DeltaTable (DELTA_CHANGES)",
     "withSchemaEvolution": "withSchemaEvolution() on a MERGE (REFUSED_CODE)",
+    "csv": "a CSV read option this PC doesn't take, a non-UTF-8 encoding, or a mode without a schema (csv_option_refusal)",
 }
 
 _IN_FABRIC_TEXT = "{}, which runs in Fabric (this PC's Spark refuses it)"
@@ -492,6 +493,36 @@ def _columns(table: str) -> list[str] | None:
         return None
 
 
+# Spark's CSV read options this PC honours (LakehouseReader.csv), by lower-case name. multiLine: a quoted
+# value may span lines, which DuckDB always reads. Options of other
+# readers and of time travel (_READ_OPTIONS) are let through, since one reader may be reused.
+_CSV_OPTION_NAMES = ("header", "sep", "delimiter", "inferSchema", "nullValue", "quote", "escape", "comment",
+                     "encoding", "charset", "mode", "multiLine")
+_CSV_OPTIONS = {n.lower() for n in _CSV_OPTION_NAMES}
+_READ_OPTIONS = {"versionasof", "timestampasof"}
+_WHOLE_TYPES = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT")
+
+
+def csv_option_refusal(options: list[tuple[str, Any]], has_schema: bool) -> str | None:
+    """Why this PC's CSV reader refuses ``options`` (name, value; None when the value isn't known before
+    the run), as a phrase after "This PC's Spark", or None when it takes them all. The reader and the
+    check behind Runs on (fabric_run) both use it."""
+    for name, value in options:
+        key = str(name).lower()
+        if key not in _CSV_OPTIONS and key not in _READ_OPTIONS:
+            return (f"doesn't take the CSV option {name!r} (it takes {', '.join(_CSV_OPTION_NAMES)})")
+        if key in ("encoding", "charset") and value is not None and \
+                str(value).lower().replace("-", "").replace("_", "") != "utf8":
+            return f"reads CSV files as UTF-8 only, not {value} (save the file as UTF-8 first)"
+        if key == "mode" and value is not None:
+            mode = str(value).upper()
+            if mode not in ("PERMISSIVE", "FAILFAST", "DROPMALFORMED"):
+                return f"has no CSV mode {value!r} (Spark's are PERMISSIVE, DROPMALFORMED and FAILFAST)"
+            if mode != "PERMISSIVE" and not has_schema:
+                return f"needs read.schema() for CSV mode {mode}, to say what a malformed value is"
+    return None
+
+
 class LakehouseReader:
     """``spark.read``: tables and files of the attached lakehouse, or files on this PC."""
 
@@ -522,7 +553,7 @@ class LakehouseReader:
         self._schema = schema
         return self
 
-    def _apply(self, df: DataFrame, by_position: bool) -> DataFrame:
+    def _apply(self, df: DataFrame, by_position: bool, mode: str = "PERMISSIVE") -> DataFrame:
         schema = getattr(self, "_schema", None)
         if schema is None:
             return df
@@ -533,11 +564,25 @@ class LakehouseReader:
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
         lower = {c.lower(): c for c in have}
-        cols = []
+        text_cols = {c for c, t in zip(have, rel.types) if str(t) == "VARCHAR"}
+        cols, fits = [], []
         for i, f in enumerate(schema.fields):
             src = have[i] if by_position else lower.get(f.name.lower())
             value = "NULL" if src is None else '"' + src.replace('"', '""') + '"'
-            cols.append(f'TRY_CAST({value} AS {f.dataType.duckdb_type}) AS "' + f.name.replace('"', '""') + '"')
+            target = str(f.dataType.duckdb_type)
+            read = value
+            if src in text_cols and target in _WHOLE_TYPES:  # text that isn't a whole number doesn't fit
+                read = f"CASE WHEN regexp_matches({value}, '^[+-]?[0-9]+$') THEN {value} END"  # (DuckDB rounds 3.5)
+            cast = f"TRY_CAST({read} AS {target})"
+            fit = f"({value} IS NULL OR {cast} IS NOT NULL)"
+            fits.append(fit)
+            if mode == "FAILFAST":  # a value that doesn't fit stops the read, as Spark's FAILFAST does
+                cast = (f"CASE WHEN {fit} THEN {cast} ELSE ERROR('Malformed CSV value ' || left(CAST({value} AS "
+                        f"VARCHAR), 100) || ' for column {f.name.replace(chr(39), chr(39) * 2)} ({target}), and "
+                        "mode is FAILFAST.') END")
+            cols.append(f'{cast} AS "' + f.name.replace('"', '""') + '"')
+        if mode == "DROPMALFORMED":  # rows with a value that doesn't fit are left out
+            rel = rel.filter(" AND ".join(fits))
         return DataFrame(rel.project(", ".join(cols)), self._session)
 
     def _no_schema(self, what: str) -> None:
@@ -590,18 +635,34 @@ class LakehouseReader:
             return self.text(path)
         raise ValueError(f"Format {fmt!r} isn't supported on this PC. Use csv, json, parquet, text or delta.")
 
-    def csv(self, path: str, header: Any = None, sep: str | None = None, inferSchema: Any = None, **opts: Any) -> DataFrame:
-        self.options(**opts)
-        header = self._options.get("header", header)
-        sep = self._options.get("sep", self._options.get("delimiter", sep))
-        conn = self._session.conn
+    def csv(self, path: str, header: Any = None, sep: str | None = None, inferSchema: Any = None,  # noqa: N803
+            **opts: Any) -> DataFrame:
+        """Spark's CSV options (EA-013): each is honoured, or refused with a message, never dropped.
+        As in Spark, every column is a string unless inferSchema is true or a schema is given."""
+        if header is not None:
+            opts.setdefault("header", header)
+        if sep is not None:
+            opts.setdefault("sep", sep)
+        if inferSchema is not None:
+            opts.setdefault("inferSchema", inferSchema)
+        self.options(**{k: v for k, v in opts.items() if v is not None})
+        given = self._options
+        refused = csv_option_refusal(list(given.items()), getattr(self, "_schema", None) is not None)
+        if refused:
+            raise NotImplementedError(f"This PC's Spark {refused}, so the file wasn't read.")
         extra: dict[str, Any] = {}
-        if sep:
-            extra["sep"] = sep
-        if getattr(self, "_schema", None):
+        if given.get("sep", given.get("delimiter")):
+            extra["sep"] = str(given.get("sep", given.get("delimiter")))
+        if not _true(given.get("inferschema", False)) or getattr(self, "_schema", None):
             extra["all_varchar"] = True
-        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"), **extra)
-        return self._apply(DataFrame(rel, self._session), by_position=True)
+        if given.get("nullvalue") not in (None, ""):
+            extra["na_values"] = [str(given["nullvalue"]), ""]
+        for name, arg in (("quote", "quotechar"), ("escape", "escapechar"), ("comment", "comment")):
+            if given.get(name) not in (None, ""):
+                extra[arg] = str(given[name])
+        mode = str(given.get("mode", "PERMISSIVE")).upper()
+        rel = self._session.conn.read_csv(self._local(path), header=_true(given.get("header", False)), **extra)
+        return self._apply(DataFrame(rel, self._session), by_position=True, mode=mode)
 
     def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
         files = [self._local(p) for p in paths]

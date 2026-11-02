@@ -39,7 +39,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     try:
         statements = _statements(sqlglot.parse(query, read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_fixes(s) for s in statements]
+            statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
     except ParseError as first_error:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
@@ -701,6 +701,27 @@ def _spark_json(statement: exp.Expression) -> exp.Expression:
         if node is statement:
             return replacement
         node.replace(replacement)
+    return statement
+
+
+_TIMESTAMPS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ,
+               exp.DataType.Type.TIMESTAMPNTZ)
+
+
+def spark_legacy_times(statement: exp.Expression) -> exp.Expression:
+    """Spark's to_timestamp with ANSI off, as Fabric runs it: text that isn't a timestamp gives NULL
+    (EA-015). sqlglot reads to_timestamp(x) as a CAST and to_timestamp(x, format) as a strptime,
+    and both stop the query on DuckDB. For Spark SQL and the DataFrame API only: there a CAST the
+    person wrote is read as a TryCast, so a plain Cast to a timestamp came from to_timestamp.
+    Databricks SQL is ANSI, so its path (engines/local_sql.py) doesn't use this."""
+    for node in list(statement.find_all(exp.StrToTime, exp.Cast)):
+        if isinstance(node, exp.StrToTime):
+            node.set("safe", True)
+        elif type(node) is exp.Cast and node.to.this in _TIMESTAMPS:
+            replacement = exp.TryCast(this=node.this, to=node.to)
+            if node is statement:
+                return replacement
+            node.replace(replacement)
     return statement
 
 

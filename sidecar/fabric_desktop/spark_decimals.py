@@ -40,6 +40,9 @@ _INTEGERS = {exp.DataType.Type.TINYINT: 3, exp.DataType.Type.SMALLINT: 5, exp.Da
 _ARITHMETIC = (exp.Add, exp.Sub, exp.Mul, exp.Div)
 _AGGREGATES = (exp.Sum, exp.Avg)
 _KEY = "kf_decimal"
+# The rewrite's lambda parameters. DuckDB takes a column of the same name before a lambda parameter, so a
+# statement that can see a column of either name is left as it was.
+_LAMBDAS = ("kf_decv", "kf_decn")
 
 
 def _adjust(precision: int, scale: int) -> tuple[int, int]:
@@ -113,16 +116,16 @@ def _divide(dividend: str, divisor: str, s1: int, s2: int, precision: int, scale
         return None
     power = "1" + "0" * shift
     unit = "0." + "0" * (scale - 1) + "1" if scale else "1"
-    exact = (f"CAST(CAST(SIGN(kf_n.n) * SIGN(kf_n.d) * ((ABS(kf_n.n) * {power}::HUGEINT) // ABS(kf_n.d) + "
-             f"CASE WHEN (ABS(kf_n.n) * {power}::HUGEINT) % ABS(kf_n.d) >= "
-             f"ABS(kf_n.d) - (ABS(kf_n.n) * {power}::HUGEINT) % ABS(kf_n.d) THEN 1 ELSE 0 END) AS DECIMAL(38, 0)) "
+    exact = (f"CAST(CAST(SIGN(kf_decn.n) * SIGN(kf_decn.d) * ((ABS(kf_decn.n) * {power}::HUGEINT) // ABS(kf_decn.d) + "
+             f"CASE WHEN (ABS(kf_decn.n) * {power}::HUGEINT) % ABS(kf_decn.d) >= "
+             f"ABS(kf_decn.d) - (ABS(kf_decn.n) * {power}::HUGEINT) % ABS(kf_decn.d) THEN 1 ELSE 0 END) AS DECIMAL(38, 0)) "
              f"* CAST('{unit}' AS DECIMAL({scale + 1}, {scale})) AS DECIMAL({precision}, {scale}))")
     limit = "1" + "0" * (MAX - shift)
-    rough = f"CAST(CAST(kf_n.a AS DOUBLE) / CAST(kf_n.b AS DOUBLE) AS DECIMAL({precision}, {scale}))"
-    return (f"(LIST_TRANSFORM([{{'a': {dividend}, 'b': {divisor}}}], kf_v -> "
-            f"(LIST_TRANSFORM([{{'a': kf_v.a, 'b': kf_v.b, 'n': {_unscaled('kf_v.a', s1)}, "
-            f"'d': {_unscaled('kf_v.b', s2)}}}], kf_n -> CASE WHEN kf_n.n IS NULL OR kf_n.d IS NULL OR kf_n.d = 0 "
-            f"THEN NULL WHEN ABS(kf_n.n) < {limit}::HUGEINT THEN {exact} ELSE {rough} END))[1]))[1]")
+    rough = f"CAST(CAST(kf_decn.a AS DOUBLE) / CAST(kf_decn.b AS DOUBLE) AS DECIMAL({precision}, {scale}))"
+    return (f"(LIST_TRANSFORM([{{'a': {dividend}, 'b': {divisor}}}], kf_decv -> "
+            f"(LIST_TRANSFORM([{{'a': kf_decv.a, 'b': kf_decv.b, 'n': {_unscaled('kf_decv.a', s1)}, "
+            f"'d': {_unscaled('kf_decv.b', s2)}}}], kf_decn -> CASE WHEN kf_decn.n IS NULL OR kf_decn.d IS NULL OR kf_decn.d = 0 "
+            f"THEN NULL WHEN ABS(kf_decn.n) < {limit}::HUGEINT THEN {exact} ELSE {rough} END))[1]))[1]")
 
 
 def _wrapper(node: exp.Expr) -> exp.Expr:
@@ -172,15 +175,19 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
                 marked += 1
     try:
         schema = _schema(conn)
+        if _sees_lambda_name(statement, schema):
+            log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
+            return _unmark(statement)
+        names = _output_names(statement, conn, targets)
+        if names is None:
+            return _unmark(statement)
         copy = qualify(statement.copy(), schema=schema, dialect="spark", validate_qualify_columns=False,
                        quote_identifiers=False, identify=False)
         annotate_types(copy, schema=schema, dialect="spark")
     except Exception as exc:
         # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
-        for marked_node in statement.walk():
-            marked_node.meta.pop(_KEY, None)
-        return statement
+        return _unmark(statement)
     by_mark = {n.meta[_KEY]: n for n in copy.walk() if _KEY in n.meta}
     annotated: dict[int, exp.Expr] = {}
     for original in statement.walk():
@@ -202,7 +209,59 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
             root = new
         else:
             top.replace(new)
+    # An unnamed column keeps the name it had before the rewrite, not the rewritten SQL.
+    for select, index, name in names:
+        projection = select.expressions[index]
+        select.expressions[index].replace(exp.alias_(projection, name, quoted=True))
     return root
+
+
+def _unmark(statement: exp.Expr) -> exp.Expr:
+    for node in statement.walk():
+        node.meta.pop(_KEY, None)
+    return statement
+
+
+def _sees_lambda_name(statement: exp.Expr, schema: MappingSchema) -> bool:
+    names = {i.name.lower() for i in statement.find_all(exp.Identifier)}
+    for columns in schema.mapping.values():
+        names.update(str(c).lower() for c in cast(dict[str, str], columns))
+    return any(n in names for n in _LAMBDAS)
+
+
+def _output_names(statement: exp.Expr, conn: Any, targets: list[Any]
+                  ) -> list[tuple[exp.Select, int, str]] | None:
+    """For each unnamed output column that the rewrite would change, the name DuckDB gives it as it
+    stands; None when those names can't be read (the statement is then left as it was)."""
+    query = statement.expression if isinstance(statement, (exp.Create, exp.Insert)) else statement
+    select = query
+    while isinstance(select, exp.SetOperation):
+        select = select.this  # a UNION's columns are named by its first SELECT
+    if not isinstance(select, exp.Select) or not isinstance(query, exp.Query):
+        return []
+    ids = {id(t) for t in targets}
+    changed = [i for i, p in enumerate(select.expressions)
+               if not isinstance(p, exp.Alias) and any(id(n) in ids for n in p.walk())]
+    if not changed:
+        return []
+    from .sql import duckdb_sql
+    try:
+        columns = conn.sql(duckdb_sql(query.copy())).columns  # binds the query; runs nothing
+    except Exception as exc:
+        log.info("Spark decimal types not applied: column names unknown: %s: %s", type(exc).__name__, exc)
+        return None
+    # A star stands for any number of columns: count from the start before the first one and from
+    # the end after the last one.
+    stars = [i for i, p in enumerate(select.expressions) if p.is_star]
+    named = []
+    for i in changed:
+        if not stars or i < stars[0]:
+            named.append((select, i, columns[i]))
+        elif i > stars[-1]:
+            named.append((select, i, columns[len(columns) - (len(select.expressions) - i)]))
+        else:
+            return None
+    return named
 
 
 def _rewrite(node: exp.Expr, typed: dict[int, tuple[int, int] | tuple[str, int]], annotated: dict[int, exp.Expr]

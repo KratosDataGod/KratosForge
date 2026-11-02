@@ -93,3 +93,30 @@ def test_spark_sql_in_a_notebook():
     assert out["status"] == "ok", text
     assert "('q', 'decimal(23,13)'), ('m', 'decimal(21,4)'), ('av', 'decimal(14,6)'), ('su', 'decimal(20,2)')" in text
     assert "Decimal('3.3333333333333'), Decimal('30.0000'), Decimal('10.000000'), Decimal('10.00')" in text
+
+
+def test_unnamed_columns_keep_their_names(conn):
+    query = "SELECT s, sum(a), a / b, avg(a), a * b FROM t GROUP BY s, a, b"
+    before = conn.sql(sql.duckdb_sql(sql.parse(query)[0])).columns
+    after = conn.sql(sql.duckdb_sql(spark_decimal_types(sql.parse(query)[0], conn)))
+    assert after.columns == before
+    assert after.columns[:2] == ["s", "sum(a)"] and after.columns[3] == "avg(a)"
+    assert [str(t) for t in after.types][1:] == ["DECIMAL(20,2)", "DECIMAL(23,13)", "DECIMAL(14,6)", "DECIMAL(21,4)"]
+
+
+def test_names_after_a_star_and_in_a_table_write(conn):
+    query = "SELECT *, a / b FROM t"
+    before = conn.sql(sql.duckdb_sql(sql.parse(query)[0])).columns
+    after = conn.sql(sql.duckdb_sql(spark_decimal_types(sql.parse(query)[0], conn)))
+    assert after.columns == before and str(after.types[-1]) == "DECIMAL(23,13)"
+    created = spark_decimal_types(sql.parse("CREATE TABLE out AS SELECT s, sum(a) FROM t GROUP BY s")[0], conn)
+    conn.execute(sql.duckdb_sql(created))
+    assert conn.sql("SELECT * FROM out").columns == ["s", "sum(a)"]
+
+
+@pytest.mark.parametrize("name", ["kf_decv", "KF_DECN"])
+def test_a_column_named_like_the_lambdas_leaves_the_statement_as_it_was(name):
+    c = duckdb.connect()
+    c.execute(f"CREATE TEMP VIEW t AS SELECT CAST(1 AS DECIMAL(10,2)) AS a, CAST(3 AS DECIMAL(10,2)) AS {name}")
+    query = f"SELECT a / {name} FROM t"
+    assert answer(c, query)[0] == ["DOUBLE"]  # DuckDB's own type, and no Binder Error

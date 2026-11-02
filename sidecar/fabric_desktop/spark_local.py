@@ -44,8 +44,9 @@ def _arrow(df: DataFrame) -> pa.Table:
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere, partitionOverwriteMode, path) can never be
-# dropped and turn into a full overwrite.
+# option that changes what gets written (replaceWhere, partitionOverwriteMode) can never be
+# dropped and turn into a full overwrite. A path option is save()'s path, as in Spark; a table write
+# refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
@@ -54,8 +55,8 @@ _REFUSED = {
                     "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
     "partitionoverwritemode": "partitionOverwriteMode isn't supported on this PC, and ignoring it would replace the "
                               "whole table. Run the cell in Fabric.",
-    "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
 }
+_TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
 
 _OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
@@ -113,6 +114,8 @@ class LakehouseWriter:
 
     def _check_options(self, allowed: tuple[str, ...], what: str) -> None:
         for name in self._options:
+            if name == "path":  # save() takes its path first, so here it's a table write's
+                raise NotImplementedError(_TABLE_PATH)
             if name in _LAYOUT_OPTIONS:
                 print(f"Note: the {name} option only changes file layout and is ignored on this PC.")
             elif name not in allowed:
@@ -193,6 +196,10 @@ class LakehouseWriter:
         if partitionBy:
             self.partitionBy(partitionBy)
         self.options(**options)
+        given = self._options.pop("path", None)  # .option("path", p).save(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to save(). Give the path once.")
+        path = given if path is None else path
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -201,6 +208,8 @@ class LakehouseWriter:
         if rel is not None:
             raise ValueError(f"On this PC, write lakehouse tables with saveAsTable or a Tables/ path. "
                              f"Writing files to {rel} runs in Fabric.")
+        if path is None:
+            raise ValueError("Give save a path, or write a lakehouse table with saveAsTable.")
         if fmt == "parquet":
             self._check_options((), "a Parquet file")
             return self._df.relation.write_parquet(path)
@@ -338,6 +347,8 @@ def writer_option_refusal(name: str, terminal: str | None) -> str | None:
         first = _REFUSED[key].split(". ")[0]
         return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
     takes = WRITE_TAKES.get(terminal or "")
+    if takes is not None and key == "path":
+        return f"uses the {name} write option on {terminal}: writing a table to its own path (an external table) runs in Fabric"
     if takes is not None and key not in takes:
         return f"uses the {name} write option, which {terminal} doesn't take on this PC"
     return None
@@ -552,6 +563,12 @@ class LakehouseReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        given = self._options.pop("path", None)  # .option("path", p).load(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to load(). Give the path once.")
+        path = given if path is None else path
+        if path is None:
+            raise ValueError("Give load a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta":
             self._no_schema("a Delta table")
@@ -578,8 +595,12 @@ class LakehouseReader:
         header = self._options.get("header", header)
         sep = self._options.get("sep", self._options.get("delimiter", sep))
         conn = self._session.conn
-        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"),
-                            **({"sep": sep} if sep else {}), **({"all_varchar": True} if getattr(self, "_schema", None) else {}))
+        extra: dict[str, Any] = {}
+        if sep:
+            extra["sep"] = sep
+        if getattr(self, "_schema", None):
+            extra["all_varchar"] = True
+        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"), **extra)
         return self._apply(DataFrame(rel, self._session), by_position=True)
 
     def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
@@ -608,15 +629,16 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
         self._views: dict[str, str] = {}
-        self._snapshot = None
+        self._snapshot: lakehouse.Attached | None = None
         self._frames: weakref.WeakSet[DataFrame] = weakref.WeakSet()  # this session's DataFrames still in use
-        self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
+        self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
+        vars(catalog).update(  # DuckDB's Catalog has no tableExists
+            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
 
     @property
-    def sparkContext(self) -> spark_api.LocalSparkContext:  # noqa: N802
+    def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802
         return self._local_context
 
     @property
@@ -674,7 +696,7 @@ class LocalSparkSession(SparkSession):
         return DataFrame(self.conn.from_arrow(data), self)
 
     @property
-    def read(self) -> LakehouseReader:
+    def read(self) -> LakehouseReader:  # type: ignore[override]  # this PC's reader, not DuckDB's
         return LakehouseReader(self)
 
     def table(self, tableName: str) -> DataFrame:  # noqa: N803
@@ -1234,8 +1256,8 @@ def _alias_pyspark() -> None:
                         "pyspark.sql.window": spark_compat.window_module})
     spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
-    spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
-    LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]
+    spark_sql.SparkSession = LocalSparkSession  # type: ignore[misc,assignment]
+    LocalSparkSession.builder = _Builder()  # type: ignore[assignment]
 
 
 class _Builder:

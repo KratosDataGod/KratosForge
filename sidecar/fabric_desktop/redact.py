@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 REMOVED = "[removed]"
 
@@ -103,6 +104,19 @@ def secrets(text: str) -> str:
     """``text`` with anything credential-shaped replaced by [removed]."""
     for pattern, repl in _SECRETS:
         text = pattern.sub(repl, text)
+    return text
+
+
+def without_webhook(text: str, url: Any) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and secrets() doesn't know (QA-016)."""
+    if not isinstance(url, str) or not url:
+        return text
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
     return text
 
 

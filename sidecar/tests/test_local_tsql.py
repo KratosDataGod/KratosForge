@@ -101,6 +101,15 @@ def test_a_division_of_unknown_types_is_reported():
     assert texts == ["SELECT x / y FROM nowhere"] and "Couldn't tell the types in x / y" in notes[0]
 
 
+def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
+    texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
+    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
+    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number."]
+    # A literal's type is known, so it gets no note.
+    assert translate("SELECT CAST(3.7 AS INT)")[1] == []
+
+
 def test_the_result_says_what_fabric_warehouse_would_reject(engine):
     r = tsql(engine, "SELECT TOP 1 id FROM dbo.orders")
     t = r["translation"]
@@ -192,6 +201,28 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("start, end, weeks", [
+    ("2024-01-06", "2024-01-07", 1),  # Saturday to Sunday crosses one Sunday
+    ("2024-01-07", "2024-01-13", 0),  # Sunday to Saturday crosses none
+    ("2024-03-05", "2024-03-10", 1),  # Tuesday to Sunday
+    ("2024-03-01", "2024-03-31", 5),
+    ("2024-03-31", "2024-03-01", -5),
+    ("2024-03-05", "2024-03-05", 0),
+    ("2024-01-06 23:59:00", "2024-01-07 00:01:00", 1),  # the time of day doesn't count
+    ("2023-12-30", "2024-01-01", 1),  # across a year: Sunday 31 December
+])
+def test_datediff_week_counts_the_sundays_crossed(engine, start, end, weeks):
+    for unit in ("week", "wk", "ww"):
+        assert tsql(engine, f"SELECT DATEDIFF({unit}, '{start}', '{end}')")["rows"] == [[weeks]]
+
+
+def test_datediff_week_on_date_columns(engine):
+    r = tsql(engine, "SELECT id, DATEDIFF(week, day, DATEADD(day, 7, day)) FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 1], [2, 1]]
+    # Sunday 18 October 2026 back to Sunday 4 January 2026: 41 Sundays.
+    assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
 
 
 @pytest.mark.parametrize("value, pattern, matches", [

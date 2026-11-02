@@ -1096,6 +1096,8 @@ class Kernel:
         except KeyboardInterrupt:
             failed = writes.flush(cancel=True)
             cancelled = True
+        for warning in getattr(writes, "warnings", []):
+            run.add({"type": "text", "text": f"Warning: {warning}\n"})
         if not failed:
             return "cancelled" if cancelled else status
         if not cancelled:

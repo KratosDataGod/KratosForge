@@ -127,9 +127,9 @@ def test_onelake_writes_are_sent_once(shared, status):
 
 
 def test_filestore_writes_wait_out_throttling(shared):
-    sent = transport(shared, 429, 201, 202, 200)
+    sent = transport(shared, 429, 201, 202, 200, 201)
     FileStore(token, sleep=no_sleep).upload("ws", "lh", "Files/a.csv", b"x")
-    assert [m for m, _, _ in sent.sent] == ["PUT", "PUT", "PATCH", "PATCH"]
+    assert [m for m, _, _ in sent.sent] == ["PUT", "PUT", "PATCH", "PATCH", "PUT"]
 
     sent = transport(shared, 429, 200)
     FileStore(token, sleep=no_sleep).delete("ws", "lh", "Files/a.csv")

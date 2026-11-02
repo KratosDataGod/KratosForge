@@ -310,7 +310,7 @@ class Mailbox:
         if stored is None:
             return  # deleted since the listing
         request, reason = self._parse(env, rid, stored.data)
-        if not request and now - stored.modified < WRITING_GRACE:
+        if not request and _age(stored, now) < WRITING_GRACE:
             return  # empty or half-written: its writer may still be at it, so look again next time
         base = {"contract": CONTRACT, "request_id": rid, "agent": self.agent.config.name, "host": socket.gethostname(),
                 "env": env, "received_at": _iso(now), "updated_at": _iso(now), "agents": [self.agent.config.name]}
@@ -319,7 +319,7 @@ class Mailbox:
         if request.get("pipeline_run") and not reason:
             base["pipeline_run"] = self._check_run(env, request["pipeline_run"], now)
             if self.require_run and not base["pipeline_run"]["verified"]:
-                if base["pipeline_run"].get("transient") and now - stored.modified < RUN_LOOKUP_GRACE:
+                if base["pipeline_run"].get("transient") and _age(stored, now) < RUN_LOOKUP_GRACE:
                     return  # Fabric couldn't answer just then; ask again next poll
                 reason = f"its pipeline run didn't check out: {base['pipeline_run']['detail']} (pipeline.require_run in agent.toml)"
             elif self.require_run:
@@ -594,3 +594,10 @@ def control_backend_for(store: Any, meta_lakehouse_id: str | None, token: Callab
     if isinstance(store, LocalStore):
         return LocalControl(Path(store.root) / "_control")
     raise TypeError(f"no control files for {type(store).__name__}")
+
+
+def _age(stored: Stored, now: float) -> float:
+    """How long ago the file was last written. In OneLake that's its reply's Date less its
+    Last-Modified, both OneLake's clock: this PC's clock may be minutes off, which would end a grace
+    period at once or stretch it out (EA-025). A folder on this PC has one clock."""
+    return (stored.store_now if stored.store_now is not None else now) - stored.modified

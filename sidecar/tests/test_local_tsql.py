@@ -36,6 +36,13 @@ def test_integers_divide_and_average_as_integers(engine):
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
+def test_an_integer_average_over_a_window_is_an_integer(engine):
+    # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
+    r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
+                     "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+
+
 def test_len_weekday_week_and_plus_on_text(engine):
     r = tsql(engine, "SELECT LEN(name) AS n, DATEPART(weekday, day) AS wd, DATEPART(week, day) AS wk, "
                      "name + '!' AS s FROM dbo.orders ORDER BY id")
@@ -94,6 +101,16 @@ def test_a_division_of_unknown_types_is_reported():
     assert texts == ["SELECT x / y FROM nowhere"] and "Couldn't tell the types in x / y" in notes[0]
 
 
+def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
+    texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
+    # BIT is a boolean here (DuckDB's BIT is a bit string).
+    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BOOLEAN), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
+    assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
+                     "decimal toward zero and refuses text that isn't a whole number."]
+    # A literal's type is known, so it gets no note.
+    assert translate("SELECT CAST(3.7 AS INT)")[1] == []
+
+
 def test_the_result_says_what_fabric_warehouse_would_reject(engine):
     r = tsql(engine, "SELECT TOP 1 id FROM dbo.orders")
     t = r["translation"]
@@ -127,6 +144,20 @@ def test_plus_with_a_number_adds_as_numbers(engine):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
+def test_float_is_eight_bytes_and_real_four_as_in_sql_server(engine):
+    """T-SQL FLOAT is FLOAT(53), an 8-byte float; REAL and FLOAT(1) to FLOAT(24) are 4 bytes."""
+    r = tsql(engine, "SELECT CAST(0.1 AS FLOAT) AS a, CAST(0.1 AS FLOAT(53)) AS b, CAST(0.1 AS FLOAT(25)) AS c, "
+                     "CONVERT(FLOAT, 0.1) AS d, CAST(0.1 AS DOUBLE PRECISION) AS e")
+    assert r["rows"] == [[0.1, 0.1, 0.1, 0.1, 0.1]]
+    r = tsql(engine, "SELECT CAST(0.1 AS REAL) AS a, CAST(0.1 AS FLOAT(24)) AS b, CAST(0.1 AS FLOAT(1)) AS c")
+    assert all(v != 0.1 and abs(v - 0.1) < 1e-7 for v in r["rows"][0])  # 0.1 as a 4-byte float
+    tsql(engine, "CREATE TABLE dbo.f (a FLOAT, b REAL, c FLOAT(10)); INSERT INTO dbo.f VALUES (0.1, 0.1, 0.1)")
+    assert tsql(engine, "SELECT a FROM dbo.f")["rows"] == [[0.1]]
+    for bad in ("FLOAT(1.5)", "FLOAT(0)", "FLOAT(54)"):
+        with pytest.raises(ValueError, match=r"FLOAT\(n\) takes a whole number from 1 to 53"):
+            translate(f"SELECT CAST(1 AS {bad})")
+
+
 def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
     """CAST(3.7 AS INT) is 3 in T-SQL (DuckDB rounds it to 4), for every integer type, CONVERT and
     TRY_CAST too, from a decimal column, a literal or a float."""
@@ -138,6 +169,23 @@ def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
     # Already whole, or to a type that isn't an integer: unchanged.
     r = tsql(engine, "SELECT CAST(qty AS BIGINT) AS a, CAST(3.7 AS DECIMAL(5, 0)) AS b FROM dbo.orders WHERE id = 1")
     assert r["rows"] == [[7, "4"]]  # decimals come back as text; T-SQL rounds to a DECIMAL with a smaller scale
+
+
+def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
+    """CAST('3.7' AS INT) fails in T-SQL (DuckDB gives 4); spaces around a whole number are fine, and
+    '' is 0. TRY_CAST and TRY_CONVERT give NULL where CAST fails."""
+    r = tsql(engine, "SELECT CAST(' -5 ' AS INT) AS a, CAST('+7' AS BIGINT) AS b, CAST('' AS INT) AS c, "
+                     "CAST(CAST(NULL AS VARCHAR) AS INT) AS d, TRY_CAST('3.7' AS INT) AS e, TRY_CONVERT(INT, '1e3') AS f")
+    assert r["rows"] == [[-5, 7, 0, None, None, None]]
+    for sql in ("SELECT CAST('3.7' AS INT)", "SELECT CONVERT(BIGINT, '1e3')", "SELECT CAST('5 x' AS SMALLINT)"):
+        with pytest.raises(Exception, match="Conversion failed"):
+            tsql(engine, sql)
+
+
+def test_text_to_an_integer_reads_its_source_once():
+    """A source that changes each time it's read (RAND, NEWID) is read once, not once per check."""
+    text = translate("SELECT CAST(CAST(CAST(RAND() * 10 AS INT) AS VARCHAR(5)) AS INT)")[0][0]
+    assert text.upper().count("RANDOM()") == 1 and "LIST_TRANSFORM" in text.upper()
 
 
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
@@ -162,6 +210,71 @@ def test_max_lengths_in_table_definitions(engine):
     assert r["rows"] == [["hello"]]
 
 
+@pytest.mark.parametrize("start, end, weeks", [
+    ("2024-01-06", "2024-01-07", 1),  # Saturday to Sunday crosses one Sunday
+    ("2024-01-07", "2024-01-13", 0),  # Sunday to Saturday crosses none
+    ("2024-03-05", "2024-03-10", 1),  # Tuesday to Sunday
+    ("2024-03-01", "2024-03-31", 5),
+    ("2024-03-31", "2024-03-01", -5),
+    ("2024-03-05", "2024-03-05", 0),
+    ("2024-01-06 23:59:00", "2024-01-07 00:01:00", 1),  # the time of day doesn't count
+    ("2023-12-30", "2024-01-01", 1),  # across a year: Sunday 31 December
+])
+def test_datediff_week_counts_the_sundays_crossed(engine, start, end, weeks):
+    for unit in ("week", "wk", "ww"):
+        assert tsql(engine, f"SELECT DATEDIFF({unit}, '{start}', '{end}')")["rows"] == [[weeks]]
+
+
+def test_datediff_week_on_date_columns(engine):
+    r = tsql(engine, "SELECT id, DATEDIFF(week, day, DATEADD(day, 7, day)) FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 1], [2, 1]]
+    # Sunday 18 October 2026 back to Sunday 4 January 2026: 41 Sundays.
+    assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
+
+
+T = "CAST('2024-03-06 13:45:30.123456' AS DATETIME2)"  # a Wednesday
+
+
+@pytest.mark.parametrize("sql, want", [
+    (f"DATEPART(y, {T})", 66), (f"DATEPART(w, {T})", 4), (f"DATEPART(m, {T})", 3), (f"DATEPART(n, {T})", 45),
+    (f"DATEPART(ms, {T})", 123), (f"DATEPART(mcs, {T})", 123456),
+    (f"DATEADD(y, 1, {T})", '2024-03-07 13:45:30.123456'),
+    (f"DATEADD(w, 1, {T})", '2024-03-07 13:45:30.123456'),
+    (f"DATEADD(n, 1, {T})", '2024-03-06 13:46:30.123456'),
+    (f"DATEADD(hh, 1, {T})", '2024-03-06 14:45:30.123456'),
+    (f"DATEADD(ss, 1, {T})", '2024-03-06 13:45:31.123456'),
+    (f"DATEDIFF(y, {T}, '2024-03-08')", 2), (f"DATEDIFF(w, {T}, '2024-03-08')", 2),
+    (f"DATEDIFF(mi, {T}, '2024-03-06 14:00')", 15),
+    (f"DATETRUNC(m, {T})", '2024-03-01 00:00:00'), (f"DATETRUNC(mm, {T})", '2024-03-01 00:00:00'),
+    (f"DATETRUNC(y, {T})", '2024-03-06 00:00:00'), (f"DATETRUNC(yy, {T})", '2024-01-01 00:00:00'),
+    (f"DATETRUNC(hh, {T})", '2024-03-06 13:00:00'),
+    (f"DATETRUNC(week, {T})", '2024-03-03 00:00:00'),  # Sunday
+    (f"DATETRUNC(iso_week, {T})", '2024-03-04 00:00:00'),  # Monday
+    ("DATEDIFF(iso_week, '2024-03-10', '2024-03-11')", 1),  # Sunday to Monday
+])
+def test_date_parts_by_their_tsql_names(engine, sql, want):
+    assert tsql(engine, f"SELECT {sql}")["rows"] == [[want]]
+
+
+def test_dateadd_and_datetrunc_keep_a_date_a_date(engine):
+    r = tsql(engine, "SELECT DATEADD(day, 1, day), DATETRUNC(month, day), DATETRUNC(week, day), "
+                     "DATEADD(day, 1, DATEADD(month, 1, day)) FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [['2026-10-19', '2026-10-01', '2026-10-18', '2026-11-19']]
+    assert [c["type"] for c in r["columns"]] == ["date32[day]"] * 4
+
+
+@pytest.mark.parametrize("sql, says", [
+    ("SELECT DATEADD(hour, 1, day) FROM dbo.orders", "DATEADD doesn't take the date part hour for a date"),
+    ("SELECT DATETRUNC(minute, day) FROM dbo.orders", "DATETRUNC doesn't take the date part minute for a date"),
+    (f"SELECT DATETRUNC(dw, {T})", "DATETRUNC doesn't take the date part dw"),
+    (f"SELECT DATEADD(iso_week, 1, {T})", "DATEADD doesn't take the date part iso_week"),
+    (f"SELECT DATEADD(ns, 100, {T})", "kept to the microsecond"),
+])
+def test_date_parts_tsql_doesnt_take_are_refused(engine, sql, says):
+    with pytest.raises(ValueError, match=says):
+        tsql(engine, sql)
+
+
 @pytest.mark.parametrize("value, pattern, matches", [
     ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
     ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
@@ -182,8 +295,27 @@ def test_like_with_ranges_keeps_its_escape_character(engine):
 def test_a_like_pattern_that_isnt_text_is_reported():
     texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
     assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
-    assert notes == ["Couldn't tell the pattern in a LIKE b: it matches as DuckDB's LIKE does, which takes no "
-                     "[a-c] character ranges."]
+    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges."]
+
+
+def test_several_like_patterns_that_arent_text_make_one_note():
+    assert len(translate("SELECT 1 FROM dbo.t WHERE a LIKE b OR c LIKE d OR e NOT LIKE f")[1]) == 1
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b", "[z-a]", False), ("b", "[^z-a]", True), ("y", "[a-cz-x]", False), ("b", "[a-cz-x]", True),
+    ("]", "[!]]", True), ("x", "[!]x]", True), ("a", "[!]x]", False), ("-", "[a!-c]", True), ("b", "[a!-c]", False),
+])
+def test_like_ranges_backwards_and_with_the_escape_character(engine, value, pattern, matches):
+    sql = f"SELECT CASE WHEN '{value}' LIKE '{pattern}' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[int(matches)]]
+
+
+def test_set_datefirst_7_is_skipped_and_others_refused(engine):
+    assert tsql(engine, "SET DATEFIRST 7\nGO\nSELECT DATEPART(weekday, CAST('2024-03-03' AS DATE))")["rows"] == [[1]]
+    with pytest.raises(ValueError, match="doesn't run other DATEFIRST settings"):
+        tsql(engine, "SET DATEFIRST 1\nGO\nSELECT 1")
 
 
 def test_a_like_without_ranges_stays_a_like():
@@ -205,3 +337,35 @@ def test_patindex_finds_where_a_like_pattern_first_matches(engine):
     assert r["rows"] == [[3, 8, 33]]
     with pytest.raises(ValueError, match="PATINDEX needs its pattern written out as text"):
         tsql(engine, "SELECT PATINDEX(s, 'abc') AS x FROM dbo.p")
+
+
+def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):
+    import math
+    r = tsql(engine, "SELECT VAR(price) AS v, VARP(price) AS vp, STDEV(price) AS s, STDEVP(price) AS sp, "
+                     "VAR(DISTINCT boxes) AS vd FROM dbo.orders")
+    v, vp, s, sp, vd = r["rows"][0]
+    assert (v, vp, vd) == (1.125, 0.5625, None)  # 2.5 and 4.0; boxes has one distinct value
+    assert math.isclose(s, math.sqrt(1.125)) and math.isclose(sp, 0.75)
+    one = tsql(engine, "SELECT VAR(qty) AS v, VARP(qty) AS vp, STDEV(qty) AS s, STDEVP(qty) AS sp FROM dbo.orders "
+                       "WHERE id = 1")
+    assert one["rows"] == [[None, 0.0, None, 0.0]]  # one row: no sample spread, a population spread of 0
+    w = tsql(engine, "SELECT id, VARP(qty) OVER () AS vp FROM dbo.orders ORDER BY id")
+    assert w["rows"] == [[1, 49.0], [2, 49.0]]
+
+
+def test_substring_stuff_and_replicate_at_the_edges(engine):
+    # Each as in T-SQL, not DuckDB: a negative start isn't counted from the end, and so on.
+    r = tsql(engine, "SELECT SUBSTRING('abcdef', -1, 3) AS a, SUBSTRING('abcdef', -5, 3) AS b, "
+                     "SUBSTRING(name, id - 1, 2) AS c, SUBSTRING('abc', 2, 5) AS d FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["a", "", "A", "bc"], ["a", "", "Bo", "bc"]]
+    r = tsql(engine, "SELECT STUFF('abc', 5, 1, 'x') AS a, STUFF('abc', 0, 1, 'x') AS b, STUFF('abc', 2, 1, 'x') AS c, "
+                     "STUFF('abc', 2, -1, 'x') AS d, STUFF('abc', 2, 1, NULL) AS e, STUFF('abc', 2, 9, 'x') AS f")
+    assert r["rows"] == [[None, None, "axc", None, "ac", "ax"]]
+    r = tsql(engine, "SELECT REPLICATE('ab', -1) AS a, REPLICATE('ab', 2) AS b, REPLICATE('ab', qty) AS c "
+                     "FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[None, "abab", "ab" * 7], [None, "abab", None]]
+    r = tsql(engine, "SELECT SUBSTRING('abc', CAST(NULL AS INT), 2) AS a, SUBSTRING('abc', 0, CAST(NULL AS INT)) AS b, "
+                     "SUBSTRING('abc', 1, CAST(NULL AS INT)) AS c, SUBSTRING(CAST(NULL AS VARCHAR(3)), 0, 2) AS d")
+    assert r["rows"] == [[None, None, None, None]]
+    with pytest.raises(Exception, match="Invalid length parameter passed to the SUBSTRING function"):
+        tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")

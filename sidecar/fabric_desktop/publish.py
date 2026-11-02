@@ -24,7 +24,7 @@ from deltalake import CommitProperties, DeltaTable, WriterProperties, write_delt
 from . import delta_profile
 from .fabric_api import FabricClient
 from .jobs import Job, run_local
-from .leases import LocalBackend, check_held, onelake_table_lease, table_lease
+from .leases import LeaseLost, LocalBackend, check_held, onelake_table_lease, table_lease
 from .onelake import TableRef, storage_options
 from .redact import describe
 
@@ -128,23 +128,38 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
     returned table has ``skipped`` set."""
     opts = storage_options(storage_token)
     how = resolve_schema_mode(mode, schema_mode)
-    with _lease(ref, storage_token):
-        # One load of the log for the profile check, the write and the new version: delta-rs moves a
-        # table it was handed on to the version it committed. Loaded under the lease, so no other
-        # KratosForge writer can commit in between.
-        table = delta_profile.open_target(ref.uri, opts)
-        if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
-            table.skipped = True  # type: ignore[union-attr]
-            return table  # type: ignore[return-value]
-        meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
-        had = _files(table) if table is not None and mode != "overwrite" else {}
-        if table is not None and how != "overwrite":
-            refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
-        check_held()  # the lease is still ours, with time to commit (HD-016)
-        write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
-                        writer_properties=writer_properties(), commit_properties=meta)
-        if table is None:
-            table = DeltaTable(ref.uri, storage_options=opts)
+    committed: DeltaTable | None = None
+    try:
+        with _lease(ref, storage_token):
+            # One load of the log for the profile check, the write and the new version: delta-rs moves a
+            # table it was handed on to the version it committed. Loaded under the lease, so no other
+            # KratosForge writer can commit in between.
+            table = delta_profile.open_target(ref.uri, opts)
+            if mode == "overwrite" and skip_unchanged and unchanged(table, rows):
+                table.skipped = True  # type: ignore[union-attr]
+                return table  # type: ignore[return-value]
+            meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
+            had = _files(table) if table is not None and mode != "overwrite" else {}
+            if table is not None and how != "overwrite":
+                refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
+            # Replacing every row as a predicate makes Delta check for commits since the version loaded
+            # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
+            extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
+            check_held()  # the lease is still ours, with time to commit (HD-016)
+            write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
+                            writer_properties=writer_properties(), commit_properties=meta, **extra)
+            committed = table if table is not None else DeltaTable(ref.uri, storage_options=opts)
+            table = committed
+    except LeaseLost:
+        if committed is None:
+            raise
+        # The commit went through and the lease lapsed only after it (EA-006): the rows are in the
+        # table, so report the write as done. Raising would make a rerun write them twice.
+        table = committed
+        table.lease_warning = (f"Wrote {ref.schema}.{ref.table} (Delta version {table.version()}), but its write "  # type: ignore[attr-defined]
+                               f"lease expired while writing, so another writer may have overlapped. Check the "
+                               f"table's history; don't run the write again.")
+        _log.warning("%s", table.lease_warning)  # type: ignore[attr-defined]
     delta_profile.note_after_write(table)
     table.skipped = False  # type: ignore[attr-defined]
     # What this write uploaded: the version's files it didn't have before (all of them, on overwrite).

@@ -40,7 +40,6 @@ def test_float_to_int_casts_truncate_as_in_spark(lake, code):
     assert "4" not in text and "3" in text
 
 
-@pytest.mark.xfail(strict=False, reason="EA-004: sum(int) is written to Delta as decimal(38,0) (DuckDB 2.0 may already pass)")
 def test_sum_of_ints_is_written_as_bigint(lake):
     status, text = run("from pyspark.sql import functions as F\n"
                        "spark.createDataFrame([('k', 1), ('k', 2)], 'k string, n int').groupBy('k')"

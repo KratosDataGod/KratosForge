@@ -5715,3 +5715,39 @@ test("browser tests run axe through the harness, which waits for animations to e
   assert.deepStrictEqual(direct, []);
   assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
 });
+
+// The engine failing to start fails every call the pages make: Activity shows one entry with a count.
+test("the same problem again within ten minutes updates one Activity entry", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = { localStorage: { setItem() {} }, renderBell() {}, Date, Math, Set, JSON };
+  vm.runInNewContext(`const activity = { items: [], open: false };
+    ${src.match(/const REPEAT_MS[\s\S]*?\n}\n\nfunction logActivity\([\s\S]*?\n}\n/)[0]}
+    function saveActivity() {}
+    const PROBLEM = new Set(["error", "failed"]);
+    Object.assign(this, { activity, logActivity });`, ctx);
+  const stopped = { status: "error", text: "The local engine stopped while doing this.", details: "The Python sidecar stopped" };
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  ctx.logActivity({ ...stopped, title: "Could not start the Python sidecar" });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  assert.strictEqual(ctx.activity.items.length, 1);
+  const one = ctx.activity.items[0];
+  assert.strictEqual(one.repeats, 3);
+  assert.strictEqual(one.title, "Ready to work");
+  assert.deepStrictEqual([...one.alsoIn], ["Could not start the Python sidecar"]);
+  ctx.logActivity({ ...stopped, details: "something else", title: "Ready to work" });  // a different failure
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });  // not a problem: never merged
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });
+  assert.strictEqual(ctx.activity.items.length, 4);
+  ctx.activity.items.forEach((i) => { i.at = new Date(Date.now() - 11 * 60 * 1000).toISOString(); });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });  // ten minutes on, it's news again
+  assert.strictEqual(ctx.activity.items.length, 5);
+});
+
+test("a developer Python missing a package says the command that installs it", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /missing a package the engine needs\. In the sidecar folder, run: python -m pip install -e \. -c constraints\.txt/);
+  const re = /^ModuleNotFoundError: No module named '[^'.]+'$/;
+  assert.ok(app.includes(re.source));
+  assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
+  assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
+});

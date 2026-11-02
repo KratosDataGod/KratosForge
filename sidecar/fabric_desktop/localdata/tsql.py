@@ -7,9 +7,11 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
+- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
+- matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
@@ -27,7 +29,9 @@ from typing import Any
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
+from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
+from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
 
@@ -72,6 +76,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _temp_tables(tree)
             _converts(tree)
             notes += _types(tree, schema)
+            notes += _likes(tree)
             _functions(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
@@ -82,6 +87,15 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     if not texts:
         raise ValueError("The query is empty.")
     return texts, list(dict.fromkeys(notes))
+
+
+class KfTSQL(TSQL):
+    """T-SQL as SQL Server reads it: ``FLOAT`` is an 8-byte float, ``FLOAT(1)`` to ``FLOAT(24)`` and
+    ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
+    ``CAST(0.1 AS FLOAT)`` came back as 0.10000000149."""
+
+    class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
+        KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -95,7 +109,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     log = logging.getLogger("sqlglot")
     log.addHandler(handler)
     try:
-        trees = [t for t in sqlglot.parse(batch, read="tsql") if t is not None]
+        trees = [t for t in sqlglot.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
         raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
     finally:
@@ -114,6 +128,12 @@ def _harmless_setting(tree: exp.Expression) -> bool:
     items = tree.expressions
     names = [i.this.this.name.upper() if isinstance(i.this, exp.EQ) and isinstance(i.this.this, exp.Column) else ""
              for i in items]
+    if names == ["DATEFIRST"]:
+        value = items[0].this.expression
+        if isinstance(value, exp.Literal) and value.name == "7":
+            return True  # Fabric's default, which the translation already follows
+        raise ValueError("The local engine counts weeks from Sunday (SET DATEFIRST 7, Fabric's default), and doesn't "
+                         "run other DATEFIRST settings yet. Remove the SET DATEFIRST.")
     return bool(items) and all(n in _DROPPED_SETTINGS for n in names)
 
 
@@ -168,7 +188,7 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
-    """Make integer division and averages, and ``+`` on text, behave as in T-SQL. The types come from
+    """Make integer division and averages, ``+`` on text, and casts to integers behave as in T-SQL. The types come from
     a qualified copy of the tree (qualifying renames output columns, so the copy isn't run)."""
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
@@ -189,14 +209,16 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions and averages are done as DuckDB does them "
-                "(T-SQL divides and averages integers as integers)."]
+        return ["Couldn't tell the column types, so divisions, averages and casts to integers are done as DuckDB "
+                "does them (T-SQL divides and averages integers as integers, and cuts a decimal cast to an integer "
+                "toward zero)."]
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't match the query's columns to their types, so divisions and averages are done as DuckDB "
-                "does them (T-SQL divides and averages integers as integers)."]
+        return ["Couldn't match the query's columns to their types, so divisions, averages and casts to "
+                "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
+                "decimal cast to an integer toward zero)."]
     notes: list[str] = []
     for node, info in zip(here, there):
         if isinstance(node, exp.Div):
@@ -208,7 +230,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                              "and T-SQL divides two integers as integers.")
         elif isinstance(node, exp.Avg):
             if _is(info.this.type, _INTEGERS):
-                node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT")))
+                # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
+                whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):
@@ -222,8 +246,47 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
-            _sized_text(node, info.this.type)
+            to = node.args.get("to")
+            if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
+                    and _unknown(info.this.type):
+                notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
+                             "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
+            _truncated(node, info.this.type)
+            _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes
+
+
+def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
+    """``CAST(3.7 AS INT)`` is 3 in T-SQL, which cuts a decimal or float toward zero on the way to an
+    integer type; DuckDB rounds it to 4. TRUNC first, so -3.7 is -3 as well."""
+    to = node.args.get("to")
+    if not (isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT}):
+        return
+    if _is(source, _NUMBERS - _INTEGERS):
+        node.set("this", exp.Trunc(this=node.this))
+    elif _is(source, _TEXT):
+        _whole_text(node, to)
+
+
+def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
+    """Text to an integer type: T-SQL takes only a whole number, with spaces around it, and '' as 0;
+    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4. The text is
+    bound once, as LIST_TRANSFORM([text], v -> ...)[1], so a source that changes each time it's read
+    is read once."""
+    v = exp.to_identifier("kf_text")
+    whole = exp.func("REGEXP_FULL_MATCH", v.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
+    blank = exp.EQ(this=exp.func("TRIM", v.copy()), expression=exp.Literal.string(""))
+    message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
+    other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
+    cast = node.copy()
+    cast.set("this", v.copy())
+    case = exp.Case(ifs=[exp.If(this=whole, true=cast),
+                         exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
+                         exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
+                                true=exp.Cast(this=exp.Null(), to=to.copy()))],
+                    default=other)
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -271,6 +334,92 @@ def _converts(tree: exp.Expression) -> None:
         node.replace(new)
 
 
+_LIKE_NOTE = ("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's LIKE "
+              "does, which takes no [a-c] character ranges.")
+
+
+def _likes(tree: exp.Expression) -> list[str]:
+    """T-SQL's ``LIKE`` takes ``[a-c]`` and ``[^a-c]`` character ranges, which DuckDB's doesn't: there
+    ``'b1' LIKE '[a-c]1'`` is false. A pattern with a range is matched as a regular expression instead."""
+    notes: list[str] = []
+    for like in list(tree.find_all(exp.Like)):
+        escape = like.parent if isinstance(like.parent, exp.Escape) else None
+        pattern = like.expression
+        if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+            notes.append(_LIKE_NOTE)
+            continue
+        char = escape.expression.name if escape is not None and isinstance(escape.expression, exp.Literal) else ""
+        if "[" not in pattern.name or (escape is not None and len(char) != 1):
+            continue
+        match: exp.Expression = exp.RegexpFullMatch(this=like.this, expression=exp.Literal.string(_like_regex(pattern.name, char)))
+        if like.args.get("negate"):
+            match = exp.Not(this=match)
+        (escape or like).replace(match)
+    return notes
+
+
+def _like_regex(pattern: str, escape: str = "") -> str:
+    """A T-SQL LIKE pattern as an RE2 expression for a whole-string match."""
+    out, i = ["(?s)"], 0  # % and _ match a line break too
+    while i < len(pattern):
+        c = pattern[i]
+        if escape and c == escape and i + 1 < len(pattern):
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+            continue
+        if c == "[" and (found := _like_range(pattern, i + 1, escape)) is not None:
+            text, i = found
+            out.append(text)
+            continue
+        out.append(".*" if c == "%" else "." if c == "_" else re.escape(c))
+        i += 1
+    return "".join(out)
+
+
+_NOTHING, _ANY = "[^\\x{0}-\\x{10FFFF}]", "[\\x{0}-\\x{10FFFF}]"
+
+
+def _like_range(pattern: str, start: int, escape: str) -> tuple[str, int] | None:
+    """The ``[...]`` that opens before ``start`` as an RE2 class, and where the pattern goes on; None
+    when it isn't closed (the ``[`` is then an ordinary character). The escape character counts inside
+    too, and a range written backwards (``[z-a]``) matches nothing, as in SQL Server."""
+    chars: list[tuple[str, bool]] = []  # each character, and whether it was escaped
+    i = start
+    while i < len(pattern):
+        c = pattern[i]
+        if escape and c == escape and i + 1 < len(pattern):
+            chars.append((pattern[i + 1], True))
+            i += 2
+            continue
+        if c == "]" and chars:
+            break
+        chars.append((c, False))
+        i += 1
+    else:
+        return None
+    negate = len(chars) > 1 and chars[0] == ("^", False)
+    if negate:
+        chars = chars[1:]
+    parts: list[str] = []
+    k = 0
+    while k < len(chars):
+        if k + 2 < len(chars) and chars[k + 1] == ("-", False):
+            low, high = chars[k][0], chars[k + 2][0]
+            if low <= high:
+                parts.append(_in_class(low) + "-" + _in_class(high))
+            k += 3
+        else:
+            parts.append(_in_class(chars[k][0]))
+            k += 1
+    if not parts:  # only backwards ranges
+        return (_ANY if negate else _NOTHING), i + 1
+    return "[" + ("^" if negate else "") + "".join(parts) + "]", i + 1
+
+
+def _in_class(ch: str) -> str:
+    return "\\" + ch if ch in "\\[]^-" else ch
+
+
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:
     # Depth first: qualifying wraps columns in aliases, which moves nodes between levels but not in this order.
     return [n for n in tree.walk(bfs=False) if isinstance(n, kinds)]
@@ -286,6 +435,14 @@ def _unknown(kind: exp.DataType | None) -> bool:
 
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
+        if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
+            # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
+            bits = kind.expressions[0].this
+            if not (isinstance(bits, exp.Literal) and bits.is_int and 1 <= int(bits.name) <= 53):
+                raise ValueError("FLOAT(n) takes a whole number from 1 to 53.")
+            small = int(bits.name) <= 24
+            kind.set("this", exp.DataType.Type.FLOAT if small else exp.DataType.Type.DOUBLE)
+            kind.set("expressions", [])
         # NVARCHAR(MAX) and VARBINARY(MAX): DuckDB's types have no limit and take no MAX.
         if any(isinstance(p.this, exp.Var) and p.this.name.upper() == "MAX" for p in kind.expressions
                if isinstance(p, exp.DataTypeParam)):
@@ -297,8 +454,11 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous)):
-        if isinstance(node, exp.Length):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+        if isinstance(node, exp.DateDiff):
+            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+                _sunday_weeks(node)
+        elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
@@ -318,6 +478,19 @@ def _functions(tree: exp.Expression) -> None:
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
+
+
+def _sunday_weeks(node: exp.DateDiff) -> None:
+    """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
+    (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    def monday(day: exp.Expression) -> exp.Expression:
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
+
+    days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
+                                                        monday(node.this)])
+    node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
 
 
 def _first_line(exc: Any) -> str:

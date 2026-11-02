@@ -53,14 +53,23 @@ def _expr(value: Any) -> bool:
         isinstance(value, dict) and value.get("type") == "Expression")
 
 
-def _dataset(settings: Any) -> tuple[str, dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _dict(value: Any) -> dict[str, Any]:
+    """``value`` when it is a JSON object, else an empty one: pipeline JSON can hold anything."""
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _dataset(settings: Any) -> tuple[Any, dict[str, Any], dict[str, Any], dict[str, Any]]:
     """(dataset type, its typeProperties, the linked service's type and typeProperties as one dict)."""
-    ds = settings if isinstance(settings, dict) else {}
-    ls = ds.get("linkedService") if isinstance(ds.get("linkedService"), dict) else {}
-    lsp = ls.get("properties") if isinstance(ls.get("properties"), dict) else {}
+    ds = _dict(settings)
+    ls = _dict(ds.get("linkedService"))
+    lsp = _dict(ls.get("properties"))
     service = {"type": lsp.get("type"), "name": ls.get("name"),
-               **(lsp.get("typeProperties") if isinstance(lsp.get("typeProperties"), dict) else {})}
-    tp = ds.get("typeProperties") if isinstance(ds.get("typeProperties"), dict) else {}
+               **_dict(lsp.get("typeProperties"))}
+    tp = _dict(ds.get("typeProperties"))
     return ds.get("type"), tp, service, ds
 
 
@@ -115,7 +124,7 @@ class LocalData:
                              "pipeline's own). Say which workspace the pipeline is in (workspace_id), or give a mock.",
                              a)]
         if a.type == "Lookup":
-            source = tp.get("source") if isinstance(tp.get("source"), dict) else {}
+            source = _dict(tp.get("source"))
             if any(k in source for k in ("sqlReaderQuery", "query", "sqlReaderStoredProcedureName")):
                 return [_problem("data_query", f"{a.name} runs a query; Lookup on this PC reads a whole table. Give "
                                  "a mock for it.", a)]
@@ -230,7 +239,7 @@ class LocalData:
 
     def _metadata(self, a: Activity, props: dict[str, Any]) -> dict[str, Any]:
         kind, ds_tp, ref = self._ref(a, props.get("datasetSettings"))
-        fields = props.get("fieldList") if isinstance(props.get("fieldList"), list) else []
+        fields = _list(props.get("fieldList"))
         allowed = TABLE_FIELDS if kind == "LakehouseTable" else FILE_FIELDS
         other = [f for f in fields if f not in allowed]
         if other:
@@ -269,7 +278,7 @@ class LocalData:
 
     def _file_metadata(self, a: Activity, ref: dict[str, str], ds_tp: dict[str, Any],
                        fields: list[str]) -> dict[str, Any]:
-        loc = ds_tp.get("location") if isinstance(ds_tp.get("location"), dict) else {}
+        loc = _dict(ds_tp.get("location"))
         folder = str(loc.get("folderPath") or "").strip("/")
         name = str(loc.get("fileName") or "").strip("/")
         if ".." in folder.split("/") or ".." in name.split("/"):

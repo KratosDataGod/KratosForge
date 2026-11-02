@@ -43,7 +43,8 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.duckdb_sql(spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")))
+    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_sql.spark_substring(
+        spark_sql.spark_integer_casts(sqlglot.parse_one(text, read="spark")))))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -353,10 +354,26 @@ def initcap(col: Any) -> Column:
 
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = spark_sql.spark_substring(sqlglot.parse_one(text, read="spark"))
+    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")))
     if isinstance(parsed, exp.Alias):
         return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
     return _sql(spark_sql.duckdb_sql(parsed))
+
+
+def to_date(col: Any, format: str | None = None) -> Column:  # noqa: A002 - PySpark's name
+    """A date from a date, timestamp or text, in ``format`` when given. Text that isn't a date gives
+    NULL, as in Spark with ANSI off (EA-015); DuckDB's own to_date stops the query, and refuses a format."""
+    named = f"to_date({_name_of(col)}" + ("" if format is None else f", {format}") + ")"
+    call = "to_date({0})" if format is None else f"to_date({{0}}, {_lit(format)})"
+    return _call(call, col).alias(named)
+
+
+def to_timestamp(col: Any, format: str | None = None) -> Column:  # noqa: A002
+    """A timestamp from a date, timestamp or text, in ``format`` when given. Text that isn't one gives
+    NULL, as in Spark with ANSI off (EA-015)."""
+    named = f"to_timestamp({_name_of(col)}" + ("" if format is None else f", {format}") + ")"
+    call = "to_timestamp({0})" if format is None else f"to_timestamp({{0}}, {_lit(format)})"
+    return _call(call, col).alias(named)
 
 
 _count = F.count
@@ -928,16 +945,90 @@ def _collect_structs_as_rows(collect: Any) -> Any:
     return collect_rows
 
 
+_TIME_TYPE_NAMES = ("date", "timestamp")
+
+
+def _time_cast(original: Any) -> Any:
+    """Column.cast to a date or timestamp as Spark's with ANSI off: a value that isn't one gives NULL
+    (EA-015), where DuckDB's cast stops the query. The column keeps the name DuckDB's cast gives it."""
+    from duckdb.experimental.spark.sql.types import DateType, TimestampNTZType, TimestampType
+
+    def cast(self: Column, dataType: Any) -> Column:  # noqa: N803 - PySpark's name
+        plain = original(self, dataType)
+        if isinstance(dataType, str):
+            if dataType.strip().lower() not in _TIME_TYPE_NAMES:
+                return plain
+            target = dataType.strip().upper()
+        elif isinstance(dataType, (DateType, TimestampType, TimestampNTZType)):
+            target = str(dataType.duckdb_type)
+        else:
+            return plain
+        # Only text, a date or a timestamp can fail to be one: those give NULL. Anything else (a number)
+        # keeps DuckDB's own cast, so it is never NULL without a word.
+        value = _col_sql(self)
+        return _sql(f"(LIST_TRANSFORM([{value}], lambda kf_t: CASE WHEN typeof(kf_t) = 'VARCHAR' OR typeof(kf_t) "
+                    f"IN ({spark_sql._TIME_TYPES}) THEN TRY_CAST(kf_t AS {target}) ELSE CAST(kf_t AS {target}) END))[1]"
+                    ).alias(plain.expr.get_name())
+    return cast
+
+
+def _spark_divide(reverse: bool) -> Any:
+    """Column division as Spark's (ANSI off): dividing by zero gives NULL (EA-012); DuckDB gives inf,
+    -inf or NaN. Spark's ``/`` is a double division, as DuckDB's is."""
+    from duckdb.experimental.spark.sql.column import _get_expr
+
+    def divide(self: Column, other: Any) -> Column:
+        left, right = (_get_expr(other), self.expr) if reverse else (self.expr, _get_expr(other))
+        return Column(left / duckdb.FunctionExpression("nullif", right, duckdb.ConstantExpression(0)))
+    return divide
+
+
+# Column.cast to a whole-number type truncates as Spark does (EA-003); DuckDB's cast rounds.
+_INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYINT"),
+                   "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
+                   "int": ("INTEGER", "INT"), "integer": ("INTEGER", "INT"),
+                   "bigint": ("BIGINT", "BIGINT"), "long": ("BIGINT", "BIGINT")}
+_INT_CAST_TYPES = {"ByteType": "tinyint", "ShortType": "smallint", "IntegerType": "int", "LongType": "bigint"}
+
+
+def _int_cast(original: Any) -> Any:
+    def cast(self: Column, dataType: Any) -> Column:
+        name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
+        target = _INT_CAST_NAMES.get(name or "")
+        if isinstance(dataType, str) and name == "timestamp":
+            stamp: str | None = "TIMESTAMP"
+        elif type(dataType).__name__ in ("TimestampType", "TimestampNTZType"):
+            stamp = str(dataType.duckdb_type)
+        else:
+            stamp = None
+        if target is None and stamp is None:
+            return original(self, dataType)
+        named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
+        # A number cast to a timestamp is its seconds since 1970 (EA-014), as spark_timestamp_cast writes it.
+        if stamp is not None:
+            cast_sql = spark_sql.spark_timestamp_cast("kf_cast", stamp, "legacy")
+        else:
+            duck_type, spark_type = target  # type: ignore[misc]  # not None here: one of the two is set
+            cast_sql = spark_sql.spark_integer_cast("kf_cast", duck_type, spark_type, "legacy")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
+    return cast
+
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
         return
     for name, fn in FUNCTIONS.items():
         if name in ("count", "substring", "concat", "initcap", "first", "last", "slice",
-                    "add_months", "months_between", "element_at") or not hasattr(F, name):
+                    "add_months", "months_between", "element_at", "to_date", "to_timestamp") or not hasattr(F, name):
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
+    # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
+    Column.cast = _time_cast(Column.cast)  # type: ignore[method-assign]
+    Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]

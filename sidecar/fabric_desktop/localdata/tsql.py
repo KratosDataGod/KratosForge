@@ -551,8 +551,8 @@ def _gaps(tree: exp.Expression) -> None:
         if name == "CHOOSE" and len(args) >= 2:
             call.replace(exp.Case(this=args[0], ifs=[exp.If(this=exp.Literal.number(i), true=a)
                                                      for i, a in enumerate(args[1:], 1)]))
-        elif name == "DATALENGTH" and len(args) == 1:  # bytes of the text, as UTF-8 (a warehouse's varchar)
-            call.replace(exp.func("OCTET_LENGTH", exp.Anonymous(this="ENCODE", expressions=[args[0]])))
+        elif name == "DATALENGTH" and len(args) == 1:
+            call.replace(_datalength(args[0]))
         elif name == "STRING_SPLIT":
             _string_split(call)
         elif name == "ISNUMERIC":
@@ -560,6 +560,16 @@ def _gaps(tree: exp.Expression) -> None:
                              "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
         elif name == "PATINDEX":
             raise ValueError(_NOT_YET + "PATINDEX isn't mapped yet. CHARINDEX finds text without a pattern.")
+
+
+def _datalength(value: exp.Expression) -> exp.Expr:
+    """``DATALENGTH``: the bytes of the text as UTF-8, as a warehouse's varchar holds it; an N'...'
+    literal is nvarchar, two bytes a character (UTF-16)."""
+    if isinstance(value, exp.National):
+        return exp.Literal.number(len(value.name.encode("utf-16-le")))
+    if isinstance(value, exp.Literal) and not value.is_string:
+        raise ValueError(_NOT_YET + "DATALENGTH runs here only on text: a number's size depends on its T-SQL type.")
+    return exp.func("OCTET_LENGTH", exp.Anonymous(this="ENCODE", expressions=[value]))
 
 
 def _with_ties(limit: exp.Limit) -> None:
@@ -580,6 +590,9 @@ def _string_split(node: exp.Anonymous) -> None:
     """``STRING_SPLIT(text, separator)`` as a table of one ``value`` column, one row per part."""
     if len(node.expressions) != 2:
         raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal isn't mapped yet.")
+    separator = node.expressions[1]
+    if isinstance(separator, (exp.Literal, exp.National)) and len(separator.name) != 1:
+        raise ValueError("STRING_SPLIT takes a separator of one character, as in T-SQL.")
     parts = exp.Unnest(expressions=[exp.func("STRING_SPLIT", *node.expressions)])
     query = exp.select(exp.alias_(parts, "value")).subquery()
     holder = node.parent

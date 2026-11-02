@@ -335,7 +335,15 @@ jobs:
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
+          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+          & "$dir\python.exe" -m pip check
+          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
           # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.

@@ -65,7 +65,9 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 112 items (6 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 28 In progress, 5 In review and 65 Accepted.
+- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 16 are Proposed, 28 In progress, 5 In review and 65 Accepted.
+- PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
+  product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
   44 of its PRs are merged; it tracks fixes only.
 

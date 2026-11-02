@@ -187,7 +187,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (57 items)
+### P2 (59 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -208,6 +208,8 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-119](PRODUCT_BACKLOG.md#pb-119) | Learn v1: lessons, labs and finding actions | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
 | [PB-122](PRODUCT_BACKLOG.md#pb-122) | Guided Development: levels, Try the fix and Compare | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Guided development (GD) |
 | [PB-123](PRODUCT_BACKLOG.md#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-125](PRODUCT_BACKLOG.md#pb-125) | Learn ranks and profile pictures | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | M | Medium | none | Learning experience (LX) |
+| [PB-126](PRODUCT_BACKLOG.md#pb-126) | Learn curriculum content batches by path | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |

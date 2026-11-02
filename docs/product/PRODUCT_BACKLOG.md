@@ -71,12 +71,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 6 | 2 | 9 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 9 | 1 | 13 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 1 | 15 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 7 | 2 | 0 | 12 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **6** | **32** | **57** | **17** | **112** |
+| **Total** | **6** | **32** | **59** | **17** | **114** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -1080,6 +1080,8 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | In review |
 | [PB-122](#pb-122) | Guided Development: levels, Try the fix and Compare | P2 | Guided development (GD) | L | In progress |
 | [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | Proposed |
+| [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | Proposed |
+| [PB-126](#pb-126) | Learn curriculum content batches by path | P2 | Learning experience (LX) | L | Proposed |
 
 ### PB-034
 
@@ -1281,6 +1283,37 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Learning experience (LX) (LX-11..16)
 - **Acceptance criteria:**
     - As the LX proposal sets them for each slice; each slice needs Chris's go before it is built
+
+### PB-125
+
+**Learn ranks and profile pictures** · P2 (score 2.34) · M · confidence Medium · Proposed
+
+- **Problem:** Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.
+- **Proposed capability:** Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is "Data God"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.
+- **Current-state evidence:** Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp; Nothing built. Builds as draft PRs once Chris approves the rank ladder
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Learning experience (LX) (Learn curriculum design 2026-11-02)
+- **Acceptance criteria:**
+    - A rank is earned only from Learn evidence the person produced, never set by hand, and a policy can turn ranks off
+    - Every rank name and picture prompt follows the approved ladder; none is "Data God"
+    - A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size
+    - The picture prompts are text only: the app generates no images and calls no AI service
+
+### PB-126
+
+**Learn curriculum content batches by path** · P2 (score 2.34) · L · confidence Medium · Proposed
+
+- **Problem:** Learn v1 has the first lessons and labs only, so no path is a full curriculum.
+- **Proposed capability:** A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.
+- **Current-state evidence:** From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Overlaps PB-123 (Learn phase 2, LX-11 to LX-16); the two are reconciled when Chris approves the ladder; Nothing built. Each batch needs Chris's go before it is built
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Learning experience (LX) (LM-13..35, LAB-05..12)
+- **Acceptance criteria:**
+    - Every lesson names rule ids that resolve in the catalog (test_learn_content)
+    - Every lab runs on this PC with generated data inside the lab limits (test_learn_labs)
+    - docs/learn.md lists the paths and lessons as shipped
 
 ## Enterprise Administration and FinOps
 
@@ -1752,7 +1785,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The enterprise engineering audit (#1571) scored readiness 54/100 and found defects in data integrity, engine compatibility, release integrity and operations that a Fortune 100 rollout needs closed.
 - **Proposed capability:** Each EA-nnn finding in docs/audits/REMEDIATION_BACKLOG.md fixed or recorded as an explicit refusal or limitation, with a test per fix, and the readiness scorecard re-scored.
-- **Current-state evidence:** Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638; Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608); Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC; Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go; Scores and the blocker flag were set to match PB-101, the hardening program it splits from
+- **Current-state evidence:** Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638; Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608); Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC; Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go; Scores and the blocker flag were set to match PB-101, the hardening program it overlaps
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (EA-001..030)

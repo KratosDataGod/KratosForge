@@ -230,7 +230,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
                 "decimal cast to an integer toward zero)."]
     notes: list[str] = []
-    for node, info in zip(here, there):
+    for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):

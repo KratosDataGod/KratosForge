@@ -99,7 +99,7 @@ def last_load(runs: list[dict[str, Any]], entities: list[str], unavailable: dict
             return {"last_load": min(str(r["started_at"]) for r in loaded), "load_env": env,
                     "last_rows": None if len(counts) != len(rows) else min(int(x) for x in counts)}
         if any(here) and not partial:
-            missing = [e for e, r in zip(entities, here) if not r]
+            missing = [e for e, r in zip(entities, here, strict=True) if not r]
             partial = f"{', '.join(missing)} hasn't loaded in {env.title()} yet."
     why = partial or "No successful load is recorded in any run log this PC can read."
     if unavailable:

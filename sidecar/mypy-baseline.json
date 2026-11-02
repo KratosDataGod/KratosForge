@@ -264,14 +264,6 @@
   "arg-type": 1,
   "assignment": 2
  },
- "fabric_desktop/localdata/engine.py": {
-  "arg-type": 8,
-  "assignment": 1,
-  "call-overload": 1,
-  "index": 2,
-  "misc": 1,
-  "union-attr": 4
- },
  "fabric_desktop/localdata/transform.py": {
   "assignment": 1,
   "attr-defined": 1

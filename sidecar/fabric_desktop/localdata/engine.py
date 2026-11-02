@@ -34,7 +34,7 @@ from contextlib import contextmanager
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 import pyarrow as pa
@@ -171,7 +171,7 @@ def _empty_select(schema: pa.Schema) -> str:
 
 def file_select(found: Found) -> str:
     if found.format == "delta":
-        return delta_select(found.folder)[0]
+        return delta_select(cast(str, found.folder))[0]  # discovery gives every Delta table its folder
     if found.format == "excel":
         raise ValueError("Excel workbooks are found but can't be read yet: that needs a package the engine "
                          "doesn't ship. Save the sheet as CSV for now.")
@@ -309,9 +309,13 @@ class LocalEngine:
 
     def refresh(self, source_path: str | None = None, force: bool = True) -> dict[str, Any]:
         """Look at the registered folders again; make, change or drop views for what changed."""
-        sources = [self.project.source(source_path)] if source_path else list(self.project.sources)
-        if None in sources:
-            raise KeyError(f"{source_path} is not a registered folder of {self.project.name}.")
+        if source_path:
+            one = self.project.source(source_path)
+            if one is None:
+                raise KeyError(f"{source_path} is not a registered folder of {self.project.name}.")
+            sources = [one]
+        else:
+            sources = list(self.project.sources)
         with self._lock:
             self._open_locked()
             changed = [s.path for s in sources if self._refresh_source(s, force=force)]
@@ -339,7 +343,7 @@ class LocalEngine:
         keep: set[str] = set()
         for table in found.tables:
             key = table.key
-            entry = {"schema": table.schema, "table": table.table, "format": table.format, "source": source.path,
+            entry: dict[str, Any] = {"schema": table.schema, "table": table.table, "format": table.format, "source": source.path,
                      "paths": table.paths if table.files <= 50 else table.paths[:1], "folder": table.folder,
                      "files": table.files, "bytes": table.size, "status": "ok", "error": "", "columns": []}
             if key in others:
@@ -355,7 +359,7 @@ class LocalEngine:
             keep.add(key)
             try:
                 if table.format == "delta":
-                    select, info = delta_select(table.folder)
+                    select, info = delta_select(cast(str, table.folder))
                     entry["delta"] = info
                 else:
                     select = file_select(table)
@@ -406,7 +410,8 @@ class LocalEngine:
         # lists the rest without waiting.
         self.open()
         own = self._lock.acquire(blocking=False)
-        con = self._con if own else self._con.cursor()  # type: ignore[union-attr]
+        held = cast(duckdb.DuckDBPyConnection, self._con)  # open() made it
+        con = held if own else held.cursor()
         try:
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
@@ -636,9 +641,10 @@ class LocalEngine:
         n = 0
         if dialect == "spark":
             import sqlglot
+            from sqlglot import exp
             from sqlglot.errors import ParseError
             try:
-                trees = [t for t in sqlglot.parse(sql, read="spark") if t is not None]
+                trees = [cast(exp.Expression, t) for t in sqlglot.parse(sql, read="spark") if t is not None]
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
@@ -967,11 +973,15 @@ class LocalEngine:
                     pass
             else:
                 folder.mkdir(parents=True, exist_ok=True)
-                mode = "error" if current is None else ("overwrite" if w.mode == "overwrite" else "append")
-                write_deltalake(str(folder), counter.reader, mode=mode, partition_by=partitions or None,
-                                schema_mode=schema_mode,
-                                commit_properties=CommitProperties(custom_metadata={
-                                    "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id}))
+                options: dict[str, Any] = {
+                    "partition_by": partitions or None, "schema_mode": schema_mode,
+                    "commit_properties": CommitProperties(custom_metadata={
+                        "fabric_desktop.project": self.project.id, "fabric_desktop.query": query_id})}
+                if current is not None and w.mode == "overwrite":
+                    write_deltalake(str(folder), counter.reader, mode="overwrite", **options)
+                else:
+                    write_deltalake(str(folder), counter.reader, mode="error" if current is None else "append",
+                                    **options)
         except BaseException as exc:
             if not dry_run and current is None and not (folder / "_delta_log").is_dir():
                 _remove_tree(folder, self.tables_dir)  # nothing committed: leave no half-written folder
@@ -1552,6 +1562,6 @@ def _json(value: Any) -> Any:
     return str(value)
 
 
-def _short(exc: Exception) -> str:
+def _short(exc: BaseException) -> str:
     text = str(exc).strip()
     return text.split("\n\nLINE")[0][:1000] or type(exc).__name__

@@ -171,3 +171,9 @@ def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
         requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
     stored = notify.failure(caught.value)
     assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored
+
+
+def test_a_folded_cookie_line_keeps_the_next_lines_text():
+    # one_line removes secrets, folds the lines, then removes them again: the second pass must not
+    # take the next line's error as the cookie's value.
+    assert redact.one_line("Cookie: sess=abc123\nThe request was refused.") == "Cookie: [removed] The request was refused."

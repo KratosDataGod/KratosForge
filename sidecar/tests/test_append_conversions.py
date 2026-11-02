@@ -20,6 +20,10 @@ from test_ea_write_integrity import Ref
     (pa.bool_(), pa.int32()), (pa.int32(), pa.bool_()), (pa.date32(), pa.string()),
     (pa.list_(pa.float64()), pa.list_(pa.int64())),
     (pa.struct([("a", pa.float64())]), pa.struct([("a", pa.int32())])),
+    # A float holds whole numbers exactly only up to its mantissa: 16777217 becomes 16777216 in a
+    # float, 2**53 + 1 becomes 2**53 in a double. A decimal rounds in either.
+    (pa.int64(), pa.float32()), (pa.int32(), pa.float32()), (pa.int64(), pa.float64()),
+    (pa.decimal128(38, 18), pa.float64()), (pa.decimal128(10, 2), pa.float32()),
 ])
 def test_a_type_that_would_change_values_is_a_conversion(src, dst):
     assert conversions(pa.schema([("C", src)]), pa.schema([("c", dst)])) == [("C", src, dst)]
@@ -27,8 +31,8 @@ def test_a_type_that_would_change_values_is_a_conversion(src, dst):
 
 @pytest.mark.parametrize("src, dst", [
     (pa.int32(), pa.int64()), (pa.int64(), pa.int32()),  # delta-rs stops a whole number that doesn't fit
-    (pa.int64(), pa.float64()), (pa.float32(), pa.float64()), (pa.int64(), pa.decimal128(18, 0)),
-    (pa.decimal128(10, 2), pa.float64()), (pa.date32(), pa.timestamp("us", "UTC")),
+    (pa.int8(), pa.float32()), (pa.int16(), pa.float32()), (pa.int16(), pa.float64()), (pa.int32(), pa.float64()),
+    (pa.float32(), pa.float64()), (pa.int64(), pa.decimal128(18, 0)), (pa.date32(), pa.timestamp("us", "UTC")),
     (pa.timestamp("ns", "UTC"), pa.timestamp("us", "UTC")), (pa.large_string(), pa.string()),
     (pa.null(), pa.int32()), (pa.list_(pa.int32()), pa.list_(pa.int64())),
 ])
@@ -77,3 +81,31 @@ def test_a_decimal_into_a_whole_number_column_is_refused(tmp_path):
     with pytest.raises(ValueError, match="decimal"):
         publish.publish(pa.table({"n": pa.array([decimal.Decimal("19.99")], pa.decimal128(4, 2))}), Ref(uri), "append", "tok")
     assert DeltaTable(uri).to_pyarrow_table().column("n").to_pylist() == [1]
+
+
+@pytest.mark.parametrize("value, src, dst", [
+    (16777217, pa.int64(), pa.float32()), (16777217, pa.int32(), pa.float32()),
+    (2**53 + 1, pa.int64(), pa.float64()),
+])
+def test_a_whole_number_a_float_would_round_is_refused(tmp_path, value, src, dst):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"n": pa.array([1.0], dst)}), ref, "overwrite", "tok")
+    with pytest.raises(ValueError, match="Nothing was written"):
+        publish.publish(pa.table({"n": pa.array([value], src)}), ref, "append", "tok")
+    assert DeltaTable(ref.uri).version() == 0
+
+
+def test_a_decimal_a_double_would_round_is_refused(tmp_path):
+    from decimal import Decimal
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"x": [0.5]}), ref, "overwrite", "tok")
+    with pytest.raises(ValueError, match="Nothing was written"):
+        publish.publish(pa.table({"x": pa.array([Decimal("0.123456789012345678")], pa.decimal128(38, 18))}), ref, "append", "tok")
+    assert DeltaTable(ref.uri).version() == 0
+
+
+def test_an_int_into_a_double_keeps_its_value(tmp_path):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"n": [1.0]}), ref, "overwrite", "tok")
+    publish.publish(pa.table({"n": pa.array([2**31 - 1], pa.int32())}), ref, "append", "tok")
+    assert sorted(DeltaTable(ref.uri).to_pyarrow_table()["n"].to_pylist()) == [1.0, 2**31 - 1]

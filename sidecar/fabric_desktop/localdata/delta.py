@@ -401,14 +401,20 @@ def _keeps_values(src: pa.DataType, dst: pa.DataType) -> bool:
     if src.equals(dst) or pa.types.is_null(src):
         return True
     if pa.types.is_integer(src):
-        # Another whole number: delta-rs refuses one that doesn't fit. A number with a fraction
-        # holds any whole number Fabric's engines write.
-        return pa.types.is_integer(dst) or pa.types.is_floating(dst) or pa.types.is_decimal(dst)
+        # Another whole number: delta-rs refuses one that doesn't fit. A float holds every whole
+        # number only up to its mantissa (24 bits in a float, 53 in a double), so a bigint into
+        # either, or an int into a float, can round (16777217 becomes 16777216).
+        if pa.types.is_integer(dst) or pa.types.is_decimal(dst):
+            return True
+        if pa.types.is_floating(dst):
+            return src.bit_width <= 16 or (src.bit_width <= 32 and dst.bit_width >= 64)
+        return False
     if pa.types.is_floating(src):
         return pa.types.is_floating(dst) and dst.bit_width >= src.bit_width
     if pa.types.is_decimal(src):
-        # delta-rs refuses another precision or scale itself; into a whole number the fraction goes.
-        return pa.types.is_decimal(dst) or pa.types.is_floating(dst)
+        # delta-rs refuses another precision or scale itself. A float rounds most decimals
+        # (decimal(38, 18) into a double keeps about 16 digits), and a whole number drops the fraction.
+        return pa.types.is_decimal(dst)
     if pa.types.is_date(src):
         return pa.types.is_date(dst) or pa.types.is_timestamp(dst)
     if pa.types.is_timestamp(src):

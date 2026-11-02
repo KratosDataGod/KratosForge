@@ -112,6 +112,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
+| `name = 'Ann'`, `<>`, `<`, `IN (...)` on text | Trailing spaces don't count, as in T-SQL: `'Ann  ' = 'Ann'` is true. Leading spaces and case still count. An equality between a column and a value still lets a Parquet or Delta file skip row groups |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
@@ -125,7 +126,7 @@ The column types come from the project, so the integer rules hold for its tables
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 
-**Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
+**Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. `GROUP BY`, `DISTINCT`, `UNION` and `JOIN ... USING` keep `'a'` and `'a '` apart, where T-SQL treats them as one value; and a comparison whose types can't be told counts trailing spaces, which `translation.notes` says. `SUM` over an integer column widens instead of failing on overflow. `1.0 / 3` is a double (`0.3333333333333333`), where T-SQL gives a decimal with 6 places (`0.333333`). `CAST(a_datetime AS VARCHAR)` gives `2024-03-05 13:04:00`, not T-SQL's default `Mar  5 2024  1:04PM`; give `CONVERT` a style for a fixed format. `ISNULL` gives the second value whole, where T-SQL cuts it to the first value's type (`ISNULL(CAST(NULL AS VARCHAR(2)), 'abcd')` is `'ab'` there). Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
 
 ## Why is a query slow
 

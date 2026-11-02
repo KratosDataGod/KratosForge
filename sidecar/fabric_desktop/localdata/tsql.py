@@ -10,6 +10,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
+- compares text without trailing spaces (``'a' = 'a  '``) when both sides are known to be text;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
@@ -175,7 +176,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
 
     kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast)
     here = _in_order(tree, kinds)
-    if not here:
+    compared = _in_order(tree, _COMPARISONS)
+    if not here and not compared:
         return []
     sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
@@ -189,15 +191,16 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions and averages are done as DuckDB does them "
-                "(T-SQL divides and averages integers as integers)."]
+        return ["Couldn't tell the column types, so divisions, averages and text comparisons are done as DuckDB "
+                "does them (T-SQL divides and averages integers as integers, and ignores trailing spaces when it "
+                "compares text)."]
+    notes = _padded(compared, _in_order(typed, _COMPARISONS))
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't match the query's columns to their types, so divisions and averages are done as DuckDB "
-                "does them (T-SQL divides and averages integers as integers)."]
-    notes: list[str] = []
+        return notes + ["Couldn't match the query's columns to their types, so divisions and averages are done as "
+                        "DuckDB does them (T-SQL divides and averages integers as integers)."]
     for node, info in zip(here, there):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
@@ -269,6 +272,66 @@ def _converts(tree: exp.Expression) -> None:
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
         node.replace(new)
+
+
+_COMPARISONS = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In)
+_PADDED_NOTE = ("Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL ignores "
+                "trailing spaces when it compares text ('a' = 'a  '), and here they count.")
+_TOP = "\U0010ffff"  # the last character: 'ab ' and then it sorts after 'ab', any spaces, and anything after them
+
+
+def _padded(here: list[exp.Expression], there: list[exp.Expression]) -> list[str]:
+    """T-SQL compares text as if the shorter side were padded with spaces (ANSI padding), so
+    ``'a' = 'a  '`` is true, in ``=``, ``<>``, ``<`` and the rest and in ``IN``; DuckDB compares exactly.
+    Where both sides are known to be text, trailing spaces are taken off first. ``GROUP BY``,
+    ``DISTINCT``, ``UNION`` and ``JOIN ... USING`` still keep 'a' and 'a ' apart (docs/local-data.md)."""
+    if len(here) != len(there):
+        return [_PADDED_NOTE] if here else []
+    unsure = False
+    for node, info in zip(here, there):
+        if isinstance(node, exp.In):
+            if info.args.get("query") is not None or not info.expressions:
+                continue
+            sides = [info.this, *info.expressions]
+            if all(_is(v.type, _TEXT) for v in sides):
+                node.set("this", _rtrim(node.this))
+                node.set("expressions", [_rtrim(v) for v in node.expressions])
+            elif any(_is(v.type, _TEXT) for v in sides) and any(_unknown(v.type) for v in sides):
+                unsure = True
+            continue
+        a, b = info.this.type, info.expression.type
+        if _is(a, _TEXT) and _is(b, _TEXT):
+            if isinstance(node, exp.EQ) and _column_and_text(node):
+                _padded_equal(node)
+            else:
+                node.set("this", _rtrim(node.this))
+                node.set("expression", _rtrim(node.expression))
+        elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
+            unsure = True
+    return [_PADDED_NOTE] if unsure else []
+
+
+def _rtrim(node: exp.Expression) -> exp.Expr:
+    if isinstance(node, exp.Literal) and node.is_string:
+        return exp.Literal.string(node.name.rstrip(" "))
+    return exp.func("RTRIM", node)
+
+
+def _column_and_text(node: exp.EQ) -> bool:
+    sides = (node.this, node.expression)
+    return any(isinstance(x, exp.Column) for x in sides) and any(isinstance(x, exp.Literal) and x.is_string
+                                                                 for x in sides)
+
+
+def _padded_equal(node: exp.EQ) -> None:
+    """``column = 'text'`` as a range on the column and then the exact test, so a file's row groups
+    can still be skipped by their min and max (an RTRIM on the column alone reads them all)."""
+    column, text = (node.this, node.expression) if isinstance(node.this, exp.Column) else (node.expression, node.this)
+    value = text.name.rstrip(" ")
+    low, high = exp.Literal.string(value), exp.Literal.string(value + " " + _TOP)
+    node.replace(exp.paren(exp.and_(
+        exp.GTE(this=column.copy(), expression=low), exp.LTE(this=column.copy(), expression=high),
+        exp.EQ(this=exp.func("RTRIM", column), expression=low.copy())), copy=False))
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:

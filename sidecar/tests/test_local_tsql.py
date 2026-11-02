@@ -36,6 +36,13 @@ def test_integers_divide_and_average_as_integers(engine):
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
+def test_an_integer_average_over_a_window_is_an_integer(engine):
+    # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
+    r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
+                     "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+
+
 def test_len_weekday_week_and_plus_on_text(engine):
     r = tsql(engine, "SELECT LEN(name) AS n, DATEPART(weekday, day) AS wd, DATEPART(week, day) AS wk, "
                      "name + '!' AS s FROM dbo.orders ORDER BY id")

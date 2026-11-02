@@ -199,6 +199,14 @@ def test_only_one_run_takes_over_a_dead_lock(svc):
     assert svc.pc_schedules.runs() == []
 
 
+def _no_identity_only_off_windows_and_linux():
+    """Windows (GetProcessTimes) and Linux (/proc) always say when a process started, so there a
+    missing identity is a bug, not a skip: CI's Windows job proves the Windows branch this way."""
+    import sys
+    assert not sys.platform.startswith(("win32", "linux")), f"process_identity read nothing on {sys.platform}"
+    pytest.skip("this OS doesn't say when a process started")
+
+
 def test_a_lock_whose_pid_another_process_now_has_is_taken_over(svc):
     """EA-008: a PID is reused once its process ends. The lock keeps its process's start time, so a
     live process with the same PID isn't taken for the run that held it."""
@@ -212,7 +220,7 @@ def test_a_lock_whose_pid_another_process_now_has_is_taken_over(svc):
     (folder / f"{sid}.lock").write_text(json.dumps({"pid": live, "process": "an earlier process's start",
                                                     "started": "2026-11-02T01:00:00+00:00"}))
     if schedule_service.process_identity(live) is None:
-        pytest.skip("this OS doesn't say when a process started")
+        _no_identity_only_off_windows_and_linux()
     assert svc.run_schedule(sid)["status"] == "ok"
     assert [r["status"] for r in svc.pc_schedules.runs()] == ["ok", "failed"]
     # The same PID with its own start time is the live run: kept.
@@ -243,7 +251,7 @@ def test_a_lock_names_its_process_and_can_t_tell_still_counts_as_alive(monkeypat
     import os
     me = schedule_service.process_identity(os.getpid())
     if me is None:
-        pytest.skip("this OS doesn't say when a process started")
+        _no_identity_only_off_windows_and_linux()
     assert schedule_service._pid_alive(os.getpid(), me)
     assert not schedule_service._pid_alive(os.getpid(), "another process's start")
     monkeypatch.setattr(schedule_service, "process_identity", lambda pid: None)  # can't read it now

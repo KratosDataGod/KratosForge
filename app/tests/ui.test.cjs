@@ -363,6 +363,8 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(gitStatus({ branch: null })), "abc1234", "a detached head shows the commit");
   assert.strictEqual(gitPillText(gitStatus({ branch: null, commit: null })), "No commits");
   assert.strictEqual(gitPillText(null), "");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {
@@ -3091,6 +3093,10 @@ test("the command bar offers Go back and Go forward only when there is somewhere
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
   assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+  // The arrows stay hidden until there is a page to go back or forward to.
+  assert.match(html, /<div class="nav-buttons" hidden>/);
+  const appSrc = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(appSrc, /wrap\.hidden = !canBack && !canFwd/);
 });
 
 // UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).

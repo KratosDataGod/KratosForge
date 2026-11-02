@@ -567,8 +567,12 @@ function navKey(e) {
 function renderNavButtons() {
   const back = document.getElementById("nav-back");
   const fwd = document.getElementById("nav-forward");
-  if (back) back.disabled = !navCan(-1);
-  if (fwd) fwd.disabled = !navCan(1);
+  const canBack = navCan(-1), canFwd = navCan(1);
+  if (back) back.disabled = !canBack;
+  if (fwd) fwd.disabled = !canFwd;
+  // Hidden until there is somewhere to go: two faint arrows on a fresh start read as broken.
+  const wrap = back?.parentElement;
+  if (wrap) wrap.hidden = !canBack && !canFwd;
 }
 
 function go(view) {

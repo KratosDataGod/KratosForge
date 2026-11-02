@@ -6032,8 +6032,9 @@
       "evidence": [
         "Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638",
         "Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608)",
-        "Still open at this check: #1592, #1595, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
-        "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go"
+        "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
+        "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
+        "Scores and the blocker flag were set to match PB-101, the hardening program it splits from"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6059,12 +6060,12 @@
         "EA-001..030"
       ],
       "duplicates": [
-        "Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)"
+        "Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it"
       ],
       "effort": "L",
       "confidence": "Medium",
       "state": "In progress",
-      "mandatory_reason": "HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
+      "mandatory_reason": "EA-001 (appends quietly changed values in lakehouse tables) and EA-020 (engine packages and sources installed without hash checks) are data-integrity and release-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
       "prs": [
         1571,
         1572,
@@ -6111,19 +6112,7 @@
         1645,
         1646
       ],
-      "issues": [
-        910,
-        916,
-        927,
-        935,
-        936,
-        963,
-        964,
-        965,
-        968,
-        1049,
-        1087
-      ],
+      "issues": [],
       "computed": {
         "benefit": 3.5,
         "cost": 3.5,

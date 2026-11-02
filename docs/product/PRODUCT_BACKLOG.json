@@ -5669,8 +5669,8 @@
     },
     {
       "id": "PB-119",
-      "title": "Learn: lessons, labs and guidance modes",
-      "state": "In progress",
+      "title": "Learn v1: lessons, labs and finding actions",
+      "state": "In review",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -5684,34 +5684,28 @@
         1140,
         1158,
         1159,
-        1160,
-        1161,
-        1162,
-        1175,
-        1182,
-        1184,
-        1186,
-        1216,
-        1233
+        1160
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
-      "capability": "A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.",
+      "capability": "A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
-        "No backlog item tracked it before this check",
-        "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
-        "Rule guides carry importance, principle, impact and how to check (GD-03, #1175); a fix applied after a matching Compare is recorded in Profile (GD-06, #1186); first lessons for the Snowflake, Databricks and Python paths (GD-10, #1233) on main at b3c5b223",
-        "Query profile notes (GD-04, #1182), decision patterns (GD-05, #1184) and guidance level by subject (GD-08, #1216) merged as Preview on main at 761a7949"
+        "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
+        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)"
       ],
       "features": [
         "FEAT-DEV-04",
         "FEAT-GOV-09"
       ],
       "source_refs": [
-        "LX-01..08"
+        "LX-01..09"
       ],
       "acceptance": [
-        "Owned and specified by the Learning experience program (LX)"
+        "The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)",
+        "A lab runs on this PC with generated data, with no file or network access (test_learn_labs)",
+        "Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)",
+        "Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)",
+        "docs/learn.md and docs/writing-lessons.md match the code"
       ],
       "scores": {
         "developer_value": 3,
@@ -5862,6 +5856,102 @@
         "cost": 3.0,
         "score": 1.56,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-122",
+      "title": "Guided Development: levels, Try the fix and Compare",
+      "state": "In progress",
+      "owner": "Guided development (GD)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1161,
+        1162,
+        1175,
+        1182,
+        1184,
+        1186,
+        1216,
+        1233
+      ],
+      "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
+      "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949",
+        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "GD-01..10"
+      ],
+      "acceptance": [
+        "The levels Expert, Professional (default) and Guided are preferences only, and policy always wins",
+        "Compare runs only on warehouse and SQL endpoint tabs and asks for confirmation every time; on a lakehouse tab, Try the fix previews and applies without Compare",
+        "Profile records \"fixed and checked\" only after a matching Compare",
+        "GD-07 and GD-09 are built or split out, and GD-10 has a lesson for every path it names",
+        "No built-in AI, no invented problems, and every number is labelled as measured or estimated"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-123",
+      "title": "Learn phase 2: rule batches, Profile v2 and comparison lessons",
+      "state": "Proposed",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "Learn v1 covers the first rule catalog and paths only.",
+      "capability": "New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LX-11..16"
+      ],
+      "acceptance": [
+        "As the LX proposal sets them for each slice; each slice needs Chris's go before it is built"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
       }
     }
   ]

@@ -233,7 +233,7 @@ on quality.
 | [FEAT-DEV-01](#feat-dev-01) | Profile | Implemented | Partially Verified | Account menu > Profile (Preview) | Proof Forged from Prove, Journey and Achievements tabs (KF-DX-002); implementation review of #598. |
 | [FEAT-DEV-02](#feat-dev-02) | Motion and effects | Implemented | Partially Verified | Settings > Motion and effects | Draft #449 style guide waits on Chris; keep effects subordinate to work (brief section 8). |
 | [FEAT-DEV-03](#feat-dev-03) | Pop-out windows | Implemented | Partially Verified | Monitor > Pop out (Preview) | Implementation review of PR #557, #558; run on a tenant before the Preview tag comes off. |
-| [FEAT-DEV-04](#feat-dev-04) | Learn | Implemented | Partially Verified | Learn (bottom of the left rail) (Preview) | Implementation review of LX-01 to LX-08. |
+| [FEAT-DEV-04](#feat-dev-04) | Learn | Implemented | Partially Verified | Learn (bottom of the left rail) (Preview) | Quality reads PB-119 (Learn v1) for the next acceptance card; GD-07 and GD-09 are not built (PB-122). |
 
 ### Enterprise Administration and FinOps
 
@@ -2551,8 +2551,8 @@ on quality.
 - **Known limitations:** Some lessons are drafts. A lab run or check stops after 30 seconds and a lab is capped at 1 GB of memory.
 - **Pull requests and issues:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140), [#1158](https://github.com/KratosDataGod/KratosForge/pull/1158), [#1159](https://github.com/KratosDataGod/KratosForge/pull/1159), [#1160](https://github.com/KratosDataGod/KratosForge/pull/1160), [#1161](https://github.com/KratosDataGod/KratosForge/pull/1161), [#1162](https://github.com/KratosDataGod/KratosForge/pull/1162), [#1175](https://github.com/KratosDataGod/KratosForge/pull/1175), [#1182](https://github.com/KratosDataGod/KratosForge/pull/1182), [#1184](https://github.com/KratosDataGod/KratosForge/pull/1184), [#1186](https://github.com/KratosDataGod/KratosForge/pull/1186), [#1216](https://github.com/KratosDataGod/KratosForge/pull/1216), [#1233](https://github.com/KratosDataGod/KratosForge/pull/1233), [#1463](https://github.com/KratosDataGod/KratosForge/pull/1463)
 - **Owning workstream:** Learning experience (LX)
-- **Backlog:** [PB-119](PRODUCT_BACKLOG.md#pb-119)
-- **Recommended next action:** Implementation review of LX-01 to LX-08.
+- **Backlog:** [PB-119](PRODUCT_BACKLOG.md#pb-119), [PB-122](PRODUCT_BACKLOG.md#pb-122), [PB-123](PRODUCT_BACKLOG.md#pb-123)
+- **Recommended next action:** Quality reads PB-119 (Learn v1) for the next acceptance card; GD-07 and GD-09 are not built (PB-122).
 <!-- END GENERATED: details -->
 
 ## Keeping this inventory current

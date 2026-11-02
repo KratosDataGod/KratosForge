@@ -71,12 +71,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 6 | 2 | 9 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 7 | 1 | 11 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 9 | 1 | 13 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **32** | **55** | **17** | **109** |
+| **Total** | **5** | **32** | **57** | **17** | **111** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -1077,7 +1077,9 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | Accepted |
 | [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 | [PB-113](#pb-113) | Action-first experience program | P2 | Action-first experience | L | In progress |
-| [PB-119](#pb-119) | Learn: lessons, labs and guidance modes | P2 | Learning experience (LX) | L | In progress |
+| [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | In review |
+| [PB-122](#pb-122) | Guided Development: levels, Try the fix and Compare | P2 | Guided development (GD) | L | In progress |
+| [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | Proposed |
 
 ### PB-034
 
@@ -1233,17 +1235,52 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-119
 
-**Learn: lessons, labs and guidance modes** · P2 (score 2.34) · L · confidence Medium · In progress
+**Learn v1: lessons, labs and finding actions** · P2 (score 2.34) · L · confidence Medium · In review
 
 - **Problem:** People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.
-- **Proposed capability:** A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.
-- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; No backlog item tracked it before this check; Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce; Rule guides carry importance, principle, impact and how to check (GD-03, #1175); a fix applied after a matching Compare is recorded in Profile (GD-06, #1186); first lessons for the Snowflake, Databricks and Python paths (GD-10, #1233) on main at b3c5b223; Query profile notes (GD-04, #1182), decision patterns (GD-05, #1184) and guidance level by subject (GD-08, #1216) merged as Preview on main at 761a7949
+- **Proposed capability:** A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.
+- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce; Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
 - **Dependencies:** none
-- **Owner:** Learning experience (LX) (LX-01..08)
-- **Pull requests:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140), [#1158](https://github.com/KratosDataGod/KratosForge/pull/1158), [#1159](https://github.com/KratosDataGod/KratosForge/pull/1159), [#1160](https://github.com/KratosDataGod/KratosForge/pull/1160), [#1161](https://github.com/KratosDataGod/KratosForge/pull/1161), [#1162](https://github.com/KratosDataGod/KratosForge/pull/1162), [#1175](https://github.com/KratosDataGod/KratosForge/pull/1175), [#1182](https://github.com/KratosDataGod/KratosForge/pull/1182), [#1184](https://github.com/KratosDataGod/KratosForge/pull/1184), [#1186](https://github.com/KratosDataGod/KratosForge/pull/1186), [#1216](https://github.com/KratosDataGod/KratosForge/pull/1216), [#1233](https://github.com/KratosDataGod/KratosForge/pull/1233)
+- **Owner:** Learning experience (LX) (LX-01..09)
+- **Pull requests:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140), [#1158](https://github.com/KratosDataGod/KratosForge/pull/1158), [#1159](https://github.com/KratosDataGod/KratosForge/pull/1159), [#1160](https://github.com/KratosDataGod/KratosForge/pull/1160)
 - **Acceptance criteria:**
-    - Owned and specified by the Learning experience program (LX)
+    - The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)
+    - A lab runs on this PC with generated data, with no file or network access (test_learn_labs)
+    - Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)
+    - Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)
+    - docs/learn.md and docs/writing-lessons.md match the code
+
+### PB-122
+
+**Guided Development: levels, Try the fix and Compare** · P2 (score 2.34) · L · confidence Medium · In progress
+
+- **Problem:** Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.
+- **Proposed capability:** Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and "fixed and checked" evidence in Profile.
+- **Current-state evidence:** Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949; Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Guided development (GD) (GD-01..10)
+- **Pull requests:** [#1161](https://github.com/KratosDataGod/KratosForge/pull/1161), [#1162](https://github.com/KratosDataGod/KratosForge/pull/1162), [#1175](https://github.com/KratosDataGod/KratosForge/pull/1175), [#1182](https://github.com/KratosDataGod/KratosForge/pull/1182), [#1184](https://github.com/KratosDataGod/KratosForge/pull/1184), [#1186](https://github.com/KratosDataGod/KratosForge/pull/1186), [#1216](https://github.com/KratosDataGod/KratosForge/pull/1216), [#1233](https://github.com/KratosDataGod/KratosForge/pull/1233)
+- **Acceptance criteria:**
+    - The levels Expert, Professional (default) and Guided are preferences only, and policy always wins
+    - Compare runs only on warehouse and SQL endpoint tabs and asks for confirmation every time; on a lakehouse tab, Try the fix previews and applies without Compare
+    - Profile records "fixed and checked" only after a matching Compare
+    - GD-07 and GD-09 are built or split out, and GD-10 has a lesson for every path it names
+    - No built-in AI, no invented problems, and every number is labelled as measured or estimated
+
+### PB-123
+
+**Learn phase 2: rule batches, Profile v2 and comparison lessons** · P2 (score 2.34) · L · confidence Medium · Proposed
+
+- **Problem:** Learn v1 covers the first rule catalog and paths only.
+- **Proposed capability:** New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).
+- **Current-state evidence:** Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Learning experience (LX) (LX-11..16)
+- **Acceptance criteria:**
+    - As the LX proposal sets them for each slice; each slice needs Chris's go before it is built
 
 ## Enterprise Administration and FinOps
 

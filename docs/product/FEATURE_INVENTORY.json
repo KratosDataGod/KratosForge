@@ -8211,10 +8211,12 @@
         1463
       ],
       "backlog": [
-        "PB-119"
+        "PB-119",
+        "PB-122",
+        "PB-123"
       ],
       "workstream": "Learning experience (LX)",
-      "next_action": "Implementation review of LX-01 to LX-08.",
+      "next_action": "Quality reads PB-119 (Learn v1) for the next acceptance card; GD-07 and GD-09 are not built (PB-122).",
       "evidence": [
         {
           "kind": "test",

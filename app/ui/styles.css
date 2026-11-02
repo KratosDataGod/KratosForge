@@ -73,6 +73,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
   border-radius: 50%; border: 0; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
 }
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .avatar.signed-out { background: var(--muted); }  /* white text at 6.2:1; #8a8886 was 3.5:1 */
 
 /* Layout */
@@ -2140,6 +2141,10 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .profile-row > .grow { display: flex; flex-direction: column; gap: 3px; }
 .profile-row.excluded { opacity: 0.65; }
 .profile-skills { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
+.profile-rank { padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.profile-rank:last-child { border-bottom: 0; }
+.profile-rank .profile-skill { border-bottom: 0; padding: 2px 0 2px 12px; }
 .profile-skill { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border-soft); }
 .profile-level { font-size: 17px; font-weight: 600; }
 .profile-bar { height: 8px; border-radius: 4px; background: var(--accent-soft); overflow: hidden; }

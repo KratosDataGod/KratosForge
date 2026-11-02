@@ -586,7 +586,10 @@ function renderChrome() {
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
-  account.textContent = state.user ? state.user[0].toUpperCase() : "?";
+  // The profile picture when there is one (profile.js, PB-125), else the first letter.
+  const picture = state.user && state.avatar && typeof profilePicture === "function" ? profilePicture(state.avatar) : null;
+  if (picture) account.replaceChildren(picture);
+  else account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
@@ -3068,6 +3071,7 @@ function startMain() {
       state.user = env.user;
       state.tenant = env.tenant;
       await loadSettings();
+      if (typeof profileLoadAvatar === "function") profileLoadAvatar();  // profile.js; the account button's picture
       if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
       showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
       // The environment pill needs the metadata project; there may not be one yet.

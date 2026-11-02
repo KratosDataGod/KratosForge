@@ -47,6 +47,21 @@ def write_text(path: Path, text: str, newline: str | None = None) -> None:
         raise
 
 
+def write_bytes(path: Path, data: bytes) -> None:
+    """``write_text`` for bytes (a profile picture): the old file or the new one, never half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
     """``os.replace``, waiting out Windows refusing it (PermissionError, WinError 5) while a reader, a
     virus scanner or an indexer has either file open: about 1.5 s, then the error. Every swap of a

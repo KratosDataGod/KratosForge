@@ -182,7 +182,26 @@ function saveActivity() {
   } catch { /* storage full or blocked: the tray still works for this session */ }
 }
 
+// The same problem again within ten minutes (the engine failing to start fails every call the pages
+// make) updates the entry already there, with a count and the other places it happened, instead of
+// adding one per call: 34 copies of one failure hide the problem that's actually new.
+const REPEAT_MS = 10 * 60 * 1000;
+
+function repeatOf(item) {
+  if (item.id || !PROBLEM.has(item.status)) return -1;
+  const now = Date.now();
+  return activity.items.findIndex((x) => x.status === item.status && (x.text || "") === (item.text || "")
+    && (x.details || "") === (item.details || "") && now - new Date(x.at).getTime() < REPEAT_MS);
+}
+
 function logActivity(item) {
+  const r = repeatOf(item);
+  if (r >= 0) {
+    const was = activity.items[r];
+    const titles = [...new Set([was.title, ...(was.alsoIn || []), item.title].filter(Boolean))];
+    item = { ...item, id: was.id, repeats: (was.repeats || 1) + 1, title: item.title || was.title,
+      alsoIn: titles.filter((t) => t !== (item.title || was.title)).slice(-5), at: new Date().toISOString() };
+  }
   const id = item.id || `a${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const i = activity.items.findIndex((x) => x.id === id);
   const next = { at: new Date().toISOString(), ...(i >= 0 ? activity.items[i] : {}), ...item, id, stale: false };
@@ -262,6 +281,8 @@ function trayItem(i) {
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
     i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
+    i.repeats > 1 ? h("div", { class: "muted-text small" }, `Happened ${i.repeats} times`
+      + (i.alsoIn?.length ? `, also in: ${i.alsoIn.join(", ")}` : "")) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);

@@ -1,0 +1,76 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-24",
+  "kind": "module",
+  "title": "Shortcuts and OneLake security",
+  "path": "microsoft-fabric",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Say what a shortcut is and why it copies nothing",
+    "Explain where access to shortcut data is decided",
+    "Filter rows by who is asking, the way a row-level security rule does"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "Fabric lakehouse"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "ana-sees",
+      "prompt": "A row-level security rule shows each person only the regions they are mapped to in user_regions. Return the rows of sales that ana@contoso.com may see: region and amount, in region then amount order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter shows everyone everything.",
+        "Keep a sale only when user_regions has a row for ana@contoso.com with that sale's region.",
+        "WHERE EXISTS (SELECT 1 FROM user_regions AS u WHERE u.user_name = 'ana@contoso.com' AND u.region = s.region)"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "region",
+          "amount"
+        ],
+        "rows": [
+          [
+            "North",
+            10.0
+          ],
+          [
+            "North",
+            30.0
+          ],
+          [
+            "West",
+            5.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/onelake/onelake-shortcuts",
+    "https://learn.microsoft.com/fabric/onelake/security/get-started-security"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

@@ -1,6 +1,7 @@
 """Compare before promote, quarantine replay and freshness promises."""
 
 import datetime as dt
+import json
 import shutil
 import time
 import types
@@ -232,29 +233,63 @@ def test_freshness_is_checked_by_the_save_gate_and_saved_from_the_app(svc):
     assert any("freshness by" in e for e in bad["errors"]) and any("freshness envs" in e for e in bad["errors"])
 
 
-def test_late_tables_are_posted_to_teams_once(svc, monkeypatch):
+def _teams_posts(svc, monkeypatch, url="https://example.webhook.office.com/x"):
     posts = []
-    monkeypatch.setattr(dataops_service, "post_teams", lambda url, title, lines: posts.append((title, lines)))
-    svc.meta_set_alerts("https://example.webhook.office.com/x")
+    post = lambda url, title, lines: posts.append((title, lines))  # noqa: E731
+    monkeypatch.setattr(dataops_service, "post_teams", post)
+    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", post)
+    svc.meta_set_alerts(url)
+    return posts
+
+
+def check(svc):
+    """What the app does every 10 minutes (dataops.js checkFreshness), with Preview on or off."""
+    return svc.meta_freshness(), svc.incidents_watch(notify=True)
+
+
+def test_a_late_table_is_posted_to_teams_once_and_its_recovery_once(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
     svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
     time.sleep(0.5)  # 0.0001 h is 0.36 s
-    out = svc.meta_freshness(notify=True)
-    assert out["items"][0]["status"] == "late" and out["alerted"] == 1
-    assert "gold.fact_sales" in posts[0][1][0]
-    assert svc.meta_freshness(notify=True)["alerted"] == 0  # already told
+    fresh, _ = check(svc)
+    assert fresh["items"][0]["status"] == "late" and "alerted" not in fresh  # Home shows it; it posts nothing
+    assert len(posts) == 1 and posts[0][0].startswith("New: ") and "gold.fact_sales" in posts[0][0]
+    check(svc)
+    check(svc)
+    assert len(posts) == 1  # still late: not posted again
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    check(svc)
+    assert len(posts) == 2 and posts[1][0].startswith("Recovered: ") and "gold.fact_sales" in posts[1][0]
+    check(svc)
+    assert len(posts) == 2
     with pytest.raises(ValueError):
         svc.meta_set_alerts("http://not-secure")
 
 
-def test_a_failed_freshness_post_keeps_the_webhook_signature_out(svc, monkeypatch):
+def test_a_late_table_an_older_app_already_posted_is_not_posted_again(svc, monkeypatch):
+    posts = _teams_posts(svc, monkeypatch)
+    svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
+    time.sleep(0.5)
+    late = svc.meta_freshness()["items"][0]
+    # what the app wrote when meta_freshness posted to Teams itself
+    (svc.root / "freshness_alerts.json").write_text(
+        json.dumps({f"late:dev:gold.fact_sales:{late['last_ok']}": "2026-10-31T10:00:00+00:00"}), encoding="utf-8")
+    opened = svc.incidents_watch(notify=True)["envs"][0]
+    assert [c["change"] for c in opened["changes"]] == ["opened"] and posts == []  # the incident still opens
+    svc.meta_set_freshness("gold.fact_sales", within_hours=24, envs=["dev"])
+    svc.incidents_watch(notify=True)
+    assert len(posts) == 1 and posts[0][0].startswith("Recovered: ")
+
+
+def test_a_failed_teams_post_keeps_the_webhook_signature_out(svc, monkeypatch):
     def down(url, title, lines):
         raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
-    monkeypatch.setattr(dataops_service, "post_teams", down)
+    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", down)
     svc.meta_set_alerts("https://example.webhook.office.com/workflows/x/invoke?sv=1.0&sig=SECRET123")
     svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
     time.sleep(0.5)
-    out = svc.meta_freshness(notify=True)
-    assert out["alerted"] == 0 and "sig=[removed]" in out["alert_error"] and "SECRET123" not in out["alert_error"]
+    error = svc.incidents_watch(notify=True)["envs"][0]["notified"]["error"]
+    assert "sig=[removed]" in error and "SECRET123" not in error
 
 
 def test_teams_card_shape():

@@ -129,6 +129,7 @@ fail silently.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -281,12 +282,18 @@ def saved_policy_path() -> Path:
     return user_path().with_name("policy-last-good.json")
 
 
-def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it)."""
+def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
+    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
     path = policy_path()
     saved = saved_policy_path()
+    if digest is not None:
+        digest["sha256"] = None
     try:
-        text = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
+        if digest is not None:
+            digest["sha256"] = hashlib.sha256(raw).hexdigest()
+        text = raw.decode("utf-8-sig")
         data = json.loads(text)
     except FileNotFoundError:
         saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
@@ -334,6 +341,20 @@ def read_policy() -> tuple[dict[str, Any], str | None]:
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
+
+
+def policy_fingerprint() -> dict[str, Any]:
+    """What the policy file holds now, for the record of its changes (policy_watch.py): the SHA-256 of
+    its bytes, the same as PowerShell's Get-FileHash (None with no file, or one that can't be opened);
+    which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
+    "fail_closed" when nothing can, "none" with no file); and whether the account running the app
+    could change or replace it."""
+    path = policy_path()
+    digest: dict[str, str | None] = {}
+    _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
+    exists = digest["sha256"] is not None or reason is not None
+    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
+    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:

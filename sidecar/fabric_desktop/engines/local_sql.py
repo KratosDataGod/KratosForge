@@ -426,9 +426,9 @@ def _statements(code: str) -> list[str]:
 
 
 def _sqlite_table(names: list[str], rows: list[Any]) -> pa.Table:
-    columns = list(zip(*rows)) if rows else [[] for _ in names]
+    columns = list(zip(*rows, strict=True)) if rows else [[] for _ in names]
     return pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
-                                  for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
+                                  for v in col]) for n, col in zip(names, columns, strict=True)}) if names else pa.table({})
 
 
 def _sqlite_authorizer(action: int, *_args: Any) -> int:

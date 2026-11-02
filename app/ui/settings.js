@@ -184,6 +184,20 @@ function reportProblem() {
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
 }
 
+// The policy file's SHA-256 and its last change (policy_watch.py, #1670), for IT to compare with the
+// hash of the file they pushed (Get-FileHash). Shown only when there is a file.
+function policyRecordRows(r) {
+  if (!r?.sha256) return null;
+  const when = r.changed_at ? dateTimeText(r.changed_at) : "";
+  const how = r.first ? `First seen ${when}` : `Last changed ${when}`;
+  return [
+    h("dt", {}, "Its SHA-256"), h("dd", { class: "mono" }, r.sha256),
+    h("dt", {}, "Changes"), h("dd", {}, r.managed === false
+      ? `${how}, while the account signed in to this PC could change the file: not the way IT pushes it. Compare the SHA-256 with the file IT shipped. The audit log has each change.`
+      : `${how}. The audit log has each change.`),
+  ];
+}
+
 // ---------- Check for updates ----------
 
 // What a manual update check found (check_for_update): "newer" offers Install and restart; every
@@ -780,6 +794,7 @@ async function renderSettings() {
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
       h("dt", {}, "Engine Python"), h("dd", {}, state.python || "unknown"),
       h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
+      policyRecordRows(s.policy_record),
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),

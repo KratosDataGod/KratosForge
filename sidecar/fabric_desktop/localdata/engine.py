@@ -937,7 +937,7 @@ class LocalEngine:
                     raise ValueError(f"The query returns {len(incoming)} columns and {name} has {len(table_schema)}"
                                      f" ({', '.join(table_schema.names)}). INSERT matches columns by position; "
                                      "INSERT ... BY NAME matches them by name.")
-                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema)])
+                incoming = pa.schema([pa.field(t.name, f.type) for f, t in zip(incoming, table_schema, strict=True)])
                 by_position = True
             problems = delta.fits(incoming, table_schema)
             if problems and w.schema_mode == "merge" and \
@@ -1093,7 +1093,7 @@ class LocalEngine:
         cased = {f.name.lower(): f.name for f in current.schema().fields}
         safe = delta.fabric_schema(reader.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
+        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)])
         return delta.Conform(reader, schema, by_position=True).reader, names, reader
 
     @contextmanager
@@ -1543,7 +1543,7 @@ def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:
     table = pa.Table.from_batches(kept, schema=reader.schema)
     columns = [c.to_pylist() for c in table.columns]
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in reader.schema],
-            "rows": [[_json(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": total if (count or not truncated) else None, "truncated": truncated}
 
 

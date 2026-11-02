@@ -47,6 +47,10 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("DATEPART quarter of a string literal", "SELECT DATEPART(quarter, '2024-03-05')", 1),
     ("DATEPART weekday of a string literal", "SELECT DATEPART(weekday, '2024-03-05')", 3),  # Tuesday, DATEFIRST 7
     ("PATINDEX", "SELECT PATINDEX('%b%', 'abc')", 2),
+    ("POWER of an integer is an integer", "SELECT POWER(2, -1)", 0),
+    ("POWER of an integer, positive", "SELECT POWER(-2, 3)", -8),
+    ("POWER of an integer, fractional exponent", "SELECT POWER(2, 0.5)", 1),
+    ("POWER of a float", "SELECT POWER(2e0, -1)", 0.5),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
@@ -111,6 +115,9 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT value FROM STRING_SPLIT('a,b', ',', 1)",
     "SELECT ROUND(1.5, 0, boxes) FROM dbo.orders",
     "SELECT DATALENGTH(5)",
+    "SELECT POWER(2.0, 0.5)",
+    "SELECT POWER(-2.5, 2)",
+    "SELECT POWER(CAST(2 AS DECIMAL(5, 2)), 2)",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -130,3 +137,35 @@ def test_a_loud_gap_never_gives_a_wrong_answer(engine, sql, want):
 def test_string_split_takes_a_one_character_separator(engine):
     with pytest.raises(Exception, match="separator of one character"):
         engine.execute("SELECT value FROM STRING_SPLIT('a||b', '||')", dialect="tsql")
+
+
+def test_power_follows_the_bases_column_type(engine):
+    engine.execute("CREATE TABLE dbo.bases AS SELECT * FROM (VALUES (2, CAST(2 AS SMALLINT), CAST(3 AS BIGINT), "
+                   "CAST(2 AS DOUBLE), CAST(2.5 AS DECIMAL(5, 1)))) v(i, s, b, f, d)")
+    row = engine.execute("SELECT POWER(i, -1), POWER(s, 20), POWER(b, 30), POWER(f, -1) FROM dbo.bases",
+                         dialect="tsql")["rows"][0]
+    assert row == [0, 1048576, 205891132094649, 0.5]  # a smallint base gives an int, as in T-SQL
+    with pytest.raises(Exception, match="on the local engine.*POWER of a decimal"):
+        engine.execute("SELECT POWER(d, 2) FROM dbo.bases", dialect="tsql")
+    with pytest.raises(Exception, match="INT32|out of range"):  # T-SQL: arithmetic overflow
+        engine.execute("SELECT POWER(i, 40) FROM dbo.bases", dialect="tsql")
+
+
+def test_the_refused_list_in_the_docs_names_every_refused_function():
+    """docs/local-data.md's T-SQL section names each function the code refuses (whole, or in part), and the
+    "Refused, not half-translated" list names the ones refused whole."""
+    import inspect
+    import pathlib
+    import re
+
+    from fabric_desktop.localdata import tsql
+    docs = (pathlib.Path(__file__).resolve().parents[2] / "docs" / "local-data.md").read_text(encoding="utf-8")
+    refused = docs.split("**Refused, not half-translated:**", 1)[1].split("\n\n", 1)[0]
+    section = docs.split("## T-SQL", 1)[1].split("\n## ", 1)[0]
+    source = inspect.getsource(tsql)
+    named = set(re.findall(r'_NOT_YET \+ "([A-Z_]{4,})[ \']', source))
+    assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND"}
+    for name in named:
+        assert f"`{name}" in section, f"{name} is refused in tsql.py but not in docs/local-data.md's T-SQL section"
+    for whole in ("ISNUMERIC", "POWER"):  # refused outright, or for a whole kind of argument
+        assert f"`{whole}" in refused, f"{whole} is missing from the docs' refused list"

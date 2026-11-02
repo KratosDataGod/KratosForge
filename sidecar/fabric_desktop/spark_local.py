@@ -200,6 +200,8 @@ class LakehouseWriter:
         if rel is not None:
             raise ValueError(f"On this PC, write lakehouse tables with saveAsTable or a Tables/ path. "
                              f"Writing files to {rel} runs in Fabric.")
+        if path is None:
+            raise ValueError("Give save a path, or write a lakehouse table with saveAsTable.")
         if fmt == "parquet":
             self._check_options((), "a Parquet file")
             return self._df.relation.write_parquet(path)
@@ -499,6 +501,8 @@ class LakehouseReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        if path is None:
+            raise ValueError("Give load a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta":
             self._no_schema("a Delta table")
@@ -525,8 +529,12 @@ class LakehouseReader:
         header = self._options.get("header", header)
         sep = self._options.get("sep", self._options.get("delimiter", sep))
         conn = self._session.conn
-        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"),
-                            **({"sep": sep} if sep else {}), **({"all_varchar": True} if getattr(self, "_schema", None) else {}))
+        extra: dict[str, Any] = {}
+        if sep:
+            extra["sep"] = sep
+        if getattr(self, "_schema", None):
+            extra["all_varchar"] = True
+        rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"), **extra)
         return self._apply(DataFrame(rel, self._session), by_position=True)
 
     def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
@@ -555,15 +563,16 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET enable_progress_bar = true")
         self.conn.execute("SET enable_progress_bar_print = false")
         self._views: dict[str, str] = {}
-        self._snapshot = None
+        self._snapshot: lakehouse.Attached | None = None
         self._frames: weakref.WeakSet[DataFrame] = weakref.WeakSet()  # this session's DataFrames still in use
-        self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
+        self._conf = spark_api.LocalRuntimeConfig(self)  # type: ignore[assignment]  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
-        catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
+        vars(catalog).update(  # DuckDB's Catalog has no tableExists
+            tableExists=lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName))  # noqa: N803
 
     @property
-    def sparkContext(self) -> spark_api.LocalSparkContext:  # noqa: N802
+    def sparkContext(self) -> spark_api.LocalSparkContext:  # type: ignore[override]  # noqa: N802
         return self._local_context
 
     @property
@@ -621,7 +630,7 @@ class LocalSparkSession(SparkSession):
         return DataFrame(self.conn.from_arrow(data), self)
 
     @property
-    def read(self) -> LakehouseReader:
+    def read(self) -> LakehouseReader:  # type: ignore[override]  # this PC's reader, not DuckDB's
         return LakehouseReader(self)
 
     def table(self, tableName: str) -> DataFrame:  # noqa: N803
@@ -1181,8 +1190,8 @@ def _alias_pyspark() -> None:
                         "pyspark.sql.window": spark_compat.window_module})
     spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
-    spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
-    LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]
+    spark_sql.SparkSession = LocalSparkSession  # type: ignore[misc,assignment]
+    LocalSparkSession.builder = _Builder()  # type: ignore[assignment]
 
 
 class _Builder:

@@ -3003,7 +3003,11 @@ async function checkComponents(afterInstall = false) {
   if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
-    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);
+    // A developer's own Python that lacks a package a newer engine needs (PyYAML, for the Ossie converter): say
+    // the command that installs what's missing rather than only the import error.
+    const missing = /^ModuleNotFoundError: No module named '[^'.]+'$/.exec(sidecar.error || "");
+    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}` + (missing
+      ? `. This Python (${report.python}) is missing a package the engine needs. In the sidecar folder, run: python -m pip install -e . -c constraints.txt` : ""));
     else if (sidecar.version) set("sidecar", "ok", `${sidecar.version}, ${kind}`);
     else set("sidecar", "error", "Not installed. In the sidecar folder, run: python -m pip install -e .");
   } else if (sidecar.commit === app.commit && !sidecar.error) {

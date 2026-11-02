@@ -291,3 +291,12 @@ def test_an_unknown_mode_is_refused_before_a_file_is_written(tmp_path):
     out = tmp_path / "out.parquet"
     status, text = run(f"df.write.mode('upsert').parquet({str(out)!r})")
     assert status == "error" and "Unknown save mode" in text and not out.exists()
+
+
+@pytest.mark.parametrize("code", ["df.write.format('parquet').save()", "df.write.format('csv').save()",
+                                  "spark.read.format('csv').load()", "spark.read.format('delta').load()",
+                                  "spark.read.load()"])
+def test_save_and_load_without_a_path_say_what_they_need(lake, code):
+    status, text = run(code)
+    assert status == "error"
+    assert "Give save a path" in text or "Give load a path" in text

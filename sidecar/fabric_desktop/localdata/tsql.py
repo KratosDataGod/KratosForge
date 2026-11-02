@@ -169,7 +169,7 @@ def _schema(columns: dict[str, dict[str, dict[str, str]]]) -> Any:
 
 
 def _types(tree: exp.Expression, schema: Any) -> list[str]:
-    """Make integer division and averages, and ``+`` on text, behave as in T-SQL. The types come from
+    """Make integer division and averages, ``+`` on text, and casts to integers behave as in T-SQL. The types come from
     a qualified copy of the tree (qualifying renames output columns, so the copy isn't run)."""
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
@@ -223,7 +223,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
-            _sized_text(node, _numeric_style(node, info) or info.this.type)
+            source = _numeric_style(node, info) or info.this.type
+            _truncated(node, source)
+            _sized_text(node, source)
     return notes
 
 
@@ -254,6 +256,15 @@ def _numeric_style(node: exp.Expression, info: exp.Expression) -> exp.DataType |
                          "carried yet. Leave the style out, or use 0.")
     node.set("this", node.this.this)
     return kind
+
+
+def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
+    """``CAST(3.7 AS INT)`` is 3 in T-SQL, which cuts a decimal or float toward zero on the way to an
+    integer type; DuckDB rounds it to 4. TRUNC first, so -3.7 is -3 as well."""
+    to = node.args.get("to")
+    if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
+            and _is(source, _NUMBERS - _INTEGERS):
+        node.set("this", exp.Trunc(this=node.this))
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}

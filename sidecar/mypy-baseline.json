@@ -412,13 +412,6 @@
  "fabric_desktop/orchestration/runner.py": {
   "union-attr": 4
  },
- "fabric_desktop/pipeline_data.py": {
-  "arg-type": 2,
-  "dict-item": 1,
-  "operator": 1,
-  "return-value": 1,
-  "union-attr": 6
- },
  "fabric_desktop/pipeline_script.py": {
   "dict-item": 1
  },

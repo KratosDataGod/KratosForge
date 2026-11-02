@@ -39,8 +39,33 @@ _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
-    rel = df.relation
+    rel = _spark_types(df.relation)
     return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
+
+
+_WIDE_INTS = ("HUGEINT", "UHUGEINT")
+
+
+def _spark_types(rel: Any) -> Any:
+    """``rel`` with DuckDB's 128-bit integers as BIGINT, Spark's long (EA-004). DuckDB's sum of INT or
+    BIGINT is a HUGEINT, which Arrow and Delta would take as decimal(38,0) where Spark writes bigint; Spark
+    has no 128-bit integer, so any HUGEINT column is one of these. A value too big for BIGINT stops the
+    write with a message instead of being cut."""
+    types = [str(t) for t in rel.types]
+    if not any(t in _WIDE_INTS for t in types):
+        return rel
+    columns = []
+    for name, kind in zip(rel.columns, types):
+        quoted = '"' + name.replace('"', '""') + '"'
+        if kind in _WIDE_INTS:
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} BETWEEN -9223372036854775808 AND 9223372036854775807 OR {quoted} IS NULL "
+                           f"THEN CAST({quoted} AS BIGINT) ELSE ERROR('The column ' || {literal} || ' has a value too "
+                           "big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        else:
+            columns.append(quoted)
+    return rel.project(", ".join(columns))
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an

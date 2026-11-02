@@ -13,6 +13,8 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
+- runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
+  ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` and ``PATINDEX`` are refused for now);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
@@ -80,6 +82,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _types(tree, schema)
             notes += _likes(tree)
             _functions(tree)
+            _gaps(tree)
             _string_edges(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
@@ -484,6 +487,8 @@ def _functions(tree: exp.Expression) -> None:
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
             unit = node.this.name.upper()
+            if isinstance(node.expression, exp.Literal) and node.expression.is_string:
+                node.set("expression", exp.cast(node.expression, "TIMESTAMP"))  # T-SQL reads the text as a datetime
             day = node.expression
             if unit in ("MILLISECOND", "MICROSECOND"):  # within the second, as T-SQL counts them (DuckDB adds the seconds)
                 node.replace(exp.paren(exp.Mod(this=node.copy(), expression=exp.Literal.number(
@@ -506,6 +511,86 @@ def _functions(tree: exp.Expression) -> None:
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
+
+
+_NOT_YET = "This T-SQL can't be run on the local engine: "
+
+
+def _gaps(tree: exp.Expression) -> None:
+    """T-SQL functions DuckDB doesn't have, written as DuckDB SQL that gives T-SQL's answer; or, where
+    that can't be done faithfully yet, refused with a message that says so (not DuckDB's own error)."""
+    for kind in list(tree.find_all(exp.DataType)):
+        if kind.this == exp.DataType.Type.BIT:  # DuckDB's BIT is a bit string: CAST(1 AS BIT) was 32 characters
+            kind.replace(exp.DataType.build("BOOLEAN"))
+    for node in list(tree.find_all(exp.Cast, exp.TryCast)):
+        to, value = node.to, node.this
+        if to.this == exp.DataType.Type.BOOLEAN and isinstance(value, exp.Literal) and value.is_string:
+            text = value.name.strip().upper()
+            if text in ("TRUE", "FALSE"):  # T-SQL converts 'true' and 'false', and numbers written as text
+                node.replace(exp.Boolean(this=text == "TRUE"))
+            else:
+                inner = exp.TryCast if isinstance(node, exp.TryCast) else exp.Cast
+                node.set("this", inner(this=value, to=exp.DataType.build("DECIMAL(38, 10)")))
+    for rounded in list(tree.find_all(exp.Round)):
+        mode = rounded.args.get("truncate")
+        if mode is None:
+            continue
+        if not (isinstance(mode, exp.Literal) and not mode.is_string):
+            raise ValueError(_NOT_YET + "ROUND's third argument has to be a number written in the query.")
+        rounded.set("truncate", None)
+        if mode.name not in ("0", "0.0"):  # ROUND(x, n, 1): cut, not round
+            rounded.replace(exp.Anonymous(this="TRUNC", expressions=[rounded.this, rounded.args.get("decimals")
+                                                                  or exp.Literal.number(0)]))
+    for limit in list(tree.find_all(exp.Limit)):
+        options = limit.args.get("limit_options")
+        if options is not None and options.args.get("with_ties"):
+            _with_ties(limit)
+    for call in list(tree.find_all(exp.Anonymous)):
+        name = call.name.upper()
+        args = call.expressions
+        if name == "CHOOSE" and len(args) >= 2:
+            call.replace(exp.Case(this=args[0], ifs=[exp.If(this=exp.Literal.number(i), true=a)
+                                                     for i, a in enumerate(args[1:], 1)]))
+        elif name == "DATALENGTH" and len(args) == 1:  # bytes of the text, as UTF-8 (a warehouse's varchar)
+            call.replace(exp.func("OCTET_LENGTH", exp.Anonymous(this="ENCODE", expressions=[args[0]])))
+        elif name == "STRING_SPLIT":
+            _string_split(call)
+        elif name == "ISNUMERIC":
+            raise ValueError(_NOT_YET + "ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). "
+                             "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
+        elif name == "PATINDEX":
+            raise ValueError(_NOT_YET + "PATINDEX isn't mapped yet. CHARINDEX finds text without a pattern.")
+
+
+def _with_ties(limit: exp.Limit) -> None:
+    """``TOP n WITH TIES``: the first n rows by the ORDER BY and every row tied with the last of them,
+    as a QUALIFY on their rank (DuckDB has no WITH TIES)."""
+    select = limit.parent
+    order = select.args.get("order") if isinstance(select, exp.Select) else None
+    options = limit.args["limit_options"]
+    if not isinstance(select, exp.Select) or order is None or options.args.get("percent") or select.args.get("distinct") or select.args.get("qualify"):
+        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY and without PERCENT, "
+                         "DISTINCT or QUALIFY.")
+    rank = exp.Window(this=exp.Anonymous(this="RANK", expressions=[]), order=order.copy())
+    select.set("limit", None)
+    select.set("qualify", exp.Qualify(this=exp.LTE(this=rank, expression=limit.expression)))
+
+
+def _string_split(node: exp.Anonymous) -> None:
+    """``STRING_SPLIT(text, separator)`` as a table of one ``value`` column, one row per part."""
+    if len(node.expressions) != 2:
+        raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal isn't mapped yet.")
+    parts = exp.Unnest(expressions=[exp.func("STRING_SPLIT", *node.expressions)])
+    query = exp.select(exp.alias_(parts, "value")).subquery()
+    holder = node.parent
+    if isinstance(holder, exp.Table):  # FROM STRING_SPLIT(...) [AS s]
+        alias = holder.args.get("alias")
+        query.set("alias", alias.copy() if alias else exp.TableAlias(this=exp.to_identifier("string_split")))
+        holder.replace(query)
+    elif isinstance(holder, exp.Lateral):  # CROSS / OUTER APPLY STRING_SPLIT(...) AS s
+        node.replace(query)
+    else:
+        raise ValueError(_NOT_YET + "STRING_SPLIT runs here only in FROM or CROSS APPLY.")
 
 
 def _whole(node: exp.Expression | None, low: int) -> bool:

@@ -103,7 +103,8 @@ def test_a_division_of_unknown_types_is_reported():
 
 def test_a_cast_to_an_integer_of_an_unknown_type_is_reported():
     texts, notes = translate("SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere")
-    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BIT), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
+    # BIT is a boolean here (DuckDB's BIT is a bit string).
+    assert texts == ["SELECT CAST(x AS INT), CAST(y AS BOOLEAN), CAST(z AS DECIMAL(5, 0)) FROM nowhere"]
     assert notes == ["Couldn't tell the type in CAST(x AS INTEGER): it converts as DuckDB does, and T-SQL cuts a "
                      "decimal toward zero and refuses text that isn't a whole number."]
     # A literal's type is known, so it gets no note.

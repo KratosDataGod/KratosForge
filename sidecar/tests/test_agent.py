@@ -1,6 +1,7 @@
 """The headless agent: config, unattended sign-in, the durable queue, table leases, and real runs."""
 
 import json
+import sqlite3
 import time
 import threading
 from pathlib import Path
@@ -199,6 +200,30 @@ def test_queue_retries_with_backoff_then_gives_up(tmp_path):
     dead = q.retry_later(job["id"], "w1", "timeout")
     assert dead["state"] == "dead" and "Gave up after 3 attempts" in dead["error"]
     assert q.counts()["dead"] == 1
+
+
+def test_a_claim_waiting_for_the_queue_sees_a_job_added_while_it_waited(tmp_path):
+    # Another thread or process adds a job while this claim waits for the write lock. The claim
+    # reads the time once it has the lock, so the job is due to it (a time read before waiting
+    # made the job look not yet due: the claim came back empty).
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    other = sqlite3.connect(tmp_path / "q.sqlite3", isolation_level=None)
+    try:
+        other.execute("begin immediate")  # holds the write lock, as a writer elsewhere does
+        got = []
+        waiter = threading.Thread(target=lambda: got.append(q.claim("w1", 60)))
+        waiter.start()
+        waiter.join(0.5)
+        assert waiter.is_alive()  # waiting for the lock
+        clock.t += 5
+        other.execute("insert into jobs (id, kind, payload, state, source, max_attempts, next_at, created_at)"
+                      " values ('job-late', 'meta', '{}', 'queued', '', 3, ?, ?)", (clock.t, clock.t))
+        other.execute("commit")
+        waiter.join(10)
+    finally:
+        other.close()
+    assert got and got[0] is not None and got[0]["id"] == "job-late"
 
 
 def test_queue_puts_back_a_job_whose_worker_died(tmp_path):

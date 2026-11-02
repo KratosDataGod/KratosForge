@@ -31,7 +31,7 @@ from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe, one_line
 from .retrying import send_with_retry
-from .workloads.notify import failure
+from .workloads.notify import LINE_MAX, failure
 
 _log = logging.getLogger(__name__)
 
@@ -379,7 +379,10 @@ class DataOpsMixin:
 
 
 def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
-    """A message for a Teams Workflows webhook ("When a Teams webhook request is received")."""
+    """A message for a Teams Workflows webhook ("When a Teams webhook request is received"). Each
+    title and line is one line with anything credential-shaped removed, also for one queued by
+    an older build."""
+    title, lines = one_line(title, LINE_MAX), [one_line(line, LINE_MAX) for line in lines]
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": True}]
     body += [{"type": "TextBlock", "text": line, "wrap": True, "spacing": "Small"} for line in lines[:20]]
     if len(lines) > 20:

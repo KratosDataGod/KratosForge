@@ -412,13 +412,6 @@
  "fabric_desktop/orchestration/runner.py": {
   "union-attr": 4
  },
- "fabric_desktop/pipeline_data.py": {
-  "arg-type": 2,
-  "dict-item": 1,
-  "operator": 1,
-  "return-value": 1,
-  "union-attr": 6
- },
  "fabric_desktop/pipeline_script.py": {
   "dict-item": 1
  },
@@ -497,22 +490,9 @@
   "index": 2,
   "misc": 1
  },
- "fabric_desktop/spark_local.py": {
-  "arg-type": 17,
-  "assignment": 4,
-  "attr-defined": 1,
-  "misc": 1,
-  "override": 2
- },
  "fabric_desktop/spark_stream.py": {
   "assignment": 1,
   "method-assign": 1,
-  "union-attr": 1
- },
- "fabric_desktop/sql.py": {
-  "arg-type": 2,
-  "assignment": 5,
-  "return-value": 2,
   "union-attr": 1
  },
  "fabric_desktop/sql_format.py": {
@@ -541,15 +521,6 @@
  },
  "fabric_desktop/usage/metrics_app.py": {
   "assignment": 1
- },
- "fabric_desktop/usage/reconcile.py": {
-  "arg-type": 3,
-  "assignment": 1,
-  "attr-defined": 4,
-  "index": 1,
-  "misc": 2,
-  "type-var": 2,
-  "union-attr": 1
  },
  "fabric_desktop/validate_service.py": {
   "index": 1

@@ -21,9 +21,10 @@ from typing import Any
 _log = logging.getLogger(__name__)
 
 # As retrying.local_retry waits out the Windows Delta-log race: 0.05 s doubling, about 1.5 s in all,
-# long enough for a virus scanner or indexer that has the file open.
-_REPLACE_ATTEMPTS = 6
-_REPLACE_BACKOFF = 0.05
+# long enough for a virus scanner or indexer that has the file open. Other waits on a busy local file
+# (auth.SharedTokenCache) use the same.
+REPLACE_ATTEMPTS = 6
+REPLACE_BACKOFF = 0.05
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
@@ -49,14 +50,14 @@ def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
     """``os.replace``, waiting out Windows refusing it (PermissionError, WinError 5) while a reader, a
     virus scanner or an indexer has either file open: about 1.5 s, then the error. Every swap of a
     finished temporary file into place goes through here (tests/test_file_replace.py)."""
-    for attempt in range(_REPLACE_ATTEMPTS):
+    for attempt in range(REPLACE_ATTEMPTS):
         try:
             os.replace(src, dst)
             return
         except PermissionError:
-            if attempt == _REPLACE_ATTEMPTS - 1:
+            if attempt == REPLACE_ATTEMPTS - 1:
                 raise
-            time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
 
 
 def set_aside(path: Path, then: str = "it is being started again empty", keep: bool = False) -> Path:
@@ -76,11 +77,11 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
 def read_text(path: Path) -> str:
     """The whole file. On Windows, opening it just as a writer swaps in a new copy (write_text) fails with
     PermissionError for a moment, so that is waited out the same way the writer waits out a reader."""
-    for attempt in range(_REPLACE_ATTEMPTS - 1):
+    for attempt in range(REPLACE_ATTEMPTS - 1):
         try:
             return path.read_text(encoding="utf-8")
         except PermissionError:
-            time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
     return path.read_text(encoding="utf-8")
 
 

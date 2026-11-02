@@ -25,6 +25,7 @@ from .evaluate import describe
 DIGEST_OVER = 5
 KEEP_TRYING = 3 * 86400  # an alert older than this is dropped from the outbox, not sent
 DEFAULT_ROUTE = "default"
+LINE_MAX = 500  # characters in one title or line of a Teams message
 
 
 @dataclass(frozen=True)
@@ -158,7 +159,14 @@ class Outbox:
 
 
 def messages(changes: list[dict[str, Any]], source: str, digest_over: int = DIGEST_OVER) -> list[tuple[str, list[str]]]:
-    """(title, lines) for each Teams message these changes need."""
+    """(title, lines) for each Teams message these changes need, each one line with anything
+    credential-shaped removed (a run's message is the error as it came), so neither the channel
+    nor the outbox ever holds a secret."""
+    return [(redact.one_line(title, LINE_MAX), [redact.one_line(line, LINE_MAX) for line in lines])
+            for title, lines in _messages(changes, source, digest_over)]
+
+
+def _messages(changes: list[dict[str, Any]], source: str, digest_over: int) -> list[tuple[str, list[str]]]:
     if not changes:
         return []
     opened = [c for c in changes if c["change"] in ("opened", "reopened")]

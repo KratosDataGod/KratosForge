@@ -139,8 +139,10 @@ class JobQueue:
         """The oldest job that is due, now leased to ``owner``; None when nothing is due. Its
         ``claim_id`` is this claim's own: pass it to heartbeat and the calls that finish the job, so a
         run whose lease ran out (and whose job was claimed again) can't renew or finish the new one."""
-        now = self.clock()
         with self._tx() as db:
+            # The time is read once this claim holds the write lock: read before, a job another
+            # thread or process added while this one waited would look not yet due.
+            now = self.clock()
             row = db.execute("select id from jobs where state = 'queued' and next_at <= ? order by next_at, created_at limit 1",
                              (now,)).fetchone()
             if row is None:

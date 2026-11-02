@@ -83,7 +83,7 @@ def _spark_types(rel: Any) -> Any:
     if not any(t in _WIDE_INTS for t in types) and not any(nested):
         return rel
     columns = []
-    for name, kind, target in zip(rel.columns, types, nested):
+    for name, kind, target in zip(rel.columns, types, nested, strict=True):
         quoted = '"' + name.replace('"', '""') + '"'
         if target:
             # A sum inside a struct, list or map (struct(sum(x)), collect_list over sums): the same
@@ -529,7 +529,7 @@ def _store_assign(data: pa.Table, table: str) -> pa.Table:
     into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
     target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
     columns = []
-    for name, column in zip(data.column_names, data.columns):
+    for name, column in zip(data.column_names, data.columns, strict=True):
         field = target.get(name.lower())
         if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
             columns.append(column)
@@ -658,7 +658,7 @@ class LakehouseReader:
         if by_position and len(have) != len(schema.fields):
             raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
         lower = {c.lower(): c for c in have}
-        text_cols = {c for c, t in zip(have, rel.types) if str(t) == "VARCHAR"}
+        text_cols = {c for c, t in zip(have, rel.types, strict=True) if str(t) == "VARCHAR"}
         cols, fits = [], []
         for i, f in enumerate(schema.fields):
             src = have[i] if by_position else lower.get(f.name.lower())
@@ -982,7 +982,7 @@ class LocalSparkSession(SparkSession):
         cased = {n.lower(): n for n in target}
         safe = local_delta.fabric_schema(source.schema, names=False)
         names = [cased.get(f.name.lower(), f.name) for f in safe]
-        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)]))
+        source = source.rename_columns(names).cast(pa.schema([pa.field(n, f.type) for n, f in zip(names, safe, strict=True)]))
         self._one_match_each(change, source)
         result = lakehouse.change_table(change, source)
         affected = result.rows_inserted + result.rows_updated + result.rows_deleted
@@ -1067,7 +1067,7 @@ class LocalSparkSession(SparkSession):
         so a column of them (or of lists of them) says int where Spark says bigint. DuckDB 2.0 says bigint."""
         rel = df.relation
         exprs, changed = [], False
-        for name, kind in zip(rel.columns, rel.types):
+        for name, kind in zip(rel.columns, rel.types, strict=True):
             text = str(kind)
             wanted = re.sub(r"\bINTEGER\b", "BIGINT", text)
             quoted = '"' + name.replace('"', '""') + '"'

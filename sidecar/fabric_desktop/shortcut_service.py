@@ -210,7 +210,7 @@ class ShortcutMixin:
         for cand in candidates:
             with ThreadPoolExecutor(max_workers=8) as pool:
                 hits = list(pool.map(there, [(cand, s) for s in shortcuts]))
-            found = [s["id"] for s, hit in zip(shortcuts, hits) if hit]
+            found = [s["id"] for s, hit in zip(shortcuts, hits, strict=True) if hit]
             if best is None or len(found) > len(best[1]):
                 best = (cand, found)
         cand, found = best  # type: ignore[misc]

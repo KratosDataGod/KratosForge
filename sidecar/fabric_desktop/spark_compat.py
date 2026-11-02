@@ -51,7 +51,7 @@ def _call(spark_sql: str, *cols: Any) -> Column:
     """A Spark SQL call with ``{0}``, ``{1}``... for columns, translated to DuckDB SQL."""
     holes = [f"__fdc{i}__" for i in range(len(cols))]
     text = spark_expr(spark_sql.format(*holes))
-    for hole, c in zip(holes, cols):
+    for hole, c in zip(holes, cols, strict=True):
         text = re.sub(rf'"?{hole}"?', lambda _m, c=c: f"({_col_sql(c)})" if _col_sql(c) != "*" else "*", text)
     return _sql(text)
 
@@ -601,7 +601,7 @@ def _known(df: DataFrame, names: Any) -> list[str]:
 
 def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
     if isinstance(value, dict):
-        fills = dict(zip(_known(self, value), value.values()))
+        fills = dict(zip(_known(self, value), value.values(), strict=True))
     else:
         if not isinstance(value, (bool, int, float, str)):
             raise TypeError("fillna takes a number, text, a boolean or a dict of column to value.")
@@ -619,7 +619,7 @@ def _fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
 
 
 def _types(df: DataFrame) -> list[tuple[str, str]]:
-    return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types)]
+    return [(name, str(t)) for name, t in zip(df.relation.columns, df.relation.types, strict=True)]
 
 
 def _dropna(self: DataFrame, how: str | None = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
@@ -638,7 +638,7 @@ def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = 
         raise ValueError("to_replace and value lists should be of the same length. "
                          f"Got {len(to_replace)} and {len(value)}")  # PySpark's own check
     mapping = to_replace if isinstance(to_replace, dict) else (
-        dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace)))
+        dict(zip(to_replace, value if isinstance(value, (list, tuple)) else [value] * len(to_replace), strict=True))
         if isinstance(to_replace, (list, tuple)) else {to_replace: value})
     wanted = _known(self, subset) if subset else self.columns
     sample = next(iter(mapping))
@@ -939,7 +939,7 @@ def _collect_structs_as_rows(collect: Any) -> Any:
             return rows
         out = []
         for r in rows:
-            row = tuple.__new__(type(r), [_struct_rows(v, f.dataType) for v, f in zip(r, fields)])
+            row = tuple.__new__(type(r), [_struct_rows(v, f.dataType) for v, f in zip(r, fields, strict=True)])
             row.__fields__ = list(r.__fields__)
             out.append(row)
         return out

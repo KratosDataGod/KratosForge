@@ -127,6 +127,17 @@ def test_plus_with_a_number_adds_as_numbers(engine):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
+def test_float_is_eight_bytes_and_real_four_as_in_sql_server(engine):
+    """T-SQL FLOAT is FLOAT(53), an 8-byte float; REAL and FLOAT(1) to FLOAT(24) are 4 bytes."""
+    r = tsql(engine, "SELECT CAST(0.1 AS FLOAT) AS a, CAST(0.1 AS FLOAT(53)) AS b, CAST(0.1 AS FLOAT(25)) AS c, "
+                     "CONVERT(FLOAT, 0.1) AS d, CAST(0.1 AS DOUBLE PRECISION) AS e")
+    assert r["rows"] == [[0.1, 0.1, 0.1, 0.1, 0.1]]
+    r = tsql(engine, "SELECT CAST(0.1 AS REAL) AS a, CAST(0.1 AS FLOAT(24)) AS b, CAST(0.1 AS FLOAT(1)) AS c")
+    assert all(v != 0.1 and abs(v - 0.1) < 1e-7 for v in r["rows"][0])  # 0.1 as a 4-byte float
+    tsql(engine, "CREATE TABLE dbo.f (a FLOAT, b REAL, c FLOAT(10)); INSERT INTO dbo.f VALUES (0.1, 0.1, 0.1)")
+    assert tsql(engine, "SELECT a FROM dbo.f")["rows"] == [[0.1]]
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")

@@ -27,7 +27,9 @@ from typing import Any
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
+from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
+from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
 
@@ -84,6 +86,15 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     return texts, list(dict.fromkeys(notes))
 
 
+class KfTSQL(TSQL):
+    """T-SQL as SQL Server reads it: ``FLOAT`` is an 8-byte float, ``FLOAT(1)`` to ``FLOAT(24)`` and
+    ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
+    ``CAST(0.1 AS FLOAT)`` came back as 0.10000000149."""
+
+    class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
+        KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
+
+
 def _parse(batch: str) -> list[exp.Expression]:
     unsupported: list[str] = []
 
@@ -95,7 +106,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     log = logging.getLogger("sqlglot")
     log.addHandler(handler)
     try:
-        trees = [t for t in sqlglot.parse(batch, read="tsql") if t is not None]
+        trees = [t for t in sqlglot.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
         raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
     finally:
@@ -286,6 +297,12 @@ def _unknown(kind: exp.DataType | None) -> bool:
 
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
+        if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
+            # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
+            bits = kind.expressions[0].this
+            small = isinstance(bits, exp.Literal) and not bits.is_string and int(bits.name) <= 24
+            kind.set("this", exp.DataType.Type.FLOAT if small else exp.DataType.Type.DOUBLE)
+            kind.set("expressions", [])
         # NVARCHAR(MAX) and VARBINARY(MAX): DuckDB's types have no limit and take no MAX.
         if any(isinstance(p.this, exp.Var) and p.this.name.upper() == "MAX" for p in kind.expressions
                if isinstance(p, exp.DataTypeParam)):

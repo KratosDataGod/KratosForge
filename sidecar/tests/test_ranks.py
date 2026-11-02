@@ -159,7 +159,8 @@ def test_a_profile_picture_is_kept_and_removed(plain):  # noqa: F811
 
 
 @pytest.mark.parametrize("bad", [base64.b64encode(png(128)).decode(), base64.b64encode(b"GIF89a....").decode(),
-                                 base64.b64encode(png(extra=b"\x00" * (600 * 1024))).decode(), "not base64!"])
+                                 base64.b64encode(png(extra=b"\x00" * (600 * 1024))).decode(), "not base64!"],
+                         ids=["not-square", "not-png", "too-big", "not-base64"])  # a base64 id overflows PYTEST_CURRENT_TEST on Windows
 def test_only_a_small_square_png_is_kept(plain, bad):  # noqa: F811
     with pytest.raises(Exception, match="picture"):
         call(plain, "profile_avatar_set", png_base64=bad)

@@ -45,3 +45,17 @@ def test_connections_opened_outside_a_cell_are_not_recorded():
     conn = duckdb.connect()  # the app's own, on a thread that isn't running a cell
     assert len(k._duckdb_connections) == before and conn not in k._duckdb_connections
     assert threading.get_ident() not in spark_local._cell_connections
+
+
+
+def test_connections_the_app_opens_from_a_cell_are_not_recorded():
+    """A module of the app calling duckdb.connect on a cell's thread (a lazily made helper connection)
+    isn't the notebook's, so a notebook's Cancel never interrupts it."""
+    k = Kernel()
+    out = k.run("import duckdb\nmine = duckdb.connect()\n"
+                "app_module = {'__name__': 'fabric_desktop.helper', 'duckdb': duckdb}\n"
+                "exec('def make():\\n    return duckdb.connect()', app_module)\n"
+                "app = app_module['make']()")
+    assert out["status"] == "ok", out
+    recorded = list(k._duckdb_connections)
+    assert len(recorded) == 1 and recorded[0] is k.namespace["mine"]

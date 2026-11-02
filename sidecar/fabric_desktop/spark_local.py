@@ -1350,15 +1350,20 @@ def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
 # Connections a notebook's cells open with duckdb.connect, by the thread of the cell running now, so
 # Cancel reaches them (EA-016). Only a cell's thread records: the app's own connections, when the
 # kernel runs inside the engine, are never interrupted by a notebook's Cancel.
+# Connections the app opens itself (a module of fabric_desktop calling duckdb.connect, even from a
+# cell's thread) are never recorded. _connections_lock guards the recorded sets.
 _cell_connections: dict[int, Any] = {}
+_connections_lock = threading.Lock()
 _duckdb_connect = duckdb.connect
 
 
 def _connect(*args: Any, **kwargs: Any) -> Any:
     conn = _duckdb_connect(*args, **kwargs)
     watched = _cell_connections.get(threading.get_ident())
-    if watched is not None:
-        watched.add(conn)
+    caller = str(sys._getframe(1).f_globals.get("__name__", ""))
+    if watched is not None and not caller.startswith("fabric_desktop"):
+        with _connections_lock:
+            watched.add(conn)
     return conn
 
 
@@ -1376,8 +1381,13 @@ def watch_connections(ident: int, connections: Any) -> None:
 def interrupt(connections: Any = ()) -> None:
     """Stop a running DuckDB query, for Cancel: on ``spark``, DuckDB's default connection and
     ``connections`` (those the notebook opened)."""
-    for conn in ([_session.conn] if _session else []) + [duckdb.default_connection()] + list(connections):
-        try:
-            conn.interrupt()
-        except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse
-            pass
+    def stop(conns: list[Any]) -> None:
+        for conn in conns:
+            try:
+                conn.interrupt()
+            except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse
+                pass
+    stop(([_session.conn] if _session else []) + [duckdb.default_connection()])
+    with _connections_lock:  # a snapshot: a cell's thread may be adding to the set
+        opened = list(connections)
+    stop(opened)

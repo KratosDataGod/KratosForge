@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import json
 import os
+import uuid
 import subprocess
 import sys
 import threading
@@ -18,6 +20,7 @@ from . import notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
+from .leases import _file_lock
 from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
@@ -38,7 +41,79 @@ class TeamsUnreachable(Exception):
 # Fabric item types that have schedules, and the job type each one runs.
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
 TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job"}
+# A lock that can't be read (its writer stopped between creating and writing it) is taken over after
+# this long. A readable one is taken over as soon as the run that holds it has stopped (EA-008).
 STALE_LOCK_SECONDS = 12 * 3600
+
+
+def process_identity(pid: int) -> str | None:
+    """What tells this process apart from a later one given the same PID: when it started, in the OS's
+    own units. None where that can't be read."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        return stat.rsplit(")", 1)[1].split()[19]  # starttime: field 22, counted after the name
+    except (OSError, IndexError):
+        return None
+
+
+def process_alive(pid: int, identity: str | None) -> bool:
+    """Whether the process ``pid`` that the lock names is still running: the PID is in use, and when
+    ``identity`` is known, by the same process (a PID is reused once its process ends)."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
+        kernel32 = win_kernel32()
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            # Access denied: a process another user runs has it now. Anything else: no such process.
+            return ctypes.get_last_error() == 5 and identity is None  # type: ignore[attr-defined]
+        try:
+            code = wintypes.DWORD()
+            kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != 259:  # STILL_ACTIVE
+                return False
+        finally:
+            kernel32.CloseHandle(handle)
+    else:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            pass  # in use by a process of another user
+        if _zombie(pid):
+            return False
+    if identity is None:
+        return True
+    return process_identity(pid) == identity
+
+
+def _zombie(pid: int) -> bool:
+    """A process that has ended but not been waited for (Linux): its PID answers, but it's not running."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return False
 
 
 def _without_webhook(text: str, url: Any) -> str:
@@ -208,27 +283,65 @@ class ScheduleMixin:
         except Exception as exc:  # Task Scheduler refused: the list still shows them
             return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
 
-    def _lock(self, schedule_id: str) -> Path | None:
+    def _lock(self, schedule_id: str, run: dict[str, Any] | None = None) -> Path | None:
+        """The schedule's lock file, or None while a run that holds it is still going. The file names
+        this process (its PID and start time) and ``run``; a lock whose process has stopped, or whose
+        PID another process now has, is taken over, and its run is recorded as interrupted (EA-008)."""
         folder = self.root / "schedule_locks"  # type: ignore[attr-defined]
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{schedule_id}.lock"
-        if path.exists() and time.time() - path.stat().st_mtime > STALE_LOCK_SECONDS:
-            path.unlink(missing_ok=True)
+        # One process at a time looks at and takes over a lock, so two runs that both find it stale
+        # can't both take it, or one remove the lock the other just made.
+        with _file_lock(folder / ".takeover"):
+            for _ in range(2):
+                try:
+                    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                except FileExistsError:
+                    if not self._take_over(path):
+                        return None
+                    continue
+                os.write(fd, json.dumps({"pid": os.getpid(), "process": process_identity(os.getpid()),
+                                         "nonce": uuid.uuid4().hex, "run": run}).encode())
+                os.close(fd)
+                return path
+        return None
+
+    def _take_over(self, path: Path) -> bool:
+        """Remove ``path`` if the run that holds it has stopped; True when it's gone."""
         try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return None
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
-        return path
+            raw = path.read_text(encoding="utf-8").strip()
+            age = time.time() - path.stat().st_mtime
+        except FileNotFoundError:
+            return True  # released just now
+        try:
+            held = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}  # before EA-008: just the PID
+            pid, identity = int(held["pid"]), held.get("process")
+        except (ValueError, KeyError, TypeError):
+            if age <= STALE_LOCK_SECONDS:
+                return False  # being written now, perhaps
+            held, pid, identity = {}, 0, None
+        if pid and process_alive(pid, identity):
+            return False
+        nonce = held.get("nonce")
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return True
+        run = held.get("run")
+        if isinstance(run, dict) and run.get("schedule_id"):
+            self.pc_schedules.log_run(run | {
+                "ended": _now(), "status": "interrupted", "pid": pid, "lock": nonce,
+                "message": "This run stopped before it finished (the PC slept or restarted, or its process "
+                           "was ended), so its result isn't known. The next run went ahead."})
+        return True
 
     def run_schedule(self, schedule_id: str, trigger: str = "schedule") -> dict[str, Any]:
         """One scheduled run on this PC (Task Scheduler calls this through the CLI)."""
         schedules = self.pc_schedules
         s = schedules.get(schedule_id)
-        lock = self._lock(schedule_id)
         row: dict[str, Any] = {"schedule_id": schedule_id, "label": target_label(s["target"]), "trigger": trigger,
                                "started": _now(), "pid": os.getpid()}
+        lock = self._lock(schedule_id, {k: row[k] for k in ("schedule_id", "label", "trigger", "started")})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}

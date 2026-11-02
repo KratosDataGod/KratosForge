@@ -38,7 +38,7 @@ def test_saved_cache_is_encrypted_and_reads_back(tmp_path, fake_dpapi):
     a._save()
     raw = path.read_bytes()
     assert raw.startswith(auth.DPAPI_HEADER) and b"secret-access" not in raw
-    assert list(tmp_path.iterdir()) == [path]  # the temporary file was swapped in
+    assert sorted(tmp_path.iterdir()) == [path, path.with_name(path.name + ".lock")]  # the temporary file was swapped in
     again = auth.Authenticator(OWN_APP, cache_path=path)
     assert "secret-access" in again.cache.serialize()
 
@@ -109,4 +109,4 @@ def test_when_dpapi_refuses_the_last_file_is_kept_and_nothing_is_written_in_plai
     _add_token(a)
     a.cache.has_state_changed = True
     a._save()  # no error: the run that refreshed the token carries on
-    assert path.read_bytes() == before and list(tmp_path.iterdir()) == [path]
+    assert path.read_bytes() == before and sorted(tmp_path.iterdir()) == [path, path.with_name(path.name + ".lock")]

@@ -212,6 +212,17 @@ def test_runs_inside_an_import_without_a_row_are_told_apart_from_runs_no_import_
     assert states == {"j3": "no_row", "j4": "not_covered"} and r["runs"]["no_row"] == 1
 
 
+def test_an_imported_row_whose_start_cant_be_read_covers_nothing_and_breaks_nothing():
+    # Before: min() compared the unreadable start (None) with the others and the whole reconcile failed.
+    p = read(OPS)
+    rows = [dict(r) for r in p["rows"]]
+    rows.append(rows[0] | {"start": "not a time", "end": "not a time"})
+    imp = {"id": "u-1", "imported_at": NOW.isoformat(), "rows": rows}
+    r = rc.reconcile([imp], [run("j3", "nb_missing", "2026-10-16T14:30:00+00:00", "2026-10-16T14:31:00+00:00")],
+                     {}, NOW - dt.timedelta(days=30), NOW, now=NOW)
+    assert {b["job_id"]: b["state"] for b in r["by_run"]} == {"j3": "no_row"}  # still covered by the readable rows
+
+
 def test_item_names_come_from_what_each_kind_of_run_ran():
     assert rc.item_name({"kind": "Metadata run", "name": "all 3 entities"}) == "nb_fabric_desktop_runner"
     assert rc.item_name({"kind": "Table maintenance", "name": "LH_Silver dbo.sales", "table": "dbo.sales"}) == "LH_Silver"

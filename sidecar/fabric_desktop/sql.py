@@ -900,6 +900,31 @@ _REWRITTEN = (exp.IgnoreNulls, exp.AddMonths, exp.StrToUnix, exp.Substring, exp.
               exp.Quantile, exp.ArrayDistinct, exp.ArrayIntersect, exp.ArrayExcept, exp.LastDay, exp.NextDay)
 
 
+# Operators Spark writes in parentheses in a column's name: "(a + 1)", "(a = b)".
+_SPARK_PARENTHESISED = (exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.IntDiv, exp.EQ, exp.NEQ, exp.NullSafeEQ,
+                        exp.GT, exp.GTE, exp.LT, exp.LTE, exp.And, exp.Or, exp.Not)
+
+
+def spark_name(column: exp.Expression) -> str:
+    """The name Spark gives an unnamed selected expression: functions in lower case, each operator in
+    parentheses ("(a + 1)", "(NOT a)") and a decimal's parameters without a space ("DECIMAL(10,2)")."""
+    copy = column.copy()
+    for node in reversed(list(copy.find_all(*_SPARK_PARENTHESISED))):
+        if isinstance(node.parent, exp.Paren) or node.find_ancestor(exp.Lambda):
+            continue  # a lambda's body keeps the form it was written in (Spark names it lambdafunction(...))
+        wrapper = exp.Paren()
+        if node is copy:
+            wrapper.set("this", node)
+            copy = wrapper
+        else:
+            node.replace(wrapper)
+            wrapper.set("this", node)
+    for kind in list(copy.find_all(exp.DataType)):
+        if kind.this == exp.DataType.Type.DECIMAL and kind.expressions:  # Spark's DecimalType.sql
+            kind.replace(exp.Var(this=kind.sql("spark").replace(" ", "")))
+    return copy.sql("spark", normalize_functions="lower")
+
+
 def _spark_names(statement: exp.Expression) -> exp.Expression:
     """Name a selected expression this module rewrites as Spark names it ("add_months(d, 1)"), not after
     the DuckDB SQL it becomes."""
@@ -913,7 +938,7 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
                     # Spark's CAST is DuckDB's TRY_CAST, and casts to whole numbers and timestamps are written out.
                     or column.find(exp.Cast, exp.TryCast)):
                 continue
-            name = column.sql("spark", normalize_functions="lower")
+            name = spark_name(column)
             select.expressions[i] = exp.alias_(column, name, quoted=True)
             select.expressions[i].parent = select
     return statement

@@ -37,3 +37,18 @@ def test_a_column_named_like_the_cast_lambda_doesnt_change_the_answer(query):
     status, text = run(f"print(spark.sql({query!r}).collect())")
     assert status == "ok", text
     assert ("v=102" in text) if "* 3" not in query else ("v=107" in text)
+
+
+@pytest.mark.parametrize("expr, name", [
+    ("CAST(d AS DECIMAL(10, 2))", "CAST(d AS DECIMAL(10,2))"),
+    ("CAST(d AS INT) + 1", "(CAST(d AS INT) + 1)"),
+    ("CAST(i + 1 AS BIGINT)", "CAST((i + 1) AS BIGINT)"),
+    ("CAST(i AS INT) + i * 2", "(CAST(i AS INT) + (i * 2))"),
+    ("NOT CAST(i AS INT) = 1", "(NOT (CAST(i AS INT) = 1))"),
+    ("CAST(m AS MAP<STRING, DECIMAL(10, 2)>)", "CAST(m AS MAP<STRING, DECIMAL(10,2)>)"),
+])
+def test_names_are_formatted_as_spark_writes_them(expr, name):
+    import sqlglot
+
+    from fabric_desktop.sql import spark_name
+    assert spark_name(sqlglot.parse_one(expr, read="spark")) == name

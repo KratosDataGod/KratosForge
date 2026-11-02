@@ -1,6 +1,7 @@
 """Schedules on this PC (Task Scheduler) and the one list of every schedule."""
 
 import datetime as dt
+import sys
 import time
 from pathlib import Path
 
@@ -114,6 +115,71 @@ def test_a_run_still_going_is_not_started_twice(svc):
     sid = svc.add_pc_schedule({"kind": "notebook", "name": "Slow"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
     assert svc._lock(sid) is not None
     assert svc.run_schedule(sid)["status"] == "skipped"
+
+
+def _dead_pid():
+    import subprocess
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    return p.pid
+
+
+def test_a_run_whose_process_was_killed_is_logged_as_stopped_and_the_next_run_goes(svc):
+    import subprocess
+    svc.notebooks.save("Killed", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Killed"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    # a real run killed mid-run: it took the lock, then its process ended with exit code 137
+    code = ("import os, sys; from fabric_desktop.schedule_service import ScheduleMixin as M; from pathlib import Path\n"
+            "class S(M):\n    root = Path(sys.argv[1])\n"
+            "assert S()._lock(sys.argv[2], {'started': '2026-11-02T01:00:00+00:00', 'trigger': 'manual'})\nos._exit(137)")
+    assert subprocess.run([sys.executable, "-c", code, str(svc.root), sid]).returncode == 137
+    assert svc.pc_schedules.runs() == []
+    row = svc.run_schedule(sid)
+    assert row["status"] == "ok", row
+    stopped, = [r for r in svc.pc_schedules.runs() if r.get("interrupted")]
+    assert stopped["status"] == "failed" and stopped["started"] == "2026-11-02T01:00:00+00:00"
+    assert stopped["trigger"] == "manual" and stopped["label"] == "Killed" and stopped["ended"] is None
+    assert "Stopped before it finished" in stopped["message"]
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["ok", "failed"]  # newest first
+    assert svc.pc_schedules.listing()[0]["last"]["status"] == "ok"
+    assert not (svc.root / "schedule_locks" / f"{sid}.lock").exists()
+
+
+def test_the_app_logs_a_stopped_run_when_it_starts(svc):
+    svc.notebooks.save("Gone", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Gone"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    (svc.root / "schedule_locks").mkdir(parents=True, exist_ok=True)
+    (svc.root / "schedule_locks" / f"{sid}.lock").write_text(str(_dead_pid()))  # as older builds wrote it
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["failed"] and svc.pc_schedules.runs()[0]["interrupted"]
+    assert svc.sync_pc_schedules()["interrupted"] == 0  # logged once
+
+
+def test_a_lock_held_by_a_live_process_or_one_that_cant_be_told_is_kept(svc):
+    import os
+    svc.notebooks.save("Busy", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Busy"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    for held in (str(os.getppid()), "not a pid", ""):
+        (folder / f"{sid}.lock").write_text(held)
+        assert svc.run_schedule(sid)["status"] == "skipped"
+    assert svc.sync_pc_schedules()["interrupted"] == 0
+    # past STALE_LOCK_SECONDS it is taken over whatever it says
+    old = time.time() - schedule_service.STALE_LOCK_SECONDS - 60
+    os.utime(folder / f"{sid}.lock", (old, old))
+    assert svc.run_schedule(sid)["status"] == "ok"
+
+
+def test_only_one_run_takes_over_a_dead_lock(svc):
+    svc.notebooks.save("Race", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Race"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(str(_dead_pid()))
+    (folder / f"{sid}.lock.takeover").write_text("")  # another run is deciding right now
+    assert svc._lock(sid) is None
+    assert svc.pc_schedules.runs() == []
 
 
 def test_scheduled_metadata_run_on_this_pc(svc, tmp_path):

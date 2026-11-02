@@ -433,6 +433,9 @@ def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
 
 
+_SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}
+
+
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
@@ -474,6 +477,10 @@ def _functions(tree: exp.Expression) -> None:
                     exp.cast(exp.func("STRFTIME", day, exp.Literal.string("%U")), "INT")
                     + exp.Case(ifs=[exp.If(this=sunday_first, true=exp.Literal.number(0))],
                                default=exp.Literal.number(1)), copy=False))
+        elif isinstance(node, exp.Anonymous) and node.name.upper() in _SPREADS and len(node.expressions) == 1:
+            # VAR is the sample variance, VARP the population's, STDEVP the population's standard deviation
+            # (STDEV is read as the sample's already). DuckDB has none of these names.
+            node.replace(_SPREADS[node.name.upper()](this=node.expressions[0]))
         elif isinstance(node, exp.CurrentTimestamp) or (
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.

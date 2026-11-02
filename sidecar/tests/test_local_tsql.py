@@ -276,3 +276,17 @@ def test_set_datefirst_7_is_skipped_and_others_refused(engine):
 
 def test_a_like_without_ranges_stays_a_like():
     assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]
+
+
+def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):
+    import math
+    r = tsql(engine, "SELECT VAR(price) AS v, VARP(price) AS vp, STDEV(price) AS s, STDEVP(price) AS sp, "
+                     "VAR(DISTINCT boxes) AS vd FROM dbo.orders")
+    v, vp, s, sp, vd = r["rows"][0]
+    assert (v, vp, vd) == (1.125, 0.5625, None)  # 2.5 and 4.0; boxes has one distinct value
+    assert math.isclose(s, math.sqrt(1.125)) and math.isclose(sp, 0.75)
+    one = tsql(engine, "SELECT VAR(qty) AS v, VARP(qty) AS vp, STDEV(qty) AS s, STDEVP(qty) AS sp FROM dbo.orders "
+                       "WHERE id = 1")
+    assert one["rows"] == [[None, 0.0, None, 0.0]]  # one row: no sample spread, a population spread of 0
+    w = tsql(engine, "SELECT id, VARP(qty) OVER () AS vp FROM dbo.orders ORDER BY id")
+    assert w["rows"] == [[1, 49.0], [2, 49.0]]

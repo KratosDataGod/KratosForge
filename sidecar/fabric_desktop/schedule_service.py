@@ -270,7 +270,7 @@ class ScheduleMixin:
         folder = self.root / "schedule_locks"  # type: ignore[attr-defined]
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{schedule_id}.lock"
-        if path.exists() and not self._take_over(schedule_id, path):
+        if path.exists() and not self._take_over(schedule_id, path)[0]:
             return None
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -280,9 +280,10 @@ class ScheduleMixin:
         os.close(fd)
         return path
 
-    def _take_over(self, schedule_id: str, path: Path) -> bool:
+    def _take_over(self, schedule_id: str, path: Path) -> tuple[bool, bool]:
         """Remove a lock left by a run that can't be going any more: its process has ended, or it
-        is older than STALE_LOCK_SECONDS. One run at a time decides, so two can't both take it."""
+        is older than STALE_LOCK_SECONDS. One run at a time decides, so two can't both take it.
+        Returns whether the lock is free now, and whether a stopped run was logged."""
         guard = path.with_name(path.name + ".takeover")
         try:
             if time.time() - guard.stat().st_mtime > 60:  # left by a run killed while deciding
@@ -292,22 +293,24 @@ class ScheduleMixin:
         try:
             os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
         except FileExistsError:
-            return False  # another run is taking it over right now
+            return False, False  # another run is taking it over right now
         try:
             try:
                 held, age = _read_lock(path), time.time() - path.stat().st_mtime
             except FileNotFoundError:
-                return True  # its run just ended
+                return True, False  # its run just ended
             if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid")):
-                return False
+                return False, False
             path.unlink(missing_ok=True)
         finally:
             guard.unlink(missing_ok=True)
-        if schedule_id != ALERTS_LOCK:
-            self._log_stopped_run(schedule_id, held)
-        return True
+        if schedule_id == ALERTS_LOCK:
+            return True, False
+        return True, self._log_stopped_run(schedule_id, held)
 
-    def _log_stopped_run(self, schedule_id: str, held: dict[str, Any]) -> None:
+    def _log_stopped_run(self, schedule_id: str, held: dict[str, Any]) -> bool:
+        """Log the run that held ``held`` as stopped; False when it couldn't be written. The lock is
+        gone either way, so a full disk never holds the schedule up."""
         try:
             label = target_label(self.pc_schedules.get(schedule_id)["target"])
         except (KeyError, ValueError, OSError):  # the schedule was removed since
@@ -320,7 +323,12 @@ class ScheduleMixin:
         problem = self._send_schedule_alerts(row)
         if problem:
             row["alert_error"] = problem
-        self.pc_schedules.log_run(row)
+        try:
+            self.pc_schedules.log_run(row)
+        except OSError as exc:
+            _log.warning("Couldn't log the scheduled run that stopped before it finished: %s", describe(exc))
+            return False
+        return True
 
     def recover_pc_schedule_runs(self) -> dict[str, Any]:
         """Log the runs whose process ended without finishing (their lock is left), so Monitor shows
@@ -329,7 +337,7 @@ class ScheduleMixin:
         taken = 0
         for path in sorted(folder.glob("*.lock")) if folder.is_dir() else []:
             sid = path.name[:-len(".lock")]
-            if sid != ALERTS_LOCK and self._take_over(sid, path):
+            if sid != ALERTS_LOCK and self._take_over(sid, path)[1]:
                 taken += 1
         return {"interrupted": taken}
 

@@ -171,6 +171,23 @@ def test_a_lock_held_by_a_live_process_or_one_that_cant_be_told_is_kept(svc):
     assert svc.run_schedule(sid)["status"] == "ok"
 
 
+def test_a_stopped_run_that_cant_be_logged_doesnt_hold_the_schedule_up(svc, monkeypatch):
+    svc.notebooks.save("Full", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Full"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(str(_dead_pid()))
+    real = LocalSchedules.log_run
+    def full(self, row):
+        if row.get("interrupted"):
+            raise OSError(28, "No space left on device")
+        return real(self, row)
+    monkeypatch.setattr(LocalSchedules, "log_run", full)
+    assert svc.sync_pc_schedules()["interrupted"] == 0  # nothing was logged, so nothing is counted
+    assert not (folder / f"{sid}.lock").exists()
+    assert svc.run_schedule(sid)["status"] == "ok"
+
+
 def test_only_one_run_takes_over_a_dead_lock(svc):
     svc.notebooks.save("Race", [{"type": "code", "source": "x = 1"}])
     sid = svc.add_pc_schedule({"kind": "notebook", "name": "Race"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]

@@ -108,20 +108,26 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | T-SQL | Gives here, as in Fabric |
 | --- | --- |
 | `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
-| `AVG(qty)` on an integer column | An integer |
+| `AVG(qty)` on an integer column, also with `OVER (...)` | An integer |
+| `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
+| `DATEDIFF(week, a, b)` | The number of Sundays from `a` to `b`, whatever the time of day: Saturday to Sunday is `1` |
+| `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
+| `CAST(0.1 AS FLOAT)`, `FLOAT(24)`, `REAL` | `FLOAT` (and `FLOAT(25)` to `FLOAT(53)`) is an 8-byte float, `REAL` and `FLOAT(1)` to `FLOAT(24)` 4 bytes, as SQL Server stores them |
+| `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
+| `CAST(' 5 ' AS INT)`, `CAST('3.7' AS INT)` | `5`, an error: text becomes an integer only when it's a whole number (spaces around it are fine, and `''` is `0`). `TRY_CAST` and `TRY_CONVERT` give `NULL` instead of the error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
 
 The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
 
-**Refused, not half-translated:** variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result.
+**Refused, not half-translated:** variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 

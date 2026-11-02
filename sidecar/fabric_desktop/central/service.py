@@ -73,7 +73,8 @@ class PlatformMixin:
                                   cfg["workspace_id"], cfg["functions_id"])
         cached = getattr(self, "_local_platforms", None)
         if cached is None:
-            cached = self._local_platforms = {}
+            self._local_platforms: dict[str, LocalPlatform] = {}
+            cached = self._local_platforms
         if env not in cached:
             cached[env] = LocalPlatform(self.root / "platform" / f"platform-{env}.sqlite", self._user)
         return cached[env]
@@ -424,7 +425,8 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         domains = self._catalog().call("list_domains")
         linked = {d["fabric_domain"]: d for d in domains if d.get("fabric_domain")}
-        rows, seen = [], set()
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for env in ENVIRONMENTS:
             cfg = project.environments.get(env, {})
             spaces = [("", cfg.get("workspace_id"), cfg.get("workspace_name", ""))]
@@ -884,7 +886,7 @@ class PlatformMixin:
         """The central team's home: counts, what needs a decision, the landing zone and each
         environment's platform."""
         catalog = self._catalog()
-        problems = []
+        problems: list[str] = []
         me = self.platform_whoami()
         domains = catalog.call("list_domains")
         projects = catalog.call("list_projects")
@@ -1006,7 +1008,7 @@ class PlatformMixin:
             else:
                 p["can_link"] = False
                 p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
-            p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
+            p["linked"] = any(c["consumer_project"] == me["name"] for c in p.get("consumers", [])) if me else False
         follows = self._my_follows()
         for p in products:
             p["following"] = p["id"] in (follows or [])
@@ -1154,7 +1156,10 @@ class PlatformMixin:
             raise GateError("promote", problems)
         name = mesh.project_name(project)
         before = self._published_before(catalog, project)
-        done, problems, events, tell = [], [], [], []
+        done: list[str] = []
+        problems = []
+        events: list[dict[str, Any]] = []
+        tell: list[dict[str, Any]] = []
         old_function = False
         try:
             for p in project.products.values():

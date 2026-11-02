@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import email.utils
+import logging
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import requests
 
 from . import http_session, redact
 from .paging import Pages
 from .retrying import send_with_retry
+
+_log = logging.getLogger(__name__)
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
 TABLE_API = "https://onelake.table.fabric.microsoft.com/delta"
@@ -285,21 +289,40 @@ class FileStore:
         return resp.content[:length] if length else resp.content
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
-        """Create or replace a file: create, append, then flush (the ADLS Gen2 way)."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        steps = [("PUT", {"resource": "file"}, None),
-                 ("PATCH", {"action": "append", "position": "0"}, data),
-                 ("PATCH", {"action": "flush", "position": str(len(data))}, None)]
-        for (method, params, body), step in zip(steps, ("create", "write", "commit")):
-            if body is not None and not body:
-                continue  # an empty file needs no append
-            # Throttling (429) is waited out: OneLake did nothing. Anything else is sent once, since
-            # the step may have happened; a failed append is never flushed, so no half file is seen.
-            resp = send_with_retry(lambda: self._http.request(method, url, params=params, data=body,
-                                                              headers=self._headers(), timeout=300),
-                                   method, sleep=self._sleep, safe=False)
-            if resp.status_code >= 400:
-                raise _onelake_error(resp, f"{step} {path}")
+        """Create or replace a file. The bytes go to a new file beside it (create, append, flush: the
+        ADLS Gen2 way), which is then renamed over ``path`` in one step. Creating ``path`` itself would
+        empty a file that is there before its new bytes arrive, so a failed upload would leave it
+        empty (EA-007); this way it keeps its old content until the rename."""
+        target = item_path(path)
+        folder, _, name = target.rpartition("/")
+        temp = f"{folder}/" * bool(folder) + f".{name}.{uuid.uuid4().hex[:12]}.uploading"
+        base = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}"
+        url = f"{base}/{temp}"
+        rename = {"x-ms-rename-source": quote(f"/{workspace_id}/{lakehouse_id}/{temp}", safe="/")}
+        steps = [("PUT", url, {"resource": "file"}, None, {}, "create"),
+                 ("PATCH", url, {"action": "append", "position": "0"}, data, {}, "write"),
+                 ("PATCH", url, {"action": "flush", "position": str(len(data))}, None, {}, "commit"),
+                 ("PUT", f"{base}/{target}", {}, None, rename, "replace")]
+        done = 0
+        try:
+            for method, at, params, body, extra, step in steps:
+                if body is not None and not body:
+                    continue  # an empty file needs no append
+                # Throttling (429) is waited out: OneLake did nothing. Anything else is sent once, since
+                # the step may have happened; a failed append is never flushed, so no half file is seen.
+                resp = send_with_retry(lambda: self._http.request(method, at, params=params, data=body,
+                                                                  headers={**self._headers(), **extra}, timeout=300),
+                                       method, sleep=self._sleep, safe=False)
+                if resp.status_code >= 400:
+                    raise _onelake_error(resp, f"{step} {path}")
+                done += 1
+        except Exception:
+            if done:  # the new file was created: remove it, so only the old file is left
+                try:
+                    self.delete(workspace_id, lakehouse_id, temp, recursive=False)
+                except Exception as exc:  # noqa: BLE001 - the upload's own error is the one to report
+                    _log.warning("Couldn't remove %s after a failed upload: %s", temp, redact.describe(exc))
+            raise
 
     def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
         """Create a folder (and any missing parents). One that is already there is left as it is:

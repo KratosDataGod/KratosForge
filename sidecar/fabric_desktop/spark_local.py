@@ -34,13 +34,39 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
+from .spark_decimals import spark_decimal_types
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
-    rel = df.relation
+    rel = _spark_types(df.relation)
     return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
+
+
+_WIDE_INTS = ("HUGEINT", "UHUGEINT")
+
+
+def _spark_types(rel: Any) -> Any:
+    """``rel`` with DuckDB's 128-bit integers as BIGINT, Spark's long (EA-004). DuckDB's sum of INT or
+    BIGINT is a HUGEINT, which Arrow and Delta would take as decimal(38,0) where Spark writes bigint; Spark
+    has no 128-bit integer, so any HUGEINT column is one of these. A value too big for BIGINT stops the
+    write with a message instead of being cut."""
+    types = [str(t) for t in rel.types]
+    if not any(t in _WIDE_INTS for t in types):
+        return rel
+    columns = []
+    for name, kind in zip(rel.columns, types):
+        quoted = '"' + name.replace('"', '""') + '"'
+        if kind in _WIDE_INTS:
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} BETWEEN -9223372036854775808 AND 9223372036854775807 OR {quoted} IS NULL "
+                           f"THEN CAST({quoted} AS BIGINT) ELSE ERROR('The column ' || {literal} || ' has a value too "
+                           "big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        else:
+            columns.append(quoted)
+    return rel.project(", ".join(columns))
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
@@ -854,7 +880,7 @@ class LocalSparkSession(SparkSession):
                 name = f"{target.db}.{target.name}" if target.db else target.name
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(query))
+                data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -885,6 +911,7 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
+        statement = spark_decimal_types(statement, self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)

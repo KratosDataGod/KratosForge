@@ -581,10 +581,12 @@ fn trim_sidecar_log(log: &Path, cap: u64) -> std::io::Result<bool> {
     let mut tail = Vec::new();
     file.read_to_end(&mut tail)?;
     let start = tail.iter().position(|&b| b == b'\n').map_or(tail.len(), |i| i + 1);
+    let mut kept = SIDECAR_LOG_TRIMMED.as_bytes().to_vec();
+    kept.extend_from_slice(&tail[start..]);
     file.set_len(0)?;
-    file.seek(SeekFrom::Start(0))?;
-    file.write_all(SIDECAR_LOG_TRIMMED.as_bytes())?;
-    file.write_all(&tail[start..])?;
+    // Written in one append, like the engine's own writes, so a line the engine writes just after
+    // the cut lands before or after it, never under it.
+    std::fs::OpenOptions::new().append(true).open(log)?.write_all(&kept)?;
     Ok(true)
 }
 

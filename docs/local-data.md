@@ -109,10 +109,14 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | --- | --- |
 | `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
 | `AVG(qty)` on an integer column, also with `OVER (...)` | An integer |
+| `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
 | `DATEDIFF(week, a, b)` | The number of Sundays from `a` to `b`, whatever the time of day: Saturday to Sunday is `1` |
+| `DATETRUNC(week, d)` | The Sunday the week starts on (`iso_week`: the Monday) |
+| `DATEADD(day, 1, d)`, `DATETRUNC(month, d)` on a `DATE` | A `DATE`, not a timestamp. A time part (`hour` and smaller) on a date is an error, as in T-SQL |
+| `y`, `w`, `m`, `n` and the other short date parts | T-SQL's meaning: `y` is day of year, `w` weekday, `m` month, `n` minute. `DATEPART(ms, t)` and `DATEPART(mcs, t)` count within the second. A part a function doesn't take is an error, and `nanosecond` in `DATEADD`, `DATEDIFF` or `DATETRUNC` is refused, since times are kept to the microsecond here |
 | `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself, the `ESCAPE` character works inside the brackets too, and a range written backwards such as `[z-a]` matches nothing). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |

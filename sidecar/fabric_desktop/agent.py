@@ -68,6 +68,9 @@ class Agent:
                                        backoff_seconds=config.backoff_seconds,
                                        max_backoff_seconds=config.max_backoff_seconds)
         self.log = log or logging.getLogger("fabric_desktop.agent")
+        if getattr(self.queue, "set_aside", None):
+            self.log.error("the job queue file couldn't be read; started with an empty queue", extra=fields(
+                moved_to=str(self.queue.set_aside)))
         self.clock = clock
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}

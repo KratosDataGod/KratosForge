@@ -74,9 +74,9 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 9 | 1 | 13 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
-| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
+| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 7 | 2 | 0 | 12 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **32** | **57** | **17** | **111** |
+| **Total** | **6** | **32** | **57** | **17** | **112** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -1566,6 +1566,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | In progress |
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
 | [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
+| [PB-124](#pb-124) | Enterprise audit remediation (EA backlog) | P0 | Enterprise readiness | L | In progress |
 
 ### PB-001
 
@@ -1744,6 +1745,26 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - As defined in HD-001..057 by its owning thread
     - Overlapping items here follow the owner named in that backlog
+
+### PB-124
+
+**Enterprise audit remediation (EA backlog)** · P0 (score 1.75) · L · confidence Medium · In progress
+
+- **Problem:** The enterprise engineering audit (#1571) scored readiness 54/100 and found defects in data integrity, engine compatibility, release integrity and operations that a Fortune 100 rollout needs closed.
+- **Proposed capability:** Each EA-nnn finding in docs/audits/REMEDIATION_BACKLOG.md fixed or recorded as an explicit refusal or limitation, with a test per fix, and the readiness scorecard re-scored.
+- **Current-state evidence:** Audit baseline, scorecard and remediation backlog (#1571, docs/audits/) at b75dcf5; progress table updated in #1638; Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608); Still open at this check: #1592, #1595, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC; Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go
+- **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01)
+- **Dependencies:** none
+- **Owner:** Enterprise readiness (EA-001..030)
+- **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
+- **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
+- **Pull requests:** [#1571](https://github.com/KratosDataGod/KratosForge/pull/1571), [#1572](https://github.com/KratosDataGod/KratosForge/pull/1572), [#1573](https://github.com/KratosDataGod/KratosForge/pull/1573), [#1574](https://github.com/KratosDataGod/KratosForge/pull/1574), [#1575](https://github.com/KratosDataGod/KratosForge/pull/1575), [#1576](https://github.com/KratosDataGod/KratosForge/pull/1576), [#1578](https://github.com/KratosDataGod/KratosForge/pull/1578), [#1579](https://github.com/KratosDataGod/KratosForge/pull/1579), [#1580](https://github.com/KratosDataGod/KratosForge/pull/1580), [#1581](https://github.com/KratosDataGod/KratosForge/pull/1581), [#1582](https://github.com/KratosDataGod/KratosForge/pull/1582), [#1584](https://github.com/KratosDataGod/KratosForge/pull/1584), [#1585](https://github.com/KratosDataGod/KratosForge/pull/1585), [#1586](https://github.com/KratosDataGod/KratosForge/pull/1586), [#1588](https://github.com/KratosDataGod/KratosForge/pull/1588), [#1589](https://github.com/KratosDataGod/KratosForge/pull/1589), [#1590](https://github.com/KratosDataGod/KratosForge/pull/1590), [#1591](https://github.com/KratosDataGod/KratosForge/pull/1591), [#1593](https://github.com/KratosDataGod/KratosForge/pull/1593), [#1594](https://github.com/KratosDataGod/KratosForge/pull/1594), [#1597](https://github.com/KratosDataGod/KratosForge/pull/1597), [#1598](https://github.com/KratosDataGod/KratosForge/pull/1598), [#1599](https://github.com/KratosDataGod/KratosForge/pull/1599), [#1600](https://github.com/KratosDataGod/KratosForge/pull/1600), [#1601](https://github.com/KratosDataGod/KratosForge/pull/1601), [#1602](https://github.com/KratosDataGod/KratosForge/pull/1602), [#1605](https://github.com/KratosDataGod/KratosForge/pull/1605), [#1606](https://github.com/KratosDataGod/KratosForge/pull/1606), [#1607](https://github.com/KratosDataGod/KratosForge/pull/1607), [#1608](https://github.com/KratosDataGod/KratosForge/pull/1608), [#1609](https://github.com/KratosDataGod/KratosForge/pull/1609), [#1613](https://github.com/KratosDataGod/KratosForge/pull/1613), [#1615](https://github.com/KratosDataGod/KratosForge/pull/1615), [#1617](https://github.com/KratosDataGod/KratosForge/pull/1617), [#1624](https://github.com/KratosDataGod/KratosForge/pull/1624), [#1625](https://github.com/KratosDataGod/KratosForge/pull/1625), [#1626](https://github.com/KratosDataGod/KratosForge/pull/1626), [#1627](https://github.com/KratosDataGod/KratosForge/pull/1627), [#1630](https://github.com/KratosDataGod/KratosForge/pull/1630), [#1636](https://github.com/KratosDataGod/KratosForge/pull/1636), [#1637](https://github.com/KratosDataGod/KratosForge/pull/1637), [#1638](https://github.com/KratosDataGod/KratosForge/pull/1638), [#1645](https://github.com/KratosDataGod/KratosForge/pull/1645), [#1646](https://github.com/KratosDataGod/KratosForge/pull/1646)
+- **Story issues:** [#910](https://github.com/KratosDataGod/KratosForge/issues/910), [#916](https://github.com/KratosDataGod/KratosForge/issues/916), [#927](https://github.com/KratosDataGod/KratosForge/issues/927), [#935](https://github.com/KratosDataGod/KratosForge/issues/935), [#936](https://github.com/KratosDataGod/KratosForge/issues/936), [#963](https://github.com/KratosDataGod/KratosForge/issues/963), [#964](https://github.com/KratosDataGod/KratosForge/issues/964), [#965](https://github.com/KratosDataGod/KratosForge/issues/965), [#968](https://github.com/KratosDataGod/KratosForge/issues/968), [#1049](https://github.com/KratosDataGod/KratosForge/issues/1049), [#1087](https://github.com/KratosDataGod/KratosForge/issues/1087)
+- **Acceptance criteria:**
+    - Every EA item in docs/audits/REMEDIATION_BACKLOG.md is merged with a test, withdrawn with a reason, or accepted by the product owner as a documented limitation
+    - The scorecard in docs/audits/ENTERPRISE_READINESS.md is re-scored after EA-001, EA-002 and EA-004 merge
+    - Items that need Windows or the product owner (EA-009, EA-024, EA-030) are checked there or listed as limitations
+    - Private security items stay out of public docs and are closed with the security owner
 
 ## Reliability, Testing, and Performance
 

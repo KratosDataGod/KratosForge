@@ -2126,6 +2126,9 @@ fn open_with_handler(link: &str, what: &str) -> Result<(), String> {
 /// knows, so a page can't open anything else.
 #[tauri::command]
 fn open_in_vscode(path: String, insiders: bool) -> Result<(), String> {
+    if !vscode_link::may_look_at(&path) {
+        return Err(format!("Not a notebook or folder on this PC: {path}"));
+    }
     let p = PathBuf::from(&path);
     let notebook = p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
     if !(notebook || p.is_dir()) || !p.is_absolute() {

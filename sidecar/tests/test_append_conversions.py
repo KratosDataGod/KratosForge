@@ -109,3 +109,41 @@ def test_an_int_into_a_double_keeps_its_value(tmp_path):
     publish.publish(pa.table({"n": [1.0]}), ref, "overwrite", "tok")
     publish.publish(pa.table({"n": pa.array([2**31 - 1], pa.int32())}), ref, "append", "tok")
     assert sorted(DeltaTable(ref.uri).to_pyarrow_table()["n"].to_pylist()) == [1.0, 2**31 - 1]
+
+
+# ---- Spark's INSERT and insertInto cast their values to the table's types, as Spark does
+
+def _table_with(monkeypatch, schema):
+    from fabric_desktop import spark_local
+
+    class Table:
+        def schema(self):
+            class S:
+                def to_arrow(self):
+                    return schema
+            return S()
+    monkeypatch.setattr(spark_local.lakehouse, "open_table", lambda name: Table())
+    return spark_local._store_assign
+
+
+def test_an_insert_casts_a_literal_that_keeps_its_value(monkeypatch):
+    from decimal import Decimal
+    assign = _table_with(monkeypatch, pa.schema([("id", pa.int64()), ("amount", pa.float64())]))
+    out = assign(pa.table({"id": pa.array([4], pa.int32()), "amount": pa.array([Decimal("1.0")], pa.decimal128(2, 1))}), "dbo.orders")
+    assert out.schema == pa.schema([("id", pa.int64()), ("amount", pa.float64())]) and out.to_pylist() == [{"id": 4, "amount": 1.0}]
+
+
+@pytest.mark.parametrize("column", [
+    pa.array([2.75]), pa.array([2**53 + 1], pa.int64()),
+])
+def test_an_insert_that_would_change_a_value_is_refused(monkeypatch, column):
+    assign = _table_with(monkeypatch, pa.schema([("n", pa.int64() if pa.types.is_floating(column.type) else pa.float64())]))
+    with pytest.raises(ValueError, match="Nothing was written"):
+        assign(pa.table({"n": column}), "dbo.t")
+
+
+def test_an_insert_refuses_a_decimal_a_double_would_round(monkeypatch):
+    from decimal import Decimal
+    assign = _table_with(monkeypatch, pa.schema([("x", pa.float64())]))
+    with pytest.raises(ValueError, match="Nothing was written"):
+        assign(pa.table({"x": pa.array([Decimal("0.123456789012345678")], pa.decimal128(38, 18))}), "dbo.t")

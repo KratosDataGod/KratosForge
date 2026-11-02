@@ -30,7 +30,9 @@ from typing import Any
 
 import sqlglot
 from sqlglot import ErrorLevel, exp
+from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import SqlglotError
+from sqlglot.tokens import TokenType
 
 from ..sql import KfDuckDB
 
@@ -89,6 +91,15 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
     return texts, list(dict.fromkeys(notes))
 
 
+class KfTSQL(TSQL):
+    """T-SQL as SQL Server reads it: ``FLOAT`` is an 8-byte float, ``FLOAT(1)`` to ``FLOAT(24)`` and
+    ``REAL`` 4 bytes. sqlglot reads ``FLOAT`` as ``REAL``, which DuckDB runs as 4 bytes, so
+    ``CAST(0.1 AS FLOAT)`` came back as 0.10000000149."""
+
+    class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
+        KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
+
+
 def _parse(batch: str) -> list[exp.Expression]:
     unsupported: list[str] = []
 
@@ -100,7 +111,7 @@ def _parse(batch: str) -> list[exp.Expression]:
     log = logging.getLogger("sqlglot")
     log.addHandler(handler)
     try:
-        trees = [t for t in sqlglot.parse(batch, read="tsql") if t is not None]
+        trees = [t for t in sqlglot.parse(batch, read=KfTSQL) if t is not None]
     except SqlglotError as exc:
         raise ValueError(f"Could not read the query as T-SQL: {_first_line(exc)}") from None
     finally:
@@ -119,6 +130,12 @@ def _harmless_setting(tree: exp.Expression) -> bool:
     items = tree.expressions
     names = [i.this.this.name.upper() if isinstance(i.this, exp.EQ) and isinstance(i.this.this, exp.Column) else ""
              for i in items]
+    if names == ["DATEFIRST"]:
+        value = items[0].this.expression
+        if isinstance(value, exp.Literal) and value.name == "7":
+            return True  # Fabric's default, which the translation already follows
+        raise ValueError("The local engine counts weeks from Sunday (SET DATEFIRST 7, Fabric's default), and doesn't "
+                         "run other DATEFIRST settings yet. Remove the SET DATEFIRST.")
     return bool(items) and all(n in _DROPPED_SETTINGS for n in names)
 
 
@@ -228,7 +245,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
             _truncated(node, info.this.type)
-            _sized_text(node, info.this.type)
+            _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes
 
 
@@ -236,9 +253,27 @@ def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
     """``CAST(3.7 AS INT)`` is 3 in T-SQL, which cuts a decimal or float toward zero on the way to an
     integer type; DuckDB rounds it to 4. TRUNC first, so -3.7 is -3 as well."""
     to = node.args.get("to")
-    if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
-            and _is(source, _NUMBERS - _INTEGERS):
+    if not (isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT}):
+        return
+    if _is(source, _NUMBERS - _INTEGERS):
         node.set("this", exp.Trunc(this=node.this))
+    elif _is(source, _TEXT):
+        _whole_text(node, to)
+
+
+def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
+    """Text to an integer type: T-SQL takes only a whole number, with spaces around it, and '' as 0;
+    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4."""
+    text = node.this
+    whole = exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
+    blank = exp.EQ(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string(""))
+    message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
+    other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
+    node.replace(exp.Case(ifs=[exp.If(this=whole, true=node.copy()),
+                               exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
+                               exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Cast(
+                                   this=exp.Null(), to=to.copy()))],
+                          default=other))
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -286,6 +321,10 @@ def _converts(tree: exp.Expression) -> None:
         node.replace(new)
 
 
+_LIKE_NOTE = ("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's LIKE "
+              "does, which takes no [a-c] character ranges.")
+
+
 def _likes(tree: exp.Expression) -> list[str]:
     """T-SQL's ``LIKE`` takes ``[a-c]`` and ``[^a-c]`` character ranges, which DuckDB's doesn't: there
     ``'b1' LIKE '[a-c]1'`` is false. A pattern with a range is matched as a regular expression instead."""
@@ -294,8 +333,7 @@ def _likes(tree: exp.Expression) -> list[str]:
         escape = like.parent if isinstance(like.parent, exp.Escape) else None
         pattern = like.expression
         if not (isinstance(pattern, exp.Literal) and pattern.is_string):
-            notes.append(f"Couldn't tell the pattern in {like.sql(dialect='tsql')}: it matches as DuckDB's LIKE does, "
-                         "which takes no [a-c] character ranges.")
+            notes.append(_LIKE_NOTE)
             continue
         char = escape.expression.name if escape is not None and isinstance(escape.expression, exp.Literal) else ""
         if "[" not in pattern.name or (escape is not None and len(char) != 1):
@@ -316,21 +354,57 @@ def _like_regex(pattern: str, escape: str = "") -> str:
             out.append(re.escape(pattern[i + 1]))
             i += 2
             continue
-        if c == "%":
-            out.append(".*")
-        elif c == "_":
-            out.append(".")
-        elif c == "[" and (end := pattern.find("]", i + 2)) != -1:
-            body = pattern[i + 1:end]
-            negate = body.startswith("^") and len(body) > 1
-            body = body[1:] if negate else body
-            out.append("[" + ("^" if negate else "") + "".join("\\" + ch if ch in "\\[]^" else ch for ch in body) + "]")
-            i = end + 1
+        if c == "[" and (found := _like_range(pattern, i + 1, escape)) is not None:
+            text, i = found
+            out.append(text)
             continue
-        else:
-            out.append(re.escape(c))
+        out.append(".*" if c == "%" else "." if c == "_" else re.escape(c))
         i += 1
     return "".join(out)
+
+
+_NOTHING, _ANY = "[^\\x{0}-\\x{10FFFF}]", "[\\x{0}-\\x{10FFFF}]"
+
+
+def _like_range(pattern: str, start: int, escape: str) -> tuple[str, int] | None:
+    """The ``[...]`` that opens before ``start`` as an RE2 class, and where the pattern goes on; None
+    when it isn't closed (the ``[`` is then an ordinary character). The escape character counts inside
+    too, and a range written backwards (``[z-a]``) matches nothing, as in SQL Server."""
+    chars: list[tuple[str, bool]] = []  # each character, and whether it was escaped
+    i = start
+    while i < len(pattern):
+        c = pattern[i]
+        if escape and c == escape and i + 1 < len(pattern):
+            chars.append((pattern[i + 1], True))
+            i += 2
+            continue
+        if c == "]" and chars:
+            break
+        chars.append((c, False))
+        i += 1
+    else:
+        return None
+    negate = len(chars) > 1 and chars[0] == ("^", False)
+    if negate:
+        chars = chars[1:]
+    parts: list[str] = []
+    k = 0
+    while k < len(chars):
+        if k + 2 < len(chars) and chars[k + 1] == ("-", False):
+            low, high = chars[k][0], chars[k + 2][0]
+            if low <= high:
+                parts.append(_in_class(low) + "-" + _in_class(high))
+            k += 3
+        else:
+            parts.append(_in_class(chars[k][0]))
+            k += 1
+    if not parts:  # only backwards ranges
+        return (_ANY if negate else _NOTHING), i + 1
+    return "[" + ("^" if negate else "") + "".join(parts) + "]", i + 1
+
+
+def _in_class(ch: str) -> str:
+    return "\\" + ch if ch in "\\[]^-" else ch
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:
@@ -348,6 +422,14 @@ def _unknown(kind: exp.DataType | None) -> bool:
 
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
+        if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
+            # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
+            bits = kind.expressions[0].this
+            if not (isinstance(bits, exp.Literal) and bits.is_int and 1 <= int(bits.name) <= 53):
+                raise ValueError("FLOAT(n) takes a whole number from 1 to 53.")
+            small = int(bits.name) <= 24
+            kind.set("this", exp.DataType.Type.FLOAT if small else exp.DataType.Type.DOUBLE)
+            kind.set("expressions", [])
         # NVARCHAR(MAX) and VARBINARY(MAX): DuckDB's types have no limit and take no MAX.
         if any(isinstance(p.this, exp.Var) and p.this.name.upper() == "MAX" for p in kind.expressions
                if isinstance(p, exp.DataTypeParam)):

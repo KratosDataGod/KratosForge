@@ -171,3 +171,42 @@ def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
         requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
     stored = notify.failure(caught.value)
     assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored
+
+
+def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
+    from fabric_desktop import logs
+    from fabric_desktop.integrations import core
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2lnbmF0dXJl"
+
+    class Thing:
+        def __str__(self):
+            return f"Bearer {token}"
+
+    value = {"password": "hunter2", "token_count": 3, "nested": [("x", f"Authorization: Bearer {token}")],
+             "ok": True, "none": None, "obj": Thing()}
+    walked = redact.walk(value)
+    assert walked["password"] == redact.REMOVED and walked["token_count"] == 3
+    assert walked["ok"] is True and walked["none"] is None and isinstance(walked["obj"], Thing)
+    assert walked["nested"][0][0] == "x" and token not in walked["nested"][0][1]
+    as_text = redact.walk(value, stringify=True)
+    assert isinstance(as_text["obj"], str) and token not in as_text["obj"]
+    # The log formatter and integration results are the same walk, one printing objects and one not.
+    assert logs._redacted(value) == as_text
+    assert core.redact_result(value) == walked
+
+
+def test_a_folded_cookie_line_keeps_the_next_lines_text():
+    # one_line removes secrets, folds the lines, then removes them again: the second pass must not
+    # take the next line's error as the cookie's value.
+    assert redact.one_line("Cookie: sess=abc123\nThe request was refused.") == "Cookie: [removed] The request was refused."
+
+
+def test_without_webhook_hides_a_webhook_urls_path_and_query_wherever_it_appears():
+    from fabric_desktop import agent, schedule_service
+    url = "https://contoso.webhook.office.com/webhookb2/abc-123@def/IncomingWebhook/s3cr3tpath/x?sig=q"
+    error = f"HTTPSConnectionPool(host='contoso.webhook.office.com'): /webhookb2/abc-123@def/IncomingWebhook/s3cr3tpath/x?sig=q; {url}"
+    out = redact.without_webhook(error, url)
+    assert "s3cr3tpath" not in out and "sig=q" not in out and "[webhook]" in out
+    assert redact.without_webhook("text", None) == "text" and redact.without_webhook("text", "") == "text"
+    # The agent and the schedule alerts use this one function.
+    assert agent._without_webhook is schedule_service._without_webhook is redact.without_webhook

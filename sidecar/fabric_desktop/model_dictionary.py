@@ -47,7 +47,7 @@ def entries(project: Any, layer: str, saved: dict[str, dict[str, Any]]) -> list[
         if not t.is_dimension:
             out.append(_measure(t, f"{t.name} rows", f"Rows in {t.name}."))
         described = {c["name"]: c["description"] for c in cat["columns"]}
-        for col, dtype in semantic._summed(t):
+        for col, _dtype in semantic._summed(t):
             about = f" {described[col]}" if described.get(col) else ""
             out.append(_measure(t, f"{t.name} total {col}", f"Sum of {col}.{about}"))
         for c in cat["columns"]:

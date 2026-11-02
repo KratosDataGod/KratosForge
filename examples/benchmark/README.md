@@ -21,4 +21,8 @@ These files are generated from `sidecar/fabric_desktop/benchmark.py`. After chan
 
 [batched_loads.py](batched_loads.py) measures a full load of a lineitem-shaped source table (TPC-H's columns and row count per scale factor, generated with NumPy), once reading the whole source and once with `[load] batch_by`, and checks both end with the same rows. Run it from `sidecar/`: `python ../examples/benchmark/batched_loads.py --scale 1` (`--only batched` for a scale whose single read wouldn't fit in memory). Results: [Large tables](../../docs/metadata-guide.md#large-tables).
 
+## Start-up, notebook start and SQL
+
+[startup_and_sql.py](startup_and_sql.py) times the engine starting, a notebook starting and local SQL queries over a generated table, with median and p95 over several runs. Run it from `sidecar/`: `python ../examples/benchmark/startup_and_sql.py` (`--runs 10 --json bench.json` for more runs and a file). What it measures and the recorded baseline: [Performance benchmark](../../docs/performance.md).
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results. TPC-H is a trademark of the Transaction Processing Performance Council.

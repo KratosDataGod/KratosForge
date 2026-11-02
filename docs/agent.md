@@ -77,7 +77,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `agent.workspaces` | any | Workspace ids this agent may write to |
 | `agent.concurrency` | 1 | Jobs at once |
 | `agent.poll_seconds` | 5 | How often the loop looks for work |
-| `agent.job_lease_seconds` | 300 | How long a silent worker keeps a job before it runs again |
+| `agent.job_lease_seconds` | 300 | How long a silent worker keeps a job before it runs again. The worker renews it every third of that, and a renewal that fails (the queue file busy) is tried again at the next one. A run whose lease ran out anyway stops before its next table, its audit log says `lease_lost`, and it can't renew or finish the job's next attempt |
 | `agent.table_lease_seconds` | 120 | Write lease length, and how long to wait for a busy table |
 | `agent.status_seconds` | 60 | How often to publish the [status record](#status-records) to each environment |
 | `auth.type` | required | `service_principal`, `managed_identity` or `user` |

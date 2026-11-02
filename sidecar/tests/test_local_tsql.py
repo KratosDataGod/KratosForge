@@ -127,6 +127,19 @@ def test_plus_with_a_number_adds_as_numbers(engine):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
+def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
+    """CAST(3.7 AS INT) is 3 in T-SQL (DuckDB rounds it to 4), for every integer type, CONVERT and
+    TRY_CAST too, from a decimal column, a literal or a float."""
+    r = tsql(engine, "SELECT CAST(3.7 AS INT) AS a, CAST(-3.7 AS BIGINT) AS b, CAST(2.5 AS SMALLINT) AS c, "
+                     "CAST(3.9 AS TINYINT) AS d, CONVERT(INT, -2.5) AS e, TRY_CAST(3.7 AS INT) AS f, "
+                     "TRY_CONVERT(INT, 3.99) AS g, CAST(CAST(3.7 AS FLOAT) AS INT) AS h, "
+                     "CAST(price AS INT) AS i, CAST(price * -1 AS INT) AS j FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[3, -3, 2, 3, -2, 3, 3, 3, 2, -2], [3, -3, 2, 3, -2, 3, 3, 3, 4, -4]]
+    # Already whole, or to a type that isn't an integer: unchanged.
+    r = tsql(engine, "SELECT CAST(qty AS BIGINT) AS a, CAST(3.7 AS DECIMAL(5, 0)) AS b FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [[7, "4"]]  # decimals come back as text; T-SQL rounds to a DECIMAL with a smaller scale
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")

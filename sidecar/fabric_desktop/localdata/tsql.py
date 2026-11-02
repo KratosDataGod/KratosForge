@@ -347,7 +347,11 @@ def _string_edges(tree: exp.Expression) -> None:
                 first = exp.func("GREATEST", start.copy(), exp.Literal.number(1))
                 count = exp.func("GREATEST", exp.paren(start.copy() + length.copy() - first.copy(), copy=False),
                                  exp.Literal.number(0))
-                cut = exp.Substring(this=node.this, start=first, length=count)
+                # GREATEST skips NULLs, so a NULL start or length is kept NULL first, as in T-SQL.
+                unknown = exp.or_(exp.Is(this=start.copy(), expression=exp.null()),
+                                  exp.Is(this=length.copy(), expression=exp.null()))
+                cut = exp.Case(ifs=[exp.If(this=unknown, true=exp.null())],
+                               default=exp.Substring(this=node.this, start=first, length=count))
             if not _whole(length, 0):
                 negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
                 message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")

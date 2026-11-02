@@ -160,5 +160,8 @@ def test_substring_stuff_and_replicate_at_the_edges(engine):
     r = tsql(engine, "SELECT REPLICATE('ab', -1) AS a, REPLICATE('ab', 2) AS b, REPLICATE('ab', qty) AS c "
                      "FROM dbo.orders ORDER BY id")
     assert r["rows"] == [[None, "abab", "ab" * 7], [None, "abab", None]]
+    r = tsql(engine, "SELECT SUBSTRING('abc', CAST(NULL AS INT), 2) AS a, SUBSTRING('abc', 0, CAST(NULL AS INT)) AS b, "
+                     "SUBSTRING('abc', 1, CAST(NULL AS INT)) AS c, SUBSTRING(CAST(NULL AS VARCHAR(3)), 0, 2) AS d")
+    assert r["rows"] == [[None, None, None, None]]
     with pytest.raises(Exception, match="Invalid length parameter passed to the SUBSTRING function"):
         tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")

@@ -128,3 +128,13 @@ def test_the_preview_lists_what_the_saved_bundle_holds(tmp_path, pc, capsys):
     out = capsys.readouterr().out
     assert "sidecar.log" in out and "never their values" in out
     assert not (tmp_path / "nothing").exists(), "a preview saves nothing"
+
+
+def test_tail_reads_only_the_end_of_a_big_log(tmp_path):
+    log = tmp_path / "sidecar.log"
+    log.write_bytes(b"".join(b"line %d\r\n" % i for i in range(50_000)))
+    assert support_bundle._tail(log, lines=3) == "line 49997\nline 49998\nline 49999\n"
+    cut = support_bundle._tail(log, lines=10**6, max_bytes=100)
+    assert cut.endswith("line 49999\n") and len(cut) <= 100
+    assert all(line.startswith("line ") for line in cut.splitlines())  # the line cut in half is dropped
+    assert support_bundle._tail(tmp_path / "missing.log") is None

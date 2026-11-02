@@ -27,7 +27,7 @@
   "exercises": [
     {
       "id": "top-return-rate",
-      "prompt": "Port the Snowflake query to SQL a Fabric Warehouse runs: for each region, the store with the highest return rate (returns / orders, 0 when orders is 0), with region, store, return_rate, discount (0 when empty) and tier ('review' at 0.1 or more, else 'ok'), in region order. Use no QUALIFY.",
+      "prompt": "Port the Snowflake query to SQL a Fabric Warehouse runs: for each region, the store with the highest return rate (returns / orders, 0 when orders is 0), with region, store, return_rate, discount (0 when empty) and tier ('review' at 0.1 or more, else 'ok'), in region order. Use no QUALIFY and cast before dividing: DuckDB accepts both mistakes, so the checks can't catch them.",
       "engine": "duckdb",
       "setup": "setup.sql",
       "starter": "starter.sql",

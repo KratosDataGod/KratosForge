@@ -15,4 +15,10 @@ conveniences, and the one that bites is silent: arithmetic on integers.
 ## The lab
 
 The starter is Snowflake SQL. It fails here because DuckDB, like T-SQL, has no `DIV0`, `ZEROIFNULL`
-or `IFF`. Port it to standard SQL: what passes here runs in a Fabric Warehouse too.
+or `IFF`. Port it to standard SQL.
+
+**What this lab can't check.** DuckDB is more forgiving than T-SQL in two ways: it accepts
+`QUALIFY`, and `returns / orders` keeps its fraction even without a cast. So a port that keeps
+`QUALIFY` or drops the `CAST` still passes here, then fails or gives 0 in a Fabric Warehouse.
+The checks prove your answer is right; reading your query for those two is on you. Look for
+`QUALIFY` and for any division of two integer columns before you call it ported.

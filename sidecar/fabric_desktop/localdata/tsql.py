@@ -300,7 +300,9 @@ def _functions(tree: exp.Expression) -> None:
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
             # FLOAT(n): 4 bytes up to 24 bits of mantissa, 8 from 25 to 53, as SQL Server stores it.
             bits = kind.expressions[0].this
-            small = isinstance(bits, exp.Literal) and not bits.is_string and int(bits.name) <= 24
+            if not (isinstance(bits, exp.Literal) and bits.is_int and 1 <= int(bits.name) <= 53):
+                raise ValueError("FLOAT(n) takes a whole number from 1 to 53.")
+            small = int(bits.name) <= 24
             kind.set("this", exp.DataType.Type.FLOAT if small else exp.DataType.Type.DOUBLE)
             kind.set("expressions", [])
         # NVARCHAR(MAX) and VARBINARY(MAX): DuckDB's types have no limit and take no MAX.

@@ -136,6 +136,9 @@ def test_float_is_eight_bytes_and_real_four_as_in_sql_server(engine):
     assert all(v != 0.1 and abs(v - 0.1) < 1e-7 for v in r["rows"][0])  # 0.1 as a 4-byte float
     tsql(engine, "CREATE TABLE dbo.f (a FLOAT, b REAL, c FLOAT(10)); INSERT INTO dbo.f VALUES (0.1, 0.1, 0.1)")
     assert tsql(engine, "SELECT a FROM dbo.f")["rows"] == [[0.1]]
+    for bad in ("FLOAT(1.5)", "FLOAT(0)", "FLOAT(54)"):
+        with pytest.raises(ValueError, match=r"FLOAT\(n\) takes a whole number from 1 to 53"):
+            translate(f"SELECT CAST(1 AS {bad})")
 
 
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):

@@ -147,3 +147,31 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
+    ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
+    ("x.y", "x[.]y", True), ("xzy", "x[.]y", False), ("a\\b", "a[\\]b", True), ("ab", "[ab]%", True),
+    ("line\nbreak", "line[^x]%", True), ("[a]", "[[]a]", True), ("-", "[-]", True), ("a(b", "a(b%", True),
+])
+def test_like_takes_tsql_character_ranges(engine, value, pattern, matches):
+    v, p = value.replace("'", "''"), pattern.replace("'", "''")
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(matches)]]
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' NOT LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(not matches)]]
+
+
+def test_like_with_ranges_keeps_its_escape_character(engine):
+    sql = "SELECT CASE WHEN 'a[b' LIKE 'a![[b]' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[1]]
+
+
+def test_a_like_pattern_that_isnt_text_is_reported():
+    texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
+    assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
+    assert notes == ["Couldn't tell the pattern in a LIKE b: it matches as DuckDB's LIKE does, which takes no "
+                     "[a-c] character ranges."]
+
+
+def test_a_like_without_ranges_stays_a_like():
+    assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]

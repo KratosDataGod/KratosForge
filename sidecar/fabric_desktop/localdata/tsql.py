@@ -10,6 +10,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
+- matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
 
@@ -72,6 +73,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _temp_tables(tree)
             _converts(tree)
             notes += _types(tree, schema)
+            notes += _likes(tree)
             _functions(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
@@ -269,6 +271,53 @@ def _converts(tree: exp.Expression) -> None:
             kind = exp.TryCast if node.args.get("safe") else exp.Cast
             new = kind(this=new.this, to=node.this.copy())
         node.replace(new)
+
+
+def _likes(tree: exp.Expression) -> list[str]:
+    """T-SQL's ``LIKE`` takes ``[a-c]`` and ``[^a-c]`` character ranges, which DuckDB's doesn't: there
+    ``'b1' LIKE '[a-c]1'`` is false. A pattern with a range is matched as a regular expression instead."""
+    notes: list[str] = []
+    for like in list(tree.find_all(exp.Like)):
+        escape = like.parent if isinstance(like.parent, exp.Escape) else None
+        pattern = like.expression
+        if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+            notes.append(f"Couldn't tell the pattern in {like.sql(dialect='tsql')}: it matches as DuckDB's LIKE does, "
+                         "which takes no [a-c] character ranges.")
+            continue
+        char = escape.expression.name if escape is not None and isinstance(escape.expression, exp.Literal) else ""
+        if "[" not in pattern.name or (escape is not None and len(char) != 1):
+            continue
+        match: exp.Expression = exp.RegexpFullMatch(this=like.this, expression=exp.Literal.string(_like_regex(pattern.name, char)))
+        if like.args.get("negate"):
+            match = exp.Not(this=match)
+        (escape or like).replace(match)
+    return notes
+
+
+def _like_regex(pattern: str, escape: str = "") -> str:
+    """A T-SQL LIKE pattern as an RE2 expression for a whole-string match."""
+    out, i = ["(?s)"], 0  # % and _ match a line break too
+    while i < len(pattern):
+        c = pattern[i]
+        if escape and c == escape and i + 1 < len(pattern):
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+            continue
+        if c == "%":
+            out.append(".*")
+        elif c == "_":
+            out.append(".")
+        elif c == "[" and (end := pattern.find("]", i + 2)) != -1:
+            body = pattern[i + 1:end]
+            negate = body.startswith("^") and len(body) > 1
+            body = body[1:] if negate else body
+            out.append("[" + ("^" if negate else "") + "".join("\\" + ch if ch in "\\[]^" else ch for ch in body) + "]")
+            i = end + 1
+            continue
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return "".join(out)
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:

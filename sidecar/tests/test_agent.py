@@ -1,6 +1,8 @@
 """The headless agent: config, unattended sign-in, the durable queue, table leases, and real runs."""
 
 import json
+import sqlite3
+import time
 import threading
 from pathlib import Path
 
@@ -200,6 +202,30 @@ def test_queue_retries_with_backoff_then_gives_up(tmp_path):
     assert q.counts()["dead"] == 1
 
 
+def test_a_claim_waiting_for_the_queue_sees_a_job_added_while_it_waited(tmp_path):
+    # Another thread or process adds a job while this claim waits for the write lock. The claim
+    # reads the time once it has the lock, so the job is due to it (a time read before waiting
+    # made the job look not yet due: the claim came back empty).
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    other = sqlite3.connect(tmp_path / "q.sqlite3", isolation_level=None)
+    try:
+        other.execute("begin immediate")  # holds the write lock, as a writer elsewhere does
+        got = []
+        waiter = threading.Thread(target=lambda: got.append(q.claim("w1", 60)))
+        waiter.start()
+        waiter.join(0.5)
+        assert waiter.is_alive()  # waiting for the lock
+        clock.t += 5
+        other.execute("insert into jobs (id, kind, payload, state, source, max_attempts, next_at, created_at)"
+                      " values ('job-late', 'meta', '{}', 'queued', '', 3, ?, ?)", (clock.t, clock.t))
+        other.execute("commit")
+        waiter.join(10)
+    finally:
+        other.close()
+    assert got and got[0] is not None and got[0]["id"] == "job-late"
+
+
 def test_queue_puts_back_a_job_whose_worker_died(tmp_path):
     clock = Clock()
     q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
@@ -253,6 +279,111 @@ def test_a_busy_queue_file_is_not_set_aside(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.OperationalError):
         JobQueue(path)
     assert path.exists() and not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_a_run_whose_job_was_claimed_again_cant_renew_or_finish_the_new_attempt(tmp_path):
+    clock = Clock()
+    q = JobQueue(tmp_path / "q.sqlite3", clock=clock, backoff_seconds=0)
+    job = q.enqueue("meta", {"env": "dev"})
+    first = q.claim("etl-01", 60)
+    clock.t += 61
+    assert q.recover() == [job["id"]]
+    second = q.claim("etl-01", 60)  # the same agent claims it again while its first run still works
+    assert second["claim_id"] and second["claim_id"] != first["claim_id"]
+    old = first["claim_id"]
+    assert not q.heartbeat(job["id"], "etl-01", 60, claim=old)
+    assert not q.succeed(job["id"], "etl-01", {"ok": 1}, claim=old)
+    assert not q.fail(job["id"], "etl-01", "boom", claim=old)
+    assert q.retry_later(job["id"], "etl-01", "timeout", claim=old) is None
+    assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)
+    clock.t += 61
+    assert q.recover() == [job["id"]] and q.get(job["id"])["state"] == "queued"
+    assert not q.cancel(job["id"], "stop", owner="etl-01", claim=old)  # nor the queued retry
+    second = q.claim("etl-01", 60)
+    assert q.get(job["id"])["state"] == "running"
+    assert q.heartbeat(job["id"], "etl-01", 60, claim=second["claim_id"])
+    assert q.succeed(job["id"], "etl-01", {"ok": 2}, claim=second["claim_id"])
+    assert q.get(job["id"])["result"] == {"ok": 2}
+
+
+def test_a_queue_file_from_before_claim_ids_gets_the_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "q.sqlite3"
+    JobQueue(path).enqueue("meta", {"env": "dev"})
+    with sqlite3.connect(path) as db:
+        db.execute("alter table jobs drop column claim_id")
+    q = JobQueue(path)
+    assert q.claim("w1", 60)["claim_id"]
+
+
+def test_one_failed_heartbeat_doesnt_let_the_lease_lapse(setup):
+    import dataclasses
+    import sqlite3
+    import threading
+    agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.3))
+    agent.queue.enqueue("meta", {"env": "dev"})
+    job = agent.queue.claim(setup.name, 0.3)
+    real, calls = agent.queue.heartbeat, []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+    agent.queue.heartbeat = flaky
+    done, lost = threading.Event(), threading.Event()
+    beat = threading.Thread(target=agent._heartbeat, args=(job, done, lost))
+    beat.start()
+    try:
+        deadline = time.monotonic() + 10
+        while len(calls) < 4 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert beat.is_alive() and len(calls) >= 4 and not lost.is_set()
+        assert agent.queue.recover() == []  # renewed: not put back
+    finally:
+        done.set()
+        beat.join(5)
+
+
+def test_a_run_that_lost_its_lease_stops_and_leaves_the_job_to_the_next_attempt(setup, monkeypatch):
+    import dataclasses
+    agent = Agent(dataclasses.replace(setup, job_lease_seconds=0.15))
+    job = agent.enqueue("dev")
+    claimed = agent.queue.claim(setup.name, 0.15)
+    tables = []
+
+    def run_environment(env, entities, backfill, cascade, job=None, guard=None):
+        # meanwhile its lease ran out and the job was claimed again: the next renewal finds that
+        with agent.queue._tx() as db:
+            db.execute("update jobs set claim_id = 'a-newer-claim' where id = ?", (claimed["id"],))
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            guard()  # before each table
+            tables.append(1)
+            time.sleep(0.02)
+        raise AssertionError("the run never stopped")
+    monkeypatch.setattr(agent.runtime, "run_environment", run_environment)
+    agent.run_job(claimed)
+    after = agent.queue.get(job["id"])
+    assert after["state"] == "running" and after["claim_id"] == "a-newer-claim"  # the newer attempt's, untouched
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "lease_lost", line
+
+
+def test_a_run_whose_lease_ran_out_at_the_end_is_not_recorded_as_ok(setup, monkeypatch):
+    agent = Agent(setup)
+    job = agent.enqueue("dev")
+    claimed = agent.queue.claim(setup.name, setup.job_lease_seconds)
+
+    def run_environment(env, entities, backfill, cascade, job=None, guard=None):
+        with agent.queue._tx() as db:  # claimed again just as it finished
+            db.execute("update jobs set claim_id = 'a-newer-claim' where id = ?", (claimed["id"],))
+        return [{"entity": "silver.orders", "status": "ok", "rows_written": 1}]
+    monkeypatch.setattr(agent.runtime, "run_environment", run_environment)
+    agent.run_job(claimed)
+    assert agent.queue.get(job["id"])["state"] == "running"
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "lease_lost", line
 
 
 def test_queue_survives_a_new_process_and_dedupes(tmp_path):

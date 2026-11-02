@@ -216,7 +216,7 @@ def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
     auth.cache.add({"client_id": auth.client_id, "scope": ["s"], "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
                     "response": {"access_token": "a", "expires_in": 3600, "token_type": "Bearer"}})
     auth._save()
-    assert "AccessToken" in auth_mod.read_cache(path)[0] and list(tmp_path.iterdir()) == [path]  # encrypted on Windows
+    assert "AccessToken" in auth_mod.read_cache(path)[0] and sorted(tmp_path.iterdir()) == [path, path.with_name(path.name + ".lock")]  # encrypted on Windows
     Authenticator("11111111-2222-3333-4444-555555555555", cache_path=path)  # reads back cleanly
 
 

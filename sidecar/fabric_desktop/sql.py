@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from typing import Any, Callable, Iterator, cast
@@ -37,22 +38,26 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = sqlglot.parse(query, read=chosen["sqlglot"])
+        statements = _statements(sqlglot.parse(query, read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_fixes(s) for s in statements if s is not None]
+            statements = [spark_fixes(s) for s in statements]
     except ParseError as first_error:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = sqlglot.parse(query, read="duckdb")
+            statements = _statements(sqlglot.parse(query, read="duckdb"))
         except ParseError:
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
-    statements = [s for s in statements if s is not None]
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+def _statements(parsed: list[Any]) -> list[exp.Expression]:
+    """What sqlglot.parse read, without the empty statements (a stray ';')."""
+    return [cast(exp.Expression, s) for s in parsed if s is not None]
 
 
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
@@ -93,7 +98,7 @@ def spark_fixes(statement: exp.Expression) -> exp.Expression:
     """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
-    return _spark_functions(_spark_json(spark_substring(_spark_dates(_spark_names(statement)))))
+    return _spark_functions(_spark_json(spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -571,6 +576,108 @@ def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
     return tree
 
 
+# Casts to a whole-number type (EA-003). DuckDB rounds a fraction (3.7 -> 4) where Spark truncates (3), and
+# reads text such as '1.9' and '1e2' that Spark reads differently, so these casts are written out:
+# whole-number values cast as they are; a DOUBLE or FLOAT is truncated; text is read as Spark reads it (spaces trimmed, then digits, and
+# with Spark's CAST with ANSI off a fraction that is dropped; anything else is NULL, or an error for
+# Databricks SQL's ANSI CAST); a number DuckDB writes in plain digits keeps its whole part; anything else
+# (a number in exponent form, which is whole or below 0.0001, or a boolean) is DuckDB's own cast.
+_INT_CASTS = {exp.DataType.Type.TINYINT: ("TINYINT", "TINYINT"), exp.DataType.Type.SMALLINT: ("SMALLINT", "SMALLINT"),
+              exp.DataType.Type.INT: ("INTEGER", "INT"), exp.DataType.Type.BIGINT: ("BIGINT", "BIGINT")}
+_WHOLE_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
+                "'UBIGINT', 'UHUGEINT'")
+_TIMESTAMP_TYPES = "'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_EPOCH_LIMIT = "9.2e12"  # about the seconds a DuckDB timestamp reaches either side of 1970 (year 294247)
+_TIMESTAMP_CASTS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ,
+                    exp.DataType.Type.TIMESTAMPNTZ)
+_PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
+_WHOLE_NUMBER = r"^\s*([+-]?[0-9]+)\s*$"
+
+
+def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -> str:
+    """DuckDB SQL casting ``value`` (DuckDB SQL) to a whole-number type as Spark does. ``mode`` is
+    "legacy" (Spark's CAST with ANSI off), "try" (try_cast: ANSI rules, NULL when it can't) or "ansi"
+    (Databricks SQL's CAST, which stops on text that isn't a whole number)."""
+    text = f"CAST({value} AS VARCHAR)"
+    cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
+    if mode == "ansi":
+        message = (f"'[CAST_INVALID_INPUT] The value ''' || left({text}, 200) || ''' of the type \"STRING\" cannot be cast to "
+                   f"\"{spark_type}\" because it is malformed. Use try_cast to tolerate malformed input and return "
+                   "NULL instead.'")
+        string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
+                  f"'{_WHOLE_NUMBER}', 1) AS {duck_type}) ELSE ERROR({message}) END")
+    else:
+        pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
+        string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+    # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
+    # cast. It is read through text, so the CASE binds whatever the value's type.
+    seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
+    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}) THEN {cast_}({value} AS {duck_type}) "
+            f"WHEN typeof({value}) IN ({_TIMESTAMP_TYPES}) THEN {cast_}({seconds} AS {duck_type}) "
+            f"WHEN typeof({value}) IN ('DOUBLE', 'FLOAT') THEN {cast_}(trunc(TRY_CAST({value} AS DOUBLE)) AS {duck_type}) "
+            f"WHEN typeof({value}) = 'VARCHAR' THEN {string} "
+            f"WHEN regexp_matches({text}, '{_PLAIN_NUMBER}') THEN {cast_}(regexp_extract({text}, '{_PLAIN_NUMBER}', 1) "
+            f"AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
+
+
+def spark_timestamp_cast(value: str, duck_type: str, mode: str) -> str:
+    """DuckDB SQL casting ``value`` to a timestamp as Spark does (EA-014): a number is seconds since 1970
+    (UTC), fractions kept; anything else is DuckDB's own cast. DuckDB can't cast a number to a timestamp,
+    and its TRY_CAST gives NULL. ``mode`` as in spark_integer_cast."""
+    cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
+    seconds = f"TRY_CAST(CAST({value} AS VARCHAR) AS DOUBLE)"
+    if mode == "ansi":  # out of a timestamp's range stops the query, as Spark's ANSI cast does
+        number = f"to_timestamp({seconds})"
+    else:  # out of range, NaN or infinite is NULL
+        number = (f"CASE WHEN {seconds} BETWEEN -{_EPOCH_LIMIT} AND {_EPOCH_LIMIT} THEN to_timestamp({seconds}) END")
+    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}, 'DOUBLE', 'FLOAT') OR typeof({value}) LIKE 'DECIMAL%' "
+            f"THEN CAST({number} AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
+
+
+def _whole_number(node: exp.Expression) -> bool:
+    """Plainly a whole number already: an integer literal or a cast to a whole-number type."""
+    if isinstance(node, exp.Paren):
+        return _whole_number(node.this)
+    if isinstance(node, exp.Literal):
+        return node.is_int
+    return isinstance(node, (exp.Cast, exp.TryCast)) and node.to.this in _INT_CASTS
+
+
+def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
+    """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
+    timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
+    sqlglot reads Spark's CAST as a TryCast, try_cast as a TryCast marked safe, and Databricks SQL's
+    CAST as a Cast."""
+    done: set[int] = set()
+    for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):
+        kind = node.to.this if isinstance(node.to, exp.DataType) else None
+        source = node.this
+        if id(source) in done or isinstance(source, exp.Null):
+            continue
+        if isinstance(node, exp.TryCast):
+            mode = "try" if node.args.get("safe") else "legacy"
+        else:
+            mode = "ansi"
+        if kind in _INT_CASTS and not _whole_number(source):
+            write = functools.partial(spark_integer_cast, duck_type=_INT_CASTS[kind][0],
+                                      spark_type=_INT_CASTS[kind][1], mode=mode)
+        elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
+            write = functools.partial(spark_timestamp_cast, duck_type=duckdb_sql(node.to), mode=mode)
+        else:
+            continue
+        if isinstance(source, (exp.Column, exp.Literal)):
+            text = write("fj_arg0")
+        else:
+            # Read once through a lambda argument, so nested casts don't multiply the SQL with each level
+            # and a source such as rand() is evaluated once. The source sits outside the lambda.
+            text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {write('kf_cast')}))[1]"
+        replacement = exp.paren(_with_args(text, [source]))
+        done.add(id(replacement))
+        if node is statement:
+            return replacement
+        node.replace(replacement)
+    return statement
+
 class _JsonNull:
     """Spark's NullType while inferring: merges into anything, and is STRING when it stays alone."""
 
@@ -809,10 +916,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             window = ignore.parent.copy()
             window.set("this", exp.column("__fd_ignoring__"))
             text = duckdb_sql(window).replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
-            target = ignore.parent
+            target: exp.Expression = ignore.parent
         else:
             text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
-        swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
+        swapped = target.replace(cast(exp.Expression, sqlglot.parse_one(text, read="duckdb")))
         node = swapped if target is node else node
     for months in list(node.find_all(exp.AddMonths)):  # Spark's add_months is a date, whatever it's given
         months.set("this", exp.TryCast(this=exp.TryCast(this=months.this, to=exp.DataType.build("TIMESTAMP")),
@@ -823,9 +930,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         if kind.this == exp.DataType.Type.STRUCT and not kind.expressions:
             raise ValueError(_EMPTY_STRUCT)
     for constraint in list(node.find_all(exp.NotNullColumnConstraint)):  # DuckDB has no NOT NULL in a struct
-        column = constraint.parent.parent if constraint.parent else None
-        if isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
-            constraint.parent.pop()
+        holder = constraint.parent
+        column = holder.parent if holder else None
+        if holder is not None and isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
+            holder.pop()
     for part in list(node.find_all(exp.ArraySlice)):  # Spark refuses index 0 and a negative length
         if not part.args.get("is_length"):
             continue
@@ -858,25 +966,25 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
     for between in list(node.find_all(exp.MonthsBetween)):
         later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
-        months = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
+        month_count = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
         same = (f"day({later}) = day({earlier}) OR (day({later}) = day(last_day({later})) "
                 f"AND day({earlier}) = day(last_day({earlier})))")
         seconds = f"(epoch({later}) - epoch(date_trunc('day', {later})) - epoch({earlier}) + epoch(date_trunc('day', {earlier})))"
-        value = (f"CASE WHEN {same} THEN CAST({months} AS DOUBLE) ELSE {months} + "
+        value = (f"CASE WHEN {same} THEN CAST({month_count} AS DOUBLE) ELSE {month_count} + "
                  f"((day({later}) - day({earlier})) * 86400 + {seconds}) / 2678400.0 END")
         roundoff = between.args.get("roundoff")
         if not (isinstance(roundoff, exp.Boolean) and roundoff.this is False):
             value = f"round({value}, 8)"
-        swapped = between.replace(sqlglot.parse_one(value, read="duckdb"))
+        swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = duckdb_sql(unix.this)
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
         # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
         parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
-        swapped = unix.replace(sqlglot.parse_one(
+        swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
             f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
+            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")
@@ -911,7 +1019,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
-        opened = None
+        opened, at = None, {}
         if point is None:
             # The latest version is looked up each time, so a table written since an earlier statement
             # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
@@ -919,10 +1027,10 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             opened = lakehouse.open_table(name)
             key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
         else:
-            key = f"{name.lower()}@{point}"
+            key, at = f"{name.lower()}@{point}", point_args(point)
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
-            opened = opened or lakehouse.open_table(name, **point_args(point))
+            opened = opened or lakehouse.open_table(name, **at)
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
@@ -989,7 +1097,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
     con.register(view, lakehouse.table_history(name).to_arrow())
-    return sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb")
+    return cast(exp.Expression, sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb"))
 
 
 READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)

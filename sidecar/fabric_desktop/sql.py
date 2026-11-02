@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from typing import Any, Callable, Iterator, cast
@@ -585,6 +586,9 @@ _INT_CASTS = {exp.DataType.Type.TINYINT: ("TINYINT", "TINYINT"), exp.DataType.Ty
               exp.DataType.Type.INT: ("INTEGER", "INT"), exp.DataType.Type.BIGINT: ("BIGINT", "BIGINT")}
 _WHOLE_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
                 "'UBIGINT', 'UHUGEINT'")
+_TIMESTAMP_TYPES = "'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_TIMESTAMP_CASTS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ,
+                    exp.DataType.Type.TIMESTAMPNTZ)
 _PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
 _WHOLE_NUMBER = r"^\s*([+-]?[0-9]+)\s*$"
 
@@ -604,11 +608,25 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
     else:
         pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
         string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+    # A timestamp is its seconds since 1970 (UTC), rounded down, as in Spark (EA-014); DuckDB has no such
+    # cast. It is read through text, so the CASE binds whatever the value's type.
+    seconds = f"floor(epoch(TRY_CAST({text} AS TIMESTAMPTZ)))"
     return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}) THEN {cast_}({value} AS {duck_type}) "
+            f"WHEN typeof({value}) IN ({_TIMESTAMP_TYPES}) THEN {cast_}({seconds} AS {duck_type}) "
             f"WHEN typeof({value}) IN ('DOUBLE', 'FLOAT') THEN {cast_}(trunc(TRY_CAST({value} AS DOUBLE)) AS {duck_type}) "
             f"WHEN typeof({value}) = 'VARCHAR' THEN {string} "
             f"WHEN regexp_matches({text}, '{_PLAIN_NUMBER}') THEN {cast_}(regexp_extract({text}, '{_PLAIN_NUMBER}', 1) "
             f"AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
+
+
+def spark_timestamp_cast(value: str, duck_type: str, mode: str) -> str:
+    """DuckDB SQL casting ``value`` to a timestamp as Spark does (EA-014): a number is seconds since 1970
+    (UTC), fractions kept; anything else is DuckDB's own cast. DuckDB can't cast a number to a timestamp,
+    and its TRY_CAST gives NULL. ``mode`` as in spark_integer_cast."""
+    cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
+    number = f"to_timestamp(TRY_CAST(CAST({value} AS VARCHAR) AS DOUBLE))"
+    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}, 'DOUBLE', 'FLOAT') OR typeof({value}) LIKE 'DECIMAL%' "
+            f"THEN CAST({number} AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
 
 
 def _whole_number(node: exp.Expression) -> bool:
@@ -621,25 +639,33 @@ def _whole_number(node: exp.Expression) -> bool:
 
 
 def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
-    """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003): see spark_integer_cast.
+    """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003, and EA-014 for a
+    timestamp): see spark_integer_cast. Casts to a timestamp read a number as seconds (spark_timestamp_cast).
     sqlglot reads Spark's CAST as a TryCast, try_cast as a TryCast marked safe, and Databricks SQL's
     CAST as a Cast."""
     done: set[int] = set()
     for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):
-        target = _INT_CASTS.get(node.to.this) if isinstance(node.to, exp.DataType) else None
+        kind = node.to.this if isinstance(node.to, exp.DataType) else None
         source = node.this
-        if target is None or _whole_number(source) or id(source) in done or isinstance(source, exp.Null):
+        if id(source) in done or isinstance(source, exp.Null):
             continue
         if isinstance(node, exp.TryCast):
             mode = "try" if node.args.get("safe") else "legacy"
         else:
             mode = "ansi"
+        if kind in _INT_CASTS and not _whole_number(source):
+            write = functools.partial(spark_integer_cast, duck_type=_INT_CASTS[kind][0],
+                                      spark_type=_INT_CASTS[kind][1], mode=mode)
+        elif kind in _TIMESTAMP_CASTS and not (isinstance(source, exp.Literal) and source.is_string):
+            write = functools.partial(spark_timestamp_cast, duck_type=duckdb_sql(node.to), mode=mode)
+        else:
+            continue
         if isinstance(source, (exp.Column, exp.Literal)):
-            text = spark_integer_cast("fj_arg0", *target, mode)
+            text = write("fj_arg0")
         else:
             # Read once through a lambda argument, so nested casts don't multiply the SQL with each level
             # and a source such as rand() is evaluated once. The source sits outside the lambda.
-            text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {spark_integer_cast('kf_cast', *target, mode)}))[1]"
+            text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {write('kf_cast')}))[1]"
         replacement = exp.paren(_with_args(text, [source]))
         done.add(id(replacement))
         if node is statement:

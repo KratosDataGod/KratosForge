@@ -208,7 +208,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                              "and T-SQL divides two integers as integers.")
         elif isinstance(node, exp.Avg):
             if _is(info.this.type, _INTEGERS):
-                node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT")))
+                # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
+                whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
+                whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):

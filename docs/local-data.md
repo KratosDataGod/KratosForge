@@ -108,7 +108,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | T-SQL | Gives here, as in Fabric |
 | --- | --- |
 | `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
-| `AVG(qty)` on an integer column | An integer |
+| `AVG(qty)` on an integer column, also with `OVER (...)` | An integer |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |

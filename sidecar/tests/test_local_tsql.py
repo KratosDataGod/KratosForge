@@ -181,6 +181,12 @@ def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
             tsql(engine, sql)
 
 
+def test_text_to_an_integer_reads_its_source_once():
+    """A source that changes each time it's read (RAND, NEWID) is read once, not once per check."""
+    text = translate("SELECT CAST(CAST(CAST(RAND() * 10 AS INT) AS VARCHAR(5)) AS INT)")[0][0]
+    assert text.upper().count("RANDOM()") == 1 and "LIST_TRANSFORM" in text.upper()
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "32cbd98f312c9e8e6e89e8573372493855208ae7",
+    "commit": "9367abf78eceb8613402e4aa718372675fd52c9a",
     "date": "2026-11-02",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -32,7 +32,8 @@
       "Acceptance of PB-027, PB-096, PB-098, PB-116, PB-117 and PB-118 recorded (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K).",
       "Product check 2026-11-01 23:42 at 761a7949f16e86888316360d22d49fce81890386: the 30 PRs merged after 063b84ed, besides 5 product data and docs PRs, were linked to their programs and rows by title. No item finished; other rows were not re-read.",
       "Product check 2026-11-02 11:42 at 32cbd98f312c9e8e6e89e8573372493855208ae7: 66 PRs merged after 761a7949; 3 were product data PRs and the other 63 were linked to their programs and rows by title. No item finished; other rows were not re-read.",
-      "Acceptance of PB-119 and PB-005 recorded (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ)."
+      "Acceptance of PB-119 and PB-005 recorded (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ).",
+      "Product check 2026-11-02 23:42 at 9367abf78eceb8613402e4aa718372675fd52c9a: 58 PRs merged after 32cbd98f; 7 were product data, docs audit and operations PRs and the other 51 were linked by number or title. PB-014, PB-125 and PB-126 moved to In review; other rows were not re-read."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -103,7 +104,8 @@
         1431,
         1490,
         1502,
-        1512
+        1512,
+        1699
       ]
     },
     {
@@ -159,7 +161,8 @@
         1556,
         1570,
         1606,
-        1627
+        1627,
+        1644
       ]
     },
     {
@@ -496,7 +499,8 @@
         983,
         1150,
         1441,
-        1474
+        1474,
+        1685
       ],
       "workstream": "Enterprise readiness (FD-105)",
       "next_action": "Missing keys through the enterprise program (PB-061); #569 closed the ten audit bugs #411 to #420.",
@@ -1164,7 +1168,8 @@
         823,
         1126,
         1134,
-        1135
+        1135,
+        1642
       ]
     },
     {
@@ -1672,7 +1677,8 @@
         949,
         985,
         1181,
-        1471
+        1471,
+        1641
       ],
       "limitations": [
         "Not yet run through the app's own Azure SQL sign-in: the 2026-10-27 tenant run used the Azure CLI's token",
@@ -2302,7 +2308,12 @@
         1609,
         1624,
         1625,
-        1626
+        1626,
+        1643,
+        1645,
+        1646,
+        1648,
+        1649
       ]
     },
     {
@@ -2526,7 +2537,8 @@
         1275,
         1300,
         1305,
-        1324
+        1324,
+        1663
       ],
       "workstream": "Prove (FD-111)",
       "next_action": "AST analyzer with an Unknown outcome (PB-014).",
@@ -4137,7 +4149,8 @@
       ],
       "prs": [
         957,
-        1231
+        1231,
+        1553
       ]
     },
     {
@@ -4505,6 +4518,7 @@
         1081,
         1100,
         1112,
+        1166,
         1200,
         1223,
         1239,
@@ -5033,7 +5047,11 @@
         1327,
         1578,
         1585,
+        1594,
+        1605,
+        1611,
         1613,
+        1614,
         1615,
         1619
       ]
@@ -5242,7 +5260,8 @@
         934,
         986,
         1478,
-        1522
+        1522,
+        1698
       ],
       "workstream": "Workloads",
       "next_action": "Shared ownership (stage 2B); an 'on agents' view.",
@@ -5971,7 +5990,8 @@
         789,
         792,
         1406,
-        1435
+        1435,
+        1692
       ],
       "workstream": "Git-native development",
       "next_action": "Capacity repository drift report against Fabric (#696, Preview); Fabric workspace Git (FEAT-FAB-12) still planned."
@@ -6103,7 +6123,8 @@
         1230,
         1468,
         1520,
-        1521
+        1521,
+        1689
       ],
       "workstream": "Bring your own AI integration",
       "next_action": "Finish the client checklist on Windows with a Fabric sign-in for each named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
@@ -6353,10 +6374,17 @@
         1608,
         1610,
         1612,
+        1616,
         1618,
         1620,
         1621,
-        1628
+        1623,
+        1628,
+        1629,
+        1631,
+        1639,
+        1654,
+        1686
       ],
       "workstream": "Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)",
       "next_action": "local_query, local_explain, Delta writes and transformation steps are checked like a managed local run; screens still wait on the mockup."
@@ -8267,7 +8295,14 @@
         1216,
         1233,
         1463,
-        1552
+        1552,
+        1657,
+        1658,
+        1659,
+        1660,
+        1677,
+        1684,
+        1687
       ],
       "backlog": [
         "PB-119",

@@ -77,7 +77,7 @@ def _pid_alive(pid: Any) -> bool:
         return True
     if pid == os.getpid():
         return True
-    if os.name == "nt":
+    if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
         import ctypes
         from ctypes import wintypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -391,7 +391,7 @@ class ScheduleMixin:
                 progress(i, len(code))
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
-                err = next((o for o in res["outputs"] if o.get("type") == "error"), {})
+                err: dict[str, Any] = next((o for o in res["outputs"] if o.get("type") == "error"), {})
                 why = f"{err.get('ename')}: {err.get('evalue')}" if err else res["status"]
                 return {"status": "failed", "message": f"Cell {i} of {len(code)} failed{skipped}: {why}", "cells": i}
         return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran{skipped}", "cells": len(code)}

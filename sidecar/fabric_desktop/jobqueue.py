@@ -63,9 +63,13 @@ class JobQueue:
         with self._db() as db:
             db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
             db.executescript(_SCHEMA)  # executescript commits on its own
-            if "requeued_by" not in {r["name"] for r in db.execute("pragma table_info(jobs)")}:
-                try:  # a queue file from before requeue
-                    db.execute("alter table jobs add column requeued_by text")
+            cols = {r["name"] for r in db.execute("pragma table_info(jobs)")}
+            # requeued_by: a queue file from before requeue; claim_id: from before each claim had its own id
+            for col in ("requeued_by", "claim_id"):
+                if col in cols:
+                    continue
+                try:
+                    db.execute(f"alter table jobs add column {col} text")
                 except sqlite3.OperationalError as exc:
                     if "duplicate column" not in str(exc):  # another process added it first
                         raise
@@ -132,45 +136,54 @@ class JobQueue:
     # ---- working
 
     def claim(self, owner: str, lease_seconds: float) -> dict[str, Any] | None:
-        """The oldest job that is due, now leased to ``owner``; None when nothing is due."""
-        now = self.clock()
+        """The oldest job that is due, now leased to ``owner``; None when nothing is due. Its
+        ``claim_id`` is this claim's own: pass it to heartbeat and the calls that finish the job, so a
+        run whose lease ran out (and whose job was claimed again) can't renew or finish the new one."""
         with self._tx() as db:
+            # The time is read once this claim holds the write lock: read before, a job another
+            # thread or process added while this one waited would look not yet due.
+            now = self.clock()
             row = db.execute("select id from jobs where state = 'queued' and next_at <= ? order by next_at, created_at limit 1",
                              (now,)).fetchone()
             if row is None:
                 return None
             db.execute("update jobs set state = 'running', owner = ?, lease_until = ?, attempts = attempts + 1,"
-                       " started_at = ?, error = null where id = ?", (owner, now + lease_seconds, now, row["id"]))
+                       " started_at = ?, error = null, claim_id = ? where id = ?",
+                       (owner, now + lease_seconds, now, uuid.uuid4().hex, row["id"]))
             return self._row(db.execute("select * from jobs where id = ?", (row["id"],)).fetchone())
 
-    def heartbeat(self, job_id: str, owner: str, lease_seconds: float) -> bool:
-        """Extend the lease. False when the job is no longer this owner's (it was recovered)."""
+    def heartbeat(self, job_id: str, owner: str, lease_seconds: float, claim: str | None = None) -> bool:
+        """Extend the lease. False when the job is no longer this owner's (it was recovered), or with
+        ``claim``, no longer this claim's (it was recovered and claimed again)."""
         with self._tx() as db:
-            cur = db.execute("update jobs set lease_until = ? where id = ? and owner = ? and state = 'running'",
-                             (self.clock() + lease_seconds, job_id, owner))
+            cur = db.execute("update jobs set lease_until = ? where id = ? and owner = ? and state = 'running'"
+                             " and (? is null or claim_id = ?)",
+                             (self.clock() + lease_seconds, job_id, owner, claim, claim))
             return cur.rowcount == 1
 
-    def _finish(self, job_id: str, owner: str, state: str, result: Any = None, error: str | None = None) -> bool:
+    def _finish(self, job_id: str, owner: str, state: str, result: Any = None, error: str | None = None,
+                claim: str | None = None) -> bool:
         with self._tx() as db:
             cur = db.execute("update jobs set state = ?, finished_at = ?, lease_until = null, result = ?, error = ?"
-                             " where id = ? and owner = ? and state = 'running'",
+                             " where id = ? and owner = ? and state = 'running' and (? is null or claim_id = ?)",
                              (state, self.clock(), json.dumps(result, default=str) if result is not None else None,
-                              error, job_id, owner))
+                              error, job_id, owner, claim, claim))
             return cur.rowcount == 1
 
-    def succeed(self, job_id: str, owner: str, result: Any = None) -> bool:
-        return self._finish(job_id, owner, "succeeded", result)
+    def succeed(self, job_id: str, owner: str, result: Any = None, claim: str | None = None) -> bool:
+        return self._finish(job_id, owner, "succeeded", result, claim=claim)
 
-    def fail(self, job_id: str, owner: str, error: str, result: Any = None) -> bool:
+    def fail(self, job_id: str, owner: str, error: str, result: Any = None, claim: str | None = None) -> bool:
         """A failure retrying won't fix (a table failed its checks): no more attempts."""
-        return self._finish(job_id, owner, "failed", result, error)
+        return self._finish(job_id, owner, "failed", result, error, claim=claim)
 
-    def retry_later(self, job_id: str, owner: str, error: str) -> dict[str, Any] | None:
+    def retry_later(self, job_id: str, owner: str, error: str, claim: str | None = None) -> dict[str, Any] | None:
         """A failure worth another try (network, throttling, a table busy): back in the queue after the
         backoff, or ``dead`` once the attempts are used up. Returns the job as it now is."""
         now = self.clock()
         with self._tx() as db:
-            job = db.execute("select * from jobs where id = ? and owner = ? and state = 'running'", (job_id, owner)).fetchone()
+            job = db.execute("select * from jobs where id = ? and owner = ? and state = 'running'"
+                             " and (? is null or claim_id = ?)", (job_id, owner, claim, claim)).fetchone()
             if job is None:
                 return None
             self._requeue(db, job, error, now)
@@ -195,13 +208,16 @@ class JobQueue:
                 self._requeue(db, job, f"{job['owner']} stopped while running it", now)
             return [j["id"] for j in stale]
 
-    def cancel(self, job_id: str, reason: str, owner: str | None = None) -> bool:
+    def cancel(self, job_id: str, reason: str, owner: str | None = None, claim: str | None = None) -> bool:
         """Stop a queued job (waiting to start or to retry) from running. With ``owner``, also a job
-        that worker has just claimed and not yet started; a job that is writing is never stopped."""
+        that worker has just claimed and not yet started; with ``claim``, only that claim of it, and
+        never a queued job, so a run whose lease ran out can't cancel the job's next attempt. A job
+        that is writing is never stopped."""
         with self._tx() as db:
             cur = db.execute("update jobs set state = 'cancelled', finished_at = ?, lease_until = null, error = ?"
-                             " where id = ? and (state = 'queued' or (state = 'running' and owner = ?))",
-                             (self.clock(), reason, job_id, owner))
+                             " where id = ? and ((state = 'queued' and ? is null)"
+                             " or (state = 'running' and owner = ? and (? is null or claim_id = ?)))",
+                             (self.clock(), reason, job_id, claim, owner, claim, claim))
             return cur.rowcount == 1
 
     def requeue(self, job_id: str, by: str) -> dict[str, Any]:

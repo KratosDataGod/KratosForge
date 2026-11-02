@@ -196,3 +196,14 @@ def test_a_sign_out_that_cant_be_written_says_so_and_signs_nothing_out(tmp_path,
         app.sign_out()
     monkeypatch.undo()
     assert app.signed_in_user() == "ana@contoso.com" and users_on_disk(path) == {"ana"}
+
+
+def test_the_cache_is_on_disk_before_it_is_swapped_in(tmp_path, monkeypatch):
+    path = tmp_path / "msal_cache.bin"
+    order = []
+    real_fsync, real_replace = os.fsync, auth.jsonfile.replace
+    monkeypatch.setattr(auth.os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(auth.jsonfile, "replace", lambda a, b: (order.append("replace"), real_replace(a, b))[1])
+    auth.write_cache(path, "{}")
+    assert order == ["fsync", "replace"]
+    assert path.exists()

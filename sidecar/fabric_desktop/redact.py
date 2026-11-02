@@ -33,6 +33,14 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
      r"\1" + REMOVED),
     # A shared access signature's signature, in a URL or on its own (sig=... after a space or a quote).
     (re.compile(r"(?i)(\bsig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
+    # The app's own tokens: an integration's local API token (fdt_) and a VS Code pairing token (kfp_).
+    (re.compile(r"\b(?:fdt|kfp)_[A-Za-z0-9_\-]{20,}"), REMOVED),
+    # A password given to a command as its own argument: --password value (--password=value is below).
+    (re.compile(r"(?i)(--(?:password|passwd|pwd)\s+)(?:\"[^\"\n]*\"?|'[^'\n]*'?|[^\s\"']+)"), r"\1" + REMOVED),
+    # A Cookie or Set-Cookie header's value, to the end of its line: a session cookie signs a person in.
+    (re.compile(r"(?i)(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+"), r"\1" + REMOVED),
+    # An OAuth authorization code in a redirect's query or fragment (?code=...): it can be traded for tokens.
+    (re.compile(r"(?i)([?&#]code=)[^&\s\"'<>#]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
@@ -58,8 +66,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # Python dict's repr ('name': 'value'). The names are the generic rule's, at the end. With a
     # closing quote the value runs to it, across lines; without one it stops at the end of its line,
     # so one stray quote doesn't blank the rest of a report.
-    (re.compile(r"(?i)(\"(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
-    (re.compile(r"(?i)('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)(\"(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\"\s*:\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
+    (re.compile(r"(?i)('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)"), r"\1" + REMOVED),
     # An unquoted name with a quoted value (password="two words", token='a b'): the value runs to its
     # closing quote too, so the generic rule below doesn't stop at the first space.
     (re.compile(r"(?i)\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*\")(?:(?:[^\"\\]|\\.)*(?=\")|(?:[^\"\\\n]|\\.)*)"), r"\1" + REMOVED),
@@ -102,6 +110,23 @@ def secret_key(name: object) -> bool:
     """Whether a field called ``name`` holds a secret: its text value is blanked, not pattern-matched."""
     key = str(name).lower().replace("-", "").replace("_", "")
     return any(part in key for part in _SECRET_KEYS) or key.startswith("sas") or key.endswith("sas")
+
+
+def walk(value: Any, *, stringify: bool = False) -> Any:
+    """``value`` with every string run through secrets() and the text of every field named like a
+    secret (secret_key) blanked; dicts, lists and tuples are walked (a tuple comes back as a list).
+    Numbers, flags and None stay. Anything else stays as it is, or with ``stringify`` becomes its
+    str() with secrets removed, for a writer that would print it anyway (json default=str)."""
+    if isinstance(value, str):
+        return secrets(value)
+    if isinstance(value, dict):
+        return {k: REMOVED if secret_key(k) and isinstance(v, str) else walk(v, stringify=stringify)
+                for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [walk(v, stringify=stringify) for v in value]
+    if not stringify or isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return secrets(str(value))
 
 
 def for_support(text: str) -> str:

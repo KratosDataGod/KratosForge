@@ -9,6 +9,9 @@ so there's one copy to keep right, and readers always see the source as it is no
 Access is decided where the data lives. A OneLake shortcut checks the reader's permissions on the
 target item; an external shortcut uses the connection's credentials, so everyone who can read the
 shortcut reads with them. Give external connections only the access every reader should have.
+Reading a shortcut through a lakehouse's SQL analytics endpoint uses the item owner's identity
+unless the endpoint is set to use the user's identity, so check that setting before relying on
+the target's permissions.
 
 ## Row-level rules
 

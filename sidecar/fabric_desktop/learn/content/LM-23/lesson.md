@@ -5,7 +5,7 @@ Fabric gives you T-SQL in two places, and only one of them writes.
 | | Lakehouse SQL analytics endpoint | Warehouse |
 | --- | --- | --- |
 | Read tables with T-SQL | Yes | Yes |
-| `CREATE TABLE`, `INSERT`, `UPDATE`, `DELETE` | No: views and functions only | Yes |
+| `CREATE TABLE`, `INSERT`, `UPDATE`, `DELETE` | No: read-only, though you can add views, functions and object-level security | Yes |
 | Tables written by | Spark notebooks, pipelines, Dataflows | T-SQL, pipelines, Dataflows |
 
 Both store Delta tables in OneLake, so a notebook can read a Warehouse table and a Warehouse query

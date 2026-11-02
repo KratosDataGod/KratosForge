@@ -8,7 +8,8 @@ opens every file, so a table loaded a few rows at a time slows down for everyone
 `OPTIMIZE` rewrites many small files into fewer large ones (Fabric aims for about 128 MB to 1 GB
 each) and records in the log that the old files are removed. Readers move to the new files at
 once. V-Order is a Fabric write-time layout that makes Parquet faster for Power BI and SQL to
-read; it's on by default in Fabric Spark, and `OPTIMIZE ... VORDER` applies it to existing files.
+read. Fabric Spark can apply it as it writes (newer workspaces have it off by default;
+`spark.sql.parquet.vorder.default` turns it on), and `OPTIMIZE ... VORDER` applies it to existing files.
 
 ## VACUUM
 

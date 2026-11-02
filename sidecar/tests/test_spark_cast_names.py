@@ -46,6 +46,11 @@ def test_a_column_named_like_the_cast_lambda_doesnt_change_the_answer(query):
     ("CAST(i AS INT) + i * 2", "(CAST(i AS INT) + (i * 2))"),
     ("NOT CAST(i AS INT) = 1", "(NOT (CAST(i AS INT) = 1))"),
     ("CAST(m AS MAP<STRING, DECIMAL(10, 2)>)", "CAST(m AS MAP<STRING, DECIMAL(10,2)>)"),
+    ("-CAST(d AS INT)", "(- CAST(d AS INT))"),
+    ("-(i + 1)", "(- (i + 1))"),
+    ("-1 + CAST(d AS INT)", "(-1 + CAST(d AS INT))"),
+    ("CAST(d AS INT) IS NULL", "(CAST(d AS INT) IS NULL)"),
+    ("i + 1 IS NOT NULL", "((i + 1) IS NOT NULL)"),
 ])
 def test_names_are_formatted_as_spark_writes_them(expr, name):
     import sqlglot

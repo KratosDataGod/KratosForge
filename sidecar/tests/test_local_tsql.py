@@ -231,6 +231,49 @@ def test_datediff_week_on_date_columns(engine):
     assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
 
 
+T = "CAST('2024-03-06 13:45:30.123456' AS DATETIME2)"  # a Wednesday
+
+
+@pytest.mark.parametrize("sql, want", [
+    (f"DATEPART(y, {T})", 66), (f"DATEPART(w, {T})", 4), (f"DATEPART(m, {T})", 3), (f"DATEPART(n, {T})", 45),
+    (f"DATEPART(ms, {T})", 123), (f"DATEPART(mcs, {T})", 123456),
+    (f"DATEADD(y, 1, {T})", '2024-03-07 13:45:30.123456'),
+    (f"DATEADD(w, 1, {T})", '2024-03-07 13:45:30.123456'),
+    (f"DATEADD(n, 1, {T})", '2024-03-06 13:46:30.123456'),
+    (f"DATEADD(hh, 1, {T})", '2024-03-06 14:45:30.123456'),
+    (f"DATEADD(ss, 1, {T})", '2024-03-06 13:45:31.123456'),
+    (f"DATEDIFF(y, {T}, '2024-03-08')", 2), (f"DATEDIFF(w, {T}, '2024-03-08')", 2),
+    (f"DATEDIFF(mi, {T}, '2024-03-06 14:00')", 15),
+    (f"DATETRUNC(m, {T})", '2024-03-01 00:00:00'), (f"DATETRUNC(mm, {T})", '2024-03-01 00:00:00'),
+    (f"DATETRUNC(y, {T})", '2024-03-06 00:00:00'), (f"DATETRUNC(yy, {T})", '2024-01-01 00:00:00'),
+    (f"DATETRUNC(hh, {T})", '2024-03-06 13:00:00'),
+    (f"DATETRUNC(week, {T})", '2024-03-03 00:00:00'),  # Sunday
+    (f"DATETRUNC(iso_week, {T})", '2024-03-04 00:00:00'),  # Monday
+    ("DATEDIFF(iso_week, '2024-03-10', '2024-03-11')", 1),  # Sunday to Monday
+])
+def test_date_parts_by_their_tsql_names(engine, sql, want):
+    assert tsql(engine, f"SELECT {sql}")["rows"] == [[want]]
+
+
+def test_dateadd_and_datetrunc_keep_a_date_a_date(engine):
+    r = tsql(engine, "SELECT DATEADD(day, 1, day), DATETRUNC(month, day), DATETRUNC(week, day), "
+                     "DATEADD(day, 1, DATEADD(month, 1, day)) FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [['2026-10-19', '2026-10-01', '2026-10-18', '2026-11-19']]
+    assert [c["type"] for c in r["columns"]] == ["date32[day]"] * 4
+
+
+@pytest.mark.parametrize("sql, says", [
+    ("SELECT DATEADD(hour, 1, day) FROM dbo.orders", "DATEADD doesn't take the date part hour for a date"),
+    ("SELECT DATETRUNC(minute, day) FROM dbo.orders", "DATETRUNC doesn't take the date part minute for a date"),
+    (f"SELECT DATETRUNC(dw, {T})", "DATETRUNC doesn't take the date part dw"),
+    (f"SELECT DATEADD(iso_week, 1, {T})", "DATEADD doesn't take the date part iso_week"),
+    (f"SELECT DATEADD(ns, 100, {T})", "kept to the microsecond"),
+])
+def test_date_parts_tsql_doesnt_take_are_refused(engine, sql, says):
+    with pytest.raises(ValueError, match=says):
+        tsql(engine, sql)
+
+
 @pytest.mark.parametrize("value, pattern, matches", [
     ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
     ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
@@ -276,3 +319,17 @@ def test_set_datefirst_7_is_skipped_and_others_refused(engine):
 
 def test_a_like_without_ranges_stays_a_like():
     assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]
+
+
+def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):
+    import math
+    r = tsql(engine, "SELECT VAR(price) AS v, VARP(price) AS vp, STDEV(price) AS s, STDEVP(price) AS sp, "
+                     "VAR(DISTINCT boxes) AS vd FROM dbo.orders")
+    v, vp, s, sp, vd = r["rows"][0]
+    assert (v, vp, vd) == (1.125, 0.5625, None)  # 2.5 and 4.0; boxes has one distinct value
+    assert math.isclose(s, math.sqrt(1.125)) and math.isclose(sp, 0.75)
+    one = tsql(engine, "SELECT VAR(qty) AS v, VARP(qty) AS vp, STDEV(qty) AS s, STDEVP(qty) AS sp FROM dbo.orders "
+                       "WHERE id = 1")
+    assert one["rows"] == [[None, 0.0, None, 0.0]]  # one row: no sample spread, a population spread of 0
+    w = tsql(engine, "SELECT id, VARP(qty) OVER () AS vp FROM dbo.orders ORDER BY id")
+    assert w["rows"] == [[1, 49.0], [2, 49.0]]

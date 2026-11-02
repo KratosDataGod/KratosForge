@@ -47,7 +47,7 @@ test("Paths lists each path's lessons, and Best practices links every rule to it
   await page().locator(".learn-paths section").first().waitFor();
   const text = await page().locator(".learn-paths").textContent();
   assert.match(text, /Data Fundamentals[\s\S]*LM-01 · Your first query on this PC/);
-  assert.match(text, /Lessons for this path come in a later update/);
+  assert.match(text, /Enterprise Architecture[\s\S]*LM-30 · Data contracts/);
   await page().locator(".subtabs [role=tab]", { hasText: "Best practices" }).click();
   await page().locator(".learn-rules").first().waitFor();
   await page().locator(".learn-rules a", { hasText: "About SQ002" }).click();

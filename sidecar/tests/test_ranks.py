@@ -108,11 +108,15 @@ def test_excluding_evidence_takes_the_rank_away():
 
 
 def test_ranks_needing_unshipped_lessons_are_coming_soon_not_unreachable():
-    s = {r["id"]: r for r in ranks.standing(progress.empty(), LIVE)["ladder"]}
-    assert not s["iron-forger"]["coming_soon"]
-    assert s["forge-architect"]["coming_soon"] and s["legend-of-the-forge"]["coming_soon"]
     every = [module(m, path=p) for p, v in ranks.PATHS.items() for m in v["modules"]] + [module("LAB-12")]
     assert not any(r["coming_soon"] for r in ranks.standing(progress.empty(), every)["ladder"])
+    # Before Enterprise Architecture shipped, the ranks that need it were coming soon, the rest weren't.
+    ea = set(ranks.PATHS["enterprise-architecture"]["modules"])
+    s = {r["id"]: r for r in ranks.standing(progress.empty(), [m for m in every if m["id"] not in ea])["ladder"]}
+    assert not s["iron-forger"]["coming_soon"]
+    assert s["forge-architect"]["coming_soon"] and s["legend-of-the-forge"]["coming_soon"]
+    # Today every lesson the ladder names has shipped.
+    assert not any(r["coming_soon"] for r in ranks.standing(progress.empty(), LIVE)["ladder"])
 
 
 def test_a_new_lesson_never_takes_a_held_rank_away():

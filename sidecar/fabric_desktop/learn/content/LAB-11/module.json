@@ -1,0 +1,88 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-11",
+  "kind": "lab",
+  "title": "Incident: late and broken data",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 30,
+  "objectives": [
+    "Measure which loads missed their deadline, and by how much",
+    "Find rows a retried load added twice",
+    "Report the corrected figure"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "late-batches",
+      "prompt": "load_log has each batch's arrival and its deadline (sla_at). Return the batches that arrived after their deadline: batch_id and minutes_late, in batch_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter-late.sql",
+      "solution": "solution-late.sql",
+      "hints": [
+        "The starter finds the late batches but not by how much.",
+        "date_diff('minute', sla_at, arrived_at) gives the minutes between them. In T-SQL it's DATEDIFF(minute, sla_at, arrived_at)."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "batch_id",
+          "minutes_late"
+        ],
+        "rows": [
+          [
+            "B2",
+            30
+          ],
+          [
+            "B3-retry",
+            45
+          ]
+        ]
+      }
+    },
+    {
+      "id": "true-revenue",
+      "prompt": "Batch B3 was retried and both copies loaded, so sales B3 and B3-retry hold the same sales. Return the corrected revenue for each sold_on: sold_on and revenue, counting each sale_id once, in sold_on order.",
+      "engine": "duckdb",
+      "starter": "starter-revenue.sql",
+      "solution": "solution-revenue.sql",
+      "hints": [
+        "The starter adds up every row, so sales 5 and 6 count twice.",
+        "Take each sale once first: SELECT DISTINCT sale_id, sold_on, amount FROM sales, then add up by sold_on."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ]
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/functions/date"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

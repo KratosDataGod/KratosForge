@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -554,12 +554,25 @@ fn read_replies(stdout: ChildStdout, pending: Arc<Mutex<replies::Pending<String>
     }
 }
 
+/// Opens a fresh engine log, first keeping the last run's as `sidecar.prev.log`, so
+/// the log of an engine that crashed survives the restart that follows. If the old log
+/// can't be moved (an engine from the last run still holds it, say), it is appended to
+/// rather than emptied: nothing it holds is lost either way.
+fn open_sidecar_log(log: &Path) -> std::io::Result<std::fs::File> {
+    let prev = log.with_file_name("sidecar.prev.log");
+    match std::fs::rename(log, &prev) {
+        Ok(()) => std::fs::File::create(log),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::File::create(log),
+        Err(_) => std::fs::OpenOptions::new().append(true).create(true).open(log),
+    }
+}
+
 impl Sidecar {
     fn start() -> std::io::Result<Self> {
         // A windowed exe has no stderr to hand down, and Python started without one
         // exits at once. Send it to a log file instead, so crashes can be explained.
         let log = data_dir().join("sidecar.log");
-        let stderr = std::fs::File::create(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+        let stderr = open_sidecar_log(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
         let python = python().map_err(std::io::Error::other)?;
         let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
@@ -2714,5 +2727,32 @@ mod embed_host_tests {
         assert!(frames.split_whitespace().any(|s| s == "http://pbiembed.localhost"));
         assert!(!frames.contains("powerbi.com"), "{frames}");
         assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
+    }
+}
+
+#[cfg(test)]
+mod sidecar_log_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn a_restart_keeps_the_last_runs_log() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let prev = dir.join("sidecar.prev.log");
+
+        writeln!(open_sidecar_log(&log).unwrap(), "first run crashed").unwrap();
+        assert!(!prev.exists());
+        writeln!(open_sidecar_log(&log).unwrap(), "second run").unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "first run crashed\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "second run\n");
+
+        // A third start replaces the older copy with the second run's log.
+        open_sidecar_log(&log).unwrap();
+        assert_eq!(std::fs::read_to_string(&prev).unwrap(), "second run\n");
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

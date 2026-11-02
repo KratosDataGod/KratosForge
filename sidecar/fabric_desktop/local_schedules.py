@@ -354,7 +354,8 @@ class LocalSchedules:
                 f.write(json.dumps(row, default=str) + "\n")
             if self.runs_file.stat().st_size > RUNS_TRIM_BYTES:
                 lines = self.runs_file.read_text(encoding="utf-8").splitlines(keepends=True)
-                kept, size = [], 0
+                kept: list[str] = []
+                size = 0
                 for line in reversed(lines[-RUNS_KEEP:]):
                     size += len(line.encode("utf-8"))
                     if size > RUNS_KEEP_BYTES and kept:

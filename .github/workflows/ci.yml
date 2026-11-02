@@ -306,7 +306,10 @@ jobs:
     env:
       PYTHON_VERSION: "3.12.10"
       # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
+      # python.org lists only MD5 for 3.12 files, so the build checks that, and SHA-256 is pinned
+      # too: MD5 alone no longer stops a deliberately made file with the same hash.
       PYTHON_EMBED_MD5: "fe8ef205f2e9c3ba44d0cf9954e1abd3"
+      PYTHON_EMBED_SHA256: "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -321,11 +324,13 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dir = "$env:RUNNER_TEMP\engine"
           Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\embed.zip"
-          # The engine's Python must be exactly the file python.org published (MD5 from its release page).
+          # The engine's Python must be exactly the file python.org published: its MD5 from the release
+          # page, and the SHA-256 of that same file pinned above. Bumping PYTHON_VERSION means updating both.
           $md5 = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm MD5).Hash.ToLower()
           $sha = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm SHA256).Hash.ToLower()
           "Embeddable Python sha256 $sha md5 $md5"
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
+          if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the pinned file (sha256 $sha)" }
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
@@ -482,6 +487,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [sidecar, ui, engine, shell, sbom-app, audit]
     runs-on: ubuntu-latest
+    # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
+    # live in Settings > Environments > preview: allow only the main branch to deploy, and add
+    # required reviewers there if every Preview build should wait for an approval.
+    environment: preview
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
     concurrency:

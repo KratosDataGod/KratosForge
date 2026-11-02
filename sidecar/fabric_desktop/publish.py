@@ -140,9 +140,12 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
         had = _files(table) if table is not None and mode != "overwrite" else {}
         if table is not None and how != "overwrite":
             refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
+        # Replacing every row as a predicate makes Delta check for commits since the version loaded
+        # (a plain overwrite doesn't, and would keep rows a writer outside the lease appended meanwhile).
+        extra = {"predicate": "true"} if mode == "overwrite" and table is not None else {}
         check_held()  # the lease is still ours, with time to commit (HD-016)
         write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
-                        writer_properties=writer_properties(), commit_properties=meta)
+                        writer_properties=writer_properties(), commit_properties=meta, **extra)
         if table is None:
             table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)

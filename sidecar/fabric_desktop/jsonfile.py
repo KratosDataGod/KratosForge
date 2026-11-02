@@ -31,12 +31,13 @@ def write_json(path: Path, data: Any, indent: int = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 
 
-def write_text(path: Path, text: str) -> None:
-    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it."""
+def write_text(path: Path, text: str, newline: str | None = None) -> None:
+    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it.
+    ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())

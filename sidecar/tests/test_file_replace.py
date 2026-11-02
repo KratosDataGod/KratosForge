@@ -81,3 +81,23 @@ def test_other_errors_are_not_waited_out(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError):
         jsonfile.replace(tmp_path / "missing", tmp_path / "b")
     assert waits == []
+
+
+def test_write_text_takes_open_s_newline(tmp_path):
+    jsonfile.write_text(tmp_path / "a.txt", "x\ny\n", newline="\r\n")
+    assert (tmp_path / "a.txt").read_bytes() == b"x\r\ny\r\n"
+    jsonfile.write_text(tmp_path / "b.txt", "x\ny\n", newline="\n")
+    assert (tmp_path / "b.txt").read_bytes() == b"x\ny\n"
+
+
+def test_a_saved_sql_template_keeps_lf_and_is_on_disk_before_it_is_swapped_in(tmp_path, monkeypatch):
+    from fabric_desktop.sql_templates_service import SqlTemplatesMixin
+    events: list[str] = []
+    real_fsync, real_replace = os.fsync, os.replace
+    monkeypatch.setattr(os, "fsync", lambda fd: (events.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(os, "replace", lambda a, b: (events.append("replace"), real_replace(a, b))[1])
+    target = tmp_path / "t.sql"
+    target.write_text("old")
+    SqlTemplatesMixin._write_over(target, "-- a\nselect 1\n")
+    assert events == ["fsync", "replace"] and target.read_bytes() == b"-- a\nselect 1\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["t.sql"]

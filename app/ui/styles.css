@@ -956,9 +956,13 @@ body.pop-out .page.monitor { padding: 12px; }
 .drift-row .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Notebook "Runs on" choice and its note above the cells */
 .compute-btn.fabric { border-color: #f3c58a; background: #fff4e5; color: #a35400; }
+.compute-note-slot { display: flex; flex-direction: column; gap: 8px; }
 .compute-note-slot:empty { display: none; }
 .compute-note-slot .problems, .compute-note-slot .callout { margin: 0; }
 .compute-callout { font-size: 13px; }
+.compute-unknown { padding: 10px 14px; border-radius: 8px; background: var(--hover); border: 1px dashed var(--border); font-size: 13px; }
+.compute-unknown .muted-text { margin: 6px 0 0; }
+.compute-unknown-head { margin: 8px 0 2px; font-weight: 600; }
 /* Parameters and widgets bar above the cells (nbinputs.js) */
 .nb-inputs-slot:empty { display: none; }
 .nb-inputs { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;

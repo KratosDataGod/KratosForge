@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
-import logging
 import json
+import logging
 import os
-import uuid
 import subprocess
 import sys
 import threading
@@ -20,7 +19,6 @@ from . import notebook_cells
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL, describe_schedule, schedule_configuration
 from .fabric_step import is_step
-from .leases import _file_lock
 from .local_schedules import LocalSchedules, check_target, target_label
 from .orchestration import definition as pipeline_definition
 from .orchestration.definition import DefinitionError
@@ -41,79 +39,7 @@ class TeamsUnreachable(Exception):
 # Fabric item types that have schedules, and the job type each one runs.
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
 TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job"}
-# A lock that can't be read (its writer stopped between creating and writing it) is taken over after
-# this long. A readable one is taken over as soon as the run that holds it has stopped (EA-008).
 STALE_LOCK_SECONDS = 12 * 3600
-
-
-def process_identity(pid: int) -> str | None:
-    """What tells this process apart from a later one given the same PID: when it started, in the OS's
-    own units. None where that can't be read."""
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-
-        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
-        kernel32 = win_kernel32()
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            return None
-        try:
-            times = [wintypes.FILETIME() for _ in range(4)]
-            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
-                return None
-            return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-        return stat.rsplit(")", 1)[1].split()[19]  # starttime: field 22, counted after the name
-    except (OSError, IndexError):
-        return None
-
-
-def process_alive(pid: int, identity: str | None) -> bool:
-    """Whether the process ``pid`` that the lock names is still running: the PID is in use, and when
-    ``identity`` is known, by the same process (a PID is reused once its process ends)."""
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-
-        from .kernel_proc import PROCESS_QUERY_LIMITED_INFORMATION, win_kernel32
-        kernel32 = win_kernel32()
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            # Access denied: a process another user runs has it now. Anything else: no such process.
-            return ctypes.get_last_error() == 5 and identity is None  # type: ignore[attr-defined]
-        try:
-            code = wintypes.DWORD()
-            kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != 259:  # STILL_ACTIVE
-                return False
-        finally:
-            kernel32.CloseHandle(handle)
-    else:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            pass  # in use by a process of another user
-        if _zombie(pid):
-            return False
-    if identity is None:
-        return True
-    return process_identity(pid) == identity
-
-
-def _zombie(pid: int) -> bool:
-    """A process that has ended but not been waited for (Linux): its PID answers, but it's not running."""
-    try:
-        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
-    except (OSError, IndexError):
-        return False
 
 
 def _without_webhook(text: str, url: Any) -> str:
@@ -131,6 +57,54 @@ def _without_webhook(text: str, url: Any) -> str:
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+def _read_lock(path: Path) -> dict[str, Any]:
+    """Who holds a schedule lock. Older builds wrote only the pid."""
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    try:
+        held = json.loads(text)
+    except ValueError:
+        held = None
+    if isinstance(held, dict):
+        return held
+    return {"pid": int(text)} if text.isdigit() else {}
+
+
+def _pid_alive(pid: Any) -> bool:
+    """Whether process ``pid`` is still running. Unknown counts as running, so a lock is only taken
+    over when its process has certainly ended (or the lock is past STALE_LOCK_SECONDS)."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return True
+    if pid == os.getpid():
+        return True
+    if sys.platform == "win32":  # so mypy, on any OS, checks this branch against Windows' ctypes
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE  # the c_int default would cut a 64-bit handle
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: no such process
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # another user's process: it exists
+        return True
+    return True
+
 
 
 class ScheduleMixin:
@@ -277,63 +251,95 @@ class ScheduleMixin:
                        and r.get("item_id") in items]
 
     def sync_pc_schedules(self) -> dict[str, Any]:
-        """Called when the app starts: point every task at this engine."""
+        """Called when the app starts: point every task at this engine, and log the runs that
+        stopped before they finished."""
         try:
-            return {"updated": self.pc_schedules.sync()}
+            interrupted = self.recover_pc_schedule_runs()["interrupted"]
+        except OSError as exc:  # the locks folder can't be read: each schedule's next run still takes its lock over
+            _log.warning("Couldn't check for scheduled runs that stopped: %s", describe(exc))
+            interrupted = 0
+        try:
+            return {"updated": self.pc_schedules.sync(), "interrupted": interrupted}
         except Exception as exc:  # Task Scheduler refused: the list still shows them
-            return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
+            return {"updated": 0, "interrupted": interrupted, "error": f"{type(exc).__name__}: {exc}"}
 
     def _lock(self, schedule_id: str, run: dict[str, Any] | None = None) -> Path | None:
-        """The schedule's lock file, or None while a run that holds it is still going. The file names
-        this process (its PID and start time) and ``run``; a lock whose process has stopped, or whose
-        PID another process now has, is taken over, and its run is recorded as interrupted (EA-008)."""
+        """Take ``schedule_id``'s lock, or None while another run holds it. The lock keeps who holds it
+        (``run``: its pid, start and trigger); one whose process has ended, killed or with the PC shut
+        down, is taken over, and that run is logged as stopped before it finished."""
         folder = self.root / "schedule_locks"  # type: ignore[attr-defined]
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{schedule_id}.lock"
-        # One process at a time looks at and takes over a lock, so two runs that both find it stale
-        # can't both take it, or one remove the lock the other just made.
-        with _file_lock(folder / ".takeover"):
-            for _ in range(2):
-                try:
-                    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                except FileExistsError:
-                    if not self._take_over(path):
-                        return None
-                    continue
-                os.write(fd, json.dumps({"pid": os.getpid(), "process": process_identity(os.getpid()),
-                                         "nonce": uuid.uuid4().hex, "run": run}).encode())
-                os.close(fd)
-                return path
-        return None
+        if path.exists() and not self._take_over(schedule_id, path)[0]:
+            return None
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return None
+        os.write(fd, json.dumps({"pid": os.getpid(), **(run or {})}).encode())
+        os.close(fd)
+        return path
 
-    def _take_over(self, path: Path) -> bool:
-        """Remove ``path`` if the run that holds it has stopped; True when it's gone."""
+    def _take_over(self, schedule_id: str, path: Path) -> tuple[bool, bool]:
+        """Remove a lock left by a run that can't be going any more: its process has ended, or it
+        is older than STALE_LOCK_SECONDS. One run at a time decides, so two can't both take it.
+        Returns whether the lock is free now, and whether a stopped run was logged."""
+        guard = path.with_name(path.name + ".takeover")
         try:
-            raw = path.read_text(encoding="utf-8").strip()
-            age = time.time() - path.stat().st_mtime
+            if time.time() - guard.stat().st_mtime > 60:  # left by a run killed while deciding
+                guard.unlink(missing_ok=True)
         except FileNotFoundError:
-            return True  # released just now
+            pass
         try:
-            held = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}  # before EA-008: just the PID
-            pid, identity = int(held["pid"]), held.get("process")
-        except (ValueError, KeyError, TypeError):
-            if age <= STALE_LOCK_SECONDS:
-                return False  # being written now, perhaps
-            held, pid, identity = {}, 0, None
-        if pid and process_alive(pid, identity):
+            os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            return False, False  # another run is taking it over right now
+        try:
+            try:
+                held, age = _read_lock(path), time.time() - path.stat().st_mtime
+            except FileNotFoundError:
+                return True, False  # its run just ended
+            if age <= STALE_LOCK_SECONDS and _pid_alive(held.get("pid")):
+                return False, False
+            path.unlink(missing_ok=True)
+        finally:
+            guard.unlink(missing_ok=True)
+        if schedule_id == ALERTS_LOCK:
+            return True, False
+        return True, self._log_stopped_run(schedule_id, held)
+
+    def _log_stopped_run(self, schedule_id: str, held: dict[str, Any]) -> bool:
+        """Log the run that held ``held`` as stopped; False when it couldn't be written. The lock is
+        gone either way, so a full disk never holds the schedule up."""
+        try:
+            label = target_label(self.pc_schedules.get(schedule_id)["target"])
+        except (KeyError, ValueError, OSError):  # the schedule was removed since
+            label = schedule_id
+        row = {"schedule_id": schedule_id, "label": label, "trigger": held.get("trigger") or "schedule",
+               "started": held.get("started"), "ended": None, "seconds": None, "pid": held.get("pid"),
+               "status": "failed", "interrupted": True,
+               "message": "Stopped before it finished: its process ended (it was killed, or the PC shut down "
+                          "or restarted). What it changed before then is kept; run it again to finish."}
+        problem = self._send_schedule_alerts(row)
+        if problem:
+            row["alert_error"] = problem
+        try:
+            self.pc_schedules.log_run(row)
+        except OSError as exc:
+            _log.warning("Couldn't log the scheduled run that stopped before it finished: %s", describe(exc))
             return False
-        nonce = held.get("nonce")
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            return True
-        run = held.get("run")
-        if isinstance(run, dict) and run.get("schedule_id"):
-            self.pc_schedules.log_run(run | {
-                "ended": _now(), "status": "interrupted", "pid": pid, "lock": nonce,
-                "message": "This run stopped before it finished (the PC slept or restarted, or its process "
-                           "was ended), so its result isn't known. The next run went ahead."})
         return True
+
+    def recover_pc_schedule_runs(self) -> dict[str, Any]:
+        """Log the runs whose process ended without finishing (their lock is left), so Monitor shows
+        them now rather than at their schedule's next run. Called when the app starts."""
+        folder = self.root / "schedule_locks"  # type: ignore[attr-defined]
+        taken = 0
+        for path in sorted(folder.glob("*.lock")) if folder.is_dir() else []:
+            sid = path.name[:-len(".lock")]
+            if sid != ALERTS_LOCK and self._take_over(sid, path)[1]:
+                taken += 1
+        return {"interrupted": taken}
 
     def run_schedule(self, schedule_id: str, trigger: str = "schedule") -> dict[str, Any]:
         """One scheduled run on this PC (Task Scheduler calls this through the CLI)."""
@@ -341,7 +347,7 @@ class ScheduleMixin:
         s = schedules.get(schedule_id)
         row: dict[str, Any] = {"schedule_id": schedule_id, "label": target_label(s["target"]), "trigger": trigger,
                                "started": _now(), "pid": os.getpid()}
-        lock = self._lock(schedule_id, {k: row[k] for k in ("schedule_id", "label", "trigger", "started")})
+        lock = self._lock(schedule_id, {"started": row["started"], "trigger": trigger})
         if lock is None:
             row |= {"ended": _now(), "seconds": 0, "status": "skipped",
                     "message": "The previous run of this schedule was still going"}
@@ -385,7 +391,7 @@ class ScheduleMixin:
                 progress(i, len(code))
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
-                err = next((o for o in res["outputs"] if o.get("type") == "error"), {})
+                err: dict[str, Any] = next((o for o in res["outputs"] if o.get("type") == "error"), {})
                 why = f"{err.get('ename')}: {err.get('evalue')}" if err else res["status"]
                 return {"status": "failed", "message": f"Cell {i} of {len(code)} failed{skipped}: {why}", "cells": i}
         return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran{skipped}", "cells": len(code)}

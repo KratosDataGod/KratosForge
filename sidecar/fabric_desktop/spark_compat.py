@@ -972,6 +972,17 @@ def _time_cast(original: Any) -> Any:
     return cast
 
 
+def _spark_divide(reverse: bool) -> Any:
+    """Column division as Spark's (ANSI off): dividing by zero gives NULL (EA-012); DuckDB gives inf,
+    -inf or NaN. Spark's ``/`` is a double division, as DuckDB's is."""
+    from duckdb.experimental.spark.sql.column import _get_expr
+
+    def divide(self: Column, other: Any) -> Column:
+        left, right = (_get_expr(other), self.expr) if reverse else (self.expr, _get_expr(other))
+        return Column(left / duckdb.FunctionExpression("nullif", right, duckdb.ConstantExpression(0)))
+    return divide
+
+
 # Column.cast to a whole-number type truncates as Spark does (EA-003); DuckDB's cast rounds.
 _INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYINT"),
                    "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
@@ -1013,6 +1024,8 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
     # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
     Column.cast = _time_cast(Column.cast)  # type: ignore[method-assign]
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]

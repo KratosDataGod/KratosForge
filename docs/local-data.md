@@ -131,13 +131,14 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true`. A `BIT` column in a table made before this release keeps DuckDB's bit-string type until the table is created again |
 | `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (UTF-8 bytes, as varchar; an `N'...'` literal counts 2 bytes a character, and a number is refused) |
 | `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column. The separator is one character, as in T-SQL (`enable_ordinal` isn't run here yet) |
+| `POWER(2, -1)`, `POWER(qty, 2)` on an integer column | `0`, an integer: an integer base gives an integer, cut toward zero, and one too big for its type is an error. A `FLOAT` base (`POWER(2e0, -1)`) gives `0.5` |
 | `TOP 5 WITH TIES ... ORDER BY total` | The first 5 rows and every row tied with the fifth (not with `PERCENT` or `DISTINCT`) |
 | `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
 
 The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
 
-**Refused, not half-translated:** `ISNUMERIC` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` for now), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
+**Refused, not half-translated:** `ISNUMERIC` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` for now), `POWER` of a decimal such as `POWER(2.5, 2)` (T-SQL keeps the decimal's scale; cast the base to `FLOAT`), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 

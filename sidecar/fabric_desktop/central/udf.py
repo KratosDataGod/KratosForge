@@ -885,7 +885,7 @@ def _functions() -> list[dict]:
     for node in ast.parse(_WRAPPERS).body:
         if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
             continue
-        bindings = [{"methods": ["POST"], "route": "", "authLevel": "Anonymous", "name": "req",
+        bindings: list[dict[str, object]] = [{"methods": ["POST"], "route": "", "authLevel": "Anonymous", "name": "req",
                      "direction": "In", "type": "HttpTrigger"}]
         params = []
         for arg in node.args.args:

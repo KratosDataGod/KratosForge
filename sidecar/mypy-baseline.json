@@ -509,12 +509,6 @@
   "method-assign": 1,
   "union-attr": 1
  },
- "fabric_desktop/sql.py": {
-  "arg-type": 2,
-  "assignment": 5,
-  "return-value": 2,
-  "union-attr": 1
- },
  "fabric_desktop/sql_format.py": {
   "misc": 2,
   "valid-type": 2,

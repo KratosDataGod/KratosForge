@@ -37,22 +37,26 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = sqlglot.parse(query, read=chosen["sqlglot"])
+        statements = _statements(sqlglot.parse(query, read=chosen["sqlglot"]))
         if chosen["id"] == "spark":
-            statements = [spark_fixes(s) for s in statements if s is not None]
+            statements = [spark_fixes(s) for s in statements]
     except ParseError as first_error:
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
         try:
-            statements = sqlglot.parse(query, read="duckdb")
+            statements = _statements(sqlglot.parse(query, read="duckdb"))
         except ParseError:
             raise ValueError(f"Could not read the query: {sql_dialects.parse_problem(first_error)}") from None
-    statements = [s for s in statements if s is not None]
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+def _statements(parsed: list[Any]) -> list[exp.Expression]:
+    """What sqlglot.parse read, without the empty statements (a stray ';')."""
+    return [cast(exp.Expression, s) for s in parsed if s is not None]
 
 
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."
@@ -809,10 +813,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             window = ignore.parent.copy()
             window.set("this", exp.column("__fd_ignoring__"))
             text = duckdb_sql(window).replace("__fd_ignoring__", f"{name}_value({value} IGNORE NULLS)", 1)
-            target = ignore.parent
+            target: exp.Expression = ignore.parent
         else:
             text, target = f"{name}({value}) FILTER (WHERE {value} IS NOT NULL)", ignore
-        swapped = target.replace(sqlglot.parse_one(text, read="duckdb"))
+        swapped = target.replace(cast(exp.Expression, sqlglot.parse_one(text, read="duckdb")))
         node = swapped if target is node else node
     for months in list(node.find_all(exp.AddMonths)):  # Spark's add_months is a date, whatever it's given
         months.set("this", exp.TryCast(this=exp.TryCast(this=months.this, to=exp.DataType.build("TIMESTAMP")),
@@ -823,9 +827,10 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
         if kind.this == exp.DataType.Type.STRUCT and not kind.expressions:
             raise ValueError(_EMPTY_STRUCT)
     for constraint in list(node.find_all(exp.NotNullColumnConstraint)):  # DuckDB has no NOT NULL in a struct
-        column = constraint.parent.parent if constraint.parent else None
-        if isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
-            constraint.parent.pop()
+        holder = constraint.parent
+        column = holder.parent if holder else None
+        if holder is not None and isinstance(column, exp.ColumnDef) and isinstance(column.parent, exp.DataType):
+            holder.pop()
     for part in list(node.find_all(exp.ArraySlice)):  # Spark refuses index 0 and a negative length
         if not part.args.get("is_length"):
             continue
@@ -858,25 +863,25 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
             f"THEN error({exp.Literal.string(_SLICE_INDEX_0).sql('duckdb')}) ELSE {v} END", read="duckdb")])
     for between in list(node.find_all(exp.MonthsBetween)):
         later, earlier = (_as_timestamp(between.this), _as_timestamp(between.expression))
-        months = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
+        month_count = (f"((year({later}) * 12 + month({later})) - (year({earlier}) * 12 + month({earlier})))")
         same = (f"day({later}) = day({earlier}) OR (day({later}) = day(last_day({later})) "
                 f"AND day({earlier}) = day(last_day({earlier})))")
         seconds = f"(epoch({later}) - epoch(date_trunc('day', {later})) - epoch({earlier}) + epoch(date_trunc('day', {earlier})))"
-        value = (f"CASE WHEN {same} THEN CAST({months} AS DOUBLE) ELSE {months} + "
+        value = (f"CASE WHEN {same} THEN CAST({month_count} AS DOUBLE) ELSE {month_count} + "
                  f"((day({later}) - day({earlier})) * 86400 + {seconds}) / 2678400.0 END")
         roundoff = between.args.get("roundoff")
         if not (isinstance(roundoff, exp.Boolean) and roundoff.this is False):
             value = f"round({value}, 8)"
-        swapped = between.replace(sqlglot.parse_one(value, read="duckdb"))
+        swapped = between.replace(cast(exp.Expression, sqlglot.parse_one(value, read="duckdb")))
         node = swapped if between is node else node
     for unix in list(node.find_all(exp.StrToUnix)):
         value = duckdb_sql(unix.this)
         fmt, has_year = _strptime_format(unix) if unix.args.get("format") else ("'%Y-%m-%d %H:%M:%S'", True)
         # Without a year Spark reads the date as 1970-01-01; strptime starts from 1900-01-01.
         parsed = f"try_strptime(CAST({value} AS VARCHAR), {fmt})" + ("" if has_year else " + INTERVAL 70 YEAR")
-        swapped = unix.replace(sqlglot.parse_one(
+        swapped = unix.replace(cast(exp.Expression, sqlglot.parse_one(
             f"CAST(floor(epoch(CASE WHEN typeof({value}) IN ({_TIME_TYPES}) THEN TRY_CAST({value} AS TIMESTAMPTZ) "
-            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb"))
+            f"ELSE CAST({parsed} AS TIMESTAMPTZ) END)) AS BIGINT)", read="duckdb")))
         node = swapped if unix is node else node
     for sub in list(node.find_all(exp.Substring)):
         start = sub.args.get("start")
@@ -911,7 +916,7 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
-        opened = None
+        opened, at = None, {}
         if point is None:
             # The latest version is looked up each time, so a table written since an earlier statement
             # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
@@ -919,10 +924,10 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             opened = lakehouse.open_table(name)
             key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
         else:
-            key = f"{name.lower()}@{point}"
+            key, at = f"{name.lower()}@{point}", point_args(point)
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
-            opened = opened or lakehouse.open_table(name, **point_args(point))
+            opened = opened or lakehouse.open_table(name, **at)
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
@@ -989,7 +994,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
     con.register(view, lakehouse.table_history(name).to_arrow())
-    return sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb")
+    return cast(exp.Expression, sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb"))
 
 
 READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)

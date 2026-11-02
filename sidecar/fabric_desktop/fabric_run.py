@@ -382,6 +382,11 @@ def _text(node: ast.AST) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
+def _value(node: ast.AST) -> Any:
+    """A literal's value, or None when it is only known at run time."""
+    return node.value if isinstance(node, ast.Constant) else None
+
+
 def _imported(node: ast.AST) -> str | None:
     """The module ``importlib.import_module("m")`` or ``__import__("m")`` returns, when named in a literal."""
     if not isinstance(node, ast.Call) or not node.args or (name := _text(node.args[0])) is None:
@@ -637,6 +642,17 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
     if method == "load" and fmt_text not in sl.READ_FORMATS:
         out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text or "parquet")))
         return
+    if fmt_text == "csv":
+        options: list[tuple[str, Any]] = [(k.arg, _value(k.value)) for k in node.keywords
+                                          if k.arg and k.arg not in ("path", "format", "schema")]
+        for name, call in links[1:]:
+            if call is not None and name == "option" and call.args and (key := _text(call.args[0])):
+                options.append((key, _value(call.args[1]) if len(call.args) > 1 else None))
+            elif call is not None and name == "options":
+                options += [(k.arg, _value(k.value)) for k in call.keywords if k.arg]
+        if hit := sl.csv_option_refusal(options, "schema" in names[1:]):
+            out["fabric"].append((line, hit))
+            return
     if "schema" in names[1:]:
         what = {"table": "a table", "text": "text files"}.get(method) or ("a Delta table" if fmt_text == "delta" else None)
         if what:

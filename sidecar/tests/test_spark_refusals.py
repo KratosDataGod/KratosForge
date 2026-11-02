@@ -50,6 +50,7 @@ BLOCKED = {
                    "DeltaTable.vacuum"),
     "withSchemaEvolution": ("t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
                             "withSchemaEvolution"),
+    "csv": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
 }
 
 
@@ -74,6 +75,8 @@ def test_code_this_pcs_spark_refuses_is_blocked_on_this_pc(site):
     "df = spark.read.load('Files/x.parquet')",
     "df = spark.read.format('delta').load('Tables/dbo/t')",
     "df = spark.read.schema(my_schema).csv('Files/x.csv')",
+    "df = spark.read.csv('Files/x.csv', header=True, inferSchema=True, nullValue='NA', multiLine=True)",
+    "df = spark.read.schema(my_schema).option('mode', 'DROPMALFORMED').csv('Files/x.csv')",
     "spark.conf.set('spark.sql.sources.partitionOverwriteMode', 'static')",
     "spark.conf.set('spark.databricks.delta.schema.autoMerge.enabled', 'true')",  # no MERGE in the notebook
     "from delta.tables import DeltaTable\nt = DeltaTable.forPath(spark, 'Tables/dbo/t')\nt.toDF().show()",

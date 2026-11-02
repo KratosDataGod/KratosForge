@@ -5,9 +5,11 @@ through a fake transport under a real ``requests.Session`` (tests/fake_http.py).
 network or a tenant. The contracts:
 
 * upload is create (PUT ?resource=file), append (PATCH ?action=append&position=0) then flush
-  (PATCH ?action=flush&position=<length>), with the bearer token and x-ms-version on each request;
-  it replaces an existing file (no If-None-Match), and a failed step stops before the file is
-  committed (no flush after a failed append, nothing after a failed create);
+  (PATCH ?action=flush&position=<length>) of a new file beside the target, then a rename of it over
+  the target (PUT with x-ms-rename-source), with the bearer token and x-ms-version on each request;
+  it replaces an existing file (no If-None-Match), which keeps its content until the rename (EA-007),
+  and a failed step stops there (no flush after a failed append, nothing after a failed create) and
+  removes the new file;
 * delete sends one DELETE with recursive=true by default (false on request), treats 404 as done and
   never repeats itself on an error other than throttling (429, where OneLake did nothing);
 * upload waits out a 429 on any step and sends anything else once; mkdir (If-None-Match: *) is
@@ -21,6 +23,7 @@ network or a tenant. The contracts:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -43,6 +46,12 @@ def no_network(monkeypatch):
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", refuse)
 
 
+def temp_of(target):
+    """The new file an upload of ``target`` writes first: beside it, hidden, named for it."""
+    folder, _, name = target.rpartition("/")
+    return re.compile(re.escape(f"{folder}/.{name}.") + r"[0-9a-f]{12}\.uploading$")
+
+
 def store(replies):
     s, transport = session(replies)
     return FileStore(lambda: "tok", session=s), transport
@@ -52,37 +61,41 @@ def store(replies):
 
 
 def test_upload_is_create_append_flush_with_exact_urls_methods_and_headers():
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/in/data.csv", b"a,b\n1,2\n")
 
+    temp = t.sent[0].base
+    assert temp_of(f"{ITEM}/Files/in/data.csv").match(temp)
     assert [(r.method, r.base, r.query) for r in t.sent] == [
-        ("PUT", f"{ITEM}/Files/in/data.csv", {"resource": "file"}),
-        ("PATCH", f"{ITEM}/Files/in/data.csv", {"action": "append", "position": "0"}),
-        ("PATCH", f"{ITEM}/Files/in/data.csv", {"action": "flush", "position": "8"}),
+        ("PUT", temp, {"resource": "file"}),
+        ("PATCH", temp, {"action": "append", "position": "0"}),
+        ("PATCH", temp, {"action": "flush", "position": "8"}),
+        ("PUT", f"{ITEM}/Files/in/data.csv", {}),
     ]
+    assert t.sent[3].headers["x-ms-rename-source"] == temp.removeprefix(f"https://{DFS_HOST}")
     for r in t.sent:
         assert r.headers["Authorization"] == "Bearer tok"
         assert r.headers["x-ms-version"] == "2023-11-03"
-    assert t.sent[0].body is None and t.sent[2].body is None
+    assert t.sent[0].body is None and t.sent[2].body is None and t.sent[3].body is None
     assert t.sent[1].body == b"a,b\n1,2\n"
 
 
 def test_upload_replaces_an_existing_file_it_is_not_create_only():
-    """FileStore offers create-or-replace only: the create carries no If-None-Match (or overwrite
-    flag), so OneLake truncates an existing file. A create-only caller must check first."""
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    """FileStore offers create-or-replace only: the rename carries no If-None-Match (or overwrite
+    flag), so OneLake replaces an existing file. A create-only caller must check first."""
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/x.txt", b"new")
-    create = t.sent[0]
-    assert create.method == "PUT"
-    assert not {"if-none-match", "if-match"} & {h.lower() for h in create.headers}
-    assert "overwrite" not in create.query
+    rename = t.sent[-1]
+    assert rename.method == "PUT" and rename.base == f"{ITEM}/Files/x.txt"
+    assert not {"if-none-match", "if-match"} & {h.lower() for h in rename.headers}
+    assert "overwrite" not in rename.query
 
 
 def test_upload_of_an_empty_file_skips_the_append():
-    fs, t = store([Reply(201), Reply(200)])
+    fs, t = store([Reply(201), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/empty.txt", b"")
     assert [(r.method, r.query.get("action"), r.query.get("position")) for r in t.sent] == [
-        ("PUT", None, None), ("PATCH", "flush", "0")]
+        ("PUT", None, None), ("PATCH", "flush", "0"), ("PUT", None, None)]
 
 
 def test_a_failed_create_sends_nothing_more():
@@ -94,17 +107,29 @@ def test_a_failed_create_sends_nothing_more():
 
 def test_a_failed_append_is_not_flushed_or_repeated():
     """Without the flush OneLake never commits the bytes, so a reader can't see half a file."""
-    fs, t = store([Reply(201), Reply(500)])
+    fs, t = store([Reply(201), Reply(500), Reply(200)])
     with pytest.raises(requests.HTTPError):
         fs.upload(WS, LH, "Files/x.txt", b"data")
-    assert [(r.method, r.query.get("action")) for r in t.sent] == [("PUT", None), ("PATCH", "append")]
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [("PUT", None), ("PATCH", "append"), ("DELETE", None)]
+    # Only the new file is removed; Files/x.txt itself was never touched.
+    assert t.sent[2].base == t.sent[0].base and t.sent[2].query == {"recursive": "false"}
+    assert all(r.base != f"{ITEM}/Files/x.txt" for r in t.sent)
 
 
 def test_a_failed_flush_is_not_repeated():
-    fs, t = store([Reply(201), Reply(202), Reply(503)])
+    fs, t = store([Reply(201), Reply(202), Reply(503), Reply(200)])
     with pytest.raises(requests.HTTPError):
         fs.upload(WS, LH, "Files/x.txt", b"data")
-    assert len(t.sent) == 3 and t.sent[-1].query["action"] == "flush"
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "flush"), ("DELETE", None)]
+
+
+def test_a_failed_rename_is_not_repeated_and_removes_the_new_file():
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(500), Reply(200)])
+    with pytest.raises(requests.HTTPError):
+        fs.upload(WS, LH, "Files/x.txt", b"data")
+    assert [r.method for r in t.sent] == ["PUT", "PATCH", "PATCH", "PUT", "DELETE"]
+    assert t.sent[-1].base == t.sent[0].base
 
 
 # ---- delete: file and folder, recursive flag, 404
@@ -158,10 +183,10 @@ def waiting_store(replies):
 
 
 def test_an_upload_whose_append_is_throttled_writes_once():
-    fs, t, waits = waiting_store([Reply(201), Reply(429, headers={"Retry-After": "2"}), Reply(202), Reply(200)])
+    fs, t, waits = waiting_store([Reply(201), Reply(429, headers={"Retry-After": "2"}), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/x.txt", b"data")
     assert [(r.method, r.query.get("action")) for r in t.sent] == [
-        ("PUT", None), ("PATCH", "append"), ("PATCH", "append"), ("PATCH", "flush")]
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "append"), ("PATCH", "flush"), ("PUT", None)]
     assert waits == [2]
 
 
@@ -317,7 +342,8 @@ def test_the_write_test_writes_reads_and_deletes_only_its_own_folder():
     result = readiness.write_test(FileStore(lambda: "tok", session=s), WS, LH, "Sales Dev")
     assert result["status"] == "ok"
     mutating = [r for r in t.sent if r.method in MUTATING]
-    assert {r.path for r in mutating[:3]} == {f"/{WS}/{LH}/{readiness.CHECK_FILE}"}
+    assert mutating[3].path == f"/{WS}/{LH}/{readiness.CHECK_FILE}"  # the rename over it
+    assert {r.path.rsplit("/", 1)[0] for r in mutating[:4]} == {f"/{WS}/{LH}/{readiness.CHECK_FOLDER}"}
     assert (mutating[-1].method, mutating[-1].path, mutating[-1].query) == (
         "DELETE", f"/{WS}/{LH}/{readiness.CHECK_FOLDER}", {"recursive": "true"})
 
@@ -332,12 +358,14 @@ def test_the_write_test_writes_reads_and_deletes_only_its_own_folder():
     ("Files/ünïcode.txt", "Files/%C3%BCn%C3%AFcode.txt"),
 ])
 def test_writes_and_deletes_go_to_the_given_workspace_and_lakehouse(path, expected):
-    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201), Reply(200)])
     fs.upload(WS, LH, path, b"x")
     fs.delete(WS, LH, path)
     assert {r.host for r in t.sent} == {DFS_HOST}
     assert all(r.url.startswith("https://") for r in t.sent)
-    assert {r.path for r in t.sent} == {f"/{WS}/{LH}/{expected}"}
+    assert {r.path for r in t.sent[3:]} == {f"/{WS}/{LH}/{expected}"}
+    assert all(temp_of(f"/{WS}/{LH}/{expected}").match(r.path) for r in t.sent[:3])
+    assert t.sent[3].headers["x-ms-rename-source"] == t.sent[0].path
 
 
 def test_each_call_uses_its_own_workspace_and_lakehouse():
@@ -386,9 +414,9 @@ def test_encoded_and_backslash_dot_segments_are_refused(path):
 
 
 def test_a_folder_name_with_dots_is_still_a_path():
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/v1..2/..hidden/x.parquet", b"x")
-    assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 3
+    assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 4
 
 
 @pytest.mark.parametrize("path", ["Files/../..", "Files/..", "/lakehouse/default/Files/%2e%2e"])

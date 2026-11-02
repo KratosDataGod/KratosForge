@@ -45,7 +45,7 @@ Today there are 9, 7, about 9 and 5 copies (EA-028). Callers move over one PR at
 
 ### AD-6: Split the `Service` class by surface, not by rewrite (proposed)
 
-`Service` combines 62 mixins and exposes 637 engine methods. The proposal leaves the class alone and keeps each mixin in its own module, as most are today. It also generates the method list that `server.py` and the shell's quick-call list read, so the list isn't kept by hand in two languages (EA-026).
+`Service` combines 62 mixins and exposes 637 engine methods. The proposal leaves the class alone and keeps each mixin in its own module, as most are today. The shell's quick-call list is already checked against `server.QUICK` by `test_server_lanes.py`.
 
 **Why:** this lowers coupling without a big-bang refactor.
 

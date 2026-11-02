@@ -158,7 +158,7 @@ Baseline: `main` at `b75dcf5`, 2026-11-02.
 | EA-023 | P3 | GAP | A corrupt SQLite file (job queue) stops the agent from starting, and the service manager restarts it in a loop; JSON files are set aside instead | `jobqueue.py` | Workload management |
 | EA-024 | P3 | GAP, UNVERIFIED (Windows) | Automatic update rollback covers only a start that fails before the window loads; `exe.old` is deleted once the UI calls `check_components` | `main.rs` | Release management |
 | EA-025 | P3 | RISK | Lease expiry compares wall clocks across PCs, so clock skew can let another PC take a live lease. Delta's version check still applies | `leases.py` | Local TPC-H |
-| EA-026 | P3 | GAP | The quick-call list is kept by hand in both `watchdog.rs` and `server.py`, and no test checks that they match | `watchdog.rs`, `server.py` | Codebase audit |
+| EA-026 | n/a | Not a defect (withdrawn) | The audit reported that the quick-call lists in `watchdog.rs` and `server.py` had no matching test. They do: `tests/test_server_lanes.py::test_quick_calls_match_the_shell_time_limit_list` parses `QUICK` from `watchdog.rs`, asserts it equals `server.QUICK`, and checks `QUICK` is a subset of `METHODS` | `tests/test_server_lanes.py` | Checked by WS6 and the audit lead |
 | EA-027 | P3 | GAP | Ruff runs only E9 and F. Proposal: add `B` (except the reviewed false positives such as B023) and `BLE`, a few rules at a time, with the existing silent-`except` gate | `pyproject.toml` | Codebase audit |
 | EA-028 | P2 | GAP | Shared plumbing is still copied: 9 atomic-write implementations, 7 SQLite connection sites with no corruption handling, about 8 hand-written retry loops, 5 redactors. Characterize, then move callers to the shared helpers one at a time | many | Codebase audit |
 | EA-029 | P2 | GAP | No benchmarks for app start, notebook start or SQL latency, and no performance check in CI | `examples/benchmark` | Local data engine |
@@ -178,4 +178,5 @@ Four further P3 security hardening items are tracked privately and have been rou
 | --- | --- | --- |
 | EA-002, EA-019 | In review | the first remediation PR (linked from the PR list) |
 | EA-018 | In this docs PR | |
+| EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
 | Others | Routed to owners | |

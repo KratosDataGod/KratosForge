@@ -59,5 +59,4 @@ These are proposals only. Each would be its own PR, and none is in this one.
 1. Add Ruff `B` rules, except reviewed false positives such as B023 on closures called inside the loop, and `BLE`. Fix or annotate the existing hits in small batches (EA-027).
 2. Lock in mypy decreases as they land. The ratchet already supports `--update`; the Codebase audit thread owns it.
 3. Measure coverage in CI, for information only. Coverage will not be made a gate.
-4. Add a test that the quick-call lists in Rust and Python match (EA-026).
-5. Add a start-up and notebook-start timing benchmark, recorded per build, warning-only at first (EA-029).
+4. Add a start-up and notebook-start timing benchmark, recorded per build, warning-only at first (EA-029).

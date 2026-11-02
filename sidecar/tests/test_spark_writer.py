@@ -252,3 +252,12 @@ def test_drop_and_truncate_of_a_lakehouse_table_stop_with_a_clear_message(lake):
     out = k.run("spark.table('dbo.sales').limit(0).write.mode('overwrite').saveAsTable('dbo.sales')\n"
                 "print(spark.table('dbo.sales').count())")
     assert out["outputs"][-1]["text"].strip().splitlines()[-1] == "0", out
+
+
+@pytest.mark.parametrize("code", ["df.write.format('parquet').save()", "df.write.format('csv').save()",
+                                  "spark.read.format('csv').load()", "spark.read.format('delta').load()",
+                                  "spark.read.load()"])
+def test_save_and_load_without_a_path_say_what_they_need(lake, code):
+    status, text = run(code)
+    assert status == "error"
+    assert "Give save a path" in text or "Give load a path" in text

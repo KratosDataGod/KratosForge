@@ -171,7 +171,7 @@ The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per 
 
 | Field | Holds |
 | --- | --- |
-| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
+| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `aggregate`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
 | `local.check` | The compatibility check's outcome and exact rules |
 | `local.format` | `formats` or `left_alone` (Format SQL left it as it was). Formatting must never change the check's findings |
 | `local.run` | Spark SQL cases only: the rows, or part of the error, that running it on this PC gives. T-SQL cases are always refused here, and the test checks that |

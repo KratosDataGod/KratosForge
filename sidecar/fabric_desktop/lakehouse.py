@@ -62,6 +62,8 @@ class WriteResult:
     delta_version: int
     uri: str
     skipped: bool = False  # the table already held exactly these rows, so nothing was uploaded
+    # The write committed but its lease lapsed while it wrote (publish's lease_warning, EA-006).
+    warning: str | None = None
 
     def __repr__(self) -> str:
         if self.skipped:
@@ -71,6 +73,8 @@ class WriteResult:
         if self.delta_version == 0:
             # Fabric lists a table written from outside under Unidentified until the lakehouse is refreshed.
             text += ". New table: refresh the lakehouse in Fabric if it shows under Unidentified"
+        if self.warning:
+            text += f"\nWarning: {self.warning}"
         return text
 
 
@@ -563,7 +567,7 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
             if spill is not None:
                 spill.remove()
         skipped = bool(getattr(delta, "skipped", False))
-        result = WriteResult(name_, rows, delta.version(), ref.uri, skipped)
+        result = WriteResult(name_, rows, delta.version(), ref.uri, skipped, getattr(delta, "lease_warning", None))
         if stats is not None:
             stats.wrote(uploading, 0 if skipped else rows, getattr(delta, "written_bytes", None), skipped)
         # A table the notebook writes before reading starts, for a replay, at the version before that write.
@@ -586,7 +590,10 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
         if queue is None or upload == "direct":
             if queue is not None:
                 queue.wait()  # in order with the cell's writes still uploading
-            return commit()
+            done = commit()
+            if done.warning:
+                print(f"Warning: {done.warning}")  # in the cell's output, as well as its log
+            return done
         # Returns at once, unless the writes already waiting hold too much of this PC's memory.
         future = queue.submit(ref.uri, name_, arrow.nbytes if arrow is not None else 0, commit)
     if spill is not None:  # a write cancelled before it started never runs commit(), which removes it

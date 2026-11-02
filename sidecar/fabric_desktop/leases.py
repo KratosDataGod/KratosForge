@@ -29,6 +29,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import math
 import os
 import socket
 import threading
@@ -362,10 +363,14 @@ class Leases:
         try:
             body = json.loads(stored.data)
             if "ttl" in body:
-                return float(body["ttl"])
-            return float(body["expires"]) - dt.datetime.fromisoformat(body["acquired_at"]).timestamp()
-        except (ValueError, KeyError, TypeError):
+                length = float(body["ttl"])
+            else:
+                length = float(body["expires"]) - dt.datetime.fromisoformat(body["acquired_at"]).timestamp()
+        except (ValueError, KeyError, TypeError, OverflowError):
             return self.ttl
+        # A damaged or hostile body (NaN, infinite, zero or less) can't make a lease last forever or
+        # end at once: this writer's own length stands in.
+        return length if math.isfinite(length) and length > 0 else self.ttl
 
     def holder(self, key: str) -> str:
         stored = self.backend.read(key)

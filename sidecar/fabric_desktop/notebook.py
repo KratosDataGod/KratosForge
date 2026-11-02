@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import builtins
 import contextlib
 import ctypes
 import hashlib
@@ -38,7 +39,7 @@ import uuid
 import warnings
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import pyarrow as pa
 
@@ -213,9 +214,9 @@ def display(value: Any) -> dict[str, Any]:
     if not isinstance(value, type):
         bundle = _mime_bundle(value)
         if bundle:
-            out = _from_bundle(bundle)
-            if out is not None:
-                return out
+            shown = _from_bundle(bundle)
+            if shown is not None:
+                return shown
     return {"type": "text", "text": repr(value)}
 
 
@@ -332,8 +333,9 @@ class _Run:
             self.version += 1
 
     def _reset(self) -> None:
-        if getattr(self, "spill", None) is not None:
-            _drop_spill(self.spill, self.spill_file)
+        spill = getattr(self, "spill", None)
+        if spill is not None:
+            _drop_spill(spill, self.spill_file)
         self._outputs, self._tail, self.clear_pending = [], [], False
         self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
@@ -697,9 +699,9 @@ class Kernel:
             from .dbutils_local import RestartPython
             raise RestartPython()
         # Fabric's session.restartPython and stop: on this PC both restart Python after the cell.
-        utils.session = types.SimpleNamespace(
+        vars(utils).update(session=types.SimpleNamespace(
             restartPython=restart_python, stop=restart_python,
-            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)"))
+            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)")))
         sys.modules["notebookutils"] = utils
         sys.modules["mssparkutils"] = utils
         dbutils = dbutils_local.build(host, utils)
@@ -809,7 +811,7 @@ class Kernel:
             thread.start()
             thread.join(WIDGET_SECONDS)
             if thread.is_alive():
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, thread.ident)), ctypes.py_object(KeyboardInterrupt))
                 thread.join(2.0)
                 if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
                     status["value"] = "cancelled"
@@ -887,7 +889,7 @@ class Kernel:
                 out = {**out, "display_id": did}
             if run is None:
                 print(out.get("text", out))
-            elif update:
+            elif update and did is not None:
                 for sink in {id(x): x for x in [run, *self._display_sinks.get(did, [])]}.values():
                     sink.replace(did, out)
             else:
@@ -979,7 +981,7 @@ class Kernel:
         with run.cancel_lock:
             run.cancel_requested = True
             if run.armed:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(cast(int, run.thread.ident)), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
 
@@ -1169,7 +1171,10 @@ class Kernel:
                 tree = ast.parse(code, _CELL_FILE)
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
-                last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+                end = tree.body[-1] if tree.body else None
+                last = end if isinstance(end, ast.Expr) else None
+                if last is not None:
+                    tree.body.pop()
                 body = compile(tree, _CELL_FILE, "exec")
                 tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
                 if debugger is not None:
@@ -1252,13 +1257,15 @@ class Kernel:
         SQL database. That engine is in Fabric, so here the cell is checked against its rules
         (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
         from . import sqlcompat
-        kind = (re.search(r"-type\s+(\w+)", cell.args) or [None, "Warehouse"])[1].lower()
+        typed = re.search(r"-type\s+(\w+)", cell.args)
+        kind = (typed[1] if typed else "Warehouse").lower()
         target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
                   "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
         report = sqlcompat.analyze(cell.body, target)
         found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
                  for d in report["diagnostics"] if d["severity"] in ("error", "warning")]
-        artifact = (re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args) or [None, "the item named in -artifact"])[1].strip('"')
+        named = re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args)
+        artifact = (named[1] if named else "the item named in -artifact").strip('"')
         print(f"Checked against {report['target']['label']} rules: {report['outcome']['text']}"
               + ("\n" + "\n".join(found) if found else ""))
         self._emit(run, {"type": "error", "ename": "RunsInFabric", "traceback": "", "evalue":
@@ -1343,7 +1350,7 @@ class Kernel:
                 if current is not None:
                     self._flush_figures(current)
             show._fabric_desktop = True  # type: ignore[attr-defined]
-            plt.show = show
+            vars(plt).update(show=show)
 
     @staticmethod
     def _flush_figures(run: _Run) -> None:
@@ -1418,7 +1425,8 @@ class Kernel:
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
         if name == "timeit":
-            m = re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line)  # options lead, as in IPython
+            # options lead, as in IPython; every line matches (both parts can be empty)
+            m = cast(re.Match[str], re.match(r"((?:\s*-(?:[nr]\s*\d+|[A-Za-z])(?=\s|$))*)\s*(.*)$", line))
             return self._timeit(m.group(1), m.group(2), self.namespace)
         if name == "lsmagic":
             print(self._line_magic_help())
@@ -1882,7 +1890,7 @@ class _BuiltinPaths(ast.NodeTransformer):
         return (self._parents or {}).get(id(node))
 
     @staticmethod
-    def _call_name(node: ast.AST) -> str:
+    def _call_name(node: ast.AST | None) -> str:
         if not isinstance(node, ast.Call):
             return ""
         return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
@@ -2379,7 +2387,8 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
     if isinstance(title, str) and title.strip():
         meta["title"] = title.strip()
-    own = md.get("fabric_desktop") if isinstance(md.get("fabric_desktop"), dict) else {}
+    own_md = md.get("fabric_desktop")
+    own = own_md if isinstance(own_md, dict) else {}
     chart = _chart_meta(own.get("chart"))
     if chart:
         meta["chart"] = chart
@@ -2453,7 +2462,8 @@ def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
     """``new`` (from to_ipynb) with the metadata Fabric Desktop doesn't own carried over from the
     notebook as it was on disk: notebook-level keys, other tools' ``fabric_desktop`` keys and
     ``dependencies`` such as a Fabric environment, and each cell's other metadata, by cell id."""
-    old_meta = before.get("metadata") if isinstance(before.get("metadata"), dict) else {}
+    saved_meta = before.get("metadata")
+    old_meta = saved_meta if isinstance(saved_meta, dict) else {}
     meta = {k: v for k, v in old_meta.items() if k not in _OWN_NOTEBOOK_KEYS + ("fabric_desktop", "dependencies")}
     old_fd = {k: v for k, v in (old_meta.get("fabric_desktop") or {}).items() if k not in _OWN_FD_KEYS}
     old_deps = {k: v for k, v in (old_meta.get("dependencies") or {}).items() if k != "lakehouse"}
@@ -2580,7 +2590,7 @@ class NotebookStore:
     def path(self, name: str) -> Path:
         return self.folder / f"{check_notebook_name(name)}.ipynb"
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         files = sorted(notebook_files(self.folder), key=lambda f: f[1].stat().st_mtime, reverse=True)
         return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
@@ -2588,7 +2598,7 @@ class NotebookStore:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
         return {"name": name, **from_ipynb(nb), "disk_stamp": disk_stamp(nb)}
 
-    def save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
+    def save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None = None,
              compute: str | None = None, workspace: dict[str, Any] | None = None,
              expected_stamp: str | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
@@ -2605,7 +2615,7 @@ class NotebookStore:
         with self._write_lock:
             return self._save(name, cells, lakehouse, compute, workspace, expected_stamp)
 
-    def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+    def _save(self, name: str, cells: builtins.list[dict[str, Any]], lakehouse: dict[str, Any] | None,
               compute: str | None, workspace: dict[str, Any] | None,
               expected_stamp: str | None = None) -> dict[str, Any]:
         path = self.path(name)
@@ -2820,12 +2830,12 @@ class NotebookShelf(NotebookStore):
             dest.unlink(missing_ok=True)
             raise OSError(f"Couldn't copy {name}'s resources to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
-        out = {"name": name, "place": self.place_of(name), "moved": True}
+        result: dict[str, Any] = {"name": name, "place": self.place_of(name), "moved": True}
         try:
             notebook_resources.remove_folder(res_src)
         except OSError as e:  # a file held open: the moved copy is whole, the old folder stays
-            out["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
-        return out
+            result["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
+        return result
 
 
 def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, Any]:

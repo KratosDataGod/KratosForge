@@ -523,3 +523,12 @@ def test_an_error_code_is_shown_only_when_it_looks_like_one(code, shown):
     with pytest.raises(requests.HTTPError) as err:
         fs.list(WS, LH, "Files/in")
     assert str(err.value) == f"OneLake didn't list Files/in (403{': ' + shown if shown else ''})."
+
+
+def test_lease_and_control_files_get_encoded_urls_too():
+    from fabric_desktop.leases import LEASE_DIR, OneLakeBackend
+    from fabric_desktop.mailbox import CONTROL_DIR, OneLakeControl
+    lease = OneLakeBackend(WS, LH, lambda: "tok")._url("LH_Gold/dbo.a#b")
+    control = OneLakeControl(WS, LH, lambda: "tok")._url("requests/r?1.json")
+    assert lease == f"{ITEM}/{LEASE_DIR}/LH_Gold/dbo.a%23b.json"
+    assert control == f"{ITEM}/{CONTROL_DIR}/requests/r%3F1.json"

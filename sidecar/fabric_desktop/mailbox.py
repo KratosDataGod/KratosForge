@@ -75,7 +75,7 @@ from . import jsonfile
 from .errors import NotSetUp
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
-from .onelake import DFS_HOST, _onelake_error
+from .onelake import DFS_HOST, _onelake_error, item_url
 from .paging import Pages
 from .redact import describe
 from .retrying import send_with_retry
@@ -115,7 +115,7 @@ class OneLakeControl(OneLakeBackend):
     """Control files in ``LH_Meta``'s Files area, changed with the same conditional requests as leases."""
 
     def _url(self, key: str) -> str:
-        return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{CONTROL_DIR}/{key}"
+        return item_url(self.workspace_id, self.lakehouse_id, f"{CONTROL_DIR}/{key}")
 
     def list(self, folder: str) -> list[str]:
         url = f"https://{DFS_HOST}/{self.workspace_id}"

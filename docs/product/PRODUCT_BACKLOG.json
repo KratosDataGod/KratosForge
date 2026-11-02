@@ -5991,9 +5991,10 @@
       "effort": "L",
       "prs": [],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
-      "capability": "New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).",
+      "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
       "evidence": [
-        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built"
+        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built",
+        "2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6034,7 +6035,7 @@
         "Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608)",
         "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
         "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
-        "Scores and the blocker flag were set to match PB-101, the hardening program it splits from"
+        "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6118,6 +6119,97 @@
         "cost": 3.5,
         "score": 1.75,
         "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-125",
+      "title": "Learn ranks and profile pictures",
+      "state": "Proposed",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "M",
+      "prs": [],
+      "problem": "Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.",
+      "capability": "Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is \"Data God\"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.",
+      "evidence": [
+        "Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp",
+        "Nothing built. Builds as draft PRs once Chris approves the rank ladder"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "Learn curriculum design 2026-11-02"
+      ],
+      "acceptance": [
+        "A rank is earned only from the person's own verified evidence on this PC (Learn passes, clean Validate runs and checked fixes), never set by hand; Proof Forged is never required",
+        "Ranks follow the Developer progression switch (Profile > Settings)",
+        "Every rank name and picture prompt follows the approved ladder; no rank name contains god, deity or divine, and a test enforces it",
+        "A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size",
+        "The picture prompts are text only: the app generates no images and calls no AI service"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-126",
+      "title": "Learn curriculum content batches by path",
+      "state": "Proposed",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "Learn v1 has the first lessons and labs only, so no path is a full curriculum.",
+      "capability": "A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.",
+      "evidence": [
+        "From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09)",
+        "Nothing built. Each batch needs Chris's go before it is built"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LM-13..35",
+        "LAB-05..12"
+      ],
+      "acceptance": [
+        "Every lesson names rule ids that resolve in the catalog (test_learn_content)",
+        "Every lab runs on this PC with generated data inside the lab limits (test_learn_labs)",
+        "docs/learn.md lists the paths and lessons as shipped"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
       }
     }
   ]

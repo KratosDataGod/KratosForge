@@ -172,6 +172,10 @@ def test_left_right_and_translate_fail_where_tsql_fails(engine):
     r = tsql(engine, "SELECT LEFT(name, id) AS l, RIGHT(name, id) AS r, LEFT('abc', 0) AS z, "
                      "TRANSLATE(name, 'nB', 'Nb') AS t FROM dbo.orders ORDER BY id")
     assert r["rows"] == [["A", " ", "", "ANN  "], ["Bo", "Bo", "", "bo"]]
+    # T-SQL makes the length an integer toward zero first: -0.5 is 0, and 2.7 is 2 (DuckDB rounds).
+    r = tsql(engine, "SELECT LEFT('abc', -0.5) AS a, RIGHT('abc', 2.7) AS b, LEFT(name, price) AS c FROM dbo.orders "
+                     "ORDER BY id")
+    assert r["rows"] == [["", "bc", "An"], ["", "bc", "Bo"]]
     for sql in ("SELECT LEFT('abc', -1)", "SELECT RIGHT(name, -2) FROM dbo.orders"):
         with pytest.raises(ValueError, match="Invalid length parameter passed to the (LEFT|RIGHT) function"):
             tsql(engine, sql)
@@ -181,3 +185,17 @@ def test_left_right_and_translate_fail_where_tsql_fails(engine):
         tsql(engine, "SELECT TRANSLATE('abc', 'ab', 'x')")
     with pytest.raises(Exception, match="must contain an equal number of characters"):
         tsql(engine, "SELECT TRANSLATE(name, name, 'x') AS t FROM dbo.orders")
+
+def test_a_float_as_text_has_six_significant_digits(engine):
+    # T-SQL's style 0 for float and real: %g, with a three-digit exponent. DuckDB writes every digit.
+    engine.execute("CREATE TABLE dbo.f AS SELECT * FROM (VALUES (1, CAST(1 AS DOUBLE) / 3, CAST(0.5 AS REAL)), "
+                   "(2, 1234567.0, 0.00001), (3, 100.0, -2.5), (4, NULL, NULL)) v(id, d, r)")
+    r = tsql(engine, "SELECT CAST(d AS VARCHAR) AS a, CONVERT(VARCHAR(20), d) AS b, CAST(r AS NVARCHAR(10)) AS c, "
+                     "TRY_CAST(d AS VARCHAR(30)) AS t FROM dbo.f ORDER BY id")
+    assert r["rows"] == [["0.333333", "0.333333", "0.5", "0.333333"],
+                         ["1.23457e+006", "1.23457e+006", "1e-005", "1.23457e+006"],
+                         ["100", "100", "-2.5", "100"], [None, None, None, None]]
+    assert tsql(engine, "SELECT CAST(1e10 AS VARCHAR) AS a, CAST(price AS VARCHAR) AS p FROM dbo.orders ORDER BY id")[
+        "rows"] == [["1e+010", "2.5"], ["1e+010", "4.0"]]  # price is a decimal: unchanged
+    with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
+        tsql(engine, "SELECT CAST(d AS VARCHAR(5)) AS s FROM dbo.f")  # '0.333333' is 8 characters

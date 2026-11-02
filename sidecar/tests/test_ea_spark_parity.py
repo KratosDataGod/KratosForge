@@ -48,9 +48,8 @@ def test_sum_of_ints_is_written_as_bigint(lake):
     assert DeltaTable(str(lake / "dbo" / "sums")).to_pyarrow_table().schema.field("t").type == pa.int64()
 
 
-@pytest.mark.xfail(strict=False, reason="EA-004: decimal division returns double and is written as Float64 (DuckDB 2.0 may already pass)")
 def test_decimal_division_stays_decimal(lake):
     status, text = run("spark.sql('SELECT CAST(10 AS DECIMAL(10,2)) / CAST(3 AS DECIMAL(10,2)) AS q')"
                        ".write.mode('overwrite').saveAsTable('dbo.q')")
     assert status == "ok", text
-    assert pa.types.is_decimal(DeltaTable(str(lake / "dbo" / "q")).to_pyarrow_table().schema.field("q").type)
+    assert DeltaTable(str(lake / "dbo" / "q")).to_pyarrow_table().schema.field("q").type == pa.decimal128(23, 13)

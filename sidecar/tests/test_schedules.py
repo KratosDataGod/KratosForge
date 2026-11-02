@@ -549,3 +549,15 @@ def test_two_processes_logging_runs_while_one_trims_lose_no_new_row(tmp_path):
     rows = LocalSchedules(tmp_path).runs(limit=10**6)
     for name in ("a", "b"):  # the trim keeps everything (RUNS_KEEP is large), so every row must still be there
         assert sorted(r["n"] for r in rows if r["schedule_id"] == name) == list(range(150))
+
+
+def test_a_trim_keeps_no_more_than_its_byte_budget_when_rows_are_long(tmp_path, monkeypatch):
+    from fabric_desktop import local_schedules
+    monkeypatch.setattr(local_schedules, "RUNS_KEEP", 1000)
+    monkeypatch.setattr(local_schedules, "RUNS_TRIM_BYTES", 4000)
+    monkeypatch.setattr(local_schedules, "RUNS_KEEP_BYTES", 2000)
+    s = LocalSchedules(tmp_path)
+    for i in range(30):
+        s.log_run({"schedule_id": "a", "status": "failed", "n": i, "message": "x" * 400})  # long error text
+    assert s.runs_file.stat().st_size <= 4000  # never left over the cap, so not rewritten on every run
+    assert s.runs()[0]["n"] == 29

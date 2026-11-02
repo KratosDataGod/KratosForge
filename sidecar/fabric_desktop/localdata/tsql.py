@@ -7,6 +7,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
+- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
@@ -269,17 +270,23 @@ def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
 
 def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     """Text to an integer type: T-SQL takes only a whole number, with spaces around it, and '' as 0;
-    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4."""
-    text = node.this
-    whole = exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
-    blank = exp.EQ(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string(""))
+    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4. The text is
+    bound once, as LIST_TRANSFORM([text], v -> ...)[1], so a source that changes each time it's read
+    is read once."""
+    v = exp.to_identifier("kf_text")
+    whole = exp.func("REGEXP_FULL_MATCH", v.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
+    blank = exp.EQ(this=exp.func("TRIM", v.copy()), expression=exp.Literal.string(""))
     message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
     other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
-    node.replace(exp.Case(ifs=[exp.If(this=whole, true=node.copy()),
-                               exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
-                               exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Cast(
-                                   this=exp.Null(), to=to.copy()))],
-                          default=other))
+    cast = node.copy()
+    cast.set("this", v.copy())
+    case = exp.Case(ifs=[exp.If(this=whole, true=cast),
+                         exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
+                         exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
+                                true=exp.Cast(this=exp.Null(), to=to.copy()))],
+                    default=other)
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -426,6 +433,9 @@ def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
 
 
+_SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}
+
+
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
@@ -447,8 +457,11 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous)):
-        if isinstance(node, exp.Length):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+        if isinstance(node, exp.DateDiff):
+            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+                _sunday_weeks(node)
+        elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
@@ -464,10 +477,27 @@ def _functions(tree: exp.Expression) -> None:
                     exp.cast(exp.func("STRFTIME", day, exp.Literal.string("%U")), "INT")
                     + exp.Case(ifs=[exp.If(this=sunday_first, true=exp.Literal.number(0))],
                                default=exp.Literal.number(1)), copy=False))
+        elif isinstance(node, exp.Anonymous) and node.name.upper() in _SPREADS and len(node.expressions) == 1:
+            # VAR is the sample variance, VARP the population's, STDEVP the population's standard deviation
+            # (STDEV is read as the sample's already). DuckDB has none of these names.
+            node.replace(_SPREADS[node.name.upper()](this=node.expressions[0]))
         elif isinstance(node, exp.CurrentTimestamp) or (
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
+
+
+def _sunday_weeks(node: exp.DateDiff) -> None:
+    """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
+    (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    def monday(day: exp.Expression) -> exp.Expression:
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
+
+    days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
+                                                        monday(node.this)])
+    node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
 
 
 def _first_line(exc: Any) -> str:

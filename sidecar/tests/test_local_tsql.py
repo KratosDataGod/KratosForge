@@ -181,6 +181,12 @@ def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
             tsql(engine, sql)
 
 
+def test_text_to_an_integer_reads_its_source_once():
+    """A source that changes each time it's read (RAND, NEWID) is read once, not once per check."""
+    text = translate("SELECT CAST(CAST(CAST(RAND() * 10 AS INT) AS VARCHAR(5)) AS INT)")[0][0]
+    assert text.upper().count("RANDOM()") == 1 and "LIST_TRANSFORM" in text.upper()
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")
@@ -201,6 +207,28 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("start, end, weeks", [
+    ("2024-01-06", "2024-01-07", 1),  # Saturday to Sunday crosses one Sunday
+    ("2024-01-07", "2024-01-13", 0),  # Sunday to Saturday crosses none
+    ("2024-03-05", "2024-03-10", 1),  # Tuesday to Sunday
+    ("2024-03-01", "2024-03-31", 5),
+    ("2024-03-31", "2024-03-01", -5),
+    ("2024-03-05", "2024-03-05", 0),
+    ("2024-01-06 23:59:00", "2024-01-07 00:01:00", 1),  # the time of day doesn't count
+    ("2023-12-30", "2024-01-01", 1),  # across a year: Sunday 31 December
+])
+def test_datediff_week_counts_the_sundays_crossed(engine, start, end, weeks):
+    for unit in ("week", "wk", "ww"):
+        assert tsql(engine, f"SELECT DATEDIFF({unit}, '{start}', '{end}')")["rows"] == [[weeks]]
+
+
+def test_datediff_week_on_date_columns(engine):
+    r = tsql(engine, "SELECT id, DATEDIFF(week, day, DATEADD(day, 7, day)) FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 1], [2, 1]]
+    # Sunday 18 October 2026 back to Sunday 4 January 2026: 41 Sundays.
+    assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
 
 
 @pytest.mark.parametrize("value, pattern, matches", [
@@ -248,3 +276,17 @@ def test_set_datefirst_7_is_skipped_and_others_refused(engine):
 
 def test_a_like_without_ranges_stays_a_like():
     assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]
+
+
+def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):
+    import math
+    r = tsql(engine, "SELECT VAR(price) AS v, VARP(price) AS vp, STDEV(price) AS s, STDEVP(price) AS sp, "
+                     "VAR(DISTINCT boxes) AS vd FROM dbo.orders")
+    v, vp, s, sp, vd = r["rows"][0]
+    assert (v, vp, vd) == (1.125, 0.5625, None)  # 2.5 and 4.0; boxes has one distinct value
+    assert math.isclose(s, math.sqrt(1.125)) and math.isclose(sp, 0.75)
+    one = tsql(engine, "SELECT VAR(qty) AS v, VARP(qty) AS vp, STDEV(qty) AS s, STDEVP(qty) AS sp FROM dbo.orders "
+                       "WHERE id = 1")
+    assert one["rows"] == [[None, 0.0, None, 0.0]]  # one row: no sample spread, a population spread of 0
+    w = tsql(engine, "SELECT id, VARP(qty) OVER () AS vp FROM dbo.orders ORDER BY id")
+    assert w["rows"] == [[1, 49.0], [2, 49.0]]

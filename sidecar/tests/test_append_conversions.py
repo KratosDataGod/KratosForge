@@ -133,13 +133,35 @@ def test_an_insert_casts_a_literal_that_keeps_its_value(monkeypatch):
     assert out.schema == pa.schema([("id", pa.int64()), ("amount", pa.float64())]) and out.to_pylist() == [{"id": 4, "amount": 1.0}]
 
 
-@pytest.mark.parametrize("column", [
-    pa.array([2.75]), pa.array([2**53 + 1], pa.int64()),
+@pytest.mark.parametrize("column, dst", [
+    (pa.array([2.75]), pa.int64()), (pa.array([2**53 + 1], pa.int64()), pa.float64()),
+    (pa.array([1.1]), pa.float32()),
 ])
-def test_an_insert_that_would_change_a_value_is_refused(monkeypatch, column):
-    assign = _table_with(monkeypatch, pa.schema([("n", pa.int64() if pa.types.is_floating(column.type) else pa.float64())]))
+def test_an_insert_that_would_change_a_value_is_refused(monkeypatch, column, dst):
+    assign = _table_with(monkeypatch, pa.schema([("n", dst)]))
     with pytest.raises(ValueError, match="Nothing was written"):
         assign(pa.table({"n": column}), "dbo.t")
+
+
+@pytest.mark.parametrize("column, dst", [
+    (pa.array(["5"]), pa.int32()), (pa.array([True]), pa.int32()), (pa.array([1], pa.int32()), pa.bool_()),
+    (pa.array(["2020-01-01"]), pa.date32()),
+])
+def test_an_insert_leaves_what_spark_wont_assign_for_write_table_to_refuse(monkeypatch, column, dst):
+    assign = _table_with(monkeypatch, pa.schema([("n", dst)]))
+    out = assign(pa.table({"n": column}), "dbo.t")
+    assert out.schema.field("n").type == column.type  # not cast
+    assert conversions(out.schema, pa.schema([("n", dst)]))  # and write_table stops it
+
+
+@pytest.mark.parametrize("column, dst, value", [
+    (pa.array([7], pa.int32()), pa.string(), "7"), (pa.array([1.5]), pa.float32(), 1.5),
+    (pa.array([dt.date(2026, 1, 2)]), pa.timestamp("us", "UTC"), dt.datetime(2026, 1, 2, tzinfo=dt.timezone.utc)),
+])
+def test_an_insert_casts_what_spark_assigns(monkeypatch, column, dst, value):
+    assign = _table_with(monkeypatch, pa.schema([("n", dst)]))
+    out = assign(pa.table({"n": column}), "dbo.t")
+    assert out.schema.field("n").type == dst and out.column("n").to_pylist() == [value]
 
 
 def test_an_insert_refuses_a_decimal_a_double_would_round(monkeypatch):

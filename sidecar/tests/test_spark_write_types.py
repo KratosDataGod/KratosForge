@@ -88,3 +88,11 @@ def test_a_struct_of_sums_and_a_list_of_sums_are_written_as_bigint(lake):
     assert table.schema.field("s").type == pa.struct([("t", pa.int64())])
     assert pa.types.is_list(table.schema.field("l").type) and table.schema.field("l").type.value_type == pa.int64()
     assert table.column("s").to_pylist() == [{"t": 3}] and table.column("l").to_pylist() == [[3]]
+
+
+def test_a_union_holding_a_128_bit_integer():
+    con = duckdb.connect()
+    rel = con.sql("SELECT CAST(union_value(k := CAST(7 AS HUGEINT)) AS UNION(k HUGEINT, s VARCHAR)) AS u")
+    out = _spark_types(rel)
+    assert str(out.types[0]) == "UNION(k BIGINT, s VARCHAR)"
+    assert out.fetchall() == [(7,)]

@@ -55,7 +55,10 @@ def _long_type(kind: Any) -> str | None:
             return "BIGINT", True
         if t.id not in _NESTED:
             return str(t), False
-        parts = [(name, *write(child)) for name, child in t.children if name != "size"]
+        # An array lists its size as a child, and a union its tag (with an empty name): neither is a member.
+        children = [(name, child) for name, child in t.children
+                    if not (t.id == "array" and name == "size") and not (t.id == "union" and name == "")]
+        parts = [(name, *write(child)) for name, child in children]
         wide = any(p[2] for p in parts)
         if t.id == "list":
             return f"{parts[0][1]}[]", wide

@@ -145,7 +145,7 @@ class Db:
     def rows(self, sql: str, params: tuple | list = ()) -> list[dict[str, Any]]:
         cur = self.run(sql, params)
         names = [d[0] for d in cur.description]
-        return [dict(zip(names, r)) for r in cur.fetchall()]
+        return [dict(zip(names, r, strict=True)) for r in cur.fetchall()]
 
     def exists(self, schema: str, table: str) -> bool:
         if self.tsql:

@@ -127,6 +127,12 @@ def _harmless_setting(tree: exp.Expression) -> bool:
     items = tree.expressions
     names = [i.this.this.name.upper() if isinstance(i.this, exp.EQ) and isinstance(i.this.this, exp.Column) else ""
              for i in items]
+    if names == ["DATEFIRST"]:
+        value = items[0].this.expression
+        if isinstance(value, exp.Literal) and value.name == "7":
+            return True  # Fabric's default, which the translation already follows
+        raise ValueError("The local engine counts weeks from Sunday (SET DATEFIRST 7, Fabric's default), and doesn't "
+                         "run other DATEFIRST settings yet. Remove the SET DATEFIRST.")
     return bool(items) and all(n in _DROPPED_SETTINGS for n in names)
 
 
@@ -312,6 +318,10 @@ def _converts(tree: exp.Expression) -> None:
         node.replace(new)
 
 
+_LIKE_NOTE = ("A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's LIKE "
+              "does, which takes no [a-c] character ranges.")
+
+
 def _likes(tree: exp.Expression) -> list[str]:
     """T-SQL's ``LIKE`` takes ``[a-c]`` and ``[^a-c]`` character ranges, which DuckDB's doesn't: there
     ``'b1' LIKE '[a-c]1'`` is false. A pattern with a range is matched as a regular expression instead."""
@@ -320,8 +330,7 @@ def _likes(tree: exp.Expression) -> list[str]:
         escape = like.parent if isinstance(like.parent, exp.Escape) else None
         pattern = like.expression
         if not (isinstance(pattern, exp.Literal) and pattern.is_string):
-            notes.append(f"Couldn't tell the pattern in {like.sql(dialect='tsql')}: it matches as DuckDB's LIKE does, "
-                         "which takes no [a-c] character ranges.")
+            notes.append(_LIKE_NOTE)
             continue
         char = escape.expression.name if escape is not None and isinstance(escape.expression, exp.Literal) else ""
         if "[" not in pattern.name or (escape is not None and len(char) != 1):
@@ -342,21 +351,57 @@ def _like_regex(pattern: str, escape: str = "") -> str:
             out.append(re.escape(pattern[i + 1]))
             i += 2
             continue
-        if c == "%":
-            out.append(".*")
-        elif c == "_":
-            out.append(".")
-        elif c == "[" and (end := pattern.find("]", i + 2)) != -1:
-            body = pattern[i + 1:end]
-            negate = body.startswith("^") and len(body) > 1
-            body = body[1:] if negate else body
-            out.append("[" + ("^" if negate else "") + "".join("\\" + ch if ch in "\\[]^" else ch for ch in body) + "]")
-            i = end + 1
+        if c == "[" and (found := _like_range(pattern, i + 1, escape)) is not None:
+            text, i = found
+            out.append(text)
             continue
-        else:
-            out.append(re.escape(c))
+        out.append(".*" if c == "%" else "." if c == "_" else re.escape(c))
         i += 1
     return "".join(out)
+
+
+_NOTHING, _ANY = "[^\\x{0}-\\x{10FFFF}]", "[\\x{0}-\\x{10FFFF}]"
+
+
+def _like_range(pattern: str, start: int, escape: str) -> tuple[str, int] | None:
+    """The ``[...]`` that opens before ``start`` as an RE2 class, and where the pattern goes on; None
+    when it isn't closed (the ``[`` is then an ordinary character). The escape character counts inside
+    too, and a range written backwards (``[z-a]``) matches nothing, as in SQL Server."""
+    chars: list[tuple[str, bool]] = []  # each character, and whether it was escaped
+    i = start
+    while i < len(pattern):
+        c = pattern[i]
+        if escape and c == escape and i + 1 < len(pattern):
+            chars.append((pattern[i + 1], True))
+            i += 2
+            continue
+        if c == "]" and chars:
+            break
+        chars.append((c, False))
+        i += 1
+    else:
+        return None
+    negate = len(chars) > 1 and chars[0] == ("^", False)
+    if negate:
+        chars = chars[1:]
+    parts: list[str] = []
+    k = 0
+    while k < len(chars):
+        if k + 2 < len(chars) and chars[k + 1] == ("-", False):
+            low, high = chars[k][0], chars[k + 2][0]
+            if low <= high:
+                parts.append(_in_class(low) + "-" + _in_class(high))
+            k += 3
+        else:
+            parts.append(_in_class(chars[k][0]))
+            k += 1
+    if not parts:  # only backwards ranges
+        return (_ANY if negate else _NOTHING), i + 1
+    return "[" + ("^" if negate else "") + "".join(parts) + "]", i + 1
+
+
+def _in_class(ch: str) -> str:
+    return "\\" + ch if ch in "\\[]^-" else ch
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:

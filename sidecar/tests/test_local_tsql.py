@@ -207,8 +207,27 @@ def test_like_with_ranges_keeps_its_escape_character(engine):
 def test_a_like_pattern_that_isnt_text_is_reported():
     texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
     assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
-    assert notes == ["Couldn't tell the pattern in a LIKE b: it matches as DuckDB's LIKE does, which takes no "
-                     "[a-c] character ranges."]
+    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges."]
+
+
+def test_several_like_patterns_that_arent_text_make_one_note():
+    assert len(translate("SELECT 1 FROM dbo.t WHERE a LIKE b OR c LIKE d OR e NOT LIKE f")[1]) == 1
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b", "[z-a]", False), ("b", "[^z-a]", True), ("y", "[a-cz-x]", False), ("b", "[a-cz-x]", True),
+    ("]", "[!]]", True), ("x", "[!]x]", True), ("a", "[!]x]", False), ("-", "[a!-c]", True), ("b", "[a!-c]", False),
+])
+def test_like_ranges_backwards_and_with_the_escape_character(engine, value, pattern, matches):
+    sql = f"SELECT CASE WHEN '{value}' LIKE '{pattern}' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[int(matches)]]
+
+
+def test_set_datefirst_7_is_skipped_and_others_refused(engine):
+    assert tsql(engine, "SET DATEFIRST 7\nGO\nSELECT DATEPART(weekday, CAST('2024-03-03' AS DATE))")["rows"] == [[1]]
+    with pytest.raises(ValueError, match="doesn't run other DATEFIRST settings"):
+        tsql(engine, "SET DATEFIRST 1\nGO\nSELECT 1")
 
 
 def test_a_like_without_ranges_stays_a_like():

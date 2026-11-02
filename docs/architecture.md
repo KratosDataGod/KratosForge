@@ -48,7 +48,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - catalog favorites
 - the list of repositories opened in Source control (`git_repos.json`; the repositories themselves stay where you put them)
 - the Fabric view's profile and its saved, encrypted sign-in
-- `sidecar.log`
+- `sidecar.log`, and `sidecar.prev.log` from the run before
 
 A metadata project is a folder you choose and keep in Git.
 

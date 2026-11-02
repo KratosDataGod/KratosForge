@@ -637,7 +637,7 @@ class ProveMixin:
         suffixes = self._bar_suffixes(name, cells)  # type: ignore[attr-defined]
         assert lakehouse_ref is not None
         saved = self.notebooks.save(name, cells, saved_ref, compute, workspace)  # type: ignore[attr-defined]
-        cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])]
+        cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         self.auth.fabric_token()  # type: ignore[attr-defined]

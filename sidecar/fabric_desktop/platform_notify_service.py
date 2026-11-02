@@ -58,7 +58,7 @@ class PlatformNotifyMixin:
                                for e in checked]}
         outbox, ledger = self._pn_paths()
         out = send(checked, routing, outbox, ledger, post_teams)
-        self._pn_remember([e for e, r in zip(checked, out["events"]) if r["result"] != "skipped"])
+        self._pn_remember([e for e, r in zip(checked, out["events"], strict=True) if r["result"] != "skipped"])
         return out
 
     def _pn_remember(self, events: list[dict[str, Any]]) -> None:

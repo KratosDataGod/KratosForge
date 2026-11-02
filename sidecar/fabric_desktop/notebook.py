@@ -186,7 +186,7 @@ def display(value: Any) -> dict[str, Any]:
         shown = table.slice(0, PREVIEW_ROWS)
         # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
         columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
-        rows = [list(row) for row in zip(*columns)] if columns else \
+        rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
             [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
@@ -2487,7 +2487,7 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
              compute: str = "default", workspace: dict[str, Any] | None = None) -> dict[str, Any]:
     nb_cells = []
     ids = assign_cell_ids([dict(c) for c in cells], _derived_id)
-    for c, cid in zip(cells, ids):
+    for c, cid in zip(cells, ids, strict=True):
         cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code", "id": cid,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":

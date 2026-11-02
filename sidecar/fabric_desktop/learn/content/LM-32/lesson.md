@@ -7,7 +7,7 @@ workspace role decides most of it:
 | --- | --- |
 | Viewer | Read content, and data through the SQL endpoint where allowed |
 | Contributor | Also create, edit and delete items, and run them |
-| Member | Also share items and add Contributors and Viewers |
+| Member | Also share items and add Members, Contributors and Viewers |
 | Admin | Also manage the workspace and every role |
 
 ## Keep Prod narrow

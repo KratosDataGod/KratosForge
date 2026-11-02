@@ -1,0 +1,79 @@
+"""EA-001: a write into an existing table never changes values to fit its column types."""
+
+import datetime as dt
+import decimal
+
+import pyarrow as pa
+import pytest
+from deltalake import DeltaTable, write_deltalake
+
+from fabric_desktop import publish
+from fabric_desktop.localdata.delta import conversions
+
+from test_ea_write_integrity import Ref
+
+
+@pytest.mark.parametrize("src, dst", [
+    (pa.float64(), pa.int32()), (pa.float64(), pa.int64()), (pa.float64(), pa.float32()),
+    (pa.decimal128(10, 2), pa.int64()), (pa.float64(), pa.decimal128(10, 2)),
+    (pa.timestamp("us", "UTC"), pa.date32()), (pa.string(), pa.int64()), (pa.int64(), pa.string()),
+    (pa.bool_(), pa.int32()), (pa.int32(), pa.bool_()), (pa.date32(), pa.string()),
+    (pa.list_(pa.float64()), pa.list_(pa.int64())),
+    (pa.struct([("a", pa.float64())]), pa.struct([("a", pa.int32())])),
+])
+def test_a_type_that_would_change_values_is_a_conversion(src, dst):
+    assert conversions(pa.schema([("C", src)]), pa.schema([("c", dst)])) == [("C", src, dst)]
+
+
+@pytest.mark.parametrize("src, dst", [
+    (pa.int32(), pa.int64()), (pa.int64(), pa.int32()),  # delta-rs stops a whole number that doesn't fit
+    (pa.int64(), pa.float64()), (pa.float32(), pa.float64()), (pa.int64(), pa.decimal128(18, 0)),
+    (pa.decimal128(10, 2), pa.float64()), (pa.date32(), pa.timestamp("us", "UTC")),
+    (pa.timestamp("ns", "UTC"), pa.timestamp("us", "UTC")), (pa.large_string(), pa.string()),
+    (pa.null(), pa.int32()), (pa.list_(pa.int32()), pa.list_(pa.int64())),
+])
+def test_a_type_that_keeps_every_value_is_fine(src, dst):
+    assert conversions(pa.schema([("c", src)]), pa.schema([("c", dst)])) == []
+
+
+def test_a_new_column_is_a_schema_change_not_a_conversion():
+    assert conversions(pa.schema([("new", pa.float64())]), pa.schema([("c", pa.int32())])) == []
+
+
+def test_publish_refuses_the_append_names_the_column_and_commits_nothing(tmp_path):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"id": pa.array([1], pa.int32()), "qty": pa.array([3], pa.int32())}), ref, "overwrite", "tok")
+    with pytest.raises(ValueError, match=r"qty is double here but int in the table.*Nothing was written"):
+        publish.publish(pa.table({"id": pa.array([2], pa.int32()), "qty": [2.75]}), ref, "append", "tok")
+    assert DeltaTable(ref.uri).version() == 0
+
+
+def test_a_stream_is_checked_before_any_batch_is_read(tmp_path):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"d": [dt.date(2026, 1, 1)]}), ref, "overwrite", "tok")
+    schema = pa.schema([("d", pa.timestamp("us", "UTC"))])
+    read = []
+
+    def batches():
+        read.append(1)
+        yield pa.record_batch({"d": [dt.datetime(2026, 1, 2, 13, 45, tzinfo=dt.timezone.utc)]}, schema=schema)
+    with pytest.raises(ValueError, match="d is timestamp here but date in the table"):
+        publish.publish(pa.RecordBatchReader.from_batches(schema, batches()), ref, "append", "tok")
+    assert read == [] and DeltaTable(ref.uri).version() == 0
+
+
+def test_an_overwrite_that_keeps_the_schema_is_checked_and_one_that_replaces_it_is_not(tmp_path):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"n": pa.array([1], pa.int64())}), ref, "overwrite", "tok")
+    with pytest.raises(ValueError, match="n is string here but bigint"):
+        publish.publish(pa.table({"n": ["12"]}), ref, "overwrite", "tok", schema_mode=None)
+    publish.publish(pa.table({"n": ["12"]}), ref, "overwrite", "tok")  # "auto": the schema is replaced
+    assert DeltaTable(ref.uri).to_pyarrow_table().column("n").to_pylist() == ["12"]
+
+
+def test_a_decimal_into_a_whole_number_column_is_refused(tmp_path):
+    uri = (tmp_path / "t").as_posix()
+    write_deltalake(uri, pa.table({"n": pa.array([1], pa.int64())}))
+    with pytest.raises(ValueError, match="decimal"):
+        publish.publish(pa.table({"n": pa.array([decimal.Decimal("19.99")], pa.decimal128(4, 2))}), Ref(uri), "append", "tok")
+    assert DeltaTable(uri).to_pyarrow_table().column("n").to_pylist() == [1]

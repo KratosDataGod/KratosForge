@@ -89,10 +89,8 @@ ignore = ["B017", "B023"]
 
 [tool.ruff.lint.per-file-ignores]
 # A fixture imported from another test file and then taken as an argument looks like a redefinition.
-# B905 (zip() without strict=) is on in the subpackages and the top-level modules from s to x; the
-# rest of the top-level modules and the tests follow.
+# B905 (zip() without strict=) is on for all of fabric_desktop; the tests follow.
 "tests/**" = ["F811", "B905"]
-"fabric_desktop/[a-r]*.py" = ["B905"]
 
 # CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
 # in mypy-baseline.json, and only new ones fail.

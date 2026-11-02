@@ -42,7 +42,7 @@ def _rows(table: pa.Table, limit: int) -> dict[str, Any]:
     head = table.slice(0, limit)
     columns = [c.to_pylist() for c in head.columns]  # by position: names can repeat
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in table.schema],
-            "rows": [[_value(v) for v in row] for row in zip(*columns)]}
+            "rows": [[_value(v) for v in row] for row in zip(*columns, strict=True)]}
 
 
 def table_preview(dt: DeltaTable, limit: int = ROWS) -> dict[str, Any]:

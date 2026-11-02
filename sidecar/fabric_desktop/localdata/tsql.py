@@ -189,14 +189,16 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     except SqlglotError:
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't tell the column types, so divisions and averages are done as DuckDB does them "
-                "(T-SQL divides and averages integers as integers)."]
+        return ["Couldn't tell the column types, so divisions, averages and casts to integers are done as DuckDB "
+                "does them (T-SQL divides and averages integers as integers, and cuts a decimal cast to an integer "
+                "toward zero)."]
     there = _in_order(typed, kinds)
     if len(there) != len(here):
         for node in sized:
             _sized_text(node, None)
-        return ["Couldn't match the query's columns to their types, so divisions and averages are done as DuckDB "
-                "does them (T-SQL divides and averages integers as integers)."]
+        return ["Couldn't match the query's columns to their types, so divisions, averages and casts to "
+                "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
+                "decimal cast to an integer toward zero)."]
     notes: list[str] = []
     for node, info in zip(here, there):
         if isinstance(node, exp.Div):
@@ -222,6 +224,11 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
                              "as numbers and joins two strings, and here it is done as DuckDB does it.")
         else:
+            to = node.args.get("to")
+            if isinstance(to, exp.DataType) and to.this in _INTEGERS - {exp.DataType.Type.BIT} \
+                    and _unknown(info.this.type):
+                notes.append(f"Couldn't tell the type in {node.sql(dialect='tsql')}: it converts as DuckDB does, "
+                             "and T-SQL cuts a decimal toward zero and refuses text that isn't a whole number.")
             _truncated(node, info.this.type)
             _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes

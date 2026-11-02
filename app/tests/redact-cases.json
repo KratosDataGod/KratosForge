@@ -70,6 +70,8 @@
     {"level": "secrets", "in": "connect failed: password=\"abc\ndefSECRETrest\" user=ann", "out": "connect failed: password=\"[removed]\" user=ann"},
     {"level": "secrets", "in": "{\"client_secret\": \"line one\nline two\", \"n\": 1}", "out": "{\"client_secret\": \"[removed]\", \"n\": 1}"},
     {"level": "secrets", "in": "private_key=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\" next", "out": "private_key=\"[removed]\" next"},
-    {"level": "secrets", "in": "{'passphrase': '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----'}", "out": "{'passphrase': '[removed]'}"}
+    {"level": "secrets", "in": "{'passphrase': '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----'}", "out": "{'passphrase': '[removed]'}"},
+    {"level": "secrets", "in": "copy failed: sig=AbC%2Bdef%3D se=2026-01-01 sp=r", "out": "copy failed: sig=[removed] se=2026-01-01 sp=r"},
+    {"level": "secrets", "in": "design=keep", "out": "design=keep"}
   ]
 }

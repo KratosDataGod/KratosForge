@@ -31,8 +31,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     # which a word after "Basic" ("Basic authentication") doesn't.
     (re.compile(r"(\b(?:basic|Basic|BASIC)\s+)(?=[A-Za-z0-9+/]*(?:[0-9+/=]|[a-z][A-Z]))[A-Za-z0-9+/]{8,}={0,2}"),
      r"\1" + REMOVED),
-    # A shared access signature's signature, in a URL.
-    (re.compile(r"(?i)([?&]sig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
+    # A shared access signature's signature, in a URL or on its own (sig=... after a space or a quote).
+    (re.compile(r"(?i)(\bsig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
     # A Teams incoming webhook: anyone with the address can post to the channel. The legacy

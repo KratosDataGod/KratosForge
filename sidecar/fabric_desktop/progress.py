@@ -95,9 +95,6 @@ MODULE_COMPLETE_XP = 25     # each lesson or lab finished for the first time, wi
 STEADY_HAND_NOTEBOOKS = 5
 NEW_PROOF_XP = 20           # each further notebook proven, after Proof Forged
 
-TITLES = ((50, "Legend of the Forge"), (40, "Wolf Guardian"), (30, "Forge Architect"), (20, "Master Forger"),
-          (15, "Steel Forger"), (10, "Iron Forger"), (5, "Forge Initiate"), (1, "Apprentice"))
-
 DEFAULT_SETTINGS = {"record": True, "progression": True, "notifications": True, "backfilled": False}
 IDENTITY_KEYS = ("display_name", "role", "technologies")
 MAX_TEXT = 2000
@@ -287,10 +284,6 @@ def level_for(xp: int) -> int:
     return level
 
 
-def title_for(level: int) -> str:
-    return next(t for floor, t in TITLES if level >= floor)
-
-
 def included(profile: dict[str, Any]) -> list[dict[str, Any]]:
     excluded = set(profile["excluded"])
     rows = [r for r in profile["evidence"] if r["id"] not in excluded and r.get("status") == "verified"]
@@ -314,7 +307,7 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
         milestones += [{"kind": "achievement", "at": a["at"], "id": a["id"], "text": f"Earned {a['name']} (+{a['xp']} XP)"}
                        for a in earned[before:]]
         now = level_for(sum(xp_by_row.values()) + sum(a["xp"] for a in earned))
-        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}, {title_for(lv)}"}
+        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}"}
                        for lv in range(reached + 1, now + 1)]
         reached = now
     xp = sum(xp_by_row.values()) + sum(a["xp"] for a in earned)
@@ -336,7 +329,8 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
     elif "data-smith" not in got:
         upcoming.append({"id": "data-smith", "name": ACHIEVEMENTS["data-smith"]["name"], "xp": ACHIEVEMENTS["data-smith"]["xp"],
                          "progress": f"{exercises} of {DATA_SMITH_EXERCISES} different Learn exercises"})
-    return {"xp": xp, "level": level, "title": title_for(level), "level_xp": xp_for_level(level),
+    # No title here: the title is the rank (ranks.py), which the service adds (PB-125).
+    return {"xp": xp, "level": level, "level_xp": xp_for_level(level),
             "next_level_xp": xp_for_level(level + 1), "achievements": earned, "next": upcoming,
             "xp_by_row": xp_by_row, "milestones": milestones[::-1], "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
 
@@ -562,7 +556,7 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",
-               f"Level {p['level']} ({p['title']}), {p['xp']} XP. Levels and achievements are motivational and are "
+               f"Level {p['level']}, {p['xp']} XP. Levels and achievements are motivational and are "
                "not a skill rating."]
         lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
     lines += ["", "## Evidence appendix", ""]

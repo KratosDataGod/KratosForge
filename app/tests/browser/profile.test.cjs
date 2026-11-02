@@ -70,7 +70,9 @@ test("Overview shows the verified accomplishment, level and achievement", { skip
   await page.getByText("Validated notebook sales_daily_load").waitFor();
   assert.ok(await page.getByText("Proved notebook sales_daily_load").isVisible());
   assert.ok(await page.getByText("Measured end to end: this PC 12.5 s, Fabric 95 s.", { exact: false }).isVisible());
-  assert.ok(await page.getByText("Level 2 · Apprentice").isVisible());
+  assert.ok(await page.getByText("Level 2", { exact: true }).isVisible());
+  assert.ok(await page.getByText("Apprentice", { exact: true }).first().isVisible());  // the rank is the title (PB-125)
+  assert.ok(await page.getByText("Rank 1 of 13").isVisible());
   assert.ok(await page.getByText("First Flame", { exact: true }).isVisible());
   assert.ok(await page.getByText("They are not a skill rating.").isVisible());
   assert.strictEqual(await page.locator(".profile-bar").getAttribute("aria-valuenow"), "100");
@@ -81,7 +83,7 @@ test("Journey shows the level, milestones and badges; Achievements gives the rul
   const page = app.page;
   await page.getByRole("tab", { name: "Journey" }).click();
   await page.getByText("Recent milestones").waitFor();
-  assert.ok(await page.getByText("Reached level 2, Apprentice").isVisible());
+  assert.ok(await page.getByText("Reached level 2", { exact: true }).isVisible());
   assert.ok(await page.getByText("2 of 8 earned").isVisible());  // rules v2: five Learn achievements
   assert.strictEqual(await page.locator(".profile-shield-cell.earned").count(), 2);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-journey.png"), fullPage: true });
@@ -90,6 +92,33 @@ test("Journey shows the level, milestones and badges; Achievements gives the rul
   assert.ok(await page.getByText("Not yet").first().isVisible());
   assert.ok(await page.getByText("How to earn it: Every check of one exercise in a published Learn lesson", { exact: false }).isVisible());
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-achievements.png"), fullPage: true });
+});
+
+test("Ranks list every rank by tier with what earns it and a picture prompt to copy (PB-125)", { skip }, async () => {
+  const page = app.page;
+  await page.getByRole("tab", { name: "Ranks" }).click();
+  await page.getByRole("heading", { name: "The Pack" }).waitFor();
+  for (const tier of ["The Forge", "The Pack", "The Myth"]) assert.ok(await page.getByRole("heading", { name: tier }).isVisible());
+  assert.strictEqual(await page.locator(".profile-rank").count(), 13);
+  assert.strictEqual(await page.getByRole("button", { name: "Copy picture prompt" }).count(), 13);
+  assert.ok(await page.getByText("Pass 1 different exercise").isVisible());
+  assert.doesNotMatch(await page.locator(".profile").innerText(), /\bgod\b|deity|divine/i);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "profile-ranks.png"), fullPage: true });
+});
+
+test("a profile picture shows on the page and the account button, and the letter comes back without one (PB-125)", { skip }, async () => {
+  const page = app.page;
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  data.profile.avatar = png;
+  await page.evaluate((url) => { state.user = "dev@contoso.com"; state.avatar = url; renderChrome(); profilePage.tab = "overview"; go("profile"); }, png);
+  await page.locator("img.profile-avatar").waitFor();
+  assert.strictEqual(await page.locator("#account img").count(), 1);
+  data.profile.avatar = "javascript:alert(1)";
+  await page.evaluate(() => { state.avatar = "javascript:alert(1)"; render(); renderChrome(); });
+  await page.locator("div.profile-avatar").waitFor();
+  assert.strictEqual(await page.locator("#account img").count(), 0);
+  data.profile.avatar = null;
+  await page.evaluate(() => { state.avatar = null; state.user = null; renderChrome(); });
 });
 
 test("the report has the verified line and no game terms", { skip }, async () => {

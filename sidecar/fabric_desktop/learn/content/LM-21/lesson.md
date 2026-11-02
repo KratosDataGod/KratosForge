@@ -13,8 +13,8 @@ DELETE FROM target WHERE order_id IN (SELECT order_id FROM batch);
 INSERT INTO target (order_id, amount) SELECT order_id, amount FROM batch;
 ```
 
-Run them in one transaction so a reader never sees the gap. `MERGE` (LM-11) does both in one
-statement in Fabric Warehouse, Databricks and Snowflake; in a Spark notebook, Delta's `MERGE` or
+Run them in one transaction so a reader never sees the gap. Where a platform has `MERGE` (LM-11),
+one statement does both (Databricks and Snowflake do; check your Fabric Warehouse release); in a Spark notebook, Delta's `MERGE` or
 `replaceWhere` for a whole partition does the same. Name the columns: `INSERT ... SELECT *` breaks
 or fills the wrong column when either table gains one (SQ010).
 

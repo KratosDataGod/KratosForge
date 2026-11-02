@@ -413,6 +413,23 @@ def test_encoded_and_backslash_dot_segments_are_refused(path):
     assert t.sent == []
 
 
+@pytest.mark.parametrize("path", ["Files/a%20b.txt", "Files/100%.txt", "Files/my folder/a b.txt", "Files/ünï.txt"])
+def test_the_rename_names_the_new_file_as_its_create_did(path):
+    """Security's review of #1594: the rename's source is the path the create went to, byte for byte,
+    whatever the name holds, so it can't miss the new file."""
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
+    fs.upload(WS, LH, path, b"x")
+    assert t.sent[3].headers["x-ms-rename-source"] == t.sent[0].path
+
+
+def test_a_listing_never_shows_an_uploads_new_file():
+    from fake_http import Reply as R
+    names = [f"{LH}/Files/a.txt", f"{LH}/Files/.a.txt.0123456789ab.uploading", f"{LH}/Files/sub/.b.0123456789ab.uploading",
+             f"{LH}/Files/.keep", f"{LH}/Files/x.uploading"]
+    fs, _ = store([R(200, {"paths": [{"name": n} for n in names]})])
+    assert [e["name"] for e in fs.list(WS, LH, "Files", recursive=True)] == [".keep", "a.txt", "x.uploading"]
+
+
 def test_a_folder_name_with_dots_is_still_a_path():
     fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/v1..2/..hidden/x.parquet", b"x")

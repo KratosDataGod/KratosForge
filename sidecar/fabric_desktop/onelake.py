@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, unquote
+from urllib.parse import unquote, urlsplit
 
 import requests
 
@@ -20,6 +20,10 @@ from .paging import Pages
 from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
+
+# FileStore.upload's new file beside its target, until it's renamed over it: never listed.
+UPLOADING_SUFFIX = ".uploading"
+UPLOADING = re.compile(r"(^|/)\.[^/]+\.[0-9a-f]{12}" + re.escape(UPLOADING_SUFFIX) + "$")
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
 TABLE_API = "https://onelake.table.fabric.microsoft.com/delta"
@@ -219,6 +223,8 @@ class FileStore:
                 raise _onelake_error(resp, f"list {directory or 'Files'}")
             for p in resp.json().get("paths", []):
                 path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
+                if UPLOADING.search(path):
+                    continue  # an upload's new file before its rename, or one a crash left (EA-007)
                 entries.append({"name": path.rsplit("/", 1)[-1], "path": path,
                                 "is_dir": str(p.get("isDirectory", "")).lower() == "true",
                                 "size": int(p.get("contentLength") or 0), "modified": _iso(p.get("lastModified"))})
@@ -295,10 +301,14 @@ class FileStore:
         empty (EA-007); this way it keeps its old content until the rename."""
         target = item_path(path)
         folder, _, name = target.rpartition("/")
-        temp = f"{folder}/" * bool(folder) + f".{name}.{uuid.uuid4().hex[:12]}.uploading"
+        temp = f"{folder}/" * bool(folder) + f".{name}.{uuid.uuid4().hex[:12]}{UPLOADING_SUFFIX}"
         base = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}"
         url = f"{base}/{temp}"
-        rename = {"x-ms-rename-source": quote(f"/{workspace_id}/{lakehouse_id}/{temp}", safe="/")}
+        # The source exactly as the create's URL went out (requests keeps a "%20" already in a path
+        # and encodes the rest), or a name with a "%" in it isn't found.
+        sent = requests.PreparedRequest()
+        sent.prepare_url(url, None)
+        rename = {"x-ms-rename-source": urlsplit(sent.url).path}
         steps = [("PUT", url, {"resource": "file"}, None, {}, "create"),
                  ("PATCH", url, {"action": "append", "position": "0"}, data, {}, "write"),
                  ("PATCH", url, {"action": "flush", "position": str(len(data))}, None, {}, "commit"),

@@ -87,13 +87,41 @@ pub fn open_link(path: &Path, insiders: bool) -> Result<String, String> {
 /// and the repositories opened in Source control). Compared after resolving links and `..`.
 pub fn inside(path: &Path, allowed: &[std::path::PathBuf]) -> bool {
     let Ok(p) = std::fs::canonicalize(path) else { return false };
-    allowed.iter().filter_map(|a| std::fs::canonicalize(a).ok()).any(|a| p.starts_with(&a))
+    allowed.iter().filter(|a| may_look_at(&a.to_string_lossy()))
+        .filter_map(|a| std::fs::canonicalize(a).ok()).any(|a| p.starts_with(&a))
+}
+
+/// Whether Open in VS Code may look at `path` on disk at all: a full path on a drive of this PC
+/// (deep_link::local_path), checked as text, so a network path never makes Windows contact its host.
+/// (Elsewhere, for the tests: a full path that isn't `//host`.)
+pub fn may_look_at(path: &str) -> bool {
+    if cfg!(windows) {
+        crate::deep_link::local_path(path)
+    } else {
+        path.starts_with('/') && !path.starts_with("//") && !path.contains('\\')
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn only_a_path_on_a_drive_of_this_pc_is_looked_at() {
+        for remote in [r"\\host\share\x.ipynb", "//host/share/x.ipynb", r"\\?\UNC\host\share\x", r"\\.\C:\x",
+                       r"\\host@SSL\dav\x.ipynb", r"\x.ipynb", "x.ipynb", "C:x.ipynb", ""] {
+            assert!(!may_look_at(remote), "{remote}");
+        }
+        if cfg!(windows) {
+            assert!(!may_look_at("/home/a/x.ipynb"));
+            assert!(may_look_at(r"C:\Users\a\notebooks\x.ipynb") && may_look_at("D:/repos/sales"));
+        } else {
+            assert!(may_look_at("/home/a/x.ipynb"));
+        }
+        // A network folder among the allowed ones is never looked at either.
+        assert!(!inside(Path::new("/tmp"), &[PathBuf::from(r"\\host\share")]));
+    }
 
     fn decode(s: &str) -> String {
         let b = s.as_bytes();

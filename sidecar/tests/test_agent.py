@@ -219,6 +219,42 @@ def test_queue_puts_back_a_job_whose_worker_died(tmp_path):
     assert q.succeed(job["id"], "w2", {"ok": 1}) and q.get(job["id"])["result"] == {"ok": 1}
 
 
+def test_an_unreadable_queue_file_is_set_aside_and_the_agent_starts_empty(setup, caplog):
+    path = setup.home / "queue.sqlite3"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"garbage" * 1000)
+    (setup.home / "queue.sqlite3-wal").write_bytes(b"old wal")
+    agent = Agent(setup)
+    assert agent.queue.list() == [] and agent.queue.set_aside.name.startswith("queue.sqlite3.corrupt-")
+    assert agent.queue.set_aside.read_bytes() == b"garbage" * 1000  # kept for a person to look at
+    assert not (setup.home / "queue.sqlite3-wal").exists() or (setup.home / "queue.sqlite3-wal").read_bytes() != b"old wal"
+    assert "started with an empty queue" in caplog.text
+    job = agent.enqueue("dev")
+    assert agent.queue.get(job["id"])["state"] == "queued"
+    assert Agent(setup).queue.set_aside is None  # the new file is fine
+
+
+def test_a_queue_file_damaged_inside_is_set_aside_too(tmp_path):
+    path = tmp_path / "q.sqlite3"
+    q = JobQueue(path)
+    for i in range(200):
+        q.enqueue("meta", {"env": "dev", "pad": "x" * 500, "i": i})
+    data = bytearray(path.read_bytes())
+    data[8192:12288] = b"\xff" * 4096  # a page in the middle, past the header
+    path.write_bytes(bytes(data))
+    assert JobQueue(path).set_aside is not None
+
+
+def test_a_busy_queue_file_is_not_set_aside(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "q.sqlite3"
+    JobQueue(path)
+    monkeypatch.setattr(JobQueue, "_open", lambda self: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
+    with pytest.raises(sqlite3.OperationalError):
+        JobQueue(path)
+    assert path.exists() and not list(tmp_path.glob("*.corrupt-*"))
+
+
 def test_queue_survives_a_new_process_and_dedupes(tmp_path):
     q = JobQueue(tmp_path / "q.sqlite3")
     first = q.enqueue("meta", {"env": "dev"}, dedupe_key="schedule:a")

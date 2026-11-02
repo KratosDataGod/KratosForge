@@ -15,6 +15,7 @@ A person can :meth:`JobQueue.requeue` a ``dead`` or ``failed`` job once they've 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 import uuid
@@ -60,7 +61,21 @@ class JobQueue:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.backoff_seconds, self.max_backoff_seconds = backoff_seconds, max_backoff_seconds
+        self.set_aside: Path | None = None  # where an unreadable queue file was moved, this start
+        try:
+            self._open()
+        except sqlite3.DatabaseError as exc:
+            if isinstance(exc, sqlite3.OperationalError) or not self.path.exists():
+                raise  # busy or locked, or no disk: not a damaged file, so nothing is moved
+            self.set_aside = _set_aside(self.path, exc)
+            self._open()
+
+    def _open(self) -> None:
         with self._db() as db:
+            # A damaged file can open and fail only later, on a page a query reaches: check it all now.
+            check = db.execute("pragma quick_check").fetchone()[0]
+            if check != "ok":
+                raise sqlite3.DatabaseError(f"quick_check: {check}")
             db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
             db.executescript(_SCHEMA)  # executescript commits on its own
             if "requeued_by" not in {r["name"] for r in db.execute("pragma table_info(jobs)")}:
@@ -289,3 +304,19 @@ class JobQueue:
 
     def close(self) -> None:
         """Nothing stays open between calls; kept for callers that close the queue when they're done."""
+
+
+def _set_aside(path: Path, exc: Exception) -> Path:
+    """Move a queue file SQLite can't read (with its -wal and -shm) to ``<name>.corrupt-<time>``, so the
+    agent starts with an empty queue instead of failing to start again and again. Its jobs stay in
+    the moved file for a person to look at; schedules add their next runs again on their own."""
+    from .jsonfile import set_aside
+    from .redact import describe
+    dest = set_aside(path, f"the agent starts with an empty queue ({describe(exc)}); its jobs "
+                           "are in the moved file, and schedules add their next runs again")
+    for suffix in ("-wal", "-shm"):
+        side = path.with_name(path.name + suffix)
+        if side.exists():
+            os.replace(side, dest.with_name(dest.name + suffix))
+    return dest
+

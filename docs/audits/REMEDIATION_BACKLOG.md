@@ -202,4 +202,4 @@ As of 2026-11-02 03:45 UTC. "Open PR" means the PR is up and in review; a draft 
 | EA-028 | Open PR (first caller) | #1602 |
 | EA-025, EA-029, EA-030 | Not started | |
 
-The private security items: two fixes are in (#1570 merged), one is open (#1569), and one is being verified.
+The private security items: two are fixed, one is in review, and one is being verified.

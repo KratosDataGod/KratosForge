@@ -4309,7 +4309,8 @@
         "DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py)",
         "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
         "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
-        "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject"
+        "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
+        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4387,9 +4388,11 @@
         1356,
         1357,
         1363,
+        1401,
         1490,
         1498,
-        1502
+        1502,
+        1512
       ]
     },
     {
@@ -4552,6 +4555,7 @@
         1451,
         1454,
         1471,
+        1499,
         1501,
         1504,
         1508,
@@ -4559,9 +4563,23 @@
         1511,
         1513,
         1516,
+        1519,
         1521,
         1522,
-        1523
+        1523,
+        1524,
+        1534,
+        1538,
+        1539,
+        1540,
+        1541,
+        1542,
+        1543,
+        1545,
+        1546,
+        1547,
+        1548,
+        1549
       ],
       "issues": [
         910,
@@ -4798,7 +4816,13 @@
         1500,
         1514,
         1515,
-        1520
+        1520,
+        1529,
+        1533,
+        1535,
+        1536,
+        1537,
+        1544
       ]
     },
     {
@@ -5664,7 +5688,10 @@
         1161,
         1162,
         1175,
+        1182,
+        1184,
         1186,
+        1216,
         1233
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
@@ -5673,7 +5700,8 @@
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
         "No backlog item tracked it before this check",
         "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
-        "Rule guides carry importance, principle, impact and how to check (GD-03, #1175); a fix applied after a matching Compare is recorded in Profile (GD-06, #1186); first lessons for the Snowflake, Databricks and Python paths (GD-10, #1233) on main at b3c5b223"
+        "Rule guides carry importance, principle, impact and how to check (GD-03, #1175); a fix applied after a matching Compare is recorded in Profile (GD-06, #1186); first lessons for the Snowflake, Databricks and Python paths (GD-10, #1233) on main at b3c5b223",
+        "Query profile notes (GD-04, #1182), decision patterns (GD-05, #1184) and guidance level by subject (GD-08, #1216) merged as Preview on main at 761a7949"
       ],
       "features": [
         "FEAT-DEV-04",
@@ -5749,9 +5777,13 @@
         1491,
         1495,
         1496,
+        1497,
         1505,
         1506,
-        1517
+        1517,
+        1518,
+        1528,
+        1531
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",

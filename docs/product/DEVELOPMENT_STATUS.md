@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-01 11:42 UTC, main 063b84ed.** Covers the PRs merged from #135 to #1523.
+**Product check of 2026-11-01 23:42 UTC, main 761a7949.** Covers the PRs merged from #135 to #1549.
 
 ## Summary
 
+- Evening check, 2026-11-01: 35 PRs merged after 063b84ed, besides the product data and docs PRs.
+  The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
+  adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
+  GD-08, Preview). The rest is hardening: redaction of Basic credentials and Databricks secrets,
+  reply text from Fabric, Databricks, OneLake and Graph kept to one short line, files and
+  connections closed, and type-check fixes.
 - Acceptance, 2026-11-01: the product owner accepted PB-027, PB-096, PB-098, PB-116, PB-117 and
   PB-118, three of them with documented limitations. PB-098's criterion now reads "a test fails
   when lists meant to agree disagree".

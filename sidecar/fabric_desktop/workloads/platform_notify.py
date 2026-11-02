@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ContextManager
 
-from .. import redact
+from .. import redact, sqlitefile
 from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed",
@@ -184,7 +184,14 @@ class Ledger:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the ledger starts empty: an alert already sent
+        # may be sent once more, and nothing is lost.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open, then="an alert already sent may be sent once more")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
     def _db(self) -> ContextManager[sqlite3.Connection]:

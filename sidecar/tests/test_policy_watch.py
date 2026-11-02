@@ -110,3 +110,16 @@ def test_settings_carries_the_record_and_a_failure_never_breaks_it(pc, monkeypat
         raise RuntimeError("disk gone")
     monkeypatch.setattr(policy_watch, "check", broken)
     assert svc.app_settings()["policy_record"] is None
+
+
+def test_two_looks_at_once_record_a_change_once(pc):
+    import threading
+    pc.write({"show_preview": False})
+    pc.check()
+    pc.write({"show_preview": True})
+    threads = [threading.Thread(target=pc.check) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert [e["action"] for e in pc.entries()] == ["policy_file_seen", "policy_file_changed"]

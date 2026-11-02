@@ -15,13 +15,16 @@ engine starts, and each time Settings is opened, it compares the file's SHA-256 
 Settings > Help and about shows the hash, when it last changed and whether that change was managed,
 so IT can compare it with the hash of the file they shipped (Get-FileHash). Nothing is blocked. A
 change made by a local administrator can't be told apart from IT's own push; the hash comparison is
-what finds it. See enterprise-install.md, "Changes to the policy file".
+what finds it. Both the audit trail and policy-seen.json are in the signed-in account's own
+folder, so that account can edit them and hide a change: ship the audit files off the PC when that
+matters. See enterprise-install.md, "Changes to the policy file".
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +35,7 @@ from .audit import AuditLog
 log = logging.getLogger(__name__)
 
 SEEN = "policy-seen.json"
+_lock = threading.Lock()  # engine start and the first Settings read can look at once: one records
 
 
 def _seen(path: Path) -> dict[str, Any] | None:
@@ -48,6 +52,11 @@ def _seen(path: Path) -> dict[str, Any] | None:
 def check(root: Path, audit: AuditLog) -> dict[str, Any]:
     """Compares the policy file with what was seen last, records a change in the audit trail and returns
     the current record: sha256, state, managed, changed_at, previous (the hash before the change)."""
+    with _lock:
+        return _check(root, audit)
+
+
+def _check(root: Path, audit: AuditLog) -> dict[str, Any]:
     now = app_settings.policy_fingerprint()
     path = root / SEEN
     seen = _seen(path)

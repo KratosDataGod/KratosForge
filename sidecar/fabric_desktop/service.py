@@ -334,7 +334,9 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
                 "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}
 
     def policy_record(self) -> dict[str, Any] | None:
-        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py)."""
+        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py).
+        app_settings stays READ_ONLY in audit.py: opening Settings isn't audited, but a policy file that
+        changed since the last look is, as its own policy_file_changed entry."""
         from . import policy_watch
         try:
             return policy_watch.check(self.root, self.audit)

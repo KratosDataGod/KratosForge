@@ -1,0 +1,76 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-20",
+  "kind": "module",
+  "title": "Data quality checks in code",
+  "path": "python-data-engineering",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Turn expectations about data into checks that count failures",
+    "Report every failed check at once, not just the first",
+    "Decide which failures stop a load and which only warn"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Python (DuckDB or Polars)",
+    "Fabric notebooks",
+    "Databricks"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "failed-checks",
+      "prompt": "Check the orders batch: order_id is unique, amount isn't negative, and customer_id is present. Return one row per check that fails, with its name (order_id_unique, amount_not_negative, customer_id_present) as check_name and the number of bad rows as failures, in check_name order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter checks only one thing. Write one small query per check, each giving a name and a count.",
+        "For uniqueness, count the rows whose order_id appears more than once, or count(*) - count(DISTINCT order_id).",
+        "Join the three with UNION ALL and keep only the rows WHERE failures > 0."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "check_name",
+          "failures"
+        ],
+        "rows": [
+          [
+            "amount_not_negative",
+            1
+          ],
+          [
+            "customer_id_present",
+            2
+          ],
+          [
+            "order_id_unique",
+            1
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://docs.databricks.com/aws/en/dlt/expectations"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

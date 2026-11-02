@@ -29,6 +29,8 @@
     tile: ["tileLoaded", "tileClicked", "error"],
   };
   const SECRET = /token|authorization|secret|password|credential/i;
+  // A token inside text (an error message that quotes a header, say): a JWT, or a bearer value.
+  const TOKEN_TEXT = /\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]*|\bBearer\s+[\w.~+/=-]+/g;
   const MAX_TEXT = 2000;
 
   // An embed address the frame may load: https on app.powerbi.com, no port and no user name.
@@ -44,7 +46,10 @@
   function clean(value, depth) {
     depth = depth || 0;
     if (value === null || value === undefined) return value === undefined ? null : value;
-    if (typeof value === "string") return value.length > MAX_TEXT ? value.slice(0, MAX_TEXT) + "…" : value;
+    if (typeof value === "string") {
+      const text = value.replace(TOKEN_TEXT, "(token removed)");
+      return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
+    }
     if (typeof value === "number" || typeof value === "boolean") return value;
     if (typeof value !== "object" || depth >= 6) return null;
     if (typeof Node !== "undefined" && value instanceof Node) return null;
@@ -164,7 +169,7 @@
       Promise.resolve()
         .then(() => commands[msg.command](msg))
         .then((result) => send({ reply: seq, ok: true, result: clean(result) }))
-        .catch((err) => send({ reply: seq, ok: false, error: String((err && err.message) || err).slice(0, MAX_TEXT) }));
+        .catch((err) => send({ reply: seq, ok: false, error: clean(String((err && err.message) || err)) }));
     });
     // The SDK sends the load request when Power BI's frame has loaded, and drops that promise: a refused load
     // (an error status from Power BI) surfaces only as an unhandled rejection here. It goes to the app as an

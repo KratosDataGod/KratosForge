@@ -67,6 +67,8 @@ test("event details lose anything that looks like a token or secret", () => {
   assert.deepStrictEqual(out.nested, { keep: "k" });
   assert.ok(out.long.length < 2100);
   assert.ok(!JSON.stringify(out).includes("\"x\""));
+  const quoted = host.clean({ message: "refused: Authorization: Bearer abc.def-ghi", detail: "jwt eyJhbGciOi.eyJzdWIiOiIx.c2lnbmF0dXJl here" });
+  assert.deepStrictEqual(quoted, { message: "refused: Authorization: (token removed)", detail: "jwt (token removed) here" }, "tokens inside text go too");
   assert.deepStrictEqual(host.eventDetail("pageChanged", { newPage: { name: "p", displayName: "P", report: cyclic } }),
     { newPage: { name: "p", displayName: "P" } });
 });

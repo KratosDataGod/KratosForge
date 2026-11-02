@@ -211,7 +211,11 @@ class SharedTokenCache(msal.SerializableTokenCache):
         if seen == self._seen:
             return
         before = self._accounts()
-        text, self.migrate = read_cache(self.path)
+        try:
+            text, self.migrate = read_cache(self.path)
+        except OSError as exc:  # Windows: another process swapping the file in, or a virus scan
+            _log.warning("Couldn't read the saved sign-in just now; trying again at the next lookup: %s", describe(exc))
+            return  # keep what's in memory, and _seen, so the next lookup reads it again
         try:
             self.deserialize(text)
         except ValueError:  # a damaged cache file: sign in again rather than fail every call

@@ -94,3 +94,18 @@ def test_two_processes_saving_at_once_keep_both_changes(tmp_path):
     runs = [subprocess.Popen([sys.executable, "-c", WRITER, str(path), who, here], env=env) for who in ("a", "b")]
     assert [r.wait(timeout=120) for r in runs] == [0, 0]
     assert users_on_disk(path) == {f"{who}{i}" for who in "ab" for i in range(15)}
+
+
+def test_a_file_that_cant_be_read_for_a_moment_keeps_the_sign_in(tmp_path, monkeypatch):
+    path = tmp_path / "msal_cache.bin"
+    app = auth.Authenticator(OWN_APP, cache_path=path)
+    sign_in(app, "ana")
+    auth.Authenticator(OWN_APP, cache_path=path).sign_out()  # another process changes the file
+    real = auth.read_cache
+
+    def busy(p):
+        raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+    monkeypatch.setattr(auth, "read_cache", busy)
+    assert app.signed_in_user() == "ana@contoso.com"  # the lookup works on what it had
+    monkeypatch.setattr(auth, "read_cache", real)
+    assert app.signed_in_user() is None  # and the next one reads the change

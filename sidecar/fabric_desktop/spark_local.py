@@ -186,7 +186,8 @@ class LakehouseWriter:
         if len(current) != data.num_columns:
             raise ValueError(f"insertInto matches columns by position: the data has {data.num_columns} columns "
                              f"and table {tableName} has {len(current)}.")
-        self._write(data.rename_columns(current), tableName, "overwrite" if overwrite else "append", None)
+        self._write(_store_assign(data.rename_columns(current), tableName), tableName,
+                    "overwrite" if overwrite else "append", None)
 
     def save(self, path: str | None = None, format: str | None = None, mode: str | None = None,  # noqa: A002
              partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -428,6 +429,58 @@ def _preview_on(what: str) -> None:
     if not lakehouse._setting("show_preview", True):
         raise NotImplementedError(f"{what} on this PC is a Preview feature, and Preview features are off in Settings "
                                   "or by your organization's policy. Run the cell in Fabric.")
+
+
+def _store_assign(data: pa.Table, table: str) -> pa.Table:
+    """INSERT and insertInto cast their values to the table's column types where Spark's ANSI store
+    assignment does (a number into another number, anything into text, a date into a timestamp: the
+    literal 1.0 is a decimal, and goes into a double column), and only when every value comes through
+    the cast as it was. Any other column is left as it is, for write_table to refuse (EA-001): '5'
+    into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
+    target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
+    columns = []
+    for name, column in zip(data.column_names, data.columns):
+        field = target.get(name.lower())
+        if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
+            columns.append(column)
+            continue
+        try:
+            cast = column.cast(field.type, safe=True)
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}): {exc}. Nothing was written. Cast the column first.") from None
+        if not _same_values(column, cast):
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}). Nothing was written. Cast the column first.")
+        columns.append(cast)
+    return pa.table(columns, names=data.column_names)
+
+
+def _numeric_type(t: pa.DataType) -> bool:
+    return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
+
+
+def _store_assigns(src: pa.DataType, dst: pa.DataType) -> bool:
+    """The casts Spark's ANSI store assignment makes (Cast.canANSIStoreAssign), for top-level columns."""
+    if pa.types.is_null(src):
+        return False  # write_table gives an all-NULL column the table's type
+    if _numeric_type(src) and _numeric_type(dst):
+        return True
+    if pa.types.is_string(dst) or pa.types.is_large_string(dst):
+        return True
+    return pa.types.is_date(src) and pa.types.is_timestamp(dst)
+
+
+def _same_values(before: Any, after: Any) -> bool:
+    """Whether a cast kept every value. A safe cast refuses an overflow and a truncated fraction,
+    but still rounds a number into a float (1.1 into a float, 2**53 + 1 into a double) and a float
+    into a decimal, so those go back to the source type and are compared."""
+    if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
+        return True
+    try:
+        return bool(after.cast(before.type, safe=False).equals(before))
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+        return False
 
 
 def _columns(table: str) -> list[str] | None:
@@ -734,7 +787,7 @@ class LocalSparkSession(SparkSession):
                     if len(current) != arrow.num_columns:
                         raise ValueError(f"INSERT matches columns by position: the query has {arrow.num_columns} "
                                          f"columns and table {name} has {len(current)}.")
-                    print(_write_table(arrow.rename_columns(current), name, mode, None))
+                    print(_write_table(_store_assign(arrow.rename_columns(current), name), name, mode, None))
                 else:
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None

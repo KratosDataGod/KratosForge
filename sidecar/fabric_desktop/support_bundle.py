@@ -35,12 +35,22 @@ def _data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-def _tail(path: Path, lines: int = LOG_LINES) -> str | None:
+TAIL_BYTES = 4 * 1024 * 1024  # LOG_LINES of even long lines; a log of any size costs no more to read
+
+
+def _tail(path: Path, lines: int = LOG_LINES, max_bytes: int = TAIL_BYTES) -> str | None:
+    """The last ``lines`` lines, reading only the file's last ``max_bytes``."""
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as f:
-            return "".join(f.readlines()[-lines:])
+        with path.open("rb") as f:
+            size = f.seek(0, os.SEEK_END)
+            f.seek(max(0, size - max_bytes))
+            data = f.read()
     except OSError:
         return None
+    if size > max_bytes:
+        data = data[data.find(b"\n") + 1:] if b"\n" in data else b""  # drop the line cut in half
+    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")  # as text mode reads it
+    return "".join(text.splitlines(keepends=True)[-lines:])
 
 
 def about() -> dict[str, Any]:

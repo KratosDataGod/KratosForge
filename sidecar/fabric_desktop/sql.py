@@ -587,6 +587,7 @@ _INT_CASTS = {exp.DataType.Type.TINYINT: ("TINYINT", "TINYINT"), exp.DataType.Ty
 _WHOLE_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
                 "'UBIGINT', 'UHUGEINT'")
 _TIMESTAMP_TYPES = "'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP_NS'"
+_EPOCH_LIMIT = "9.2e12"  # about the seconds a DuckDB timestamp reaches either side of 1970 (year 294247)
 _TIMESTAMP_CASTS = (exp.DataType.Type.TIMESTAMP, exp.DataType.Type.TIMESTAMPTZ, exp.DataType.Type.TIMESTAMPLTZ,
                     exp.DataType.Type.TIMESTAMPNTZ)
 _PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
@@ -624,7 +625,11 @@ def spark_timestamp_cast(value: str, duck_type: str, mode: str) -> str:
     (UTC), fractions kept; anything else is DuckDB's own cast. DuckDB can't cast a number to a timestamp,
     and its TRY_CAST gives NULL. ``mode`` as in spark_integer_cast."""
     cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
-    number = f"to_timestamp(TRY_CAST(CAST({value} AS VARCHAR) AS DOUBLE))"
+    seconds = f"TRY_CAST(CAST({value} AS VARCHAR) AS DOUBLE)"
+    if mode == "ansi":  # out of a timestamp's range stops the query, as Spark's ANSI cast does
+        number = f"to_timestamp({seconds})"
+    else:  # out of range, NaN or infinite is NULL
+        number = (f"CASE WHEN {seconds} BETWEEN -{_EPOCH_LIMIT} AND {_EPOCH_LIMIT} THEN to_timestamp({seconds}) END")
     return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}, 'DOUBLE', 'FLOAT') OR typeof({value}) LIKE 'DECIMAL%' "
             f"THEN CAST({number} AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
 

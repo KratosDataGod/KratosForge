@@ -55,3 +55,37 @@ def test_databricks_sql_casts():
 def test_casts_not_from_numbers_or_timestamps_are_left_alone(query):
     tree = sql.spark_integer_casts(sqlglot.parse_one(query, read="spark"))
     assert "typeof" not in sql.duckdb_sql(tree)
+
+
+def test_out_of_range_nan_and_huge_numbers_are_null_outside_ansi():
+    status, text = run("print(spark.sql(\"SELECT try_cast(1e20 AS TIMESTAMP) AS a, CAST(9223372036854775807 AS TIMESTAMP) "
+                       "AS b, CAST(CAST('NaN' AS DOUBLE) AS TIMESTAMP) AS c, CAST(-1e20 AS TIMESTAMP) AS d\").collect())")
+    assert status == "ok", text
+    assert "a=None, b=None, c=None, d=None" in text
+
+
+def test_databricks_ansi_cast_out_of_range_stops():
+    statement = sql.spark_fixes(sqlglot.parse_one("SELECT CAST(1e20 AS TIMESTAMP)", read="databricks"))
+    with pytest.raises(duckdb.Error):
+        duckdb.connect().execute(sql.duckdb_sql(statement)).fetchall()
+
+
+def test_dataframe_number_to_timestamp():
+    status, text = run("from pyspark.sql.types import TimestampType\n"
+                       "d = spark.createDataFrame([(10,), (None,)], 'n int')\n"
+                       "out = d.select(F.col('n').cast('timestamp'), F.col('n').cast(TimestampType()).alias('z'))\n"
+                       "print(out.columns, [(r[0], r[1]) for r in out.collect()])")
+    assert status == "ok", text
+    assert "['CAST(" in text and "', 'z']" in text  # DuckDB's own name for the cast, which varies by version
+    assert text.count("1970, 1, 1, 0, 0, 10") == 2 and "(None, None)" in text
+
+
+def test_sessions_are_utc_and_casts_follow_the_session_time_zone():
+    """Seconds are counted in UTC, and a timestamp literal is read in the session's zone, as in Spark."""
+    status, text = run("print(spark.conf.get('spark.sql.session.timeZone'))\n"
+                       "q = \"SELECT CAST(TIMESTAMP '1970-01-01 00:00:10' AS BIGINT) AS s\"\n"
+                       "print(spark.sql(q).first().s)\n"
+                       "spark.conf.set('spark.sql.session.timeZone', 'America/New_York')\n"
+                       "print(spark.sql(q).first().s, spark.sql('SELECT CAST(10 AS TIMESTAMP) AS t').first().t.timestamp())")
+    assert status == "ok", text
+    assert text.split() == ["UTC", "10", "18010", "10.0"]

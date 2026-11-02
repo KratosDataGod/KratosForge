@@ -38,3 +38,12 @@ def test_null_divisor_stays_null_and_other_division_unchanged():
                        " (F.col('x') / 4).alias('w')).collect()])")
     assert status == "ok", text
     assert "[(None, 1.5), (-1.5, -1.5)]" in text
+
+
+def test_division_composes_with_whole_number_casts():
+    status, text = run("from pyspark.sql import functions as F\n"
+                       "d = spark.createDataFrame([(3.7, 0)], 'x double, z int')\n"
+                       "print(tuple(d.select((F.col('x').cast('int') / F.col('z')).alias('a'),"
+                       " (F.col('x').cast('int') / 2).alias('b')).first()))")
+    assert status == "ok", text
+    assert "(None, 1.5)" in text

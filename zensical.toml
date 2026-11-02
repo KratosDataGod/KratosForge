@@ -164,6 +164,15 @@ nav = [
       { "Remediation plan" = "quality/remediation.md" },
       { "PR quality gate" = "quality/pr-review.md" },
     ] },
+    { "Enterprise engineering audit" = [
+      { "Executive summary" = "audits/EXECUTIVE_SUMMARY.md" },
+      { "Readiness scorecard" = "audits/ENTERPRISE_READINESS.md" },
+      { "Security and data integrity" = "audits/SECURITY_AND_DATA_INTEGRITY.md" },
+      { "Engine compatibility" = "audits/ENGINE_COMPATIBILITY.md" },
+      { "Quality gates" = "audits/QUALITY_GATES.md" },
+      { "Remediation backlog" = "audits/REMEDIATION_BACKLOG.md" },
+      { "Architecture decisions" = "audits/ARCHITECTURE_DECISIONS.md" },
+    ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },
       { "Backlog" = "product/ai-integration-backlog.md" },

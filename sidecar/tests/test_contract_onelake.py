@@ -422,6 +422,31 @@ def test_the_rename_names_the_new_file_as_its_create_did(path):
     assert t.sent[3].headers["x-ms-rename-source"] == t.sent[0].path
 
 
+@pytest.mark.parametrize("name, encoded", [("a#b.csv", "a%23b.csv"), ("x?y", "x%3Fy"), ("a%20b.txt", "a%2520b.txt"),
+                                           ("50%.txt", "50%25.txt")])
+def test_a_name_with_a_hash_question_mark_or_percent_names_that_file(name, encoded, tmp_path):
+    """Security's review of #1604: the path is percent-encoded, so "#" and "?" can't end it (a delete
+    of Files/a#b.csv removing Files/a, an upload of Files/x?y replacing Files/x)."""
+    fs, t = store([Reply(200), Reply(201), Reply(202), Reply(200), Reply(201), Reply(200, b"hi"), Reply(200, b"hi")])
+    fs.delete(WS, LH, f"Files/{name}")
+    fs.upload(WS, LH, f"Files/{name}", b"x")
+    fs.download(WS, LH, f"Files/{name}", tmp_path / "out")
+    fs.read_bytes(WS, LH, f"Files/{name}")
+    expected = f"/{WS}/{LH}/Files/{encoded}"
+    assert t.sent[0].path == expected and not t.sent[0].query.get("b.csv")
+    assert t.sent[4].path == expected and t.sent[4].headers["x-ms-rename-source"] == t.sent[1].path
+    assert t.sent[1].path.startswith(f"/{WS}/{LH}/Files/.") and t.sent[1].path.endswith(".uploading")
+    assert t.sent[5].path == expected and t.sent[6].path == expected
+    assert all("#" not in r.url and set(r.query) <= {"resource", "action", "position", "recursive"} for r in t.sent)
+
+
+def test_a_failed_upload_of_a_hash_name_removes_only_its_own_new_file():
+    fs, t = store([Reply(201), Reply(500), Reply(200)])
+    with pytest.raises(requests.HTTPError):
+        fs.upload(WS, LH, "Files/.x#y", b"data")
+    assert t.sent[2].method == "DELETE" and t.sent[2].path == t.sent[0].path and "%23" in t.sent[2].path
+
+
 def test_a_listing_never_shows_an_uploads_new_file():
     from fake_http import Reply as R
     names = [f"{LH}/Files/a.txt", f"{LH}/Files/.a.txt.0123456789ab.uploading", f"{LH}/Files/sub/.b.0123456789ab.uploading",

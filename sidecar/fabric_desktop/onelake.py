@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import requests
 
@@ -159,6 +159,13 @@ def _iso(http_date: str | None) -> str:
         return ""
 
 
+def item_url(workspace_id: str, lakehouse_id: str, path: str) -> str:
+    """The DFS URL of ``path`` in a lakehouse, with the path percent-encoded: a "#" or "?" in a
+    name would otherwise end the path there, so a delete of Files/a#b.csv would remove Files/a, and
+    a "%" would be read as an escape."""
+    return f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{quote(item_path(path), safe='/')}"
+
+
 def item_path(path: str, empty_ok: bool = False) -> str:
     """``path`` inside a lakehouse, without its edge slashes. Refuses a ``.`` or ``..`` segment
     (also percent-encoded or with backslashes): the HTTP client resolves them before sending, so
@@ -263,7 +270,7 @@ class FileStore:
                  max_bytes: int | None = None) -> Path:
         """Download a file to ``dest``. With ``max_bytes``, a file bigger than that stops downloading
         there and raises FileTooBig, and the part written is removed."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        url = item_url(workspace_id, lakehouse_id, path)
         with self._read(url, stream=True, timeout=300) as resp:
             if resp.status_code >= 400:
                 raise _onelake_error(resp, f"read {path}")
@@ -283,7 +290,7 @@ class FileStore:
     def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str, length: int | None = None) -> bytes | None:
         """A small file's content, or None when it doesn't exist. With ``length``, only its first
         ``length`` bytes are asked for (a Range request), so peeking at a large file is cheap."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        url = item_url(workspace_id, lakehouse_id, path)
         ranged = {"Range": f"bytes=0-{length - 1}"} if length else None
         resp = self._read(url, extra_headers=ranged, timeout=60)
         if resp.status_code == 404:
@@ -302,17 +309,13 @@ class FileStore:
         target = item_path(path)
         folder, _, name = target.rpartition("/")
         temp = f"{folder}/" * bool(folder) + f".{name}.{uuid.uuid4().hex[:12]}{UPLOADING_SUFFIX}"
-        base = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}"
-        url = f"{base}/{temp}"
-        # The source exactly as the create's URL went out (requests keeps a "%20" already in a path
-        # and encodes the rest), or a name with a "%" in it isn't found.
-        sent = requests.PreparedRequest()
-        sent.prepare_url(url, None)
-        rename = {"x-ms-rename-source": urlsplit(sent.url).path}
+        url = item_url(workspace_id, lakehouse_id, temp)
+        # The source exactly as the create's URL names it, so the rename can't miss the new file.
+        rename = {"x-ms-rename-source": urlsplit(url).path}
         steps = [("PUT", url, {"resource": "file"}, None, {}, "create"),
                  ("PATCH", url, {"action": "append", "position": "0"}, data, {}, "write"),
                  ("PATCH", url, {"action": "flush", "position": str(len(data))}, None, {}, "commit"),
-                 ("PUT", f"{base}/{target}", {}, None, rename, "replace")]
+                 ("PUT", item_url(workspace_id, lakehouse_id, target), {}, None, rename, "replace")]
         done = 0
         try:
             for method, at, params, body, extra, step in steps:
@@ -337,7 +340,7 @@ class FileStore:
     def mkdir(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
         """Create a folder (and any missing parents). One that is already there is left as it is:
         If-None-Match makes OneLake answer 409 instead of touching it."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        url = item_url(workspace_id, lakehouse_id, path)
         # If-None-Match can't change a folder that's there, so sending it again is safe: throttling,
         # a 5xx and a dropped connection are tried again.
         resp = send_with_retry(lambda: self._http.request("PUT", url, params={"resource": "directory"},
@@ -349,7 +352,7 @@ class FileStore:
     def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
         """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
         refuses (409) a folder that isn't empty."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
+        url = item_url(workspace_id, lakehouse_id, path)
         # Throttling (429) is waited out; anything else is sent once (HD-053).
         resp = send_with_retry(lambda: self._http.request("DELETE", url,
                                                           params={"recursive": "true" if recursive else "false"},

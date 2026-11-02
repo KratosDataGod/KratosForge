@@ -596,7 +596,7 @@ def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -
     text = f"CAST({value} AS VARCHAR)"
     cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
     if mode == "ansi":
-        message = (f"'[CAST_INVALID_INPUT] The value ''' || {text} || ''' of the type \"STRING\" cannot be cast to "
+        message = (f"'[CAST_INVALID_INPUT] The value ''' || left({text}, 200) || ''' of the type \"STRING\" cannot be cast to "
                    f"\"{spark_type}\" because it is malformed. Use try_cast to tolerate malformed input and return "
                    "NULL instead.'")
         string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
@@ -634,7 +634,13 @@ def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
             mode = "try" if node.args.get("safe") else "legacy"
         else:
             mode = "ansi"
-        replacement = exp.paren(_with_args(spark_integer_cast("fj_arg0", *target, mode), [source]))
+        if isinstance(source, (exp.Column, exp.Literal)):
+            text = spark_integer_cast("fj_arg0", *target, mode)
+        else:
+            # Read once through a lambda argument, so nested casts don't multiply the SQL with each level
+            # and a source such as rand() is evaluated once. The source sits outside the lambda.
+            text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {spark_integer_cast('kf_cast', *target, mode)}))[1]"
+        replacement = exp.paren(_with_args(text, [source]))
         done.add(id(replacement))
         if node is statement:
             return replacement

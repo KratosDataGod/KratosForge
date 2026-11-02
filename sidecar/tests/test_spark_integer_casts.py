@@ -51,3 +51,17 @@ def test_databricks_sql_cast_truncates_and_stops_on_text_that_isnt_whole():
 def test_f_expr_casts_truncate():
     from fabric_desktop import spark_compat
     assert duckdb.sql(f"SELECT {spark_compat.spark_expr('CAST(3.7 AS INT)')}").fetchall()[0][0] == 3
+
+
+def test_nested_casts_read_their_source_once_and_stay_small():
+    """#1579 review: the source is bound once, so six nested casts stay a few KB and run at once."""
+    import time
+    q = "'3.7'"
+    for _ in range(6):
+        q = f"CAST(CAST({q} AS DOUBLE) + 0.5 AS INT)"
+    start = time.monotonic()
+    text = sql.duckdb_sql(sql.parse(f"SELECT {q} AS v", "spark")[-1])
+    assert len(text) < 20_000
+    assert spark(f"SELECT {q} AS v")["v"] == 4
+    assert time.monotonic() - start < 10
+    assert sql.duckdb_sql(sql.parse("SELECT CAST(rand() * 10 AS INT)", "spark")[-1]).upper().count("RANDOM()") == 1

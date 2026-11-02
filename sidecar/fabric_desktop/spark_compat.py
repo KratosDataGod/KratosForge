@@ -943,7 +943,8 @@ def _int_cast(original: Any) -> Any:
         if target is None:
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
-        return _sql(spark_sql.spark_integer_cast(f"({_col_sql(self)})", *target, "legacy")).alias(named)
+        cast_sql = spark_sql.spark_integer_cast("kf_cast", *target, "legacy")
+        return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
     return cast
 
 def install() -> None:

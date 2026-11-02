@@ -7,6 +7,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
+- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
@@ -447,8 +448,11 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous)):
-        if isinstance(node, exp.Length):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+        if isinstance(node, exp.DateDiff):
+            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+                _sunday_weeks(node)
+        elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
@@ -468,6 +472,19 @@ def _functions(tree: exp.Expression) -> None:
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
+
+
+def _sunday_weeks(node: exp.DateDiff) -> None:
+    """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
+    (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    def monday(day: exp.Expression) -> exp.Expression:
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
+
+    days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
+                                                        monday(node.this)])
+    node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
 
 
 def _first_line(exc: Any) -> str:

@@ -203,6 +203,28 @@ def test_max_lengths_in_table_definitions(engine):
     assert r["rows"] == [["hello"]]
 
 
+@pytest.mark.parametrize("start, end, weeks", [
+    ("2024-01-06", "2024-01-07", 1),  # Saturday to Sunday crosses one Sunday
+    ("2024-01-07", "2024-01-13", 0),  # Sunday to Saturday crosses none
+    ("2024-03-05", "2024-03-10", 1),  # Tuesday to Sunday
+    ("2024-03-01", "2024-03-31", 5),
+    ("2024-03-31", "2024-03-01", -5),
+    ("2024-03-05", "2024-03-05", 0),
+    ("2024-01-06 23:59:00", "2024-01-07 00:01:00", 1),  # the time of day doesn't count
+    ("2023-12-30", "2024-01-01", 1),  # across a year: Sunday 31 December
+])
+def test_datediff_week_counts_the_sundays_crossed(engine, start, end, weeks):
+    for unit in ("week", "wk", "ww"):
+        assert tsql(engine, f"SELECT DATEDIFF({unit}, '{start}', '{end}')")["rows"] == [[weeks]]
+
+
+def test_datediff_week_on_date_columns(engine):
+    r = tsql(engine, "SELECT id, DATEDIFF(week, day, DATEADD(day, 7, day)) FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 1], [2, 1]]
+    # Sunday 18 October 2026 back to Sunday 4 January 2026: 41 Sundays.
+    assert tsql(engine, "SELECT DATEDIFF(week, MAX(day), MIN(day)) FROM dbo.orders")["rows"] == [[-41]]
+
+
 @pytest.mark.parametrize("value, pattern, matches", [
     ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
     ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),

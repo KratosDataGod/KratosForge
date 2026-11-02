@@ -199,6 +199,57 @@ def test_only_one_run_takes_over_a_dead_lock(svc):
     assert svc.pc_schedules.runs() == []
 
 
+def test_a_lock_whose_pid_another_process_now_has_is_taken_over(svc):
+    """EA-008: a PID is reused once its process ends. The lock keeps its process's start time, so a
+    live process with the same PID isn't taken for the run that held it."""
+    import json
+    import os
+    svc.notebooks.save("Reused", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Reused"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    live = os.getppid()  # alive, but not the process that took this lock
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": live, "process": "an earlier process's start",
+                                                    "started": "2026-11-02T01:00:00+00:00"}))
+    if schedule_service.process_identity(live) is None:
+        pytest.skip("this OS doesn't say when a process started")
+    assert svc.run_schedule(sid)["status"] == "ok"
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["ok", "failed"]
+    # The same PID with its own start time is the live run: kept.
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": live, "process": schedule_service.process_identity(live)}))
+    assert svc.run_schedule(sid)["status"] == "skipped"
+
+
+def test_a_stopped_run_logs_only_what_a_lock_should_hold(svc):
+    import json
+    svc.notebooks.save("Edited", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Edited"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": _dead_pid(), "trigger": "<b>x</b>", "started": "x" * 500,
+                                                    "status": "ok", "message": "all fine", "extra": 1}))
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    row, = svc.pc_schedules.runs()
+    assert row["status"] == "failed" and row["trigger"] == "schedule" and row["started"] is None
+    assert "extra" not in row and row["message"].startswith("Stopped before it finished")
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": _dead_pid(), "schedule_id": "another",
+                                                    "started": "2026-11-02T01:00:00+00:00", "trigger": "manual"}))
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    row = svc.pc_schedules.runs()[0]
+    assert row["schedule_id"] == sid and row["started"] is None and row["trigger"] == "schedule"
+
+
+def test_a_lock_names_its_process_and_can_t_tell_still_counts_as_alive(monkeypatch):
+    import os
+    me = schedule_service.process_identity(os.getpid())
+    if me is None:
+        pytest.skip("this OS doesn't say when a process started")
+    assert schedule_service._pid_alive(os.getpid(), me)
+    assert not schedule_service._pid_alive(os.getpid(), "another process's start")
+    monkeypatch.setattr(schedule_service, "process_identity", lambda pid: None)  # can't read it now
+    assert schedule_service._pid_alive(os.getpid(), "another process's start")
+
+
 def test_scheduled_metadata_run_on_this_pc(svc, tmp_path):
     svc.meta_init(str(tmp_path / "proj"), "3")
     with pytest.raises(ValueError):

@@ -45,7 +45,7 @@ from typing import Any, Callable, Iterator, Protocol
 import requests
 
 from . import http_session
-from .onelake import DFS_HOST, _onelake_error
+from .onelake import _onelake_error, item_url
 from .redact import describe
 from .retrying import retry_after, send_with_retry
 
@@ -231,7 +231,7 @@ class OneLakeBackend:
         return self._clock() + 3 * self.timeout
 
     def _url(self, key: str) -> str:
-        return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{LEASE_DIR}/{key}.json"
+        return item_url(self.workspace_id, self.lakehouse_id, f"{LEASE_DIR}/{key}.json")
 
     def _headers(self, **extra: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"} | extra

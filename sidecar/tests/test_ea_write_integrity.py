@@ -134,7 +134,6 @@ class FakeADLS:
         return self.request("GET", url, params=k.get("params"))
 
 
-@pytest.mark.xfail(strict=True, reason="EA-007: the create step empties the existing file before the append")
 def test_a_failed_upload_keeps_the_file_it_was_replacing():
     fake = FakeADLS()
     fs = onelake.FileStore(lambda: "tok", session=fake, sleep=lambda s: None)

@@ -205,6 +205,73 @@ def test_a_refusal_is_not_tried_again(status):
     assert len(post.sent) == 1
 
 
+def _summary(post, token="tok", **kw):
+    return wm.query(post, URI, "db", wm.view_kql("summary", WH), token, sleep=lambda s: None, **kw)
+
+
+def test_a_stale_token_is_refreshed_once_and_the_read_sent_again():
+    """#1440: a 401 for a token that went stale or was revoked gets a fresh token, not a role message."""
+    post, asked = FakePost(), []
+    post.answers = [Resp(401, {}), Resp(200, _table(["a"], [[1]]))]
+    out = _summary(post, refresh=lambda: asked.append(1) or "fresh")
+    assert out["rows"] == [[1]] and asked == [1] and len(post.sent) == 2
+    assert [s["headers"]["Authorization"] for s in post.sent] == ["Bearer tok", "Bearer fresh"]
+    ids = [s["headers"]["x-ms-client-request-id"] for s in post.sent]
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.parametrize("refresh", [None, lambda: "tok"])
+def test_a_401_without_a_new_token_is_sent_once_with_todays_message(refresh):
+    post = FakePost()
+    post.answers = [Resp(401, {})]
+    with pytest.raises(RuntimeError, match="Contributor"):
+        _summary(post, refresh=refresh)
+    assert len(post.sent) == 1
+
+
+def test_a_second_401_after_a_refresh_is_the_answer():
+    post = FakePost()
+    post.answers = [Resp(401, {}), Resp(401, {}), Resp(200, _table(["a"], [[1]]))]
+    with pytest.raises(RuntimeError, match="Contributor"):
+        _summary(post, refresh=lambda: "fresh")
+    assert len(post.sent) == 2
+
+
+class HtmlResp(Resp):
+    def json(self):
+        raise json.JSONDecodeError("Expecting value", "<html>", 0)
+
+
+@pytest.mark.parametrize("answer", [HtmlResp(200, None), Resp(200, [{"Tables": []}]), Resp(200, {"Tables": "x"}),
+                                    Resp(200, {"Tables": ["x"]})])
+def test_a_reply_that_isnt_kustos_fails_in_one_plain_line(answer):
+    post = FakePost()
+    post.answers = [answer]
+    with pytest.raises(RuntimeError) as err:
+        _summary(post)
+    assert str(err.value) == wm.NOT_KUSTO and "\n" not in str(err.value)
+
+
+def test_a_long_kusto_message_is_folded_to_one_short_line():
+    post = FakePost()
+    post.answers = [Resp(400, {"error": {"@message": ("Syntax error\n" + "x" * 80 + "\r\n") * 25}})]
+    with pytest.raises(RuntimeError) as err:
+        _summary(post)
+    text = str(err.value)
+    assert "\n" not in text and "\r" not in text
+    assert len(text.split(": ", 1)[1]) <= 300
+
+
+def test_the_service_gives_the_query_a_kusto_refresh(svc, monkeypatch):
+    asked = []
+    monkeypatch.setattr(Service, "auth", property(lambda self: type("A", (Auth,), {
+        "refreshed_token": lambda self, scopes: asked.append(scopes) or "fresh"})()))
+    svc.post.answers = [Resp(401, {}), Resp(200, _table(["Queries"], [[3]]))]
+    assert svc.wh_monitoring_view(WS, DB, WH, "summary", "24h")["rows"] == [[3]]
+    from fabric_desktop.auth import KUSTO_SCOPES
+    assert asked == [KUSTO_SCOPES] and svc.post.sent[1]["headers"]["Authorization"] == "Bearer fresh"
+
+
 # ---- the queryset
 
 

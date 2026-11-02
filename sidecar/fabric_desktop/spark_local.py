@@ -34,13 +34,75 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, spark_api, spark_compat, sql as _sql
 from .delta_dml import _LEADING_COMMENTS as delta_dml_comments
 from .duckdb_rows import first_row, keep_try_cast
+from .spark_decimals import spark_decimal_types
 
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
-    rel = df.relation
+    rel = _spark_types(df.relation)
     return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
+
+
+_WIDE_INTS = ("HUGEINT", "UHUGEINT")
+_NESTED = ("struct", "list", "array", "map", "union")
+
+
+def _long_type(kind: Any) -> str | None:
+    """DuckDB SQL for nested type ``kind`` with each 128-bit integer in it as BIGINT, or None when it
+    holds none. Built from the type's parts, since its text doesn't quote field names."""
+    def write(t: Any) -> tuple[str, bool]:
+        if t.id in ("hugeint", "uhugeint"):
+            return "BIGINT", True
+        if t.id not in _NESTED:
+            return str(t), False
+        # An array lists its size as a child, and a union its tag (with an empty name): neither is a member.
+        children = [(name, child) for name, child in t.children
+                    if not (t.id == "array" and name == "size") and not (t.id == "union" and name == "")]
+        parts = [(name, *write(child)) for name, child in children]
+        wide = any(p[2] for p in parts)
+        if t.id == "list":
+            return f"{parts[0][1]}[]", wide
+        if t.id == "array":
+            return f"{parts[0][1]}[{dict(t.children)['size']}]", wide
+        if t.id == "map":
+            return f"MAP({parts[0][1]}, {parts[1][1]})", wide
+        fields = ", ".join('"' + str(name).replace('"', '""') + f'" {sql}' for name, sql, _ in parts)
+        return f"{t.id.upper()}({fields})", wide
+    text, wide = write(kind)
+    return text if wide else None
+
+
+def _spark_types(rel: Any) -> Any:
+    """``rel`` with DuckDB's 128-bit integers as BIGINT, Spark's long (EA-004). DuckDB's sum of INT or
+    BIGINT is a HUGEINT, which Arrow and Delta would take as decimal(38,0) where Spark writes bigint; Spark
+    has no 128-bit integer, so any HUGEINT column is one of these. A value too big for BIGINT stops the
+    write with a message instead of being cut."""
+    types = [str(t) for t in rel.types]
+    nested = [_long_type(t) if t.id in _NESTED else None for t in rel.types]
+    if not any(t in _WIDE_INTS for t in types) and not any(nested):
+        return rel
+    columns = []
+    for name, kind, target in zip(rel.columns, types, nested):
+        quoted = '"' + name.replace('"', '""') + '"'
+        if target:
+            # A sum inside a struct, list or map (struct(sum(x)), collect_list over sums): the same
+            # type with each 128-bit integer as BIGINT. A value that doesn't come through unchanged
+            # stops the write, as at the top level.
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} IS NULL OR TRY_CAST({quoted} AS {target}) IS NOT DISTINCT FROM {quoted} "
+                           f"THEN CAST({quoted} AS {target}) ELSE ERROR('The column ' || {literal} || ' holds a value "
+                           "too big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        elif kind in _WIDE_INTS:
+            literal = "'" + name.replace("'", "''") + "'"
+            columns.append(f"CASE WHEN {quoted} BETWEEN -9223372036854775808 AND 9223372036854775807 OR {quoted} IS NULL "
+                           f"THEN CAST({quoted} AS BIGINT) ELSE ERROR('The column ' || {literal} || ' has a value too "
+                           "big for a long (BIGINT), the type Spark gives it, so nothing was written.') END AS "
+                           f"{quoted}")
+        else:
+            columns.append(quoted)
+    return rel.project(", ".join(columns))
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
@@ -854,7 +916,7 @@ class LocalSparkSession(SparkSession):
                 name = f"{target.db}.{target.name}" if target.db else target.name
                 query = statement.expression.copy()
                 self._bind(query)
-                data = self.conn.sql(_sql.duckdb_sql(query))
+                data = self.conn.sql(_sql.duckdb_sql(spark_decimal_types(query, self.conn)))
                 insert = isinstance(statement, exp.Insert)
                 mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
                 if insert and (statement.find(exp.Partition) or statement.args.get("where")):
@@ -885,6 +947,7 @@ class LocalSparkSession(SparkSession):
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         self._bind(statement)
+        statement = spark_decimal_types(statement, self.conn)
         text = _sql.duckdb_sql(statement)
         if isinstance(statement, (exp.Query, exp.Select, exp.Describe, exp.Show)) or text.upper().startswith(("SELECT", "WITH", "FROM", "VALUES", "DESCRIBE", "SHOW")):
             return DataFrame(self.conn.sql(text), self)

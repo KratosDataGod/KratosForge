@@ -7,10 +7,14 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
-- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
+- reads date parts by T-SQL's names (``y`` is day of year, ``w`` weekday, ``m`` month), counts
+  ``DATEDIFF(week, ...)`` in Sundays crossed, starts ``DATETRUNC(week, ...)`` on Sunday, and keeps a
+  date a date in ``DATEADD`` and ``DATETRUNC``;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
+- runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
+  ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` is refused for now);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
@@ -77,7 +81,10 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _converts(tree)
             notes += _types(tree, schema)
             notes += _likes(tree)
+            _patindex(tree)
             _functions(tree)
+            _gaps(tree)
+            _string_edges(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
@@ -96,6 +103,9 @@ class KfTSQL(TSQL):
 
     class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
         KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
+
+    # In T-SQL, W is weekday (as DW), not week: DATEPART(w, d) is 1 to 7.
+    DATE_PART_MAPPING = {**TSQL.DATE_PART_MAPPING, "W": "DAYOFWEEK"}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -193,7 +203,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast)
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc)
     here = _in_order(tree, kinds)
     if not here:
         return []
@@ -233,6 +243,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+        elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
+            if _is(info.this.type, {exp.DataType.Type.DATE}):
+                _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):
@@ -358,6 +371,40 @@ def _likes(tree: exp.Expression) -> list[str]:
     return notes
 
 
+def _patindex(tree: exp.Expression) -> None:
+    """``PATINDEX(pattern, s)``: where in ``s`` the LIKE pattern first matches, from 1, or 0; DuckDB has
+    no PATINDEX. A pattern that starts with ``%`` is looked for anywhere, the rest of it matched from
+    there to the end (``PATINDEX('%b%', 'abc')`` is 2); without one it must match from the start, so the
+    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal."""
+    for node in list(tree.find_all(exp.Anonymous)):
+        if node.name.upper() != "PATINDEX":
+            continue
+        if len(node.expressions) != 2:
+            raise ValueError("This T-SQL can't be run on the local engine: PATINDEX takes a pattern and a text.")
+        pattern, text = node.expressions
+        if not (isinstance(pattern, exp.Literal) and pattern.is_string):
+            raise ValueError("This T-SQL can't be run on the local engine: PATINDEX needs its pattern written out "
+                             "as text ('%b%'), not taken from a column or an expression.")
+        core = pattern.name.lstrip("%")
+        body = _like_regex(core)[len("(?s)"):]
+        if not core:  # '%' alone matches from the first character (UNVERIFIED for an empty text)
+            found: exp.Expression = exp.Literal.number(1)
+        elif core == pattern.name:  # anchored at the start: the whole text has to match
+            found = exp.Case(
+                ifs=[exp.If(this=exp.RegexpFullMatch(this=text.copy(), expression=exp.Literal.string("(?s)" + body)),
+                            true=exp.Literal.number(1))], default=exp.Literal.number(0))
+        else:  # the shortest lead-in after which the rest matches to the end
+            before = exp.func("REGEXP_REPLACE", text.copy(), exp.Literal.string(f"(?s)^(.*?){body}$"),
+                              exp.Literal.string("\\1"))
+            # Anonymous: LENGTH here counts trailing spaces (LEN, which _functions rewrites, doesn't).
+            length = exp.Anonymous(this="LENGTH", expressions=[before])
+            matches = exp.RegexpFullMatch(this=text.copy(), expression=exp.Literal.string("(?s).*" + body))
+            found = exp.Case(ifs=[exp.If(this=matches, true=length + exp.Literal.number(1))],
+                             default=exp.Literal.number(0))
+        node.replace(exp.Case(ifs=[exp.If(this=exp.Is(this=text.copy(), expression=exp.null()), true=exp.null())],
+                              default=found))
+
+
 def _like_regex(pattern: str, escape: str = "") -> str:
     """A T-SQL LIKE pattern as an RE2 expression for a whole-string match."""
     out, i = ["(?s)"], 0  # % and _ match a line break too
@@ -433,6 +480,9 @@ def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
 
 
+_SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}
+
+
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
@@ -454,17 +504,31 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff,
+                                   exp.DateAdd, exp.TimestampTrunc)):
         if isinstance(node, exp.DateDiff):
-            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+            part = _datepart(node, "DATEDIFF")
+            if part == "WEEK":
                 _sunday_weeks(node)
+            elif part == "ISO_WEEK":
+                _sunday_weeks(node, shift=0)
+        elif isinstance(node, exp.DateAdd):
+            _datepart(node, "DATEADD")
+        elif isinstance(node, exp.TimestampTrunc):
+            if _datepart(node, "DATETRUNC") == "WEEK":
+                _sunday_week_start(node)
         elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
             unit = node.this.name.upper()
+            if isinstance(node.expression, exp.Literal) and node.expression.is_string:
+                node.set("expression", exp.cast(node.expression, "TIMESTAMP"))  # T-SQL reads the text as a datetime
             day = node.expression
-            if unit in ("DAYOFWEEK", "DW", "WEEKDAY"):  # Sunday = 1 (DATEFIRST 7)
+            if unit in ("MILLISECOND", "MICROSECOND"):  # within the second, as T-SQL counts them (DuckDB adds the seconds)
+                node.replace(exp.paren(exp.Mod(this=node.copy(), expression=exp.Literal.number(
+                    1000 if unit == "MILLISECOND" else 1_000_000)), copy=False))
+            elif unit in ("DAYOFWEEK", "DW", "WEEKDAY"):  # Sunday = 1 (DATEFIRST 7)
                 node.replace(exp.paren(exp.func("DAYOFWEEK", day) + 1, copy=False))
             elif unit in ("WEEK", "WK", "WW"):  # 1 January is in week 1; weeks start on Sunday
                 sunday_first = exp.EQ(this=exp.func("DAYOFWEEK", exp.func("DATE_TRUNC", exp.Literal.string("year"),
@@ -474,23 +538,225 @@ def _functions(tree: exp.Expression) -> None:
                     exp.cast(exp.func("STRFTIME", day, exp.Literal.string("%U")), "INT")
                     + exp.Case(ifs=[exp.If(this=sunday_first, true=exp.Literal.number(0))],
                                default=exp.Literal.number(1)), copy=False))
+        elif isinstance(node, exp.Anonymous) and node.name.upper() in _SPREADS and len(node.expressions) == 1:
+            # VAR is the sample variance, VARP the population's, STDEVP the population's standard deviation
+            # (STDEV is read as the sample's already). DuckDB has none of these names.
+            node.replace(_SPREADS[node.name.upper()](this=node.expressions[0]))
         elif isinstance(node, exp.CurrentTimestamp) or (
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
 
 
-def _sunday_weeks(node: exp.DateDiff) -> None:
+_NOT_YET = "This T-SQL can't be run on the local engine: "
+
+
+def _gaps(tree: exp.Expression) -> None:
+    """T-SQL functions DuckDB doesn't have, written as DuckDB SQL that gives T-SQL's answer; or, where
+    that can't be done faithfully yet, refused with a message that says so (not DuckDB's own error)."""
+    for kind in list(tree.find_all(exp.DataType)):
+        if kind.this == exp.DataType.Type.BIT:  # DuckDB's BIT is a bit string: CAST(1 AS BIT) was 32 characters
+            kind.replace(exp.DataType.build("BOOLEAN"))
+    for node in list(tree.find_all(exp.Cast, exp.TryCast)):
+        to, value = node.to, node.this
+        if to.this == exp.DataType.Type.BOOLEAN and isinstance(value, exp.Literal) and value.is_string:
+            text = value.name.strip().upper()
+            if text in ("TRUE", "FALSE"):  # T-SQL converts 'true' and 'false', and numbers written as text
+                node.replace(exp.Boolean(this=text == "TRUE"))
+            else:
+                inner = exp.TryCast if isinstance(node, exp.TryCast) else exp.Cast
+                node.set("this", inner(this=value, to=exp.DataType.build("DECIMAL(38, 10)")))
+    for rounded in list(tree.find_all(exp.Round)):
+        mode = rounded.args.get("truncate")
+        if mode is None:
+            continue
+        if not (isinstance(mode, exp.Literal) and not mode.is_string):
+            raise ValueError(_NOT_YET + "ROUND's third argument has to be a number written in the query.")
+        rounded.set("truncate", None)
+        if mode.name not in ("0", "0.0"):  # ROUND(x, n, 1): cut, not round
+            rounded.replace(exp.Anonymous(this="TRUNC", expressions=[rounded.this, rounded.args.get("decimals")
+                                                                  or exp.Literal.number(0)]))
+    for limit in list(tree.find_all(exp.Limit)):
+        options = limit.args.get("limit_options")
+        if options is not None and options.args.get("with_ties"):
+            _with_ties(limit)
+    for call in list(tree.find_all(exp.Anonymous)):
+        name = call.name.upper()
+        args = call.expressions
+        if name == "CHOOSE" and len(args) >= 2:
+            call.replace(exp.Case(this=args[0], ifs=[exp.If(this=exp.Literal.number(i), true=a)
+                                                     for i, a in enumerate(args[1:], 1)]))
+        elif name == "DATALENGTH" and len(args) == 1:
+            call.replace(_datalength(args[0]))
+        elif name == "STRING_SPLIT":
+            _string_split(call)
+        elif name == "ISNUMERIC":
+            raise ValueError(_NOT_YET + "ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). "
+                             "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
+
+
+def _datalength(value: exp.Expression) -> exp.Expr:
+    """``DATALENGTH``: the bytes of the text as UTF-8, as a warehouse's varchar holds it; an N'...'
+    literal is nvarchar, two bytes a character (UTF-16)."""
+    if isinstance(value, exp.National):
+        return exp.Literal.number(len(value.name.encode("utf-16-le")))
+    if isinstance(value, exp.Literal) and not value.is_string:
+        raise ValueError(_NOT_YET + "DATALENGTH runs here only on text: a number's size depends on its T-SQL type.")
+    return exp.func("OCTET_LENGTH", exp.Anonymous(this="ENCODE", expressions=[value]))
+
+
+def _with_ties(limit: exp.Limit) -> None:
+    """``TOP n WITH TIES``: the first n rows by the ORDER BY and every row tied with the last of them,
+    as a QUALIFY on their rank (DuckDB has no WITH TIES)."""
+    select = limit.parent
+    order = select.args.get("order") if isinstance(select, exp.Select) else None
+    options = limit.args["limit_options"]
+    if not isinstance(select, exp.Select) or order is None or options.args.get("percent") or select.args.get("distinct") or select.args.get("qualify"):
+        raise ValueError(_NOT_YET + "TOP ... WITH TIES runs here only with an ORDER BY and without PERCENT, "
+                         "DISTINCT or QUALIFY.")
+    rank = exp.Window(this=exp.Anonymous(this="RANK", expressions=[]), order=order.copy())
+    select.set("limit", None)
+    select.set("qualify", exp.Qualify(this=exp.LTE(this=rank, expression=limit.expression)))
+
+
+def _string_split(node: exp.Anonymous) -> None:
+    """``STRING_SPLIT(text, separator)`` as a table of one ``value`` column, one row per part."""
+    if len(node.expressions) != 2:
+        raise ValueError(_NOT_YET + "STRING_SPLIT with enable_ordinal isn't mapped yet.")
+    separator = node.expressions[1]
+    if isinstance(separator, (exp.Literal, exp.National)) and len(separator.name) != 1:
+        raise ValueError("STRING_SPLIT takes a separator of one character, as in T-SQL.")
+    parts = exp.Unnest(expressions=[exp.func("STRING_SPLIT", *node.expressions)])
+    query = exp.select(exp.alias_(parts, "value")).subquery()
+    holder = node.parent
+    if isinstance(holder, exp.Table):  # FROM STRING_SPLIT(...) [AS s]
+        alias = holder.args.get("alias")
+        query.set("alias", alias.copy() if alias else exp.TableAlias(this=exp.to_identifier("string_split")))
+        holder.replace(query)
+    elif isinstance(holder, exp.Lateral):  # CROSS / OUTER APPLY STRING_SPLIT(...) AS s
+        node.replace(query)
+    else:
+        raise ValueError(_NOT_YET + "STRING_SPLIT runs here only in FROM or CROSS APPLY.")
+
+
+def _whole(node: exp.Expression | None, low: int) -> bool:
+    """A whole-number literal of at least ``low``: then the edge rules can't apply."""
+    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
+
+
+def _string_edges(tree: exp.Expression) -> None:
+    """Where DuckDB's string functions answer differently from T-SQL's at the edges, as T-SQL does:
+
+    - ``SUBSTRING(s, start, n)`` with a start below 1 counts the positions before 1 and returns only
+      what falls from 1 on (``SUBSTRING('abc', 0, 2)`` is ``'a'``); DuckDB counts a negative start
+      from the end. A negative length is an error.
+    - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
+      negative; a NULL ``x`` deletes without inserting.
+    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+
+    Literal starts and lengths that can't hit an edge are left as they are."""
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat)):
+        if isinstance(node, exp.Substring):
+            start, length = node.args.get("start"), node.args.get("length")
+            if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
+                continue
+            cut: exp.Expression = node.copy()
+            if not _whole(start, 1):
+                first = exp.func("GREATEST", start.copy(), exp.Literal.number(1))
+                count = exp.func("GREATEST", exp.paren(start.copy() + length.copy() - first.copy(), copy=False),
+                                 exp.Literal.number(0))
+                # GREATEST skips NULLs, so a NULL start or length is kept NULL first, as in T-SQL.
+                unknown = exp.or_(exp.Is(this=start.copy(), expression=exp.null()),
+                                  exp.Is(this=length.copy(), expression=exp.null()))
+                cut = exp.Case(ifs=[exp.If(this=unknown, true=exp.null())],
+                               default=exp.Substring(this=node.this, start=first, length=count))
+            if not _whole(length, 0):
+                negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
+                message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")
+                cut = exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", message))], default=cut)
+            node.replace(cut)
+        elif isinstance(node, exp.Stuff):
+            start, length = node.args["start"], node.args["length"]
+            text = node.this
+            past = exp.or_(exp.LT(this=start.copy(), expression=exp.Literal.number(1)),
+                           exp.GT(this=start.copy(), expression=exp.func("LENGTH", text.copy())),
+                           exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
+            node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
+            node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
+        elif not _whole(node.args.get("times"), 0):
+            times = node.args["times"]
+            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
+            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
+
+
+def _sunday_weeks(node: exp.DateDiff, shift: int = 1) -> None:
     """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
     (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
-    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those.
+    ``shift=0`` counts Mondays, for ``iso_week``."""
     def monday(day: exp.Expression) -> exp.Expression:
-        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(shift))
         return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
 
     days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
                                                         monday(node.this)])
     node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
+
+
+# T-SQL's date parts by every name it takes (sqlglot reads some as other dialects do: Y as year,
+# W as week, M in DATETRUNC as minute), and the functions each may be used with.
+_DATEPARTS = {name: part for part, names in {
+    "YEAR": ("YEAR", "YY", "YYYY"), "QUARTER": ("QUARTER", "QQ", "Q"), "MONTH": ("MONTH", "MM", "M"),
+    "DAYOFYEAR": ("DAYOFYEAR", "DY", "Y"), "DAY": ("DAY", "DD", "D"), "WEEK": ("WEEK", "WK", "WW"),
+    "WEEKDAY": ("WEEKDAY", "DW", "W"), "HOUR": ("HOUR", "HH"), "MINUTE": ("MINUTE", "MI", "N"),
+    "SECOND": ("SECOND", "SS", "S"), "MILLISECOND": ("MILLISECOND", "MS"), "MICROSECOND": ("MICROSECOND", "MCS"),
+    "NANOSECOND": ("NANOSECOND", "NS"), "ISO_WEEK": ("ISO_WEEK", "ISOWK", "ISOWW"),
+}.items() for name in names}
+_TIME_PARTS = {"HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND", "NANOSECOND"}
+_TAKES = {
+    "DATEADD": set(_DATEPARTS.values()) - {"ISO_WEEK", "NANOSECOND"},
+    "DATEDIFF": set(_DATEPARTS.values()) - {"NANOSECOND"},
+    "DATETRUNC": set(_DATEPARTS.values()) - {"WEEKDAY", "NANOSECOND"},
+}
+# What each T-SQL part is in DuckDB: day of year and weekday count in days.
+_DUCKDB_PART = {"DAYOFYEAR": "DAY", "WEEKDAY": "DAY", "ISO_WEEK": "WEEK"}
+
+
+def _datepart(node: exp.Expression, function: str) -> str:
+    """The T-SQL date part of ``node``, which is set to DuckDB's name for it. Raises ValueError for one T-SQL
+    doesn't take there, and for nanoseconds, which the local engine doesn't keep."""
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    part = _DATEPARTS.get(name)
+    if part == "NANOSECOND":
+        raise ValueError(f"{function} with nanosecond can't be run on the local engine: its times are kept to the "
+                         "microsecond.")
+    if part not in _TAKES[function]:
+        raise ValueError(f"{function} doesn't take the date part {name.lower()}.")
+    node.set("unit", exp.var(_DUCKDB_PART.get(part, part)))
+    return part
+
+
+def _stays_a_date(node: exp.Expression) -> None:
+    """``DATEADD`` and ``DATETRUNC`` on a date give a date, as in T-SQL (DuckDB gives a timestamp). A time
+    part on a date is an error there too."""
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    if _DATEPARTS.get(name) in _TIME_PARTS:
+        function = "DATEADD" if isinstance(node, exp.DateAdd) else "DATETRUNC"
+        raise ValueError(f"{function} doesn't take the date part {name.lower()} for a date.")
+    wrapper = exp.Cast(to=exp.DataType.build("DATE"))
+    node.replace(wrapper)
+    wrapper.set("this", node)  # the same node, so a later step still finds what's inside it
+
+
+def _sunday_week_start(node: exp.TimestampTrunc) -> None:
+    """``DATETRUNC(week, d)`` starts weeks on Sunday (DATEFIRST 7); DuckDB's start on Monday."""
+    day = exp.Interval(this=exp.Literal.string("1"), unit=exp.var("DAY"))
+    node.set("this", exp.Add(this=node.this, expression=day))
+    wrapper = exp.Sub(expression=day.copy())
+    node.replace(wrapper)
+    wrapper.set("this", node)
 
 
 def _first_line(exc: Any) -> str:

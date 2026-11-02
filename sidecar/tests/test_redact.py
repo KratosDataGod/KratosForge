@@ -210,3 +210,12 @@ def test_without_webhook_hides_a_webhook_urls_path_and_query_wherever_it_appears
     assert redact.without_webhook("text", None) == "text" and redact.without_webhook("text", "") == "text"
     # The agent and the schedule alerts use this one function.
     assert agent._without_webhook is schedule_service._without_webhook is redact.without_webhook
+
+
+def test_without_webhook_hides_the_urls_percent_encoded_forms_too():
+    url = "https://contoso.webhook.office.com/webhookb2/abc-123@def/IncomingWebhook/s3cr3t path/x?sig=q"
+    for written in ("/webhookb2/abc-123%40def/IncomingWebhook/s3cr3t%20path/x",
+                    "/webhookb2/abc-123@def/IncomingWebhook/s3cr3t%20path/x?sig=q",
+                    "/WEBHOOKB2/abc-123%40DEF/IncomingWebhook/S3CR3T%20PATH/x"):
+        out = redact.without_webhook(f"Max retries exceeded with url: {written}", url)
+        assert "s3cr3t" not in out.lower() and "[webhook]" in out, written

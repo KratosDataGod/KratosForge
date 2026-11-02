@@ -3,10 +3,22 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-01 23:42 UTC, main 761a7949.** Covers the PRs merged from #135 to #1549.
+**Product check of 2026-11-02 11:42 UTC, main 32cbd98f.** Covers the PRs merged from #135 to #1638.
 
 ## Summary
 
+- Morning check, 2026-11-02: 66 PRs merged after 761a7949 (#1550 to #1638). 3 were product data
+  PRs; the other 63 were linked. An enterprise engineering audit (#1571, docs/audits/) scored
+  readiness 54/100 and opened the EA remediation backlog, and its first fixes landed: Spark casts,
+  division by zero, dates, CSV options and hash() now answer as Spark does or refuse, Cancel stops
+  queries a notebook opened, and a killed scheduled run no longer holds its schedule. The engine
+  build installs from hashed pins and checks its Python and source hashes. Local T-SQL casts, LIKE
+  ranges, DATEDIFF(week) and window averages answer as T-SQL does. OneLake leases are judged on
+  OneLake's clock, and publish overwrites commit against the version they read. The sign-in cache
+  is changed under a lock (PB-005 finding 1). Lab time and memory limits now have tests (#1552),
+  so PB-119's criterion 2 names them.
+- PB-119 split (2026-11-01, #1551): Learn v1 is In review, Guided Development is PB-122 (In progress,
+  8 of 10 rows merged) and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
 - Evening check, 2026-11-01: 35 PRs merged after 063b84ed. 5 were product data and docs PRs; the other 30 were linked.
   The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
   adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
@@ -53,9 +65,11 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 111 items (5 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 27 In progress, 5 In review and 65 Accepted.
-- PB-119 split (2026-11-01): Learn v1 is In review, Guided Development is PB-122 (In progress, 8 of 10 rows merged)
-  and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
+- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 16 are Proposed, 28 In progress, 5 In review and 65 Accepted.
+- PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
+  product owner's ask of 2026-11-02; they build once the rank ladder is approved.
+- PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
+  44 of its PRs are merged; it tracks fixes only.
 
 ## Workstreams
 

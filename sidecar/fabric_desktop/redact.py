@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 REMOVED = "[removed]"
 
@@ -112,11 +112,15 @@ def without_webhook(text: str, url: Any) -> str:
     secret in the path, which requests puts in connection errors and secrets() doesn't know (QA-016)."""
     if not isinstance(url, str) or not url:
         return text
-    parts = urlsplit(url)
-    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
-                        key=len, reverse=True):
-        if len(piece) > 1:
-            text = text.replace(piece, "[webhook]")
+    from requests.utils import requote_uri  # as requests writes the URL into its errors
+
+    pieces: set[str] = set()
+    for form in {url, requote_uri(url), quote(url, safe=":/?=&")}:  # quote: an @ in the path as %40
+        parts = urlsplit(form)
+        pieces |= {form, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query}
+    for piece in sorted(pieces, key=len, reverse=True):
+        if len(piece) > 1:  # percent-escapes may be written in either case (%2f, %2F)
+            text = re.sub(re.escape(piece), "[webhook]", text, flags=re.IGNORECASE)
     return text
 
 

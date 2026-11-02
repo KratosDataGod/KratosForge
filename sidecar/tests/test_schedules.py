@@ -518,3 +518,34 @@ def test_a_task_left_behind_by_a_timed_out_create_runs_nothing(svc):
     with pytest.raises(LookupError, match="There is no schedule gone123 on this PC"):
         svc.run_schedule("gone123")
     assert svc.pc_schedules.runs() == []
+
+
+def test_the_runs_log_keeps_only_its_newest_rows_once_it_grows_past_its_cap(tmp_path, monkeypatch):
+    from fabric_desktop import local_schedules
+    monkeypatch.setattr(local_schedules, "RUNS_KEEP", 3)
+    monkeypatch.setattr(local_schedules, "RUNS_TRIM_BYTES", 400)
+    s = LocalSchedules(tmp_path)
+    for i in range(5):
+        s.log_run({"schedule_id": "a", "status": "ok", "n": i})
+    assert [r["n"] for r in s.runs()] == [4, 3, 2, 1, 0]  # still under the cap: nothing dropped
+    for i in range(5, 12):
+        s.log_run({"schedule_id": "a", "status": "ok", "n": i, "message": "x" * 50})
+    kept = [r["n"] for r in s.runs()]
+    assert kept[0] == 11 and kept == sorted(kept, reverse=True) and len(kept) <= 3 + 1
+    assert s.runs_file.stat().st_size <= 400 + 200  # one row past the cap at most
+
+
+def test_two_processes_logging_runs_while_one_trims_lose_no_new_row(tmp_path):
+    import subprocess
+    import sys
+    script = (
+        "import sys; from pathlib import Path; from fabric_desktop import local_schedules as m\n"
+        "m.RUNS_KEEP = 10_000; m.RUNS_TRIM_BYTES = 2_000\n"
+        "s = m.LocalSchedules(Path(sys.argv[1]))\n"
+        "for i in range(150): s.log_run({'schedule_id': sys.argv[2], 'n': i})\n")
+    env = {**__import__("os").environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    procs = [subprocess.Popen([sys.executable, "-c", script, str(tmp_path), name], env=env) for name in ("a", "b")]
+    assert [p.wait(timeout=120) for p in procs] == [0, 0]
+    rows = LocalSchedules(tmp_path).runs(limit=10**6)
+    for name in ("a", "b"):  # the trim keeps everything (RUNS_KEEP is large), so every row must still be there
+        assert sorted(r["n"] for r in rows if r["schedule_id"] == name) == list(range(150))

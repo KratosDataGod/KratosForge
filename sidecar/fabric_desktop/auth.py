@@ -255,19 +255,24 @@ class SharedTokenCache(msal.SerializableTokenCache):
         """A change must start from the file's latest contents, or writing it would undo what another
         process wrote (a sign-out). The read is tried for about 1.5 s, as jsonfile.replace waits; then
         the OSError is raised and nothing is changed or written."""
-        for attempt in range(jsonfile._REPLACE_ATTEMPTS):
+        for attempt in range(jsonfile.REPLACE_ATTEMPTS):
             try:
                 self._reload(strict=True)
                 return
             except OSError:
-                if attempt == jsonfile._REPLACE_ATTEMPTS - 1:
+                if attempt == jsonfile.REPLACE_ATTEMPTS - 1:
                     raise
-                time.sleep(jsonfile._REPLACE_BACKOFF * (2 ** attempt))
+                time.sleep(jsonfile.REPLACE_BACKOFF * (2 ** attempt))
 
     def write(self) -> None:
         """Write the cache as it is now; call it holding ``locked()``. OSError as write_cache says."""
         write_cache(self.path, self.serialize())
         self._seen = self._signature()
+
+    def forget_changes(self) -> None:
+        """Drop what this process changed but couldn't write: the next lookup reads the file again."""
+        self._seen = _UNREAD
+        self.has_state_changed = False
 
     def write_or_retry_later(self) -> None:
         try:
@@ -465,13 +470,19 @@ class Authenticator:
 
     def sign_out(self) -> None:
         """Every account and its tokens, removed in one change under the cache's lock, so a token
-        refresh in another process lands before it or after it, never in between."""
-        with self.cache.locked() as outer:
-            for account in self.app.get_accounts():
-                self.app.remove_account(account)
-                self.cache.forget(account.get("home_account_id") or "")
-            if outer:
-                self.cache.write_or_retry_later()
+        refresh in another process lands before it or after it, never in between. If the file can't be
+        written, nothing is signed out and the error says so, rather than seeming to sign out."""
+        try:
+            with self.cache.locked() as outer:
+                for account in self.app.get_accounts():
+                    self.app.remove_account(account)
+                    self.cache.forget(account.get("home_account_id") or "")
+                if outer:
+                    self.cache.write()
+        except OSError as exc:
+            self.cache.forget_changes()
+            raise RuntimeError(f"Couldn't sign out, because the saved sign-in couldn't be changed ({describe(exc)}). "
+                               "Try again.") from exc
 
     def signed_in_user(self) -> str | None:
         accounts = self.app.get_accounts()

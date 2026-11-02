@@ -173,7 +173,7 @@ def test_a_change_that_cant_read_the_file_writes_nothing(tmp_path, monkeypatch):
     sign_in(app, "ana")
     scheduled = auth.Authenticator(OWN_APP, cache_path=path)
     app.sign_out()
-    monkeypatch.setattr(auth.jsonfile, "_REPLACE_BACKOFF", 0)
+    monkeypatch.setattr(auth.jsonfile, "REPLACE_BACKOFF", 0)
 
     def busy(p):
         raise PermissionError(13, "being used by another process")
@@ -182,3 +182,17 @@ def test_a_change_that_cant_read_the_file_writes_nothing(tmp_path, monkeypatch):
         sign_in(scheduled, "ana", token="refreshed")
     monkeypatch.undo()
     assert users_on_disk(path) == set() and refresh_tokens_on_disk(path) == set()
+
+
+def test_a_sign_out_that_cant_be_written_says_so_and_signs_nothing_out(tmp_path, monkeypatch):
+    path = tmp_path / "msal_cache.bin"
+    app = auth.Authenticator(OWN_APP, cache_path=path)
+    sign_in(app, "ana")
+
+    def disk_full(p, text):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(auth, "write_cache", disk_full)
+    with pytest.raises(RuntimeError, match="Couldn't sign out"):
+        app.sign_out()
+    monkeypatch.undo()
+    assert app.signed_in_user() == "ana@contoso.com" and users_on_disk(path) == {"ana"}

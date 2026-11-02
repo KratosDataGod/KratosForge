@@ -119,6 +119,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
 | `CAST(1e0 / 3 AS VARCHAR)`, `CAST(1234567e0 AS VARCHAR)` on `float` or `real` | `'0.333333'`, `'1.23457e+006'`: at most 6 significant digits, as T-SQL's style 0 |
+| `CONVERT(VARCHAR(10), qty, 1)` on an integer or decimal | `'7'`: the style is ignored, as in T-SQL. A float's styles 1, 2 and 3 are refused for now |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
 | `#t` | A temporary table kept apart from an ordinary table `t` |
 

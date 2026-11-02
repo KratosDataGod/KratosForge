@@ -176,6 +176,9 @@ def test_left_right_and_translate_fail_where_tsql_fails(engine):
     r = tsql(engine, "SELECT LEFT('abc', -0.5) AS a, RIGHT('abc', 2.7) AS b, LEFT(name, price) AS c FROM dbo.orders "
                      "ORDER BY id")
     assert r["rows"] == [["", "bc", "An"], ["", "bc", "Bo"]]
+    r = tsql(engine, "SELECT LEFT('abcdef', 2.0) AS a, LEFT(name, 1e1) AS b, RIGHT('abcdef', 3.00) AS c FROM dbo.orders "
+                     "ORDER BY id")
+    assert r["rows"] == [["ab", "Ann  ", "def"], ["ab", "Bo", "def"]]
     for sql in ("SELECT LEFT('abc', -1)", "SELECT RIGHT(name, -2) FROM dbo.orders"):
         with pytest.raises(ValueError, match="Invalid length parameter passed to the (LEFT|RIGHT) function"):
             tsql(engine, sql)
@@ -199,3 +202,15 @@ def test_a_float_as_text_has_six_significant_digits(engine):
         "rows"] == [["1e+010", "2.5"], ["1e+010", "4.0"]]  # price is a decimal: unchanged
     with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
         tsql(engine, "SELECT CAST(d AS VARCHAR(5)) AS s FROM dbo.f")  # '0.333333' is 8 characters
+
+
+def test_convert_styles_on_numbers(engine):
+    # sqlglot read every CONVERT style as a date style, so a number went to STRFTIME and failed.
+    engine.execute("CREATE TABLE dbo.f AS SELECT CAST(0.5 AS DOUBLE) AS d")
+    r = tsql(engine, "SELECT CONVERT(VARCHAR(10), qty, 1) AS q, CONVERT(VARCHAR(10), price, 2) AS p, "
+                     "CONVERT(VARCHAR(10), day, 1) AS d FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["7", "2.5", "10/18/26"], ["-7", "4.0", "01/04/26"]]  # integers and decimals ignore it
+    assert tsql(engine, "SELECT CONVERT(VARCHAR(10), d, 0) AS d FROM dbo.f")["rows"] == [["0.5"]]
+    for style in (1, 2, 3):
+        with pytest.raises(ValueError, match=f"CONVERT style {style} for a float isn't carried yet"):
+            tsql(engine, f"SELECT CONVERT(VARCHAR(30), d, {style}) AS d FROM dbo.f")

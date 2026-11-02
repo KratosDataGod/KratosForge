@@ -30,7 +30,7 @@
   };
   const SECRET = /token|authorization|secret|password|credential/i;
   // A token inside text (an error message that quotes a header, say): a JWT, or a bearer value.
-  const TOKEN_TEXT = /\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]*|\bBearer\s+[\w.~+/=-]+/g;
+  const TOKEN_TEXT = /\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]*|\bBearer\s+[\w.~+/=-]+/gi;
   const MAX_TEXT = 2000;
 
   // An embed address the frame may load: https on app.powerbi.com, no port and no user name.
@@ -177,8 +177,11 @@
     win.addEventListener("unhandledrejection", (e) => {
       const reason = e.reason;
       if (!current || !reason || typeof reason !== "object" || !(reason.message || reason.errorCode)) return;
+      // Anything else that rejects with a message while content is open goes the same way: it shows as an error
+      // event, which is what someone debugging an embed wants to see.
       e.preventDefault();
-      emit("error", reason);
+      // An Error's message isn't an own enumerable key, so it is copied over before clean() walks the keys.
+      emit("error", { message: reason.message, errorCode: reason.errorCode, ...reason });
     });
     // Ready: the parent can send commands now. It carries nothing, so it goes to each app origin it may be.
     for (const origin of APP_ORIGINS) send({ event: "ready" }, origin);

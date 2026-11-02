@@ -1249,7 +1249,7 @@ review moves it to Accepted; a merge alone does neither.
     - A lab runs on this PC with generated data, with no file or network access (test_learn_labs)
     - Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)
     - Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)
-    - docs/learn.md and docs/writing-lessons.md match the code
+    - docs/learn.md and docs/learn/writing-lessons.md match the code
 
 ### PB-122
 

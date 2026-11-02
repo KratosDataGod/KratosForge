@@ -1276,8 +1276,8 @@ review moves it to Accepted; a merge alone does neither.
 **Learn phase 2: rule batches, Profile v2 and comparison lessons** · P2 (score 2.34) · L · confidence Medium · Proposed
 
 - **Problem:** Learn v1 covers the first rule catalog and paths only.
-- **Proposed capability:** New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).
-- **Current-state evidence:** Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built
+- **Proposed capability:** New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.
+- **Current-state evidence:** Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built; 2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (LX-11..16)
@@ -1295,8 +1295,9 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (Learn curriculum design 2026-11-02)
 - **Acceptance criteria:**
-    - A rank is earned only from Learn evidence the person produced, never set by hand, and a policy can turn ranks off
-    - Every rank name and picture prompt follows the approved ladder; none is "Data God"
+    - A rank is earned only from the person's own verified evidence on this PC (Learn passes, clean Validate runs and checked fixes), never set by hand; Proof Forged is never required
+    - Ranks follow the Developer progression switch (Profile > Settings)
+    - Every rank name and picture prompt follows the approved ladder; no rank name contains god, deity or divine, and a test enforces it
     - A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size
     - The picture prompts are text only: the app generates no images and calls no AI service
 
@@ -1306,7 +1307,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Learn v1 has the first lessons and labs only, so no path is a full curriculum.
 - **Proposed capability:** A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.
-- **Current-state evidence:** From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Overlaps PB-123 (Learn phase 2, LX-11 to LX-16); the two are reconciled when Chris approves the ladder; Nothing built. Each batch needs Chris's go before it is built
+- **Current-state evidence:** From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09); Nothing built. Each batch needs Chris's go before it is built
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (LM-13..35, LAB-05..12)

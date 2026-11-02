@@ -330,3 +330,22 @@ def test_the_channel_proves_it_knows_the_hello_without_giving_it_away(paired):
     assert res["result"]["proof"] == hmac.new(window.hello.encode(), nonce.encode(), hashlib.sha256).hexdigest()
     assert window.hello not in json.dumps(res)
     assert window.call("GET", "/v1/hello?nonce=short")[0] == 400
+
+
+def test_only_programs_running_as_this_windows_account_can_call(paired, monkeypatch):
+    from fabric_desktop.integrations import peer
+    svc, window, path = paired
+    window.pair(svc)
+    asked = []
+    monkeypatch.setattr(peer, "checked", lambda: True)
+    monkeypatch.setattr(peer, "same_user", lambda client, server: asked.append((client, server)) or False)
+    hello = {"X-KratosForge-Hello": window.hello}
+    for method, url, body, headers in (("POST", "/v1/run", {"path": path, "code": "print(1)"}, None),
+                                       ("POST", "/v1/pair", {"window": str(svc.root), "client": "t"}, hello),
+                                       ("GET", "/v1/hello?nonce=" + "n" * 32, None, None)):
+        status, res = window.call(method, url, body, headers)
+        assert status == 403 and "Windows account" in res["error"]["message"], (url, res)
+    assert asked and all(server == window.port for _, server in asked)
+    assert call(svc, "editor_pending")["pairing"] == []
+    monkeypatch.setattr(peer, "same_user", lambda client, server: True)
+    assert window.call("GET", "/v1/status")[0] == 200

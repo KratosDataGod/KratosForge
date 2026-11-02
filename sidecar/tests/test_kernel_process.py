@@ -94,7 +94,7 @@ def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marke
     kernel.run("x = 1")
     proc = kernel._proc
     kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
-    assert kernel._send_lock.acquire(timeout=5)  # as a _send stuck mid-write would hold it
+    assert kernel._send_lock(proc).acquire(timeout=5)  # as a _send stuck mid-write would hold it
     try:
         deadline = time.monotonic() + 10
         while kernel._proc is proc and time.monotonic() < deadline:
@@ -102,9 +102,29 @@ def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marke
         assert kernel._proc is not proc  # marked gone without the lock
         assert proc.stdout.closed and not proc.stdin.closed
     finally:
-        kernel._send_lock.release()
+        kernel._send_lock(proc).release()
         proc.stdin.close()  # left to the garbage collector by the app; the test closes it
     assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]
+
+
+def test_a_write_stuck_on_an_ended_process_doesnt_hold_up_the_next_one(kernel, monkeypatch):
+    """Each process has its own send lock: the next process's requests go through while a write to
+    the last one is still stuck."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    stuck = kernel._send_lock(proc)
+    assert stuck.acquire(timeout=5)  # held for the whole test, as a write that never returns would
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # a new process, not held up
+        assert kernel._proc is not proc and kernel._send_lock(kernel._proc) is not stuck
+    finally:
+        stuck.release()
+        proc.stdin.close()
 
 
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):

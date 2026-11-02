@@ -3,10 +3,16 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-01 11:42 UTC, main 063b84ed.** Covers the PRs merged from #135 to #1523.
+**Product check of 2026-11-01 23:42 UTC, main 761a7949.** Covers the PRs merged from #135 to #1549.
 
 ## Summary
 
+- Evening check, 2026-11-01: 35 PRs merged after 063b84ed, besides the product data and docs PRs.
+  The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
+  adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
+  GD-08, Preview). The rest is hardening: redaction of Basic credentials and Databricks secrets,
+  reply text from Fabric, Databricks, OneLake and Graph kept to one short line, files and
+  connections closed, and type-check fixes.
 - Acceptance, 2026-11-01: the product owner accepted PB-027, PB-096, PB-098, PB-116, PB-117 and
   PB-118, three of them with documented limitations. PB-098's criterion now reads "a test fails
   when lists meant to agree disagree".
@@ -47,7 +53,9 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 109 items (5 P0, 32 P1, 55 P2, 17 P3). 13 are Proposed, 27 In progress, 4 In review and 65 Accepted.
+- Backlog: 111 items (5 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 27 In progress, 5 In review and 65 Accepted.
+- PB-119 split (2026-11-01): Learn v1 is In review, Guided Development is PB-122 (In progress, 8 of 10 rows merged)
+  and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
 
 ## Workstreams
 
@@ -70,7 +78,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 4 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 5 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

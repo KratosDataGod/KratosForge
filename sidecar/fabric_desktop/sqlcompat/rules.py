@@ -341,7 +341,7 @@ def _args(s: Stmt, i: int) -> int:
 def _starts(s: Stmt) -> list[int]:
     """Indexes where a statement begins inside ``s``: its first token, and statements inside BEGIN ... END."""
     out = [0]
-    for i, t in enumerate(s.toks[1:], 1):
+    for i, _t in enumerate(s.toks[1:], 1):
         prev = s.toks[i - 1]
         if prev.kw in {"BEGIN", "ELSE", "END"} or (prev.kw == "AS" and s.first()[0] in {"CREATE", "ALTER"}
                                                      and s.has(("PROCEDURE", "PROC", "FUNCTION", "TRIGGER"))):
@@ -771,7 +771,7 @@ def _is_ctas(s: Stmt) -> bool:
 
 @check
 def _types(s: Stmt):
-    for j, col in _column_defs(s):
+    for j, _col in _column_defs(s):
         t = s.toks[j]
         if t.kw in _TYPE_ALTERNATIVES:
             yield _hit("TYP-001", t, name=t.raw.lower(), fix=_TYPE_ALTERNATIVES[t.kw])
@@ -954,7 +954,7 @@ def _sqldb(s: Stmt):
     for words, name, fix in _DB_UNSUPPORTED:
         for i in s.find(*words):
             yield _hit("DB-001", toks[i], toks[i + len(words) - 1], name=name, fix=fix)
-    for i, t in enumerate(toks):
+    for t in toks:
         if t.kw in _DB_UNSUPPORTED_PROCS:
             name, fix = _DB_UNSUPPORTED_PROCS[t.kw]
             yield _hit("DB-001", t, name=name, fix=fix)

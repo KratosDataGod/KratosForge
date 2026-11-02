@@ -44,7 +44,7 @@ from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 from ..duckdb_rows import arrow_reader, first_row, for_arrow, keep_try_cast, one_row, run_through
-from ..sql import KfDuckDB
+from ..sql import KfDuckDB, refuse_spark_hashes
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
 DIALECTS = ("duckdb", "spark", "tsql")
@@ -645,6 +645,7 @@ class LocalEngine:
             except ParseError as exc:
                 raise ValueError(f"Could not read the query as Spark SQL: {sql_dialects.parse_problem(exc)}") from None
             for tree in trees:
+                refuse_spark_hashes(tree)  # DuckDB's hash isn't Spark's (EA-017)
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)
                 change = self._own_change(delta_dml.parse_tree(tree))

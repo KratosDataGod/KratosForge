@@ -193,3 +193,9 @@ def test_walk_blanks_secret_fields_and_removes_secrets_in_every_string():
     # The log formatter and integration results are the same walk, one printing objects and one not.
     assert logs._redacted(value) == as_text
     assert core.redact_result(value) == walked
+
+
+def test_a_folded_cookie_line_keeps_the_next_lines_text():
+    # one_line removes secrets, folds the lines, then removes them again: the second pass must not
+    # take the next line's error as the cookie's value.
+    assert redact.one_line("Cookie: sess=abc123\nThe request was refused.") == "Cookie: [removed] The request was refused."

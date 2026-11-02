@@ -72,6 +72,14 @@
     {"level": "secrets", "in": "private_key=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\" next", "out": "private_key=\"[removed]\" next"},
     {"level": "secrets", "in": "{'passphrase': '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----'}", "out": "{'passphrase': '[removed]'}"},
     {"level": "secrets", "in": "copy failed: sig=AbC%2Bdef%3D se=2026-01-01 sp=r", "out": "copy failed: sig=[removed] se=2026-01-01 sp=r"},
-    {"level": "secrets", "in": "design=keep", "out": "design=keep"}
+    {"level": "secrets", "in": "design=keep", "out": "design=keep"},
+    {"level": "secrets", "in": ["X-Api-Key: fdt_", "Qm9vazEyMzQ1Njc4OTBhYmNkZWZnaGlqa2xtbm9w", " sent"], "out": "X-Api-Key: [removed] sent"},
+    {"level": "secrets", "in": ["pair ok kfp_", "aBcD-eFgH_1234567890ijklMNOPqrstUVWXyz0123", " keep 8h"], "out": "pair ok [removed] keep 8h"},
+    {"level": "secrets", "in": "snowsql -a acct --user ann --password Hunter2pass --role r", "out": "snowsql -a acct --user ann --password [removed] --role r"},
+    {"level": "secrets", "in": "tool --password \"two words\" --db x", "out": "tool --password [removed] --db x"},
+    {"level": "secrets", "in": "Cookie: session=abc123; csrftoken=xyz\nHost: x", "out": "Cookie: [removed]\nHost: x"},
+    {"level": "secrets", "in": "set-cookie: SID=31d4d96e407aad42; Path=/; Secure", "out": "set-cookie: [removed]"},
+    {"level": "secrets", "in": "GET /callback?code=0.AXEA-abc_123&state=s1 302", "out": "GET /callback?code=[removed]&state=s1 302"},
+    {"level": "secrets", "in": "exit code=1 and error code=500 stay; fdt_short stays", "out": "exit code=1 and error code=500 stay; fdt_short stays"}
   ]
 }

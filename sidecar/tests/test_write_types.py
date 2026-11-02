@@ -99,7 +99,7 @@ def test_a_timestamp_without_a_time_zone_gets_a_plain_message(lake):
     naive = dt.datetime(2026, 1, 1, 12)
     frames = [pl.DataFrame({"id": [1], "at": [naive]}), pd.DataFrame({"id": [1], "at": [pd.Timestamp(naive)]}),
               pa.table({"id": [1], "s": pa.array([{"at": naive}])})]
-    for frame, column in zip(frames, ["at", "at", "s.at"]):
+    for frame, column in zip(frames, ["at", "at", "s.at"], strict=True):
         with pytest.raises(ValueError, match=f"Column {column} holds timestamps without a time zone") as err:
             lakehouse.write_table(frame, "dbo.t")
         assert "replace_time_zone" in str(err.value) and "Nothing was written" in str(err.value)

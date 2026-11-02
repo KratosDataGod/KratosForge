@@ -490,13 +490,6 @@
   "index": 2,
   "misc": 1
  },
- "fabric_desktop/spark_local.py": {
-  "arg-type": 17,
-  "assignment": 4,
-  "attr-defined": 1,
-  "misc": 1,
-  "override": 2
- },
  "fabric_desktop/spark_stream.py": {
   "assignment": 1,
   "method-assign": 1,

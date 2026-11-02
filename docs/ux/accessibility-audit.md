@@ -53,8 +53,8 @@ The pages are opened signed in with test data (two workspaces, one lakehouse, tw
 | AI tool approval dialog | dark | 15 | 0 (0) | none | 0 | 0 | 0 |
 | Report a problem dialog | light | 14 | 0 (0) | color-contrast (2) | 6 | 0 | 0 |
 | Report a problem dialog | dark | 14 | 0 (0) | color-contrast (2) | 0 | 0 | 0 |
-| Engine picker's How to choose dialog | light | 16 | 0 (0) | color-contrast (4) | 5 | 0 | 0 |
-| Engine picker's How to choose dialog | dark | 16 | 0 (0) | color-contrast (4) | 0 | 0 | 0 |
+| Engine picker's How to choose dialog | light | 16 | 0 (0) | color-contrast (6) | 5 | 0 | 0 |
+| Engine picker's How to choose dialog | dark | 16 | 0 (0) | color-contrast (6) | 0 | 0 | 0 |
 
 ## Findings
 
@@ -72,4 +72,4 @@ Checks axe couldn't decide by itself (for example a glyph, a line number, or tex
 - **Data mesh entity**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.arrow[aria-hidden="true"]:nth-child(2)`, `.arrow[aria-hidden="true"]:nth-child(4)`, `.arrow[aria-hidden="true"]:nth-child(6)`, `.arrow[aria-hidden="true"]:nth-child(8)`, `#entity-toml`. Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text). Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered).
 - **Learn lab**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `.learn-mark`. Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it).
 - **Report a problem dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `textarea[rows="3"]`, `.mono`. Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1. Pass: the diagnostics are #424242 on #fafafa, 9.6:1.
-- **Engine picker's How to choose dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `p:nth-child(10)`, `u[title="side-by-side.md"]`, `p:nth-child(10) > u:nth-child(2)`, `.scroll > b`. Pass: the decision pattern's text, links and headings are #242424 on the dialog's white, 15.5:1 (axe sees the lines that scroll under the dialog's buttons as partly covered).
+- **Engine picker's How to choose dialog**: color-contrast: Elements must meet minimum color contrast ratio thresholds. At `p:nth-child(10)`, `u[title="side-by-side.md"]`, `p:nth-child(10) > u:nth-child(2)`, `.scroll > b`, `.scroll > .row > .tool.small`, `.scroll > .row > .muted-text`. Pass: in both runs the decision pattern's text, links, headings and Copy example are #242424 on the dialog's white, 15.5:1, and the note beside Copy example is #616161, 6.2:1 (axe sees lines that scroll under the dialog's buttons as partly covered).

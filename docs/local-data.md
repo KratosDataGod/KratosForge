@@ -112,9 +112,11 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
+| `code LIKE '[A-C]1%'`, `code LIKE '[^0-9]%'` | Character ranges match as in T-SQL (`[%]` and `[_]` match the character itself). A pattern that isn't written in the query, such as `LIKE other_column`, matches as DuckDB's `LIKE`, with no ranges, and the result's `translation.notes` says so |
 | `name + '!'` on text columns | The two strings joined |
 | `'1' + 1`, `qty + '7'` | `2`, `qty + 7`: with a number, text is converted to a number (and `'x' + 1` is an error) |
 | `CAST('abcdef' AS VARCHAR(3))`, `CAST('ab' AS CHAR(4))` | `'abc'`, `'ab  '`: text is cut to the length, and `CHAR` is padded. With no length, `CAST` and `CONVERT` make 30 characters. A number too long for the length is an error |
+| `CAST(0.1 AS FLOAT)`, `FLOAT(24)`, `REAL` | `FLOAT` (and `FLOAT(25)` to `FLOAT(53)`) is an 8-byte float, `REAL` and `FLOAT(1)` to `FLOAT(24)` 4 bytes, as SQL Server stores them |
 | `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
 | `CAST(' 5 ' AS INT)`, `CAST('3.7' AS INT)` | `5`, an error: text becomes an integer only when it's a whole number (spaces around it are fine, and `''` is `0`). `TRY_CAST` and `TRY_CONVERT` give `NULL` instead of the error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |

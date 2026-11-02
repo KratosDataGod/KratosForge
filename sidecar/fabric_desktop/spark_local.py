@@ -1347,9 +1347,36 @@ def _read_profile(root: dict[str, Any]) -> dict[str, Any]:
             "steps": listed, "more_steps": len(steps) - len(listed)}
 
 
-def interrupt() -> None:
-    """Stop a running DuckDB query, for Cancel."""
-    for conn in ([_session.conn] if _session else []) + [duckdb.default_connection()]:
+# Connections a notebook's cells open with duckdb.connect, by the thread of the cell running now, so
+# Cancel reaches them (EA-016). Only a cell's thread records: the app's own connections, when the
+# kernel runs inside the engine, are never interrupted by a notebook's Cancel.
+_cell_connections: dict[int, Any] = {}
+_duckdb_connect = duckdb.connect
+
+
+def _connect(*args: Any, **kwargs: Any) -> Any:
+    conn = _duckdb_connect(*args, **kwargs)
+    watched = _cell_connections.get(threading.get_ident())
+    if watched is not None:
+        watched.add(conn)
+    return conn
+
+
+def watch_connections(ident: int, connections: Any) -> None:
+    """While the cell on thread ``ident`` runs, record the DuckDB connections it opens in ``connections``
+    (a WeakSet), or stop recording with None."""
+    if connections is None:
+        _cell_connections.pop(ident, None)
+        return
+    if duckdb.connect is not _connect:
+        duckdb.connect = _connect  # type: ignore[assignment]
+    _cell_connections[ident] = connections
+
+
+def interrupt(connections: Any = ()) -> None:
+    """Stop a running DuckDB query, for Cancel: on ``spark``, DuckDB's default connection and
+    ``connections`` (those the notebook opened)."""
+    for conn in ([_session.conn] if _session else []) + [duckdb.default_connection()] + list(connections):
         try:
             conn.interrupt()
         except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse

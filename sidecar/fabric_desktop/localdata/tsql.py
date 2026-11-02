@@ -246,7 +246,7 @@ def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     whole = exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
     blank = exp.EQ(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string(""))
     message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
-    other: exp.Expression = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
+    other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
     node.replace(exp.Case(ifs=[exp.If(this=whole, true=node.copy()),
                                exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
                                exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Cast(

@@ -322,6 +322,23 @@ def test_a_like_without_ranges_stays_a_like():
     assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]
 
 
+def test_patindex_finds_where_a_like_pattern_first_matches(engine):
+    engine.execute("CREATE TABLE dbo.p AS SELECT * FROM (VALUES (1, 'abcabc'), (2, 'xyz'), (3, ''), (4, NULL), "
+                   "(5, 'a1b2')) v(id, s)")
+    r = tsql(engine, "SELECT PATINDEX('%b%', s) AS a, PATINDEX('%bc', s) AS b, PATINDEX('ab%', s) AS c, "
+                     "PATINDEX('abcabc', s) AS d, PATINDEX('%[0-9]%', s) AS e, PATINDEX('%b_b%', s) AS f, "
+                     "PATINDEX('%c%c', s) AS g FROM dbo.p ORDER BY id")
+    assert r["rows"] == [[2, 5, 1, 1, 0, 0, 3], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
+                         [None] * 7, [3, 0, 0, 0, 2, 0, 0]]
+    # The examples on Microsoft's PATINDEX page.
+    r = tsql(engine, "SELECT PATINDEX('%ter%', 'interesting data') AS a, "
+                     "PATINDEX('%en_ure%', 'Please ensure the door is locked') AS b, "
+                     "PATINDEX('%[^ 0-9A-Za-z]%', 'Please ensure the door is locked!') AS c")
+    assert r["rows"] == [[3, 8, 33]]
+    with pytest.raises(ValueError, match="PATINDEX needs its pattern written out as text"):
+        tsql(engine, "SELECT PATINDEX(s, 'abc') AS x FROM dbo.p")
+
+
 def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):
     import math
     r = tsql(engine, "SELECT VAR(price) AS v, VARP(price) AS vp, STDEV(price) AS s, STDEVP(price) AS sp, "

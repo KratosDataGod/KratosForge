@@ -45,11 +45,11 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("DATALENGTH counts bytes", "SELECT DATALENGTH('é')", 2),
     ("DATEPART quarter of a string literal", "SELECT DATEPART(quarter, '2024-03-05')", 1),
     ("DATEPART weekday of a string literal", "SELECT DATEPART(weekday, '2024-03-05')", 3),  # Tuesday, DATEFIRST 7
+    ("PATINDEX", "SELECT PATINDEX('%b%', 'abc')", 2),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
     ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
-    ("PATINDEX", "SELECT PATINDEX('%b%', 'abc')", 2),
     ("ISNUMERIC of a number", "SELECT ISNUMERIC('12.5')", 1),
     ("ISNUMERIC of text", "SELECT ISNUMERIC('x')", 0),
 ]

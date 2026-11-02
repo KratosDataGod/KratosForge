@@ -126,6 +126,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
 | `CAST(' 5 ' AS INT)`, `CAST('3.7' AS INT)` | `5`, an error: text becomes an integer only when it's a whole number (spaces around it are fine, and `''` is `0`). `TRY_CAST` and `TRY_CONVERT` give `NULL` instead of the error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
+| `PATINDEX('%b%', s)`, `PATINDEX('%[0-9]%', s)` | Where the `LIKE` pattern first matches, from 1, or `0`. A pattern with no leading `%` must match from the start. The pattern has to be written out as text |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
 | `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true` |
 | `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (bytes) |
@@ -136,7 +137,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 
 The column types come from the project, so the integer rules hold for its tables, views and temporary tables. When a division's or a `+`'s types can't be told (for example, columns of a table the query creates in the same script), it divides as DuckDB does and the result's `translation.notes` says so.
 
-**Refused, not half-translated:** `ISNUMERIC` and `PATINDEX` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` and `CHARINDEX` for now), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
+**Refused, not half-translated:** `ISNUMERIC` (use `TRY_CAST(x AS FLOAT) IS NOT NULL` for now), variables (`DECLARE`, `@x`, `@@ROWCOUNT`), `IF`, `WHILE`, `BEGIN ... END`, `EXEC`, `PRINT`, transactions, procedures and functions, `USE`, `FOR JSON` and `OPTION (...)`. Each says so and what to do instead. `SET NOCOUNT ON` and similar options are skipped, since they don't change a result, and so is `SET DATEFIRST 7`, Fabric's default; another `DATEFIRST` is refused.
 
 **What Fabric would say.** Every T-SQL result has `translation.fabric_check`: the [SQL compatibility check](sql-compatibility.md) of the same SQL against a Fabric Warehouse, with its outcome and up to 20 errors and warnings. A query that runs here can still be one a warehouse refuses; that check is how you find out before publishing.
 

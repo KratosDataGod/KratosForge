@@ -3,10 +3,10 @@
 (function () {
   const query = new URLSearchParams(location.search);
   const uid = query.get("uid");
-  // An embed address with fail=403 stands in for a report Power BI can't open (no access, no licence, an expired
+  // An embed address with fail=event stands in for a report Power BI can't open (no access, no licence, an expired
   // token). Power BI accepts the load and then raises its error event with the error body, as it does for
   // LoadReportFailed; powerbi-client 2.25 raises no event of its own for a refused load request.
-  const fail = query.get("fail");
+  const failEvent = query.get("fail") === "event";
   window.received = [];
   const answer = (req, statusCode, body) =>
     parent.postMessage({ statusCode, headers: { id: req.headers && req.headers.id }, body }, "*");
@@ -19,10 +19,10 @@
     window.received.push(req);
     // Something other than the SDK's own requests (a forged host command) is noted and ignored.
     if (!req.method || !req.url) return;
-    if (req.url === "/report/load" && fail) {
+    if (req.url === "/report/load" && failEvent) {
       answer(req, 202, {});
       setTimeout(() => event("error", { message: "LoadReportFailed", detailedMessage: "Fail to initialize - Could not resolve cluster",
-        errorCode: fail, level: 6, technicalDetails: { requestId: "req-1129", accessToken: "leaked-token" } }), 10);
+        errorCode: "403", level: 6, technicalDetails: { requestId: "req-1129", accessToken: "leaked-token" } }), 10);
     } else if (req.url === "/report/load") {
       answer(req, 202, {});
       setTimeout(() => event("loaded", { accessToken: "leaked-token", nested: { Authorization: "Bearer x" }, kept: 1 }), 10);

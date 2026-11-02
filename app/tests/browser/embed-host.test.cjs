@@ -190,7 +190,7 @@ test("Power BI's frame can't take itself off app.powerbi.com", { skip }, async (
 test("a report Power BI can't open comes back as an error event with its request id and no token", { skip }, async () => {
   const before = await page.evaluate(() => window.got.length);
   const id = await page.evaluate((url) => window.command({ command: "embed", kind: "report", id: "r1", embedUrl: url, accessToken: "secret-token" }),
-    `${EMBED}&fail=403`);
+    `${EMBED}&fail=event`);
   const reply = await replyTo(id);
   assert.strictEqual(reply.ok, true, reply.error);
   await page.waitForFunction((n) => window.got.slice(n).some((m) => m.event === "error"), before);

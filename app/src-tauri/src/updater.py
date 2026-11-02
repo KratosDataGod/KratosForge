@@ -98,6 +98,8 @@ def download_sidecar(commit: str, folder: str) -> Path:
     SHA-256 that release gives, and unpacked into folder. Its constraints.txt holds the exact package
     versions that commit was tested with (SH-9)."""
     import zipfile
+    if not SHA.fullmatch(commit):  # it goes into the release's URL
+        raise ValueError(f"{commit!r} is not a build commit")
     expected = source_sha256(commit)
     if not expected:
         raise ValueError(f"build {commit[:7]}'s release gives no checksum for its engine source, so it wasn't installed")

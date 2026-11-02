@@ -385,6 +385,13 @@ def test_install_sidecar_refuses_a_source_it_cant_check(monkeypatch, capsys, rel
     assert calls == [] and "checksum" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("commit", ["", SHA[:12], SHA.upper(), f"{SHA[:39]}/", f"../{SHA}"])
+def test_install_sidecar_refuses_anything_but_a_commit(monkeypatch, capsys, commit):
+    seen = serve(monkeypatch, source_release(source_zip()))
+    assert updater.install_sidecar(commit) == 1
+    assert seen == [] and "is not a build commit" in capsys.readouterr().out
+
+
 def test_install_sidecar_offline_says_so(monkeypatch, capsys):
     serve(monkeypatch, {"github": OSError("no network")})
     assert updater.install_sidecar(SHA) == 1

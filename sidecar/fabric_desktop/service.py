@@ -331,7 +331,16 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
-                "policy_problems": app_settings.policy_problems()}
+                "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}
+
+    def policy_record(self) -> dict[str, Any] | None:
+        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py)."""
+        from . import policy_watch
+        try:
+            return policy_watch.check(self.root, self.audit)
+        except Exception:  # noqa: BLE001 - a record that can't be made never stops Settings or the engine
+            _log.exception("Couldn't record the policy file's state")
+            return None
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):

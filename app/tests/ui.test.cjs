@@ -271,6 +271,20 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Help and about shows the policy file's SHA-256 and whether its last change came the way IT pushes it (#1670)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, text: kids.flat().join("") }), dateTimeText: () => "2 Nov 2026, 17:00" };
+  vm.runInNewContext(`${src.match(/function policyRecordRows\([\s\S]*?\n}\n/)[0]}; this.f = policyRecordRows;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ sha256: null, state: "none" }), null);
+  const managed = ctx.f({ sha256: "ab12", managed: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.strictEqual(managed[1].text, "ab12");
+  assert.strictEqual(managed[3].text, "Last changed 2 Nov 2026, 17:00. The audit log has each change.");
+  const unmanaged = ctx.f({ sha256: "ab12", managed: false, first: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.match(unmanaged[3].text, /^First seen .*could change the file: not the way IT pushes it\. Compare the SHA-256/);
+  assert.match(src, /h\("dd", \{ class: "mono" \}, s\.policy_file\),\n\s+policyRecordRows\(s\.policy_record\),/);
+});
+
 // friendlyError returns { text, details, cancelled }, so a call used as text shows "[object Object]".
 test("friendlyError's result is never used as text", () => {
   const misused = [];

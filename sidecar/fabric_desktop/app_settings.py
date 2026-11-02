@@ -129,6 +129,7 @@ fail silently.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -334,6 +335,23 @@ def read_policy() -> tuple[dict[str, Any], str | None]:
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
+
+
+def policy_fingerprint() -> dict[str, Any]:
+    """What the policy file holds now, for the record of its changes (policy_watch.py): the SHA-256 of
+    its bytes, the same as PowerShell's Get-FileHash (None with no file, or one that can't be opened);
+    which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
+    "fail_closed" when nothing can, "none" with no file); and whether the account running the app
+    could change or replace it."""
+    path = policy_path()
+    try:
+        sha256: str | None = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:  # silent-ok: no file, or one that can't be opened; _policy_file() says which
+        sha256 = None
+    _, reason, from_copy = _policy_file()
+    exists = path.exists()
+    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
+    return {"sha256": sha256, "state": state, "user_can_change": exists and user_can_change(path)}
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:

@@ -2541,7 +2541,10 @@ def _write_atomic(path: Path, text: str) -> None:
     has it open, so a refused replace is tried a few more times before giving up."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
         with _path_write_lock(path):
             for attempt in range(6):
                 try:

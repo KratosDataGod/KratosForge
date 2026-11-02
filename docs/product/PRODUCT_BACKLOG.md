@@ -71,12 +71,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 6 | 2 | 9 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 7 | 1 | 11 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 9 | 1 | 13 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **32** | **55** | **17** | **109** |
+| **Total** | **5** | **32** | **57** | **17** | **111** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -91,11 +91,11 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | Accepted |
 | [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | Accepted |
-| [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
+| [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | In progress |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | In progress |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | In progress |
 | [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
-| [PB-117](#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | P3 | Fabric and Databricks unified development | M | In review |
+| [PB-117](#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | P3 | Fabric and Databricks unified development | M | Accepted |
 
 ### PB-012
 
@@ -135,14 +135,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-014
 
-**AST-based compatibility analyzer with an Unknown outcome** · P1 (score 2.73) · M · confidence Medium · Proposed
+**AST-based compatibility analyzer with an Unknown outcome** · P1 (score 2.73) · M · confidence Medium · In progress
 
 - **Problem:** The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.
 - **Proposed capability:** A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.
-- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial
+- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial; compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers; Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met
 - **Inventory features:** [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** [PB-013](#pb-013)
 - **Owner:** Prove (FD-111)
+- **Pull requests:** [#1190](https://github.com/KratosDataGod/KratosForge/pull/1190), [#1262](https://github.com/KratosDataGod/KratosForge/pull/1262), [#1275](https://github.com/KratosDataGod/KratosForge/pull/1275), [#1300](https://github.com/KratosDataGod/KratosForge/pull/1300), [#1305](https://github.com/KratosDataGod/KratosForge/pull/1305), [#1324](https://github.com/KratosDataGod/KratosForge/pull/1324)
 - **Acceptance criteria:**
     - Aliased and from-imports are recognized
     - Unknown is a distinct result shown in the ribbon
@@ -158,7 +159,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04)
 - **Dependencies:** [PB-012](#pb-012), Overlaps FD-LDE-005 local Delta: the LDE thread builds create, append, overwrite and time travel; MERGE, UPDATE and DELETE semantics stay with this item (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** Prove (Prove plan (local Spark coverage))
-- **Pull requests:** [#933](https://github.com/KratosDataGod/KratosForge/pull/933), [#1028](https://github.com/KratosDataGod/KratosForge/pull/1028), [#1054](https://github.com/KratosDataGod/KratosForge/pull/1054), [#1157](https://github.com/KratosDataGod/KratosForge/pull/1157)
+- **Pull requests:** [#933](https://github.com/KratosDataGod/KratosForge/pull/933), [#1028](https://github.com/KratosDataGod/KratosForge/pull/1028), [#1054](https://github.com/KratosDataGod/KratosForge/pull/1054), [#1157](https://github.com/KratosDataGod/KratosForge/pull/1157), [#1272](https://github.com/KratosDataGod/KratosForge/pull/1272)
 - **Story issues:** [#848](https://github.com/KratosDataGod/KratosForge/issues/848)
 - **Acceptance criteria:**
     - The parity suite covers MERGE with matched/not-matched clauses, UPDATE and DELETE
@@ -189,28 +190,28 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Local files and SQL transformations can't be developed in a persistent local engine and published to OneLake with validation, publish history and incremental sync, without Fabric capacity.
 - **Proposed capability:** Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).
-- **Current-state evidence:** DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py); Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)
+- **Current-state evidence:** DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py); Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002); DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223; DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject; pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
 - **Dependencies:** Overlaps UX-004 screens for local data projects (Local data engine) (UX and simplicity backlog, PB-102), Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Local data engine and OneLake publishing (FD-LDE-001..020)
 - **Priority set by the product owner:** P0 (Chris (product owner), 2026-10-17): Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size
 - **Merged duplicates:** Overlaps PB-021..PB-025 and PB-020 (SQL sprint: SQL editor, dialect, execution, connectivity, local Warehouse); Overlaps PB-015 (local Delta writes), PB-019 (incremental), PB-067 (large datasets), PB-050/PB-090 (FinOps), PB-079 (TOML job runner) and the metadata framework
-- **Pull requests:** [#580](https://github.com/KratosDataGod/KratosForge/pull/580), [#588](https://github.com/KratosDataGod/KratosForge/pull/588), [#609](https://github.com/KratosDataGod/KratosForge/pull/609), [#610](https://github.com/KratosDataGod/KratosForge/pull/610), [#612](https://github.com/KratosDataGod/KratosForge/pull/612), [#620](https://github.com/KratosDataGod/KratosForge/pull/620), [#622](https://github.com/KratosDataGod/KratosForge/pull/622), [#628](https://github.com/KratosDataGod/KratosForge/pull/628), [#631](https://github.com/KratosDataGod/KratosForge/pull/631)
+- **Pull requests:** [#580](https://github.com/KratosDataGod/KratosForge/pull/580), [#588](https://github.com/KratosDataGod/KratosForge/pull/588), [#609](https://github.com/KratosDataGod/KratosForge/pull/609), [#610](https://github.com/KratosDataGod/KratosForge/pull/610), [#612](https://github.com/KratosDataGod/KratosForge/pull/612), [#620](https://github.com/KratosDataGod/KratosForge/pull/620), [#622](https://github.com/KratosDataGod/KratosForge/pull/622), [#628](https://github.com/KratosDataGod/KratosForge/pull/628), [#631](https://github.com/KratosDataGod/KratosForge/pull/631), [#1210](https://github.com/KratosDataGod/KratosForge/pull/1210), [#1254](https://github.com/KratosDataGod/KratosForge/pull/1254), [#1268](https://github.com/KratosDataGod/KratosForge/pull/1268), [#1274](https://github.com/KratosDataGod/KratosForge/pull/1274), [#1291](https://github.com/KratosDataGod/KratosForge/pull/1291), [#1293](https://github.com/KratosDataGod/KratosForge/pull/1293), [#1304](https://github.com/KratosDataGod/KratosForge/pull/1304), [#1326](https://github.com/KratosDataGod/KratosForge/pull/1326), [#1327](https://github.com/KratosDataGod/KratosForge/pull/1327), [#1338](https://github.com/KratosDataGod/KratosForge/pull/1338), [#1342](https://github.com/KratosDataGod/KratosForge/pull/1342), [#1343](https://github.com/KratosDataGod/KratosForge/pull/1343), [#1344](https://github.com/KratosDataGod/KratosForge/pull/1344), [#1345](https://github.com/KratosDataGod/KratosForge/pull/1345), [#1346](https://github.com/KratosDataGod/KratosForge/pull/1346), [#1349](https://github.com/KratosDataGod/KratosForge/pull/1349), [#1355](https://github.com/KratosDataGod/KratosForge/pull/1355), [#1356](https://github.com/KratosDataGod/KratosForge/pull/1356), [#1357](https://github.com/KratosDataGod/KratosForge/pull/1357), [#1363](https://github.com/KratosDataGod/KratosForge/pull/1363), [#1401](https://github.com/KratosDataGod/KratosForge/pull/1401), [#1490](https://github.com/KratosDataGod/KratosForge/pull/1490), [#1498](https://github.com/KratosDataGod/KratosForge/pull/1498), [#1502](https://github.com/KratosDataGod/KratosForge/pull/1502), [#1512](https://github.com/KratosDataGod/KratosForge/pull/1512)
 - **Acceptance criteria:**
     - As defined in FD-LDE-001..020 by its owning thread
     - Each story's overlap with an existing item follows the owner named in that plan
 
 ### PB-117
 
-**Snowflake pillar: audit, ADRs and parity matrix** · P3 (score 1.56) · M · confidence Medium · In review
+**Snowflake pillar: audit, ADRs and parity matrix** · P3 (score 1.56) · M · confidence Medium · Accepted
 
 - **Problem:** Snowflake is one of the three target platforms and has no work at all.
 - **Proposed capability:** An evidence-based plan: what Snowflake development can run on the PC, what needs a live account, and how it fits the engine registry and connection profiles.
-- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview; 114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d
+- **Current-state evidence:** No Snowflake code or docs on main; Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4; #993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview; 114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** No code and no Snowflake account spend before Chris's go
 - **Owner:** Fabric and Databricks unified development (KF-SNOWFLAKE-RESEARCH)
-- **Pull requests:** [#993](https://github.com/KratosDataGod/KratosForge/pull/993), [#995](https://github.com/KratosDataGod/KratosForge/pull/995), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202)
+- **Pull requests:** [#993](https://github.com/KratosDataGod/KratosForge/pull/993), [#995](https://github.com/KratosDataGod/KratosForge/pull/995), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202), [#1225](https://github.com/KratosDataGod/KratosForge/pull/1225), [#1248](https://github.com/KratosDataGod/KratosForge/pull/1248), [#1321](https://github.com/KratosDataGod/KratosForge/pull/1321)
 - **Story issues:** [#853](https://github.com/KratosDataGod/KratosForge/issues/853)
 - **Acceptance criteria:**
     - A parity matrix like databricks/parity-matrix.md, with official sources for each row
@@ -228,11 +229,11 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-024](#pb-024) | Native Warehouse connectivity | P3 | Build full warehouse development experience | L | In review |
 | [PB-025](#pb-025) | SQL object explorer | P2 | Build full warehouse development experience | M | Accepted |
 | [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | Accepted |
-| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | In review |
+| [PB-027](#pb-027) | Column completion for attached tables | P2 | Prove | S | Accepted |
 | [PB-028](#pb-028) | Package install magics that work on this PC | P2 | Prove | S | Accepted |
 | [PB-106](#pb-106) | Warehouse development program | P2 | Build full warehouse development experience | XL | In progress |
 | [PB-114](#pb-114) | Fabric SQL database connectivity | P3 | Build full warehouse development experience | L | Proposed |
-| [PB-118](#pb-118) | Databricks notebook conversion says what it could not carry over | P3 | Fabric and Databricks unified development | S | In review |
+| [PB-118](#pb-118) | Databricks notebook conversion says what it could not carry over | P3 | Fabric and Databricks unified development | S | Accepted |
 
 ### PB-020
 
@@ -334,11 +335,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-027
 
-**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · In review
+**Column completion for attached tables** · P2 (score 2.21) · S · confidence High · Accepted
 
 - **Problem:** Completion knows only what the kernel has run, so column names of attached tables aren't offered.
 - **Proposed capability:** Completion of table and column names from the attached lakehouse's Delta schemas.
-- **Current-state evidence:** notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke); A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce
+- **Current-state evidence:** notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke); A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-NB-08](FEATURE_INVENTORY.md#feat-nb-08)
 - **Dependencies:** none
 - **Owner:** Prove (Prove plan #12)
@@ -395,15 +396,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-118
 
-**Databricks notebook conversion says what it could not carry over** · P3 (score 1.76) · S · confidence Medium · In review
+**Databricks notebook conversion says what it could not carry over** · P3 (score 1.76) · S · confidence Medium · Accepted
 
 - **Problem:** Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.
 - **Proposed capability:** A loss report on every Databricks import and export, extending the existing converter.
-- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4
+- **Current-state evidence:** Story KF-DBX-LOSS-REPORT in the orchestration plan (#864); Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4; Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept; Implementation review docs/product/reviews/PB-118-1053.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)
 - **Inventory features:** [FEAT-NB-26](FEATURE_INVENTORY.md#feat-nb-26), [FEAT-NB-12](FEATURE_INVENTORY.md#feat-nb-12)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-DBX-LOSS-REPORT)
-- **Pull requests:** [#1053](https://github.com/KratosDataGod/KratosForge/pull/1053), [#1146](https://github.com/KratosDataGod/KratosForge/pull/1146)
+- **Pull requests:** [#1053](https://github.com/KratosDataGod/KratosForge/pull/1053), [#1146](https://github.com/KratosDataGod/KratosForge/pull/1146), [#1242](https://github.com/KratosDataGod/KratosForge/pull/1242), [#1289](https://github.com/KratosDataGod/KratosForge/pull/1289)
 - **Story issues:** [#854](https://github.com/KratosDataGod/KratosForge/issues/854)
 - **Acceptance criteria:**
     - Each dropped or changed construct is listed with its cell
@@ -646,7 +647,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** [PB-037](#pb-037), Chris reacts to the Data Factory mockup before any UI, Plan decision 3 (real exports)
 - **Owner:** Build full Data Factory experience (DF-1..10, Pipelines P5-P11)
 - **Merged duplicates:** Absorbs PB-030 (Copy job scope after D2) and the pipeline-authoring half of PB-035
-- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#735](https://github.com/KratosDataGod/KratosForge/pull/735), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741), [#746](https://github.com/KratosDataGod/KratosForge/pull/746)
+- **Pull requests:** [#640](https://github.com/KratosDataGod/KratosForge/pull/640), [#653](https://github.com/KratosDataGod/KratosForge/pull/653), [#665](https://github.com/KratosDataGod/KratosForge/pull/665), [#666](https://github.com/KratosDataGod/KratosForge/pull/666), [#667](https://github.com/KratosDataGod/KratosForge/pull/667), [#668](https://github.com/KratosDataGod/KratosForge/pull/668), [#669](https://github.com/KratosDataGod/KratosForge/pull/669), [#700](https://github.com/KratosDataGod/KratosForge/pull/700), [#709](https://github.com/KratosDataGod/KratosForge/pull/709), [#714](https://github.com/KratosDataGod/KratosForge/pull/714), [#724](https://github.com/KratosDataGod/KratosForge/pull/724), [#732](https://github.com/KratosDataGod/KratosForge/pull/732), [#735](https://github.com/KratosDataGod/KratosForge/pull/735), [#736](https://github.com/KratosDataGod/KratosForge/pull/736), [#737](https://github.com/KratosDataGod/KratosForge/pull/737), [#739](https://github.com/KratosDataGod/KratosForge/pull/739), [#740](https://github.com/KratosDataGod/KratosForge/pull/740), [#741](https://github.com/KratosDataGod/KratosForge/pull/741), [#746](https://github.com/KratosDataGod/KratosForge/pull/746), [#1222](https://github.com/KratosDataGod/KratosForge/pull/1222), [#1250](https://github.com/KratosDataGod/KratosForge/pull/1250), [#1251](https://github.com/KratosDataGod/KratosForge/pull/1251), [#1256](https://github.com/KratosDataGod/KratosForge/pull/1256), [#1333](https://github.com/KratosDataGod/KratosForge/pull/1333)
 - **Acceptance criteria:**
     - As defined in DF-1..10 by its owning thread
 
@@ -661,7 +662,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Accepted |
 | [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Accepted |
 | [PB-110](#pb-110) | Semantic model interchange (Apache Ossie) | P3 | TMDL and OSI semantic model conversion | M | In progress |
-| [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | In review |
+| [PB-116](#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | P2 | Fabric and Databricks unified development | M | Accepted |
 | [PB-121](#pb-121) | Power BI embedding (Embed Studio) | P3 | Power BI embedding (PBE) | L | In progress |
 
 ### PB-018
@@ -774,11 +775,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-116
 
-**Fabric Spark interactive sessions (Livy) as a Preview engine** · P2 (score 1.8) · M · confidence Medium · In review
+**Fabric Spark interactive sessions (Livy) as a Preview engine** · P2 (score 1.8) · M · confidence Medium · Accepted
 
 - **Problem:** Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.
 - **Proposed capability:** A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.
-- **Current-state evidence:** Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main; Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)
+- **Current-state evidence:** Story KF-FABRIC-SPARK in the orchestration plan (#864); Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md); Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm); Implementation review docs/product/reviews/PB-116-891.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: one recorded live run (2026-10-29); a policy-approved engine skips the per-session confirm; capacity use shows in Fabric's Capacity Metrics app
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KF-FABRIC-SPARK)
@@ -818,12 +819,12 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** SQL_Platform T-SQL runs only on SQLite in tests; whether User Data Functions expose the executing user is unverified; domain import shape is unverified.
 - **Proposed capability:** A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.
-- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests; Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93; A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d
+- **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests; Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93; A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d; Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant
 - **Inventory features:** [FEAT-MESH-01](FEATURE_INVENTORY.md#feat-mesh-01), [FEAT-MESH-02](FEATURE_INVENTORY.md#feat-mesh-02), [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04)
 - **Dependencies:** [PB-002](#pb-002), Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Central business keys are shared data; a defect would corrupt keys across every domain.
-- **Pull requests:** [#919](https://github.com/KratosDataGod/KratosForge/pull/919), [#1036](https://github.com/KratosDataGod/KratosForge/pull/1036), [#1038](https://github.com/KratosDataGod/KratosForge/pull/1038), [#1041](https://github.com/KratosDataGod/KratosForge/pull/1041), [#1045](https://github.com/KratosDataGod/KratosForge/pull/1045), [#1200](https://github.com/KratosDataGod/KratosForge/pull/1200)
+- **Pull requests:** [#919](https://github.com/KratosDataGod/KratosForge/pull/919), [#1036](https://github.com/KratosDataGod/KratosForge/pull/1036), [#1038](https://github.com/KratosDataGod/KratosForge/pull/1038), [#1041](https://github.com/KratosDataGod/KratosForge/pull/1041), [#1045](https://github.com/KratosDataGod/KratosForge/pull/1045), [#1200](https://github.com/KratosDataGod/KratosForge/pull/1200), [#1205](https://github.com/KratosDataGod/KratosForge/pull/1205), [#1213](https://github.com/KratosDataGod/KratosForge/pull/1213), [#1239](https://github.com/KratosDataGod/KratosForge/pull/1239), [#1241](https://github.com/KratosDataGod/KratosForge/pull/1241), [#1243](https://github.com/KratosDataGod/KratosForge/pull/1243), [#1244](https://github.com/KratosDataGod/KratosForge/pull/1244), [#1255](https://github.com/KratosDataGod/KratosForge/pull/1255), [#1259](https://github.com/KratosDataGod/KratosForge/pull/1259), [#1265](https://github.com/KratosDataGod/KratosForge/pull/1265), [#1267](https://github.com/KratosDataGod/KratosForge/pull/1267), [#1308](https://github.com/KratosDataGod/KratosForge/pull/1308), [#1309](https://github.com/KratosDataGod/KratosForge/pull/1309), [#1322](https://github.com/KratosDataGod/KratosForge/pull/1322), [#1328](https://github.com/KratosDataGod/KratosForge/pull/1328), [#1335](https://github.com/KratosDataGod/KratosForge/pull/1335), [#1348](https://github.com/KratosDataGod/KratosForge/pull/1348), [#1351](https://github.com/KratosDataGod/KratosForge/pull/1351), [#1353](https://github.com/KratosDataGod/KratosForge/pull/1353), [#1354](https://github.com/KratosDataGod/KratosForge/pull/1354)
 - **Story issues:** [#909](https://github.com/KratosDataGod/KratosForge/issues/909)
 - **Acceptance criteria:**
     - Setup and join run on the maintainer's tenant and are recorded
@@ -1067,7 +1068,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-034](#pb-034) | Start the notebook wizard from a table | P2 | Prove | S | Proposed |
-| [PB-062](#pb-062) | Save a support bundle from Settings | P2 | Enterprise readiness | S | Proposed |
+| [PB-062](#pb-062) | Save a support bundle from Settings | P2 | Enterprise readiness | S | In progress |
 | [PB-077](#pb-077) | User and agent docs match the code | P2 | Master product (unassigned) | S | Accepted |
 | [PB-078](#pb-078) | Preview tags match the docs | P1 | Master product (unassigned) | S | Accepted |
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
@@ -1076,7 +1077,9 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | Accepted |
 | [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 | [PB-113](#pb-113) | Action-first experience program | P2 | Action-first experience | L | In progress |
-| [PB-119](#pb-119) | Learn: lessons, labs and guidance modes | P2 | Learning experience (LX) | L | In progress |
+| [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | In review |
+| [PB-122](#pb-122) | Guided Development: levels, Try the fix and Compare | P2 | Guided development (GD) | L | In progress |
+| [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | Proposed |
 
 ### PB-034
 
@@ -1093,14 +1096,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-062
 
-**Save a support bundle from Settings** · P2 (score 2.3) · S · confidence High · Proposed
+**Save a support bundle from Settings** · P2 (score 2.3) · S · confidence High · In progress
 
 - **Problem:** The support bundle is CLI only, so most users and help desks can't produce one.
 - **Proposed capability:** Settings > Help > Save support bundle with a contents preview, as FD-138 asks.
-- **Current-state evidence:** support_bundle.py has no RPC or UI; Smoke: CLI wrote about.json and CONTENTS.txt
+- **Current-state evidence:** support_bundle.py has no RPC or UI; Smoke: CLI wrote about.json and CONTENTS.txt; Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup
 - **Inventory features:** [FEAT-SHL-11](FEATURE_INVENTORY.md#feat-shl-11)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-138)
+- **Pull requests:** [#1177](https://github.com/KratosDataGod/KratosForge/pull/1177)
 - **Acceptance criteria:**
     - The bundle is saved from Settings after showing what it contains
     - Contents match the CLI bundle
@@ -1231,17 +1235,52 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-119
 
-**Learn: lessons, labs and guidance modes** · P2 (score 2.34) · L · confidence Medium · In progress
+**Learn v1: lessons, labs and finding actions** · P2 (score 2.34) · L · confidence Medium · In review
 
 - **Problem:** People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.
-- **Proposed capability:** A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.
-- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; No backlog item tracked it before this check; Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce
+- **Proposed capability:** A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.
+- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce; Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
 - **Dependencies:** none
-- **Owner:** Learning experience (LX) (LX-01..08)
-- **Pull requests:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140), [#1158](https://github.com/KratosDataGod/KratosForge/pull/1158), [#1159](https://github.com/KratosDataGod/KratosForge/pull/1159), [#1160](https://github.com/KratosDataGod/KratosForge/pull/1160), [#1161](https://github.com/KratosDataGod/KratosForge/pull/1161), [#1162](https://github.com/KratosDataGod/KratosForge/pull/1162)
+- **Owner:** Learning experience (LX) (LX-01..09)
+- **Pull requests:** [#1063](https://github.com/KratosDataGod/KratosForge/pull/1063), [#1076](https://github.com/KratosDataGod/KratosForge/pull/1076), [#1083](https://github.com/KratosDataGod/KratosForge/pull/1083), [#1137](https://github.com/KratosDataGod/KratosForge/pull/1137), [#1138](https://github.com/KratosDataGod/KratosForge/pull/1138), [#1139](https://github.com/KratosDataGod/KratosForge/pull/1139), [#1140](https://github.com/KratosDataGod/KratosForge/pull/1140), [#1158](https://github.com/KratosDataGod/KratosForge/pull/1158), [#1159](https://github.com/KratosDataGod/KratosForge/pull/1159), [#1160](https://github.com/KratosDataGod/KratosForge/pull/1160)
 - **Acceptance criteria:**
-    - Owned and specified by the Learning experience program (LX)
+    - The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)
+    - A lab runs on this PC with generated data, with no file or network access (test_learn_labs)
+    - Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)
+    - Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)
+    - docs/learn.md and docs/learn/writing-lessons.md match the code
+
+### PB-122
+
+**Guided Development: levels, Try the fix and Compare** · P2 (score 2.34) · L · confidence Medium · In progress
+
+- **Problem:** Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.
+- **Proposed capability:** Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and "fixed and checked" evidence in Profile.
+- **Current-state evidence:** Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949; Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Guided development (GD) (GD-01..10)
+- **Pull requests:** [#1161](https://github.com/KratosDataGod/KratosForge/pull/1161), [#1162](https://github.com/KratosDataGod/KratosForge/pull/1162), [#1175](https://github.com/KratosDataGod/KratosForge/pull/1175), [#1182](https://github.com/KratosDataGod/KratosForge/pull/1182), [#1184](https://github.com/KratosDataGod/KratosForge/pull/1184), [#1186](https://github.com/KratosDataGod/KratosForge/pull/1186), [#1216](https://github.com/KratosDataGod/KratosForge/pull/1216), [#1233](https://github.com/KratosDataGod/KratosForge/pull/1233)
+- **Acceptance criteria:**
+    - The levels Expert, Professional (default) and Guided are preferences only, and policy always wins
+    - Compare runs only on warehouse and SQL endpoint tabs and asks for confirmation every time; on a lakehouse tab, Try the fix previews and applies without Compare
+    - Profile records "fixed and checked" only after a matching Compare
+    - GD-07 and GD-09 are built or split out, and GD-10 has a lesson for every path it names
+    - No built-in AI, no invented problems, and every number is labelled as measured or estimated
+
+### PB-123
+
+**Learn phase 2: rule batches, Profile v2 and comparison lessons** · P2 (score 2.34) · L · confidence Medium · Proposed
+
+- **Problem:** Learn v1 covers the first rule catalog and paths only.
+- **Proposed capability:** New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).
+- **Current-state evidence:** Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
+- **Dependencies:** none
+- **Owner:** Learning experience (LX) (LX-11..16)
+- **Acceptance criteria:**
+    - As the LX proposal sets them for each slice; each slice needs Chris's go before it is built
 
 ## Enterprise Administration and FinOps
 
@@ -1422,9 +1461,9 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-095](#pb-095) | MCP server and local API for external AI tools | P2 | Bring your own AI integration | XL | Accepted |
-| [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | In review |
+| [PB-096](#pb-096) | Run the AI client checklist for each named tool | P1 | Bring your own AI integration | S | Accepted |
 | [PB-097](#pb-097) | Extensions | P3 | Git-native development | XL | Proposed |
-| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | In review |
+| [PB-098](#pb-098) | One list of engine methods | P1 | Bring your own AI integration | S | Accepted |
 | [PB-109](#pb-109) | VS Code developer integration | P2 | Bring VS Code developers to KratosForge | XL | In progress |
 | [PB-120](#pb-120) | Platform support levels and one engine contract | P1 | Fabric and Databricks unified development | L | In progress |
 
@@ -1445,11 +1484,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-096
 
-**Run the AI client checklist for each named tool** · P1 (score 2.75) · S · confidence High · In review
+**Run the AI client checklist for each named tool** · P1 (score 2.75) · S · confidence High · Accepted
 
 - **Problem:** Only the MCP SDK client and plain HTTP were tested; named AI tools are marked Untested.
 - **Proposed capability:** Each client run through docs/product/ai-integration-client-checklist.md and recorded.
-- **Current-state evidence:** AI integration thread notes; Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in
+- **Current-state evidence:** AI integration thread notes; Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: Claude Code and curl ran without a Fabric sign-in on Linux; the sign-in steps, step 12 and a Windows run are still to do, and clients not run stay Untested
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
 - **Dependencies:** [PB-095](#pb-095)
 - **Owner:** Bring your own AI integration (PR-AI-011)
@@ -1472,17 +1511,17 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-098
 
-**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · In review
+**One list of engine methods** · P1 (score 2.6) · S · confidence Medium · Accepted
 
 - **Problem:** server.py METHODS and the capability registry can drift apart.
 - **Proposed capability:** METHODS generated from, or checked against, the capability registry.
-- **Current-state evidence:** server.py METHODS
+- **Current-state evidence:** server.py METHODS; Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: criterion reworded to 'A test fails when lists meant to agree disagree'; METHODS and the registry differ by design
 - **Inventory features:** [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
 - **Dependencies:** [PB-095](#pb-095)
 - **Owner:** Bring your own AI integration (PR-AI-003)
 - **Pull requests:** [#1152](https://github.com/KratosDataGod/KratosForge/pull/1152)
 - **Acceptance criteria:**
-    - A test fails when a method is in one list and not the other
+    - A test fails when lists meant to agree disagree
 
 ### PB-109
 
@@ -1508,7 +1547,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05), [FEAT-SQL-03](FEATURE_INVENTORY.md#feat-sql-03)
 - **Dependencies:** none
 - **Owner:** Fabric and Databricks unified development (KUDP-01..06)
-- **Pull requests:** [#1056](https://github.com/KratosDataGod/KratosForge/pull/1056), [#1078](https://github.com/KratosDataGod/KratosForge/pull/1078), [#1115](https://github.com/KratosDataGod/KratosForge/pull/1115), [#1118](https://github.com/KratosDataGod/KratosForge/pull/1118), [#1124](https://github.com/KratosDataGod/KratosForge/pull/1124), [#1125](https://github.com/KratosDataGod/KratosForge/pull/1125), [#1142](https://github.com/KratosDataGod/KratosForge/pull/1142), [#1180](https://github.com/KratosDataGod/KratosForge/pull/1180), [#1183](https://github.com/KratosDataGod/KratosForge/pull/1183), [#1191](https://github.com/KratosDataGod/KratosForge/pull/1191), [#1201](https://github.com/KratosDataGod/KratosForge/pull/1201), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202)
+- **Pull requests:** [#1056](https://github.com/KratosDataGod/KratosForge/pull/1056), [#1078](https://github.com/KratosDataGod/KratosForge/pull/1078), [#1115](https://github.com/KratosDataGod/KratosForge/pull/1115), [#1118](https://github.com/KratosDataGod/KratosForge/pull/1118), [#1124](https://github.com/KratosDataGod/KratosForge/pull/1124), [#1125](https://github.com/KratosDataGod/KratosForge/pull/1125), [#1142](https://github.com/KratosDataGod/KratosForge/pull/1142), [#1180](https://github.com/KratosDataGod/KratosForge/pull/1180), [#1183](https://github.com/KratosDataGod/KratosForge/pull/1183), [#1191](https://github.com/KratosDataGod/KratosForge/pull/1191), [#1201](https://github.com/KratosDataGod/KratosForge/pull/1201), [#1202](https://github.com/KratosDataGod/KratosForge/pull/1202), [#1228](https://github.com/KratosDataGod/KratosForge/pull/1228), [#1238](https://github.com/KratosDataGod/KratosForge/pull/1238), [#1263](https://github.com/KratosDataGod/KratosForge/pull/1263), [#1271](https://github.com/KratosDataGod/KratosForge/pull/1271), [#1276](https://github.com/KratosDataGod/KratosForge/pull/1276), [#1277](https://github.com/KratosDataGod/KratosForge/pull/1277), [#1279](https://github.com/KratosDataGod/KratosForge/pull/1279), [#1292](https://github.com/KratosDataGod/KratosForge/pull/1292), [#1323](https://github.com/KratosDataGod/KratosForge/pull/1323), [#1329](https://github.com/KratosDataGod/KratosForge/pull/1329), [#1380](https://github.com/KratosDataGod/KratosForge/pull/1380), [#1388](https://github.com/KratosDataGod/KratosForge/pull/1388), [#1400](https://github.com/KratosDataGod/KratosForge/pull/1400), [#1412](https://github.com/KratosDataGod/KratosForge/pull/1412), [#1415](https://github.com/KratosDataGod/KratosForge/pull/1415), [#1420](https://github.com/KratosDataGod/KratosForge/pull/1420), [#1439](https://github.com/KratosDataGod/KratosForge/pull/1439), [#1450](https://github.com/KratosDataGod/KratosForge/pull/1450), [#1484](https://github.com/KratosDataGod/KratosForge/pull/1484), [#1485](https://github.com/KratosDataGod/KratosForge/pull/1485), [#1486](https://github.com/KratosDataGod/KratosForge/pull/1486), [#1488](https://github.com/KratosDataGod/KratosForge/pull/1488), [#1491](https://github.com/KratosDataGod/KratosForge/pull/1491), [#1495](https://github.com/KratosDataGod/KratosForge/pull/1495), [#1496](https://github.com/KratosDataGod/KratosForge/pull/1496), [#1497](https://github.com/KratosDataGod/KratosForge/pull/1497), [#1505](https://github.com/KratosDataGod/KratosForge/pull/1505), [#1506](https://github.com/KratosDataGod/KratosForge/pull/1506), [#1517](https://github.com/KratosDataGod/KratosForge/pull/1517), [#1518](https://github.com/KratosDataGod/KratosForge/pull/1518), [#1528](https://github.com/KratosDataGod/KratosForge/pull/1528), [#1531](https://github.com/KratosDataGod/KratosForge/pull/1531)
 - **Acceptance criteria:**
     - Owned and specified by the unified platform program (KUDP)
 
@@ -1663,12 +1702,12 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Accessibility is checked statically only; no screen-reader or contrast audit is recorded.
 - **Proposed capability:** A Narrator and keyboard audit on Windows with fixes.
-- **Current-state evidence:** app/tests/ui.test.cjs static checks; Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456; The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet
+- **Current-state evidence:** app/tests/ui.test.cjs static checks; Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456; The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet; The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet
 - **Inventory features:** [FEAT-SHL-07](FEATURE_INVENTORY.md#feat-shl-07), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
 - **Dependencies:** Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102), Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-139)
 - **Mandatory (required):** Enterprise procurement often requires an accessibility conformance statement.
-- **Pull requests:** [#907](https://github.com/KratosDataGod/KratosForge/pull/907), [#926](https://github.com/KratosDataGod/KratosForge/pull/926), [#951](https://github.com/KratosDataGod/KratosForge/pull/951)
+- **Pull requests:** [#907](https://github.com/KratosDataGod/KratosForge/pull/907), [#926](https://github.com/KratosDataGod/KratosForge/pull/926), [#951](https://github.com/KratosDataGod/KratosForge/pull/951), [#1294](https://github.com/KratosDataGod/KratosForge/pull/1294), [#1297](https://github.com/KratosDataGod/KratosForge/pull/1297), [#1334](https://github.com/KratosDataGod/KratosForge/pull/1334), [#1339](https://github.com/KratosDataGod/KratosForge/pull/1339)
 - **Story issues:** [#880](https://github.com/KratosDataGod/KratosForge/issues/880), [#905](https://github.com/KratosDataGod/KratosForge/issues/905), [#945](https://github.com/KratosDataGod/KratosForge/issues/945), [#962](https://github.com/KratosDataGod/KratosForge/issues/962)
 - **Acceptance criteria:**
     - Audit results recorded per page
@@ -1700,7 +1739,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Codebase audit and hardening (HD-001..057)
 - **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
 - **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
-- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#786](https://github.com/KratosDataGod/KratosForge/pull/786), [#911](https://github.com/KratosDataGod/KratosForge/pull/911), [#916](https://github.com/KratosDataGod/KratosForge/pull/916), [#918](https://github.com/KratosDataGod/KratosForge/pull/918), [#930](https://github.com/KratosDataGod/KratosForge/pull/930), [#934](https://github.com/KratosDataGod/KratosForge/pull/934), [#938](https://github.com/KratosDataGod/KratosForge/pull/938), [#952](https://github.com/KratosDataGod/KratosForge/pull/952), [#989](https://github.com/KratosDataGod/KratosForge/pull/989), [#992](https://github.com/KratosDataGod/KratosForge/pull/992), [#1003](https://github.com/KratosDataGod/KratosForge/pull/1003), [#1011](https://github.com/KratosDataGod/KratosForge/pull/1011), [#1026](https://github.com/KratosDataGod/KratosForge/pull/1026), [#1030](https://github.com/KratosDataGod/KratosForge/pull/1030), [#1032](https://github.com/KratosDataGod/KratosForge/pull/1032), [#1048](https://github.com/KratosDataGod/KratosForge/pull/1048), [#1050](https://github.com/KratosDataGod/KratosForge/pull/1050), [#1055](https://github.com/KratosDataGod/KratosForge/pull/1055), [#1089](https://github.com/KratosDataGod/KratosForge/pull/1089), [#1122](https://github.com/KratosDataGod/KratosForge/pull/1122), [#1153](https://github.com/KratosDataGod/KratosForge/pull/1153), [#1156](https://github.com/KratosDataGod/KratosForge/pull/1156)
+- **Pull requests:** [#593](https://github.com/KratosDataGod/KratosForge/pull/593), [#618](https://github.com/KratosDataGod/KratosForge/pull/618), [#619](https://github.com/KratosDataGod/KratosForge/pull/619), [#621](https://github.com/KratosDataGod/KratosForge/pull/621), [#623](https://github.com/KratosDataGod/KratosForge/pull/623), [#624](https://github.com/KratosDataGod/KratosForge/pull/624), [#626](https://github.com/KratosDataGod/KratosForge/pull/626), [#659](https://github.com/KratosDataGod/KratosForge/pull/659), [#674](https://github.com/KratosDataGod/KratosForge/pull/674), [#676](https://github.com/KratosDataGod/KratosForge/pull/676), [#679](https://github.com/KratosDataGod/KratosForge/pull/679), [#689](https://github.com/KratosDataGod/KratosForge/pull/689), [#691](https://github.com/KratosDataGod/KratosForge/pull/691), [#698](https://github.com/KratosDataGod/KratosForge/pull/698), [#708](https://github.com/KratosDataGod/KratosForge/pull/708), [#715](https://github.com/KratosDataGod/KratosForge/pull/715), [#717](https://github.com/KratosDataGod/KratosForge/pull/717), [#721](https://github.com/KratosDataGod/KratosForge/pull/721), [#757](https://github.com/KratosDataGod/KratosForge/pull/757), [#768](https://github.com/KratosDataGod/KratosForge/pull/768), [#786](https://github.com/KratosDataGod/KratosForge/pull/786), [#911](https://github.com/KratosDataGod/KratosForge/pull/911), [#916](https://github.com/KratosDataGod/KratosForge/pull/916), [#918](https://github.com/KratosDataGod/KratosForge/pull/918), [#930](https://github.com/KratosDataGod/KratosForge/pull/930), [#934](https://github.com/KratosDataGod/KratosForge/pull/934), [#938](https://github.com/KratosDataGod/KratosForge/pull/938), [#952](https://github.com/KratosDataGod/KratosForge/pull/952), [#989](https://github.com/KratosDataGod/KratosForge/pull/989), [#992](https://github.com/KratosDataGod/KratosForge/pull/992), [#1003](https://github.com/KratosDataGod/KratosForge/pull/1003), [#1011](https://github.com/KratosDataGod/KratosForge/pull/1011), [#1026](https://github.com/KratosDataGod/KratosForge/pull/1026), [#1030](https://github.com/KratosDataGod/KratosForge/pull/1030), [#1032](https://github.com/KratosDataGod/KratosForge/pull/1032), [#1048](https://github.com/KratosDataGod/KratosForge/pull/1048), [#1050](https://github.com/KratosDataGod/KratosForge/pull/1050), [#1055](https://github.com/KratosDataGod/KratosForge/pull/1055), [#1089](https://github.com/KratosDataGod/KratosForge/pull/1089), [#1122](https://github.com/KratosDataGod/KratosForge/pull/1122), [#1153](https://github.com/KratosDataGod/KratosForge/pull/1153), [#1156](https://github.com/KratosDataGod/KratosForge/pull/1156), [#1208](https://github.com/KratosDataGod/KratosForge/pull/1208), [#1209](https://github.com/KratosDataGod/KratosForge/pull/1209), [#1211](https://github.com/KratosDataGod/KratosForge/pull/1211), [#1212](https://github.com/KratosDataGod/KratosForge/pull/1212), [#1214](https://github.com/KratosDataGod/KratosForge/pull/1214), [#1215](https://github.com/KratosDataGod/KratosForge/pull/1215), [#1231](https://github.com/KratosDataGod/KratosForge/pull/1231), [#1245](https://github.com/KratosDataGod/KratosForge/pull/1245), [#1359](https://github.com/KratosDataGod/KratosForge/pull/1359), [#1377](https://github.com/KratosDataGod/KratosForge/pull/1377), [#1378](https://github.com/KratosDataGod/KratosForge/pull/1378), [#1379](https://github.com/KratosDataGod/KratosForge/pull/1379), [#1381](https://github.com/KratosDataGod/KratosForge/pull/1381), [#1382](https://github.com/KratosDataGod/KratosForge/pull/1382), [#1383](https://github.com/KratosDataGod/KratosForge/pull/1383), [#1385](https://github.com/KratosDataGod/KratosForge/pull/1385), [#1387](https://github.com/KratosDataGod/KratosForge/pull/1387), [#1392](https://github.com/KratosDataGod/KratosForge/pull/1392), [#1399](https://github.com/KratosDataGod/KratosForge/pull/1399), [#1402](https://github.com/KratosDataGod/KratosForge/pull/1402), [#1406](https://github.com/KratosDataGod/KratosForge/pull/1406), [#1411](https://github.com/KratosDataGod/KratosForge/pull/1411), [#1416](https://github.com/KratosDataGod/KratosForge/pull/1416), [#1429](https://github.com/KratosDataGod/KratosForge/pull/1429), [#1430](https://github.com/KratosDataGod/KratosForge/pull/1430), [#1431](https://github.com/KratosDataGod/KratosForge/pull/1431), [#1433](https://github.com/KratosDataGod/KratosForge/pull/1433), [#1434](https://github.com/KratosDataGod/KratosForge/pull/1434), [#1451](https://github.com/KratosDataGod/KratosForge/pull/1451), [#1454](https://github.com/KratosDataGod/KratosForge/pull/1454), [#1471](https://github.com/KratosDataGod/KratosForge/pull/1471), [#1499](https://github.com/KratosDataGod/KratosForge/pull/1499), [#1501](https://github.com/KratosDataGod/KratosForge/pull/1501), [#1504](https://github.com/KratosDataGod/KratosForge/pull/1504), [#1508](https://github.com/KratosDataGod/KratosForge/pull/1508), [#1509](https://github.com/KratosDataGod/KratosForge/pull/1509), [#1511](https://github.com/KratosDataGod/KratosForge/pull/1511), [#1513](https://github.com/KratosDataGod/KratosForge/pull/1513), [#1516](https://github.com/KratosDataGod/KratosForge/pull/1516), [#1519](https://github.com/KratosDataGod/KratosForge/pull/1519), [#1521](https://github.com/KratosDataGod/KratosForge/pull/1521), [#1522](https://github.com/KratosDataGod/KratosForge/pull/1522), [#1523](https://github.com/KratosDataGod/KratosForge/pull/1523), [#1524](https://github.com/KratosDataGod/KratosForge/pull/1524), [#1534](https://github.com/KratosDataGod/KratosForge/pull/1534), [#1538](https://github.com/KratosDataGod/KratosForge/pull/1538), [#1539](https://github.com/KratosDataGod/KratosForge/pull/1539), [#1540](https://github.com/KratosDataGod/KratosForge/pull/1540), [#1541](https://github.com/KratosDataGod/KratosForge/pull/1541), [#1542](https://github.com/KratosDataGod/KratosForge/pull/1542), [#1543](https://github.com/KratosDataGod/KratosForge/pull/1543), [#1545](https://github.com/KratosDataGod/KratosForge/pull/1545), [#1546](https://github.com/KratosDataGod/KratosForge/pull/1546), [#1547](https://github.com/KratosDataGod/KratosForge/pull/1547), [#1548](https://github.com/KratosDataGod/KratosForge/pull/1548), [#1549](https://github.com/KratosDataGod/KratosForge/pull/1549)
 - **Story issues:** [#910](https://github.com/KratosDataGod/KratosForge/issues/910), [#916](https://github.com/KratosDataGod/KratosForge/issues/916), [#927](https://github.com/KratosDataGod/KratosForge/issues/927), [#935](https://github.com/KratosDataGod/KratosForge/issues/935), [#936](https://github.com/KratosDataGod/KratosForge/issues/936), [#963](https://github.com/KratosDataGod/KratosForge/issues/963), [#964](https://github.com/KratosDataGod/KratosForge/issues/964), [#965](https://github.com/KratosDataGod/KratosForge/issues/965), [#968](https://github.com/KratosDataGod/KratosForge/issues/968), [#1049](https://github.com/KratosDataGod/KratosForge/issues/1049), [#1087](https://github.com/KratosDataGod/KratosForge/issues/1087)
 - **Acceptance criteria:**
     - As defined in HD-001..057 by its owning thread
@@ -1905,13 +1944,13 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** An independent quality review of main at 3bee0db found defects that lose or overwrite data while reporting success, fail-open checks, and services re-solved per feature: Spark writer options are ignored so replaceWhere replaces the whole table, a failed notebook save shows Saved and closing drops the edits.
 - **Proposed capability:** Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).
-- **Current-state evidence:** Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db; QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here
+- **Current-state evidence:** Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db; QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here; Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-06](FEATURE_INVENTORY.md#feat-nb-06)
 - **Dependencies:** none
 - **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
 - **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
 - **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
-- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738), [#766](https://github.com/KratosDataGod/KratosForge/pull/766), [#775](https://github.com/KratosDataGod/KratosForge/pull/775), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#781](https://github.com/KratosDataGod/KratosForge/pull/781), [#784](https://github.com/KratosDataGod/KratosForge/pull/784), [#975](https://github.com/KratosDataGod/KratosForge/pull/975), [#981](https://github.com/KratosDataGod/KratosForge/pull/981), [#1012](https://github.com/KratosDataGod/KratosForge/pull/1012), [#1018](https://github.com/KratosDataGod/KratosForge/pull/1018), [#1021](https://github.com/KratosDataGod/KratosForge/pull/1021), [#1024](https://github.com/KratosDataGod/KratosForge/pull/1024), [#1025](https://github.com/KratosDataGod/KratosForge/pull/1025), [#1029](https://github.com/KratosDataGod/KratosForge/pull/1029), [#1075](https://github.com/KratosDataGod/KratosForge/pull/1075), [#1086](https://github.com/KratosDataGod/KratosForge/pull/1086), [#1093](https://github.com/KratosDataGod/KratosForge/pull/1093), [#1095](https://github.com/KratosDataGod/KratosForge/pull/1095), [#1097](https://github.com/KratosDataGod/KratosForge/pull/1097), [#1107](https://github.com/KratosDataGod/KratosForge/pull/1107), [#1154](https://github.com/KratosDataGod/KratosForge/pull/1154), [#1155](https://github.com/KratosDataGod/KratosForge/pull/1155), [#1164](https://github.com/KratosDataGod/KratosForge/pull/1164)
+- **Pull requests:** [#585](https://github.com/KratosDataGod/KratosForge/pull/585), [#616](https://github.com/KratosDataGod/KratosForge/pull/616), [#661](https://github.com/KratosDataGod/KratosForge/pull/661), [#680](https://github.com/KratosDataGod/KratosForge/pull/680), [#711](https://github.com/KratosDataGod/KratosForge/pull/711), [#733](https://github.com/KratosDataGod/KratosForge/pull/733), [#738](https://github.com/KratosDataGod/KratosForge/pull/738), [#766](https://github.com/KratosDataGod/KratosForge/pull/766), [#775](https://github.com/KratosDataGod/KratosForge/pull/775), [#778](https://github.com/KratosDataGod/KratosForge/pull/778), [#781](https://github.com/KratosDataGod/KratosForge/pull/781), [#784](https://github.com/KratosDataGod/KratosForge/pull/784), [#975](https://github.com/KratosDataGod/KratosForge/pull/975), [#981](https://github.com/KratosDataGod/KratosForge/pull/981), [#1012](https://github.com/KratosDataGod/KratosForge/pull/1012), [#1018](https://github.com/KratosDataGod/KratosForge/pull/1018), [#1021](https://github.com/KratosDataGod/KratosForge/pull/1021), [#1024](https://github.com/KratosDataGod/KratosForge/pull/1024), [#1025](https://github.com/KratosDataGod/KratosForge/pull/1025), [#1029](https://github.com/KratosDataGod/KratosForge/pull/1029), [#1075](https://github.com/KratosDataGod/KratosForge/pull/1075), [#1086](https://github.com/KratosDataGod/KratosForge/pull/1086), [#1093](https://github.com/KratosDataGod/KratosForge/pull/1093), [#1095](https://github.com/KratosDataGod/KratosForge/pull/1095), [#1097](https://github.com/KratosDataGod/KratosForge/pull/1097), [#1107](https://github.com/KratosDataGod/KratosForge/pull/1107), [#1154](https://github.com/KratosDataGod/KratosForge/pull/1154), [#1155](https://github.com/KratosDataGod/KratosForge/pull/1155), [#1164](https://github.com/KratosDataGod/KratosForge/pull/1164), [#1230](https://github.com/KratosDataGod/KratosForge/pull/1230), [#1234](https://github.com/KratosDataGod/KratosForge/pull/1234), [#1240](https://github.com/KratosDataGod/KratosForge/pull/1240), [#1258](https://github.com/KratosDataGod/KratosForge/pull/1258), [#1290](https://github.com/KratosDataGod/KratosForge/pull/1290), [#1298](https://github.com/KratosDataGod/KratosForge/pull/1298), [#1299](https://github.com/KratosDataGod/KratosForge/pull/1299), [#1302](https://github.com/KratosDataGod/KratosForge/pull/1302), [#1332](https://github.com/KratosDataGod/KratosForge/pull/1332), [#1336](https://github.com/KratosDataGod/KratosForge/pull/1336), [#1364](https://github.com/KratosDataGod/KratosForge/pull/1364), [#1384](https://github.com/KratosDataGod/KratosForge/pull/1384), [#1389](https://github.com/KratosDataGod/KratosForge/pull/1389), [#1390](https://github.com/KratosDataGod/KratosForge/pull/1390), [#1394](https://github.com/KratosDataGod/KratosForge/pull/1394), [#1395](https://github.com/KratosDataGod/KratosForge/pull/1395), [#1403](https://github.com/KratosDataGod/KratosForge/pull/1403), [#1405](https://github.com/KratosDataGod/KratosForge/pull/1405), [#1410](https://github.com/KratosDataGod/KratosForge/pull/1410), [#1414](https://github.com/KratosDataGod/KratosForge/pull/1414), [#1418](https://github.com/KratosDataGod/KratosForge/pull/1418), [#1421](https://github.com/KratosDataGod/KratosForge/pull/1421), [#1432](https://github.com/KratosDataGod/KratosForge/pull/1432), [#1435](https://github.com/KratosDataGod/KratosForge/pull/1435), [#1436](https://github.com/KratosDataGod/KratosForge/pull/1436), [#1441](https://github.com/KratosDataGod/KratosForge/pull/1441), [#1443](https://github.com/KratosDataGod/KratosForge/pull/1443), [#1444](https://github.com/KratosDataGod/KratosForge/pull/1444), [#1446](https://github.com/KratosDataGod/KratosForge/pull/1446), [#1449](https://github.com/KratosDataGod/KratosForge/pull/1449), [#1452](https://github.com/KratosDataGod/KratosForge/pull/1452), [#1457](https://github.com/KratosDataGod/KratosForge/pull/1457), [#1458](https://github.com/KratosDataGod/KratosForge/pull/1458), [#1461](https://github.com/KratosDataGod/KratosForge/pull/1461), [#1463](https://github.com/KratosDataGod/KratosForge/pull/1463), [#1464](https://github.com/KratosDataGod/KratosForge/pull/1464), [#1467](https://github.com/KratosDataGod/KratosForge/pull/1467), [#1468](https://github.com/KratosDataGod/KratosForge/pull/1468), [#1472](https://github.com/KratosDataGod/KratosForge/pull/1472), [#1474](https://github.com/KratosDataGod/KratosForge/pull/1474), [#1477](https://github.com/KratosDataGod/KratosForge/pull/1477), [#1478](https://github.com/KratosDataGod/KratosForge/pull/1478), [#1479](https://github.com/KratosDataGod/KratosForge/pull/1479), [#1480](https://github.com/KratosDataGod/KratosForge/pull/1480), [#1481](https://github.com/KratosDataGod/KratosForge/pull/1481), [#1487](https://github.com/KratosDataGod/KratosForge/pull/1487), [#1492](https://github.com/KratosDataGod/KratosForge/pull/1492), [#1493](https://github.com/KratosDataGod/KratosForge/pull/1493), [#1500](https://github.com/KratosDataGod/KratosForge/pull/1500), [#1514](https://github.com/KratosDataGod/KratosForge/pull/1514), [#1515](https://github.com/KratosDataGod/KratosForge/pull/1515), [#1520](https://github.com/KratosDataGod/KratosForge/pull/1520), [#1529](https://github.com/KratosDataGod/KratosForge/pull/1529), [#1533](https://github.com/KratosDataGod/KratosForge/pull/1533), [#1535](https://github.com/KratosDataGod/KratosForge/pull/1535), [#1536](https://github.com/KratosDataGod/KratosForge/pull/1536), [#1537](https://github.com/KratosDataGod/KratosForge/pull/1537), [#1544](https://github.com/KratosDataGod/KratosForge/pull/1544)
 - **Acceptance criteria:**
     - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
     - Routed items follow the owner named in docs/quality/remediation.md

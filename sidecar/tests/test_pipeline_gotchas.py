@@ -12,7 +12,7 @@ import pytest
 from fabric_desktop.orchestration import load, loads
 from fabric_desktop.orchestration.activities import default_registry
 from fabric_desktop.cli import main as cli_main
-from fabric_desktop.orchestration.gotchas import CODES, SOURCE
+from fabric_desktop.orchestration.gotchas import CODES, FOREACH_LIMITS, SOURCE
 from fabric_desktop.pipeline_service import PipelineMixin, PipelineRunMixin
 
 FIXTURES = Path(__file__).parent / "pipelines"
@@ -48,9 +48,9 @@ class Svc(PipelineMixin, PipelineRunMixin):
 
 def test_every_gotcha_is_listed_with_its_source():
     described = default_registry().describe()["fabric_differences"]
-    assert [g["id"] for g in described] == [f"PG{i}" for i in range(1, 11)]
-    assert all(g["source"] == SOURCE and g["differs"] and g["codes"] for g in described)
-    assert "bc42aaf" in SOURCE
+    assert [g["id"] for g in described] == [f"PG{i}" for i in range(1, 11)] + ["FOREACH"]
+    assert all(g["source"] == SOURCE and g["differs"] and g["codes"] for g in described[:10])
+    assert "bc42aaf" in SOURCE and described[10]["source"] == FOREACH_LIMITS
 
 
 def test_pg1_notebook_named_instead_of_its_item_id():
@@ -180,3 +180,52 @@ def test_the_cli_says_what_differs_in_fabric(capsys, tmp_path):
     assert done.value.code == 0
     out = capsys.readouterr().out
     assert "in Fabric: Transform: notebookId 'transform' isn't a Fabric item id" in out and "succeeded" in out
+
+
+# ---- ORCH-H2 (#1227): Data Factory's ForEach limits
+
+def foreach(name, inner, sequential=None):
+    tp = {"items": "@range(1, 3)", "activities": inner}
+    if sequential is not None:
+        tp["isSequential"] = sequential
+    return act(name, "ForEach", **tp)
+
+
+def setvar(name):
+    return act(name, "SetVariable", variableName="v", value="@string(item())")
+
+
+def test_a_foreach_inside_a_foreach_or_until_is_warned_about():
+    wait = act("W", "Wait", waitTimeInSeconds=0)
+    hit = found(pipeline(foreach("Outer", [foreach("Inner", [wait])])))
+    assert [d["activity"] for d in hit["nested_foreach"]] == ["Inner"] and "child pipeline" in \
+        hit["nested_foreach"][0]["hint"]
+    until = act("U", "Until", expression="@true", activities=[foreach("InUntil", [wait])])
+    assert found(pipeline(until))["nested_foreach"][0]["activity"] == "InUntil"
+    # Through an If Condition or Switch branch, still inside the loop.
+    branch = act("If", "IfCondition", expression="@true", ifTrueActivities=[foreach("Deep", [wait])])
+    assert found(pipeline(foreach("Outer", [branch])))["nested_foreach"][0]["activity"] == "Deep"
+    case = act("Sw", "Switch", on="@item()", cases=[{"value": "1", "activities": [foreach("InCase", [wait])]}])
+    assert found(pipeline(foreach("Outer", [case])))["nested_foreach"][0]["activity"] == "InCase"
+    # A ForEach inside an If Condition alone, or two ForEach side by side, are fine.
+    side = pipeline(act("If", "IfCondition", expression="@true", ifTrueActivities=[foreach("A", [wait])]),
+                    foreach("B", [act("W2", "Wait", waitTimeInSeconds=0)]))
+    assert "nested_foreach" not in found(side)
+
+
+def test_set_variable_inside_a_parallel_foreach_is_warned_about():
+    hit = found(pipeline(foreach("Loop", [setvar("S")])))
+    assert hit["set_variable_in_parallel_foreach"][0]["activity"] == "S"
+    assert "Append Variable" in hit["set_variable_in_parallel_foreach"][0]["hint"]
+    branch = act("If", "IfCondition", expression="@true", ifTrueActivities=[setvar("Deep")])
+    assert found(pipeline(foreach("Loop", [branch], sequential=False)))["set_variable_in_parallel_foreach"]
+    assert "set_variable_in_parallel_foreach" not in found(pipeline(foreach("Loop", [setvar("S")], sequential=True)))
+    assert "set_variable_in_parallel_foreach" not in found(pipeline(setvar("Top")))
+
+
+def test_foreach_limits_never_stop_a_local_run(tmp_path):
+    text = json.dumps({"name": "p", "properties": {"variables": {"v": {"type": "String"}}, "activities": [
+        foreach("Outer", [foreach("Inner", [setvar("S")])])]}})
+    checked = Svc(tmp_path).pipeline_run_check(text=text)
+    assert checked["ok"] is True
+    assert {d["code"] for d in checked["fabric_differences"]} == {"nested_foreach", "set_variable_in_parallel_foreach"}

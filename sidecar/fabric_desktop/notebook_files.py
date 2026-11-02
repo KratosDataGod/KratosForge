@@ -18,7 +18,6 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import uuid
 from pathlib import Path
@@ -275,11 +274,8 @@ def remember_published(folder: Path, item_id: str, workspace_id: str, nb: dict[s
     (``name``, without its folders), so the next publish can tell a rename here from one in Fabric."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{_safe_id(item_id)}.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
-                               "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}),
-                   encoding="utf-8")
-    os.replace(tmp, path)
+    jsonfile.write_text(path, json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
+                                          "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}))
 
 
 def published(folder: Path, item_id: str) -> dict[str, Any] | None:

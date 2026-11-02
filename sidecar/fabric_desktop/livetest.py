@@ -110,6 +110,14 @@ def scrub(text: str) -> str:
     return redact.secrets(text)[:2000]
 
 
+def cell(text: Any, limit: int = 2000) -> str:
+    """Text for one cell of a report's Markdown table, or a name in its lines: credential-shaped values
+    removed, control characters (a carriage return, a terminal escape) and line breaks folded to
+    spaces, cut to ``limit``, and ``|`` escaped so it can't open a column of its own. The report is
+    printed to the terminal and written to report.md, and a name or detail can come from a workspace."""
+    return redact.one_line(text, limit).replace("|", "\\|")
+
+
 @dataclass
 class Check:
     id: str
@@ -586,7 +594,7 @@ class LiveTest:
                 return f"Job {job_id} completed in Fabric."
             if status in TERMINAL:
                 reason = (job.get("failureReason") or {}).get("message", "") if isinstance(job.get("failureReason"), dict) else ""
-                raise RuntimeError(f"Job {job_id} ended {status}. {reason}".strip())
+                raise RuntimeError(f"Job {job_id} ended {status}. {redact.one_line(reason or '', 600)}".strip())
             if self.clock() > deadline:
                 self.fabric.cancel_job(self.workspace_id, self.notebook_id, job_id)
                 raise RuntimeError(f"Job {job_id} hadn't finished after {_RUN_TIMEOUT // 60} minutes; cancelled it.")
@@ -785,19 +793,18 @@ def _safe(fn: Callable[[], Any]) -> str:
 def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped"}
     lines = [f"# KratosForge live test {result['run_id']}", "",
-             f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['name'] or result['workspace']['id']}, "
+             f"Outcome: **{result['outcome']}**. Workspace {cell(result['workspace']['name'], 200) or result['workspace']['id']}, "
              f"started {result['started_at']}.", ""]
     if (result.get("opt_in") or {}).get("checks"):
         lines += [f"Opt-in checks: {', '.join(result['opt_in']['checks'])}.", ""]
     if result["refused"]:
-        lines += ["Nothing was written, because:", ""] + [f"- {r}" for r in result["refused"]] + [""]
+        lines += ["Nothing was written, because:", ""] + [f"- {cell(r)}" for r in result["refused"]] + [""]
     lines += ["| Check | Result | Seconds | Detail |", "| --- | --- | --- | --- |"]
     for c in result["checks"]:
-        detail = c["detail"].replace("|", "\\|").replace("\n", " ")
-        lines.append(f"| {c['title']} | {mark[c['status']]} | {c['seconds']} | {detail} |")
+        lines.append(f"| {cell(c['title'], 200)} | {mark[c['status']]} | {c['seconds']} | {cell(c['detail'])} |")
     if result["left_behind"]:
         lines += ["", "**Left behind** (cleanup failed; run `fabric-desktop live-test --cleanup` with this run's ledger.json):", ""]
-        lines += [f"- {r['kind']} {r['name']} ({r['id']})" for r in result["left_behind"]]
+        lines += [f"- {r['kind']} {cell(r['name'], 200)} ({cell(r['id'], 100)})" for r in result["left_behind"]]
     return "\n".join(lines) + "\n"
 
 

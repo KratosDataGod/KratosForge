@@ -28,6 +28,8 @@ def _offset_minutes(display: str) -> int:
 
 def _registry() -> tuple[Iterable[tuple[str, str]], str | None]:
     """(zone id, display name) pairs and this PC's zone id, from the registry."""
+    if sys.platform != "win32":  # winreg is Windows-only; this also tells the type checker so
+        raise OSError("The Windows registry is only on Windows.")
     import winreg
 
     zones = []

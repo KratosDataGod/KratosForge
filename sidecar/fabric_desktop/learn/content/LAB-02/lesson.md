@@ -7,7 +7,7 @@ the right answer, slowly. Your job is the same answer, at least twice as fast.
 
 - **Same answer.** Your rows must match the reference answer, in the same order.
 - **No SQ002.** A function wrapped round a column in `WHERE` stops the engine skipping data.
-- **Faster.** Your query and the starting one each run once to warm up, then five times, and the medians are compared.
+- **Faster.** Your query and the starting one each run once to warm up, then five times taking turns, and each one's fastest run is compared.
   This is measured on this PC only. A Fabric Warehouse plans and runs queries differently, so the
   gain there may be larger or smaller.
 

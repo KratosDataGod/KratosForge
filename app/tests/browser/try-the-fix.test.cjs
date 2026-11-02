@@ -4,12 +4,9 @@
 // row comparison are tested in test_learn_fixes.py.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const WH = { kind: "warehouse", workspace_id: "ws1", workspace_name: "Sales Dev", item_id: "wh1", name: "WH_Gold" };
 const SQL = "SELECT region, SUM(amount) AS revenue\nFROM dbo.sales\nWHERE YEAR(order_date) = 2026\nGROUP BY region;";
 const FIXED = "SELECT region, SUM(amount) AS revenue\nFROM dbo.sales\nWHERE (order_date >= '2026-01-01' AND order_date < '2027-01-01')\nGROUP BY region;";
@@ -99,11 +96,7 @@ test("Compare runs both versions read-only and shows same rows and measured time
 });
 
 test("the preview has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector(".sql-compat"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), ".sql-compat");
   assert.deepStrictEqual(found, []);
 });
 

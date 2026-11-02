@@ -4,12 +4,9 @@
 // a rule a policy names can't be dismissed.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
 const path = require("node:path");
-const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks, axeSource, axeFindings } = require("./harness.cjs");
 
-let axeSource = null;
-try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: the axe test skips */ }
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
@@ -71,6 +68,20 @@ test("Expert shows Dismiss and nothing else beside a finding", { skip }, async (
   assert.strictEqual(await sq002().locator(".learn-why").count(), 0);
 });
 
+test("SQL guidance overrides Learning guidance for SQL findings only (GD-08)", { skip }, async () => {
+  // Learning guidance is Expert from the test above; SQL guidance set to Guided wins on this page.
+  await page().evaluate(() => saveSettings({ learn_mode_sql: "guided" }));
+  await page().waitForFunction(() => state.settings.learn_mode_sql?.value === "guided");
+  await setDoc(VIEW.replace("2026", "2023"));
+  await openPanel();
+  await sq002().locator(".learn-detail").waitFor();
+  assert.match(await sq002().locator(".learn-detail").innerText(), /Why it matters/);
+  assert.strictEqual(await page().evaluate(() => [learnMode(), learnMode("sql"), learnMode("notebooks")].join()), "expert,guided,expert");
+  await page().evaluate(() => saveSettings({ learn_mode_sql: "same" }));
+  await page().waitForFunction(() => state.settings.learn_mode_sql?.value === "same");
+  assert.strictEqual(await page().evaluate(() => learnMode("sql")), "expert", "Same follows Learning guidance");
+});
+
 test("Professional, the default, adds a line on why, with Explain on request and no Lesson link", { skip }, async () => {
   await setMode("professional");
   assert.strictEqual(await page().evaluate(() => state.settings.learn_mode.source === "user"), true);
@@ -128,11 +139,7 @@ test("Guided opens Explain to start with, has Show example from the shipped guid
 
 test("the open finding has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
   await sq002().getByRole("button", { name: /Dismiss SQ002/ }).click();
-  await page().addScriptTag({ content: axeSource });
-  const found = await page().evaluate(async () => {
-    const r = await window.axe.run(document.querySelector(".sql-compat"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] });
-    return r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id} @ ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
-  });
+  const found = await axeFindings(page(), ".sql-compat");
   assert.deepStrictEqual(found, []);
   await page().keyboard.press("Escape");
   assert.strictEqual(await sq002().locator(".learn-dismiss-menu").isHidden(), true);

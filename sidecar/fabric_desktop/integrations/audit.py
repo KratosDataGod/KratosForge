@@ -83,7 +83,8 @@ class IntegrationAudit:
     def __init__(self, store: Any, folder: Path | None = None):
         self.store = store
         self.folder = Path(folder) if folder else Path(store.path).parent / "audit"
-        self.store._db().executescript(_SQL)
+        with self.store._db() as db:
+            db.executescript(_SQL)
         self.host = socket.gethostname()
         try:
             self.os_user = getpass.getuser()
@@ -124,14 +125,14 @@ class IntegrationAudit:
         sql, params = "select line from audit", []
         if client_id:
             sql, params = sql + " where client_id = ?", [client_id]
-        rows = self.store._db().execute(sql + " order by seq desc limit ?", [*params, max(1, min(limit, 1000))])
+        rows = self.store._rows(sql + " order by seq desc limit ?", [*params, max(1, min(limit, 1000))])
         return [json.loads(r["line"]) for r in rows]
 
     def approvals_recorded(self, approval_ids: list[str]) -> set[str]:
         """Which of these approvals have any line in the store (started or outcome)."""
         if not approval_ids:
             return set()
-        rows = self.store._db().execute("select distinct json_extract(line, '$.approval_id') as id from audit "
+        rows = self.store._rows("select distinct json_extract(line, '$.approval_id') as id from audit "
                                         f"where json_extract(line, '$.approval_id') in ({','.join('?' * len(approval_ids))})",
                                         approval_ids)
         return {r["id"] for r in rows}

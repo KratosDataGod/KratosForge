@@ -28,6 +28,8 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
+from . import sql_dialects
+
 _START = re.compile(r"^\s*(MERGE|UPDATE|DELETE)\b", re.IGNORECASE)
 _LEADING_COMMENTS = re.compile(r"^(\s*(--[^\n]*(\n|$)|/\*.*?\*/))+", re.DOTALL)
 
@@ -69,7 +71,7 @@ class Change:
         return any(w.match == "not_matched_by_source" and (w.condition is None or
                    not any(True for _ in w.condition.find_all(exp.Column))) for w in self.whens)
 
-    def source_sql(self, dialect: str = "duckdb") -> str:
+    def source_sql(self, dialect: Any = "duckdb") -> str:
         """The rows the MERGE reads, as a query in ``dialect``."""
         assert self.source is not None
         if isinstance(self.source, exp.Table):
@@ -89,7 +91,7 @@ def parse(statement: str, dialect: str = "spark") -> Change | None:
     try:
         tree = sqlglot.parse_one(statement, read=dialect)
     except sqlglot.errors.ParseError as exc:
-        raise ValueError(f"Could not read the statement: {exc}") from None
+        raise ValueError(f"Could not read the statement: {sql_dialects.parse_problem(exc)}") from None
     return parse_tree(tree)
 
 

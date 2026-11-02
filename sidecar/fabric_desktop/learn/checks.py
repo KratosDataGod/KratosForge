@@ -13,13 +13,12 @@ Kinds (the names content.CHECK_KINDS lists):
     integrity       every row of a child table finds its parent (no orphans)
     no_findings     the learner's code has no finding of the named best-practice rules
     faster_than     the learner's query gives the reference answer at least ``factor`` times faster than
-                    the baseline: median of ``runs`` runs each after one to warm up, on this PC
+                    the baseline: fastest of ``runs`` runs each, taking turns after one to warm up, on this PC
     defects_found   a query listing the keys the learner flagged finds every seeded defect of the kinds
 """
 
 from __future__ import annotations
 
-import statistics
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -29,6 +28,7 @@ import duckdb
 
 from .. import notebook_practices
 from ..sqlcompat import practices as sql_practices
+from ..duckdb_rows import one_row
 
 MAX_ROWS = 1_000_000   # a result bigger than this isn't compared row by row
 
@@ -112,12 +112,12 @@ def table_shape(con: duckdb.DuckDBPyConnection, table: str, columns: dict[str, s
             return _no(kind, f"{table}.{name} is {have[name.lower()]}; it should be {typ.upper()}.")
     ident = '"' + table.replace('"', '""') + '"'
     for col in not_null or []:
-        n = con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL').fetchone()[0]  # type: ignore[index]
+        n = one_row(con.execute(f'SELECT count(*) FROM {ident} WHERE "{col}" IS NULL'))[0]  # type: ignore[index]
         if n:
             return _no(kind, f"{table}.{col} has {n:,} empty (NULL) values.")
     if unique:
         key = ", ".join(f'"{c}"' for c in unique)
-        n = con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)").fetchone()[0]  # type: ignore[index]
+        n = one_row(con.execute(f"SELECT count(*) FROM (SELECT {key} FROM {ident} GROUP BY ALL HAVING count(*) > 1)"))[0]  # type: ignore[index]
         if n:
             return _no(kind, f"{n:,} values of {', '.join(unique)} appear more than once in {table}.")
     return _ok(kind, f"{table} has the columns, types and keys it needs.")
@@ -127,8 +127,8 @@ def integrity(con: duckdb.DuckDBPyConnection, child: str, column: str, parent: s
               parent_column: str | None = None) -> dict[str, Any]:
     kind = "integrity"
     pc = parent_column or column
-    n = con.execute(f'SELECT count(*) FROM "{child}" c WHERE c."{column}" IS NOT NULL AND NOT EXISTS '
-                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")').fetchone()[0]  # type: ignore[index]
+    n = one_row(con.execute(f'SELECT count(*) FROM "{child}" c WHERE c."{column}" IS NOT NULL AND NOT EXISTS '
+                    f'(SELECT 1 FROM "{parent}" p WHERE p."{pc}" = c."{column}")'))[0]  # type: ignore[index]
     if n:
         return _no(kind, f"{n:,} rows of {child} have a {column} that {parent} doesn't have.")
     return _ok(kind, f"Every {child} row finds its {parent}.")
@@ -154,18 +154,20 @@ def faster_than(con: duckdb.DuckDBPyConnection, sql: str, baseline: str, factor:
     if not same["passed"]:
         return _no(kind, f"Speed counts only with the same answer. {same['detail']}")
 
-    def median(q: str) -> float:
-        _rows(con, q)   # once to warm up: the first run also reads the data from disk
-        times = []
-        for _ in range(max(1, runs)):
+    # Turn about, and keep each query's fastest run: on a busy PC (another program, a shared CI
+    # runner) a pause only ever adds time, and taking turns spreads a slow spell over both queries,
+    # so a correct answer isn't failed by what else the PC was doing.
+    _rows(con, baseline)   # once each to warm up: the first run also reads the data from disk
+    _rows(con, sql)
+    fastest = [float("inf"), float("inf")]
+    for _ in range(max(1, runs)):
+        for i, q in enumerate((baseline, sql)):
             start = clock()
             _rows(con, q)
-            times.append(clock() - start)
-        return statistics.median(times)
-
-    base, mine = median(baseline), median(sql)
+            fastest[i] = min(fastest[i], clock() - start)
+    base, mine = fastest
     speedup = base / mine if mine > 0 else float("inf")
-    detail = (f"{speedup:.1f}× faster: {mine:.2f} s against {base:.2f} s (median of {runs} runs on this PC). "
+    detail = (f"{speedup:.1f}× faster: {mine:.2f} s against {base:.2f} s (fastest of {runs} runs each, taking turns, on this PC). "
               "Fabric timings differ; this is measured here only.")
     measured = {"seconds": round(mine, 4), "baseline_seconds": round(base, 4), "speedup": round(speedup, 2) if mine > 0 else None}
     out = _ok(kind, detail) if speedup >= factor else _no(kind, f"{detail} The goal is {factor:g}×.")

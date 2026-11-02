@@ -1,4 +1,5 @@
-"""#1174: every engine subprocess call has a timeout, or a reason here why it can't.
+"""#1174: every engine subprocess call, and every wait on a started process, has a timeout, or a reason
+here why it can't.
 
 A child process that never returns (a command waiting on a proxy, a stuck taskkill) would hold the
 engine call that started it, and the person would see a spinner that never ends. Code the engine
@@ -14,11 +15,18 @@ import fabric_desktop
 
 PACKAGE = Path(fabric_desktop.__file__).parent
 CALLS = ("run", "call", "check_call", "check_output")
+WAITS = ("wait", "communicate")
 
 # file:function -> why the call has no timeout
 NO_TIMEOUT = {
     "notebook_batch_service.py:one": "a batch's notebook runs in the batch's own background process "
                                      "(cli run-notebooks), not in an engine call, and can rightly run for hours",
+    "git/ops.py:_run": "waits once git's output has closed, under a timer that ends git when it runs too long",
+    "kernel_proc.py:_read": "the kernel's reader thread, not an engine call, waits once the kernel's output has "
+                            "closed; Stop and Restart end the kernel",
+    "shell.py:_run": "waits once the command's output has closed; Cancel lands between the reads and ends it",
+    "sql_exec.py:_read": "the run's reader thread, not an engine call, waits once its output has closed; Cancel "
+                         "ends the run",
 }
 
 
@@ -36,11 +44,21 @@ class _Finder(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Call(self, node):
-        if (isinstance(node.func, ast.Attribute) and node.func.attr in CALLS
-                and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"
-                and not any(k.arg in ("timeout", None) for k in node.keywords)):
+        func, untimed = node.func, not any(k.arg in ("timeout", None) for k in node.keywords)
+        if (isinstance(func, ast.Attribute) and func.attr in CALLS and untimed
+                and isinstance(func.value, ast.Name) and func.value.id == "subprocess"):
+            self.found.add(f"{self.file}:{self.where[-1]}")
+        # proc.wait() / p.communicate() with no timeout: a started process (by the names the engine uses)
+        elif (isinstance(func, ast.Attribute) and func.attr in WAITS and untimed and not node.args
+                and _process(func.value)):
             self.found.add(f"{self.file}:{self.where[-1]}")
         self.generic_visit(node)
+
+
+def _process(node: ast.expr) -> bool:
+    """Whether ``node`` names a started process: proc, process, child, or self.proc and the like."""
+    name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else ""
+    return name.lstrip("_") in ("proc", "process", "child", "popen")
 
 
 def _untimed() -> list[str]:
@@ -61,9 +79,11 @@ def test_every_subprocess_call_has_a_timeout_or_a_listed_reason():
 
 
 def test_the_check_finds_a_call_without_a_timeout(tmp_path, monkeypatch):
-    (tmp_path / "new.py").write_text("import subprocess\n\ndef go():\n    subprocess.run(['x'])\n", encoding="utf-8")
+    (tmp_path / "new.py").write_text("import subprocess\n\ndef go():\n    subprocess.run(['x'])\n\n"
+                                     "def hold(proc):\n    proc.wait()\n\ndef fine(proc):\n    proc.wait(timeout=5)\n",
+                                     encoding="utf-8")
     monkeypatch.setattr(__import__(__name__), "PACKAGE", tmp_path)
-    assert _untimed() == ["new.py:go"]
+    assert _untimed() == ["new.py:go", "new.py:hold"]
 
 
 def test_a_stuck_taskkill_doesnt_hold_the_command_that_ends_a_process(monkeypatch):

@@ -27,8 +27,8 @@ def test_shortcut_rules_that_cant_be_read_stop_creating_and_approving(svc, monke
     assert out["unchecked"] and "couldn't be read" in out["blocked"][0]
     for via_request in (False, True):
         with pytest.raises(PermissionError, match="couldn't be read"):
-            svc.create_shortcut("ws-dev", "lh-1", "Tables/dbo", "c2", SRC, "LH_Silver", "Sales Dev", "Sales Dev 2",
-                                via_request=via_request)
+            svc._create_shortcut("ws-dev", "lh-1", "Tables/dbo", "c2", SRC, "LH_Silver", "Sales Dev", "Sales Dev 2",
+                                 via_request=via_request)
     assert not any(s["name"] == "c2" for s in svc.api.items["lh-1"])
 
 

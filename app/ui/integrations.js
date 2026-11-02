@@ -102,6 +102,12 @@ function connectCard(status, refresh) {
   const httpToggle = h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: http.switch ? true : null, disabled: http.allowed ? null : true,
       onchange: async (e) => {
+        // Turning it on opens a port other programs on this PC can call, so it asks first.
+        if (e.target.checked && !(await confirmDialog("Turn on the local HTTP API?",
+          `Programs on this PC can then call KratosForge at ${http.url}. Each one still needs a token you make here, and gets only what you allow it.`, "Turn on"))) {
+          e.target.checked = false;
+          return;
+        }
         const res = await attempt(() => rpc("integrations_set_http", { enabled: e.target.checked }), "The local API didn't change");
         if (res) toast(res.http.running ? `The local API is on at ${res.http.url}` : "The local API is off");
         refresh();
@@ -294,6 +300,8 @@ function editTool(status, c, refresh) {
     }
   };
   const newToken = async () => {
+    if (!(await confirmDialog(`Make a new token for ${c.name}?`,
+      "Its current token stops working at once, so the tool can't connect until you give it the new one.", "Make a new token", { danger: true }))) return;
     const res = await attempt(() => rpc("integrations_new_token", { client_id: c.id }), "No new token");
     if (res) setupDialog(res.client, res.token, "http");
   };

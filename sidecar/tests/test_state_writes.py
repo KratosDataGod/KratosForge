@@ -32,6 +32,7 @@ IN_PLACE = {
                                     "its result once to a new file named for the request",
     "frames.py:write_xlsx": "a member inside a new xlsx export, not a file on disk",
     "learn/guides.py:<module>": "a build script run by hand to regenerate a data file in the repository",
+    "learn/patterns.py:<module>": "a build script run by hand to regenerate a data file in the repository",
     "leases.py:create": "written aside and linked into place with os.link, which refuses to replace a file",
     "livetest.py:_finish": "the report of a finished live test, written once to its own new folder",
     "meta/snapshot.py:restore": "written into a new temporary folder that is checked and then swapped in whole",

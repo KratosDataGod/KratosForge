@@ -39,6 +39,9 @@ Keys:
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
                      that covers a finding and suggests the next lesson on Learn's Home. The first
                      names, "focus" and "learning", still read as "expert" and "guided"
+    learn_mode_sql, learn_mode_notebooks  the level for SQL findings or notebook findings only:
+                     "same" (default) follows learn_mode; "expert", "professional" or "guided"
+                     overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -133,6 +136,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonfile
+from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -213,6 +217,12 @@ CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
 TYPES["learn_mode"] = str
 USER_KEYS += ("learn_mode",)
+# Guidance by subject (GD-08): "same" follows learn_mode; another level overrides it for that subject only.
+for _subject in ("sql", "notebooks"):
+    CHOICES[f"learn_mode_{_subject}"] = ("same", "expert", "professional", "guided")
+    DEFAULTS[f"learn_mode_{_subject}"] = "same"
+    TYPES[f"learn_mode_{_subject}"] = str
+    USER_KEYS += (f"learn_mode_{_subject}",)
 # A value saved, or set by policy, under a name a setting no longer has, read as its new name.
 RENAMED: dict[str, dict[str, str]] = {"learn_mode": {"focus": "expert", "learning": "guided"}}
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
@@ -365,7 +375,7 @@ def policy_problems() -> list[str]:
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
-            problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
         elif key in INTEGRATION_KEYS:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":

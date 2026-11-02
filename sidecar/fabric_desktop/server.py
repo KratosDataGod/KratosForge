@@ -13,12 +13,14 @@ import logging
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import IO, Any, Callable
 
-from . import audit, rpc_params
+from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
@@ -105,7 +107,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "workspace_pipelines", "workspace_pipeline_definition", "fabric_connections",
            "workspace_dataflows", "workspace_dataflow_definition", "fabric_dataflow_refreshes",
            "workspace_copy_jobs", "workspace_copy_job_definition", "fabric_copy_job_runs",
-           "git_notebook_info", "telemetry_status", "telemetry_new_install_id"}
+           "telemetry_status", "telemetry_new_install_id"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -278,9 +280,12 @@ def handle(service: Service, line: str) -> dict:
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            reply = {"id": req_id, "error": _short(secrets(str(exc)))}
+            reply = {"id": req_id, "error": _short(_home(secrets(str(exc))))}
         else:
-            reply = {"id": req_id, "error": _short(secrets(f"{type(exc).__name__}: {exc}"))}
+            text = f"{type(exc).__name__}: {exc}"
+            if net_trust.certificate_refused(exc):  # one line that says what to do, then the detail
+                text = f"{net_trust.HINT} ({text})"
+            reply = {"id": req_id, "error": _short(_home(secrets(text)))}
     if audit.audited(method):
         seconds = time.monotonic() - started
         _audit(service, method, params, reply, seconds)
@@ -289,6 +294,20 @@ def handle(service: Service, line: str) -> dict:
 
 
 ERROR_CHARS = 4000  # an error quoting a huge input (a 200,000-character name) is cut to this
+
+
+def _home(message: str) -> str:
+    """``message`` with the home folder written as ~, so an error pasted into a ticket or a screenshot
+    doesn't usually carry the Windows account name (other text, such as a OneDrive folder or a sign-in
+    name, still can). Results keep full paths: the app opens them."""
+    try:
+        home = Path.home()
+    except (RuntimeError, KeyError, OSError):  # no HOME or USERPROFILE: the error still has to reach the shell
+        return message
+    for form in dict.fromkeys((str(home).replace("\\", "\\\\"), str(home), home.as_posix())):  # repr() doubles \
+        if len(form) > 3:  # never a bare drive or /
+            message = re.sub(re.escape(form) + r"(?![^\\/'\"\s:)])", "~", message, flags=re.IGNORECASE)
+    return message
 
 
 def _short(message: str) -> str:

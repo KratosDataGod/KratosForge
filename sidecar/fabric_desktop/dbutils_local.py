@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from . import http_session
 from .paging import Pages
-from .notebookutils_local import Host, NotebookExit, on_vault, vault_url
+from .notebookutils_local import Host, NotebookExit, keyvault_error, on_vault, vault_url
 from .retrying import send_with_retry
 
 
@@ -190,7 +190,8 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             if resp.status_code in (401, 403):
                 raise PermissionError(f"Key Vault {vault(scope)} refused to list secrets for your account. "
                                       f"You need the Key Vault Secrets User role on it.")
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise keyvault_error(resp, vault(scope), "list its secrets")
             body = resp.json()
             names += [SecretMetadata(item["id"].rstrip("/").rsplit("/", 1)[-1]) for item in body.get("value", [])]
             url, params = body.get("nextLink"), None

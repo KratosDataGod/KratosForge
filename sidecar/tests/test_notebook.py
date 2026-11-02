@@ -231,6 +231,16 @@ def test_display_shows_timestamps_with_a_time_zone():
     assert display(table)["rows"] == [["2024-01-01 00:00:00+00:00"]]
 
 
+def test_display_keeps_every_column_that_shares_a_name():
+    """#1369: a table's columns are read by position, so two columns named "a" both show."""
+    from fabric_desktop.notebook import display
+    table = pa.Table.from_arrays([pa.array([1, 2]), pa.array(["x", None]), pa.array([1.5, float("nan")])],
+                                 names=["a", "a", "b"])
+    out = display(table)
+    assert out["columns"] == ["a", "a", "b"] and out["rows"] == [[1, "x", 1.5], [2, None, "nan"]]
+    assert display(pa.table({}))["rows"] == []
+
+
 def _sql_service(tmp_path, monkeypatch, schemas=False):
     """A service whose lakehouse tables are local Delta tables."""
     import pyarrow as pa

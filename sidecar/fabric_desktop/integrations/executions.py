@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .core import CallContext, IntegrationError, redact_result, redact_secrets
+from .. import jsonfile
 
 STATES = ("queued", "running", "succeeded", "failed", "cancelled", "timed_out")
 FINISHED = ("succeeded", "failed", "cancelled", "timed_out")
@@ -229,11 +230,8 @@ class ExecutionManager:
         return sorted(out, key=lambda r: r.get("created_at") or 0, reverse=True)[:limit]
 
     def _save(self, run: Execution) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
         body = run.view() | {"logs": run.logs}
-        tmp = self.folder / f"{run.id}.tmp"
-        tmp.write_text(json.dumps(body, default=str), encoding="utf-8")
-        tmp.replace(self.folder / f"{run.id}.json")
+        jsonfile.write_text(self.folder / f"{run.id}.json", json.dumps(body, default=str))
         old = sorted(self.folder.glob("ex_*.json"))[:-KEEP_RECORDS]
         for path in old:
             path.unlink(missing_ok=True)

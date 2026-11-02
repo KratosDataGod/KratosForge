@@ -75,9 +75,17 @@ test("a run opens in a new tab without running, and the filter narrows the list"
   await page().waitForFunction((n) => sqlPage.tabs.length === n + 1, tabs);
   assert.match(await page().evaluate(() => sqlPage.editor.text()), /^-- top customers/);
   assert.strictEqual(starts().length, before, "opening a past run runs nothing");
-  await aside().getByLabel("Filter history").fill("customr");
-  assert.strictEqual(await aside().locator(".wh-h-row").count(), 1);
-  await aside().getByLabel("Filter history").fill("");
+  // Typed a letter at a time, as a person does: each letter redraws the list, and the filter keeps
+  // the focus (it lost it after the first letter, and a redraw mid-fill flaked this test in CI).
+  const filter = aside().getByLabel("Filter history");
+  await filter.click();
+  await page().keyboard.type("cust");
+  await page().evaluate(() => sqlPage.whRedraw());  // a run finishing or the catalog arriving
+  await page().keyboard.type("omr");
+  assert.strictEqual(await filter.inputValue(), "customr");
+  assert.ok(await filter.evaluate((el) => el === document.activeElement), "the filter keeps the focus");
+  assert.deepStrictEqual(await aside().locator(".wh-h-row .wh-h-sql").allTextContents(), ["SELECT * FROM dbo.DimCustomr"]);
+  await filter.fill("");
 });
 
 test("query insights open in a new tab and run there", { skip }, async () => {
@@ -114,7 +122,18 @@ test("history is capped and Clear history asks first", { skip }, async () => {
   // runs leaving storage, or the History tab redrawing (it once waited 30 s for "No runs yet" in CI).
   await confirm.waitFor({ state: "hidden" });
   await page().waitForFunction(() => !localStorage.getItem("fabric-desktop.sqlhistory.warehouse.wh1"));
-  await page().waitForFunction(() => /No runs yet/.test(document.querySelector(".warehouse-page aside.explorer")?.textContent || ""));
+  // This wait timed out once in CI with the runs already gone and nothing thrown (flaky ledger):
+  // a timeout now says what the explorer showed instead.
+  await page().waitForFunction(() => /No runs yet/.test(document.querySelector(".warehouse-page aside.explorer")?.textContent || ""), null, { timeout: 15000 })
+    .catch(async (err) => {
+      const seen = await page().evaluate(() => ({
+        asides: document.querySelectorAll(".warehouse-page aside.explorer").length,
+        view: sqlPage.whAside, filter: sqlPage.whHistoryFilter, tabs: sqlPage.tabs.length, active: sqlPage.active,
+        running: sqlPage.tabs.map((t) => !!t.running), dialogs: document.querySelectorAll("[role=dialog]").length,
+        text: (document.querySelector(".warehouse-page aside.explorer")?.textContent || "").slice(0, 300),
+      }));
+      throw new Error(`${err.message}; the explorer showed ${JSON.stringify(seen)}`);
+    });
   assert.deepStrictEqual(await history(), []);
 });
 

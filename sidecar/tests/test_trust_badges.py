@@ -281,3 +281,17 @@ def test_rpc_names_udf_functions_and_audit():
     for op in ("product_trust", "record_endorsements", "add_product_term", "remove_product_term"):
         assert f"def {op}(" in source and op in core.OPERATIONS
     compile(source, "function_app.py", "exec")
+
+
+def test_a_failed_scan_reason_is_one_short_line_without_a_token():
+    token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJlLXNpZ25hdHVyZQ"
+
+    class Failing(ScanSession):
+        def request(self, method, url, headers=None, timeout=None, **kwargs):
+            if "/scanStatus/" in url:
+                return Resp(200, {"status": "Failed", "error": {"code": "x", "message": f"no\nBearer {token}" + "z" * 900}})
+            return super().request(method, url, headers, timeout, **kwargs)
+    with pytest.raises(FabricError) as e:
+        FabricClient(lambda: "tok", session=Failing(), sleep=lambda s: None).admin_scan_workspaces(["ws"])
+    text = str(e.value)
+    assert "\n" not in text and token not in text and "[removed]" in text and len(text) < 400

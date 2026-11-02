@@ -7,7 +7,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, animationsDone } = require("./harness.cjs");
 
 let axeSource = null;
 try { axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8"); } catch { /* not installed: skip */ }
@@ -37,6 +37,9 @@ const JUDGED = [
   [/^(notebook|sql): color-contrast @ .*(cm-gutterElement|cm-activeLineGutter)/, "Pass: line numbers are #616161, 5.3:1 on the active line (#edeef1) and 5.9:1 or more elsewhere."],
   [/^(notebook|sql): color-contrast @ span\[title="Fold (line|code)"\]/, "Pass: the fold marker is #616161 on white, 6.2:1."],
   [/^(entity|data-mesh|mesh\w*): color-contrast @ \.arrow\[aria-hidden="true"\]/, "Pass: the step arrows are #8a8a8a, 3.4:1 on white and 3.3:1 on #fafafa, and hidden from assistive tech (the steps' order is in the text)."],
+  [/^learn-lab: color-contrast @ \.learn-mark$/, "Pass: an exercise check's mark is #242424 on white, 15.5:1 (passed is #1f7a4a, 5.3:1), and hidden from assistive tech (the check's text says it)."],
+  [/^report-problem: color-contrast @ textarea\[rows="3"\]$/, "Pass: What happened is #242424 on white, 15.5:1, and its placeholder #757575, 4.6:1."],
+  [/^report-problem: color-contrast @ \.mono$/, "Pass: the diagnostics are #424242 on #fafafa, 9.6:1."],
   [/^entity: color-contrast @ #entity-toml$/, "Pass: the entity file's text is #242424 on #fafafa, 14.9:1 (axe sees the box as partly covered)."],
 ];
 const judged = (key) => JUDGED.find(([re]) => re.test(key))?.[1];
@@ -56,6 +59,23 @@ const EXTRA = [
   { id: "confirm", name: "Confirm dialog", open: (p) => p.evaluate(() => {
     confirmDialog("Delete the lakehouse LH_Bronze?", "This removes its tables and files from Fabric.", "Delete", { danger: true });
   }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
+  // #1284: Preview screens and the dialogs people meet most, with the real engine where they read data.
+  { id: "profile", name: "Profile", open: (p) => p.evaluate(() => { profilePage.tab = "overview"; go("profile"); }), ready: "#view .page.profile" },
+  { id: "learn-lab", name: "Learn lab", open: (p) => p.evaluate(async () => {
+    await rpc("learn_lab_start", { module_id: "LM-01" });  // the lab's data on this PC, as Start the lab makes it
+    await learnOpen("LM-01");
+  }), ready: "textarea.learn-editor" },
+  { id: "settings-integrations", name: "Settings > Integrations", open: (p) => p.evaluate(async () => {
+    await rpc("integrations_set_enabled", { enabled: true });
+    state.settingsTab = "integrations";
+    go("settings");
+  }), ready: "#view .integrations section.card + section.card" },
+  { id: "approval", name: "AI tool approval dialog", open: (p) => p.evaluate(() => {
+    showApproval({ id: "ap_1", client_name: "Codex", title: "Run Python", permission: "EXECUTE_LOCAL_CODE", created_at: Date.now() / 1000,
+      summary: { action: "Run Python on this PC", target: { workspace_id: "w1" }, content: { text: "print(1)" } } }, null);
+  }), ready: "#dialog-root .dialog", scope: "#dialog-root" },
+  { id: "report-problem", name: "Report a problem dialog", open: (p) => p.evaluate(() => reportProblem()),
+    ready: "#dialog-root .dialog", scope: "#dialog-root" },
 ];
 
 let app;
@@ -64,7 +84,8 @@ const results = [];
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["app_settings"],
+    engine: ["app_settings", "profile_get", "learn_catalog", "learn_module", "learn_lab_start", "learn_patterns", "integrations_status",
+      "integrations_activity", "integrations_pending", "integrations_set_enabled", "editor_status"],
     mocks: {
       environment: () => ({ python: "Python 3 (test)", user: "ana@contoso.com", tenant: "t1" }),
       list_workspaces: () => [{ id: "w1", displayName: "Sales Dev", capacityId: "c1" }, { id: "w2", displayName: "Finance", capacityId: null }],
@@ -211,6 +232,7 @@ async function audit(page, target, scheme) {
   await target.open(page);
   if (target.ready) await page.waitForSelector(target.ready);
   await settle(page);  // the page's own calls answer
+  await animationsDone(page);  // axe judges contrast as drawn: nothing still fading in (#1337)
   if (!(await page.evaluate(() => typeof axe === "object"))) await page.addScriptTag({ content: axeSource });
   const scope = target.scope || "#view";
   const axeOut = await page.evaluate(async ([scope, tags]) => {

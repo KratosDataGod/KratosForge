@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import polars as pl
 import pyarrow as pa
@@ -304,6 +305,8 @@ def test_another_process_cant_open_the_database_for_writing(local, data, tmp_pat
             LocalData(tmp_path / "app" / "local-data").engine(pid).execute("SELECT 1")
     finally:
         holder.kill()
+        holder.wait()
+        holder.stdout.close()
 
 
 def test_project_names_and_folders(local, tmp_path, data):
@@ -425,7 +428,84 @@ def test_a_stream_can_be_stopped(local):
     reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", query_id="q1", batch_size=1000)
     reader.read_next_batch()
     assert e.cancel("q1")
-    with pytest.raises((QueryCancelled, Exception)):
+    with pytest.raises(QueryCancelled):  # pyarrow's reader reports an interrupt mid-stream as OSError
+        for _ in reader:
+            pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["whole result", "stream"])
+def test_a_time_limit_that_runs_out_before_the_query_starts_still_stops_it(local, monkeypatch, stream):
+    """DuckDB drops an interrupt that comes before a statement starts. A limit that ran out while
+    the query was still being read and checked (a slow PC, a big script) stops it all the same."""
+    e = local.engine(local.create("Limit early")["id"])
+    e.execute("SELECT 1")  # opens the connection
+    read = type(e)._statements
+
+    def slow_read(self, *args, **kwargs):
+        out = read(self, *args, **kwargs)
+        time.sleep(0.5)  # the 0.2 s limit runs out here, before DuckDB starts
+        return out
+
+    monkeypatch.setattr(type(e), "_statements", slow_read)
+    with pytest.raises(TimeoutError, match="longer than 0.2 seconds"):
+        if stream:
+            for _ in e.execute_reader("SELECT 1 AS n", timeout=0.2):
+                pass
+        else:
+            e.execute("SELECT 1 AS n", timeout=0.2)
+    monkeypatch.undo()
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+def test_a_stream_past_its_time_limit_says_so(local):
+    e = local.engine(local.create("Stream limit")["id"])
+    reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", timeout=0.5, batch_size=1000)
+    reader.read_next_batch()
+    with pytest.raises(TimeoutError, match="longer than 0.5 seconds"):
+        for _ in reader:
+            pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["whole result", "stream"])
+def test_a_query_duckdb_stops_by_itself_is_not_called_cancelled(local, stream):
+    """When one of DuckDB's threads fails it stops the others, and now and then reports that stop in
+    place of the failure. Nobody pressed Stop, so the person is told to run it again for the error,
+    not that it was cancelled (a whole result) or "INTERRUPT Error" (a stream, through pyarrow)."""
+    e = local.engine(local.create("Stopped alone")["id"])
+    e.execute("SELECT 1")  # opens the connection
+    # As DuckDB stops itself: no cancel, no time limit. An interrupt that lands before the query
+    # starts does nothing, so it is sent again until the query stops; the query can't end first.
+    done = threading.Event()
+
+    def stop_it() -> None:
+        while not done.wait(0.05):
+            e._con.interrupt()
+
+    stopper = threading.Thread(target=stop_it, daemon=True)
+    stopper.start()
+    try:
+        with pytest.raises(RuntimeError, match="part of the query failed") as caught:
+            if stream:
+                for _ in e.execute_reader("SELECT range AS n FROM range(1000000000000)", batch_size=1000):
+                    pass
+            else:
+                e.execute("SELECT count(*) FROM range(1000000000000) a")
+    finally:
+        done.set()
+        stopper.join()
+    assert not isinstance(caught.value, QueryCancelled)
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+def test_a_stream_stops_on_cancel_even_when_duckdb_misses_the_interrupt(local):
+    # #1340: the stream checks the cancel flag between batches as well as DuckDB's interrupt.
+    e = local.engine(local.create("Stream flag")["id"])
+    reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", query_id="q2", batch_size=1000)
+    reader.read_next_batch()
+    e._running["q2"]["cancelled"] = True  # as cancel() sets it, without the interrupt
+    with pytest.raises(QueryCancelled):
         for _ in reader:
             pass
     assert e.execute("SELECT 1")["rows"] == [[1]]
@@ -497,3 +577,30 @@ def test_the_engine_itself_reaches_only_the_projects_folders(local, tmp_path, da
     engine.remove_source(str(outside.resolve()))
     with pytest.raises(Exception):
         engine.execute(f"SELECT * FROM read_csv('{outside / 'secret.csv'}')")
+
+
+
+def test_a_reader_that_fails_part_way_is_still_closed(local):
+    """On DuckDB 2.0 a reader left open keeps its connection busy, so it is closed even when reading fails."""
+    from fabric_desktop.localdata import engine as local_engine
+    closed = []
+
+    class Reader:
+        schema = None
+
+        def __iter__(self):
+            raise RuntimeError("late failure")
+
+        def close(self):
+            closed.append(True)
+
+    result = SimpleNamespace(description=[("n",)], to_arrow_reader=lambda rows: Reader())
+    with pytest.raises(RuntimeError, match="late failure"):
+        local_engine._collect(result, 10, True)
+    assert closed == [True]
+    e = local.engine(local.create("Fails late")["id"])
+    # DuckDB reports its own stop in place of the failure now and then (about 1 run in 100 under load).
+    with pytest.raises(Exception, match="late failure|part of the query failed"):
+        e.execute("SELECT CASE WHEN range < 200000 THEN range ELSE error('late failure') END AS n "
+                  "FROM range(250000)", limit=10)
+    assert e.execute("SELECT 42 AS answer")["rows"] == [[42]]

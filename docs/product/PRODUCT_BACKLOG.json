@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-10-31",
+  "updated": "2026-11-01",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -623,7 +623,9 @@
       "capability": "A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.",
       "evidence": [
         "fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.",
-        "docs/product/enterprise-gap-analysis.md FD-111 partial"
+        "docs/product/enterprise-gap-analysis.md FD-111 partial",
+        "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
+        "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met"
       ],
       "features": [
         "FEAT-NB-07"
@@ -652,13 +654,21 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
         "score": 2.73,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1190,
+        1262,
+        1275,
+        1300,
+        1305,
+        1324
+      ]
     },
     {
       "id": "PB-015",
@@ -714,7 +724,8 @@
         933,
         1028,
         1054,
-        1157
+        1157,
+        1272
       ],
       "issues": [
         848
@@ -1271,7 +1282,8 @@
       "capability": "Completion of table and column names from the attached lakehouse's Delta schemas.",
       "evidence": [
         "notebook.py kernel_complete returned nothing for names not yet in the namespace (smoke)",
-        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce"
+        "A %%sql cell completes an alias's columns from the table's Delta schema without running a cell, and falls back on cached names offline (#901; test_schema_cache.py, notebook-sql-complete.test.cjs) on main at 0c96c9ce",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-NB-08"
@@ -1296,7 +1308,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
@@ -2202,7 +2214,8 @@
         "docs/platform.md lists the unverified points",
         "central/setup.py setup() and join() have no tests",
         "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
-        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d"
+        "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
+        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2247,7 +2260,26 @@
         1038,
         1041,
         1045,
-        1200
+        1200,
+        1205,
+        1213,
+        1239,
+        1241,
+        1243,
+        1244,
+        1255,
+        1259,
+        1265,
+        1267,
+        1308,
+        1309,
+        1322,
+        1328,
+        1335,
+        1348,
+        1351,
+        1353,
+        1354
       ],
       "issues": [
         909
@@ -2592,7 +2624,8 @@
       "capability": "Settings > Help > Save support bundle with a contents preview, as FD-138 asks.",
       "evidence": [
         "support_bundle.py has no RPC or UI",
-        "Smoke: CLI wrote about.json and CONTENTS.txt"
+        "Smoke: CLI wrote about.json and CONTENTS.txt",
+        "Slice 1 merged: about.json records the policy state, secret settings show only whether they are set, and support_bundle.preview() and `support-bundle --preview` list the contents (#1177) on main at b3c5b223. The Settings button follows a mockup"
       ],
       "features": [
         "FEAT-SHL-11"
@@ -2617,13 +2650,16 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
         "score": 2.3,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1177
+      ]
     },
     {
       "id": "PB-063",
@@ -2634,7 +2670,8 @@
       "evidence": [
         "app/tests/ui.test.cjs static checks",
         "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
-        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet"
+        "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
+        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2675,7 +2712,11 @@
       "prs": [
         907,
         926,
-        951
+        951,
+        1294,
+        1297,
+        1334,
+        1339
       ],
       "issues": [
         880,
@@ -4133,7 +4174,8 @@
       "capability": "Each client run through docs/product/ai-integration-client-checklist.md and recorded.",
       "evidence": [
         "AI integration thread notes",
-        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in"
+        "Claude Code and curl ran the client checklist step by step, and Codex CLI reads the setup and starts the server; the results are in ai-integration-compatibility.md, and other clients stay Untested (#1185) on main at 0c96c9ce. Run on Linux with no Fabric sign-in",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: Claude Code and curl ran without a Fabric sign-in on Linux; the sign-in steps, step 12 and a Windows run are still to do, and clients not run stay Untested"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -4160,7 +4202,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.75,
         "cost": 1.0,
@@ -4218,7 +4260,8 @@
       "problem": "server.py METHODS and the capability registry can drift apart.",
       "capability": "METHODS generated from, or checked against, the capability registry.",
       "evidence": [
-        "server.py METHODS"
+        "server.py METHODS",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: criterion reworded to 'A test fails when lists meant to agree disagree'; METHODS and the registry differ by design"
       ],
       "features": [
         "FEAT-SHL-02"
@@ -4227,7 +4270,7 @@
         "PB-095"
       ],
       "acceptance": [
-        "A test fails when a method is in one list and not the other"
+        "A test fails when lists meant to agree disagree"
       ],
       "scores": {
         "developer_value": 2,
@@ -4245,7 +4288,7 @@
       ],
       "effort": "S",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 2.6,
         "cost": 1.0,
@@ -4264,7 +4307,10 @@
       "capability": "Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).",
       "evidence": [
         "DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py)",
-        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)"
+        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)",
+        "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
+        "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
+        "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4321,7 +4367,32 @@
         620,
         622,
         628,
-        631
+        631,
+        1210,
+        1254,
+        1268,
+        1274,
+        1291,
+        1293,
+        1304,
+        1326,
+        1327,
+        1338,
+        1342,
+        1343,
+        1344,
+        1345,
+        1346,
+        1349,
+        1355,
+        1356,
+        1357,
+        1363,
+        1401,
+        1490,
+        1498,
+        1502,
+        1512
       ]
     },
     {
@@ -4452,7 +4523,63 @@
         1089,
         1122,
         1153,
-        1156
+        1156,
+        1208,
+        1209,
+        1211,
+        1212,
+        1214,
+        1215,
+        1231,
+        1245,
+        1359,
+        1377,
+        1378,
+        1379,
+        1381,
+        1382,
+        1383,
+        1385,
+        1387,
+        1392,
+        1399,
+        1402,
+        1406,
+        1411,
+        1416,
+        1429,
+        1430,
+        1431,
+        1433,
+        1434,
+        1451,
+        1454,
+        1471,
+        1499,
+        1501,
+        1504,
+        1508,
+        1509,
+        1511,
+        1513,
+        1516,
+        1519,
+        1521,
+        1522,
+        1523,
+        1524,
+        1534,
+        1538,
+        1539,
+        1540,
+        1541,
+        1542,
+        1543,
+        1545,
+        1546,
+        1547,
+        1548,
+        1549
       ],
       "issues": [
         910,
@@ -4568,7 +4695,8 @@
       "capability": "Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).",
       "evidence": [
         "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
-        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here"
+        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here",
+        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed"
       ],
       "features": [
         "FEAT-NB-04",
@@ -4636,7 +4764,65 @@
         1107,
         1154,
         1155,
-        1164
+        1164,
+        1230,
+        1234,
+        1240,
+        1258,
+        1290,
+        1298,
+        1299,
+        1302,
+        1332,
+        1336,
+        1364,
+        1384,
+        1389,
+        1390,
+        1394,
+        1395,
+        1403,
+        1405,
+        1410,
+        1414,
+        1418,
+        1421,
+        1432,
+        1435,
+        1436,
+        1441,
+        1443,
+        1444,
+        1446,
+        1449,
+        1452,
+        1457,
+        1458,
+        1461,
+        1463,
+        1464,
+        1467,
+        1468,
+        1472,
+        1474,
+        1477,
+        1478,
+        1479,
+        1480,
+        1481,
+        1487,
+        1492,
+        1493,
+        1500,
+        1514,
+        1515,
+        1520,
+        1529,
+        1533,
+        1535,
+        1536,
+        1537,
+        1544
       ]
     },
     {
@@ -4883,7 +5069,12 @@
         739,
         740,
         741,
-        746
+        746,
+        1222,
+        1250,
+        1251,
+        1256,
+        1333
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5312,7 +5503,7 @@
     {
       "id": "PB-116",
       "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         891,
         1133
@@ -5325,9 +5516,10 @@
       "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
       "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
       "evidence": [
-        "Built work is a saved patch in the project files (databricks/fabric-spark-wip), to restart from main",
         "Story KF-FABRIC-SPARK in the orchestration plan (#864)",
-        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)"
+        "Livy sessions run as a Preview engine behind remote compute confirmation, tested with Fabric faked (test_fabric_spark.py, 34 tests) on main at 02118fa4. One recorded live run on 2026-10-29 ran 10 queries in a Fabric Spark session (docs/platforms.md)",
+        "Implementation review docs/product/reviews/PB-116-891.md (2026-11-01): all three criteria met; recommended Accept with Documented Limitations (one live run; a policy-approved engine skips the per-session confirm)",
+        "Implementation review docs/product/reviews/PB-116-891.md: Accepted with Documented Limitations (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K); limitations: one recorded live run (2026-10-29); a policy-approved engine skips the per-session confirm; capacity use shows in Fabric's Capacity Metrics app"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -5364,11 +5556,14 @@
     {
       "id": "PB-117",
       "title": "Snowflake pillar: audit, ADRs and parity matrix",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         993,
         995,
-        1202
+        1202,
+        1225,
+        1248,
+        1321
       ],
       "category": "Local Development and Execution",
       "effort": "M",
@@ -5381,7 +5576,8 @@
         "No Snowflake code or docs on main",
         "Story KF-SNOWFLAKE-RESEARCH in the orchestration plan (#864), queue priority P4",
         "#993 (SF-00 engine registry) and #995 (SF-04 SQL on this PC) merged as Preview",
-        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d"
+        "114 Snowflake function calls are compared with the values Snowflake's SQL reference documents, and the docs table is generated from that check (#1202, no Snowflake account used) on main at f3750b9d",
+        "Checked in the acceptance review /mnt/project-files/orchestrator/acceptance-review-2026-10-30.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-EXT-05"
@@ -5419,7 +5615,7 @@
     {
       "id": "PB-118",
       "title": "Databricks notebook conversion says what it could not carry over",
-      "state": "In review",
+      "state": "Accepted",
       "category": "SQL, Python, and Notebook Development",
       "effort": "S",
       "issues": [
@@ -5429,7 +5625,9 @@
       "capability": "A loss report on every Databricks import and export, extending the existing converter.",
       "evidence": [
         "Story KF-DBX-LOSS-REPORT in the orchestration plan (#864)",
-        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4"
+        "Databricks import and export list every construct that didn't carry over, cell by cell, and name the Fabric migration gotchas (#1053, #1146; test_notebook_formats.py) on main at 02118fa4",
+        "Implementation review docs/product/reviews/PB-118-1053.md (2026-11-01): all three criteria met; recommended Accept",
+        "Implementation review docs/product/reviews/PB-118-1053.md: Accepted (Chris chose 'Accept all six' on the decision card, 2026-11-01, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHEi2797KQ2xEh3mRcFsM8K)"
       ],
       "features": [
         "FEAT-NB-26",
@@ -5458,7 +5656,9 @@
       "external_dependencies": [],
       "prs": [
         1053,
-        1146
+        1146,
+        1242,
+        1289
       ],
       "computed": {
         "benefit": 2.2,
@@ -5469,8 +5669,8 @@
     },
     {
       "id": "PB-119",
-      "title": "Learn: lessons, labs and guidance modes",
-      "state": "In progress",
+      "title": "Learn v1: lessons, labs and finding actions",
+      "state": "In review",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -5484,26 +5684,28 @@
         1140,
         1158,
         1159,
-        1160,
-        1161,
-        1162
+        1160
       ],
       "problem": "People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.",
-      "capability": "A Learn page (Preview) with lessons, paths and labs that run on this PC with generated data, guidance modes, and Learn evidence in Profile.",
+      "capability": "A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.",
       "evidence": [
         "LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4",
-        "No backlog item tracked it before this check",
-        "Guidance levels Expert, Professional (default) and Guided (GD-01, #1161), Try the fix and Compare beside SQL findings (GD-02, #1162), Explain and Lesson buttons beside findings (#1160), a one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce"
+        "LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce",
+        "Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn)"
       ],
       "features": [
         "FEAT-DEV-04",
         "FEAT-GOV-09"
       ],
       "source_refs": [
-        "LX-01..08"
+        "LX-01..09"
       ],
       "acceptance": [
-        "Owned and specified by the Learning experience program (LX)"
+        "The Learn page (Preview) lists paths, lessons and labs, and every rule id a lesson names resolves in the catalog (test_learn_content)",
+        "A lab runs on this PC with generated data, with no file or network access (test_learn_labs)",
+        "Beside notebook and SQL findings: Explain, Show example, Lesson; Dismiss (this line, or the rule everywhere), except for a rule a policy names (finding-actions.test.cjs)",
+        "Learn evidence shows in Profile and comes only from things the person did (test_profile_learn)",
+        "docs/learn.md and docs/learn/writing-lessons.md match the code"
       ],
       "scores": {
         "developer_value": 3,
@@ -5543,7 +5745,39 @@
         1183,
         1191,
         1201,
-        1202
+        1202,
+        1228,
+        1238,
+        1263,
+        1271,
+        1276,
+        1277,
+        1279,
+        1292,
+        1323,
+        1329,
+        1380,
+        1388,
+        1400,
+        1412,
+        1415,
+        1420,
+        1439,
+        1450,
+        1484,
+        1485,
+        1486,
+        1488,
+        1491,
+        1495,
+        1496,
+        1497,
+        1505,
+        1506,
+        1517,
+        1518,
+        1528,
+        1531
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -5622,6 +5856,102 @@
         "cost": 3.0,
         "score": 1.56,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-122",
+      "title": "Guided Development: levels, Try the fix and Compare",
+      "state": "In progress",
+      "owner": "Guided development (GD)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1161,
+        1162,
+        1175,
+        1182,
+        1184,
+        1186,
+        1216,
+        1233
+      ],
+      "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
+      "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949",
+        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "GD-01..10"
+      ],
+      "acceptance": [
+        "The levels Expert, Professional (default) and Guided are preferences only, and policy always wins",
+        "Compare runs only on warehouse and SQL endpoint tabs and asks for confirmation every time; on a lakehouse tab, Try the fix previews and applies without Compare",
+        "Profile records \"fixed and checked\" only after a matching Compare",
+        "GD-07 and GD-09 are built or split out, and GD-10 has a lesson for every path it names",
+        "No built-in AI, no invented problems, and every number is labelled as measured or estimated"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-123",
+      "title": "Learn phase 2: rule batches, Profile v2 and comparison lessons",
+      "state": "Proposed",
+      "owner": "Learning experience (LX)",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [],
+      "problem": "Learn v1 covers the first rule catalog and paths only.",
+      "capability": "New rule batches, Profile v2, the professional report and platform comparison lessons (LX-11 to LX-16).",
+      "evidence": [
+        "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "LX-11..16"
+      ],
+      "acceptance": [
+        "As the LX proposal sets them for each slice; each slice needs Chris's go before it is built"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
       }
     }
   ]

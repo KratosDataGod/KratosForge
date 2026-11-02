@@ -746,3 +746,15 @@ def test_a_cancel_pressed_while_sending_that_is_refused_says_the_statement_may_s
     evalue = r.outputs[0]["evalue"]
     assert r.status == "cancelled" and evalue.startswith("Cancelled. The statement may still be running on Shared")
     assert "HTTP 403" not in evalue and PAT not in json.dumps(r.as_dict())
+
+
+@pytest.mark.parametrize("rows", [[["1"], ["2", "x"]], [["1", "a", "extra"]], [{"id": "1", "name": "a"}]],
+                         ids=["short", "long", "not-a-list"])
+def test_a_preview_whose_rows_dont_match_the_columns_is_an_error_never_padded(rows):
+    seen = []
+    r = open_session(FakeWorkspace(rows=rows)).execute(CellRequest("SELECT id, name FROM t", "sql"),
+                                                        on_output=seen.append)
+    assert r.status == "error" and r.table is None and seen == r.outputs
+    assert "one value per column" in r.outputs[-1]["evalue"]
+    with pytest.raises(dbsql.DatabricksError, match="one value per column"):
+        dbsql.to_table({"schema": {"columns": [{"name": "id"}, {"name": "name"}]}}, rows)

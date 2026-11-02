@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from test_prove import LAKEHOUSE, CELLS, FakeFabric, call, payload, run_cell, shared_version, svc, wait  # noqa: F401
 
-from fabric_desktop import app_settings, lakehouse
+from fabric_desktop import app_settings, kernel_proc, lakehouse
 from fabric_desktop.kernel_proc import STOPPED_TEXT, ProcessKernel
 from fabric_desktop.notebook import NotebookStore
 from fabric_desktop.server import handle
@@ -64,6 +64,67 @@ def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
     finally:
         k.close()
     assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
+
+
+def test_a_process_that_ends_leaves_no_pipe_open(kernel):
+    """Popen leaves its pipes to the garbage collector; the app starts a process per restart, so
+    each one that ended kept two handles open until a collection happened to run."""
+    def closed(proc, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not (proc.stdin.closed and proc.stdout.closed) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return proc.stdin.closed and proc.stdout.closed
+
+    kernel.run("x = 1")
+    stopped = kernel._proc
+    assert kernel.stop() == {"stopped": True}
+    assert closed(stopped)
+    kernel.run("y = 1")  # a fresh process
+    crashed = kernel._proc
+    assert crashed is not stopped
+    kernel.start("import os\nos._exit(3)")
+    assert closed(crashed)
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # and the next one still starts
+
+
+def test_a_write_stuck_holding_the_send_lock_doesnt_stop_the_process_being_marked_gone(kernel, monkeypatch):
+    """If a request's write never returns (something the process started holds the pipe open and
+    doesn't read), the reader still closes stdout and marks the process gone, leaving stdin."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    assert kernel._send_lock(proc).acquire(timeout=5)  # as a _send stuck mid-write would hold it
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel._proc is not proc  # marked gone without the lock
+        assert proc.stdout.closed and not proc.stdin.closed
+    finally:
+        kernel._send_lock(proc).release()
+        proc.stdin.close()  # left to the garbage collector by the app; the test closes it
+    assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]
+
+
+def test_a_write_stuck_on_an_ended_process_doesnt_hold_up_the_next_one(kernel, monkeypatch):
+    """Each process has its own send lock: the next process's requests go through while a write to
+    the last one is still stuck."""
+    monkeypatch.setattr(kernel_proc, "CLOSE_WAIT_SECONDS", 0.2)
+    kernel.run("x = 1")
+    proc = kernel._proc
+    kernel.start("import os, time\ntime.sleep(0.5)\nos._exit(3)")
+    stuck = kernel._send_lock(proc)
+    assert stuck.acquire(timeout=5)  # held for the whole test, as a write that never returns would
+    try:
+        deadline = time.monotonic() + 10
+        while kernel._proc is proc and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert kernel.run("1 + 1")["outputs"] == [{"type": "text", "text": "2"}]  # a new process, not held up
+        assert kernel._proc is not proc and kernel._send_lock(kernel._proc) is not stuck
+    finally:
+        stuck.release()
+        proc.stdin.close()
 
 
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):

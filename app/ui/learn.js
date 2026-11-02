@@ -129,7 +129,12 @@ async function learnPractices(body) {
 // Settings > Appearance > Learning guidance (app_settings learn_mode): Expert, Professional (the
 // default) or Guided. A preference only: checks and policies are the same at every level. With preview
 // features hidden it's always Expert, which adds nothing but Dismiss, and that is Preview too.
-const learnMode = () => (previewShown() ? layoutChoice("learn_mode") : "expert");
+// A subject ("sql" or "notebooks", GD-08) can have its own level; Same follows Learning guidance.
+const learnMode = (subject = null) => {
+  if (!previewShown()) return "expert";
+  const own = subject && LAYOUT_CHOICES[`learn_mode_${subject}`] ? layoutChoice(`learn_mode_${subject}`) : "same";
+  return own !== "same" ? own : layoutChoice("learn_mode");
+};
 
 function learnGuidancePicker() {
   const key = "learn_mode";
@@ -178,8 +183,8 @@ function learnCatalogCached() {
 
 // Guided: "Lesson: LM-01" beside a best-practice finding whose rule a lesson covers. Only live lessons (drafts stay on Learn), and a lesson before a lab: the
 // lesson explains the rule.
-function learnFindingLink(ruleId) {
-  if (learnMode() !== "guided") return null;
+function learnFindingLink(ruleId, subject = null) {
+  if (learnMode(subject) !== "guided") return null;
   const slot = h("span", { class: "learn-finding" });
   learnCatalogCached().then((cat) => {
     const covering = (cat?.modules || []).filter((m) => m.status === "live" && (m.rules || []).includes(ruleId));
@@ -287,7 +292,7 @@ const LEARN_IMPORTANCE = {
 // The buttons under one finding, and what Explain or Show example opened. ctx: {where, required, redraw}.
 function learnFindingActions(f, ctx) {
   if (!previewShown()) return null;
-  const mode = learnMode();
+  const mode = learnMode(ctx.subject);
   const guided = mode !== "expert";
   const guide = learnGuides[f.rule_id];
   const key = `${ctx.where}|${f.rule_id}|${f.line_hash || f.line}`;
@@ -307,7 +312,7 @@ function learnFindingActions(f, ctx) {
     row.append(btn("Explain", null, () => toggle("explain"), `tool small outline${open === "explain" ? " toggled" : ""}`, pressed("explain")));
     if (guide.after) row.append(btn("Show example", null, () => toggle("example"), `tool small outline${open === "example" ? " toggled" : ""}`, pressed("example")));
   }
-  const lesson = guided ? learnFindingLink(f.rule_id) : null;
+  const lesson = guided ? learnFindingLink(f.rule_id, ctx.subject) : null;
   if (lesson) row.append(lesson);
   if (ctx.required(f.rule_id)) {
     row.append(h("span", { class: "muted-text small" }, "Your organization requires this rule."));
@@ -352,6 +357,24 @@ function learnFindingActions(f, ctx) {
         .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
       h("span", { class: "muted-text small" }, "Copies only. Your code isn't changed for you.")));
   return [why, row, detail];
+}
+
+// ---------- Decision patterns (GD-05) ----------
+
+// A choice with no single right answer, explained where it's made (the engine picker): when each option
+// works and fails, cost and reliability, and an example that runs on this PC. From the docs that ship
+// with the app (learn/patterns.py), so it works offline. Copy example copies only; nothing runs.
+async function learnPatternDialog(id) {
+  const all = await attempt(() => rpc("learn_patterns"), "Couldn't read the decision patterns");
+  const p = all?.[id];
+  if (!p) return;
+  const body = h("div", { class: "scroll learn-pattern" }, markdown(p.body),
+    p.example ? [h("b", {}, "Try it on this PC"), h("pre", { class: "learn-code" }, p.example),
+      h("div", { class: "row" }, btn("Copy example", null, () => navigator.clipboard.writeText(p.example)
+        .then(() => toast("Copied the example."), () => toast("Couldn't copy it.", true)), "tool small"),
+      h("span", { class: "muted-text small" }, "Paste it into a Python cell on this PC. It reads nothing from Fabric."))] : null);
+  showDialog(p.title, body, [docLink(`decision-patterns.md#${id.toLowerCase()}`, "Open in the guide"),
+    btn("Close", null, closeDialog, "tool primary")]);
 }
 
 // ---------- Try the fix (GD-02, from the approved mockup) ----------

@@ -30,7 +30,7 @@ from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
+from .onelake import DFS_HOST, FileStore, TableRef, check_name, read_storage_options, storage_options
 from .proof_runtime import PROOF_ROOT
 from .redact import describe
 from .side_by_side import machine
@@ -57,6 +57,12 @@ def _parse(at: Any) -> dt.datetime | None:
         return None
     return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
 
+
+
+SAMPLE_SIGNED_OUT = ("Sign in to read the sample from OneLake, or save the replay bundle without a sample. "
+                     "Nothing was saved.")
+SAMPLE_UNREACHABLE = ("Couldn't reach OneLake to read the sample. Save the replay bundle without a sample, or try "
+                      "again when you're online. Nothing was saved.")
 
 class _Cancelled(Exception):
     pass
@@ -189,13 +195,31 @@ class ProveMixin:
         raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
 
     def _replay_sample(self, row: dict[str, Any]) -> Any:
-        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read."""
+        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read.
+
+        Save runs in the ordered lane, so everything after it waits for it (#1303): it needs a
+        sign-in already there (never a prompt), and reads with short limits, so on a PC that's
+        offline it fails within about a minute with a plain error instead of retrying for 30."""
+        import requests
         from deltalake import DeltaTable
+
+        from .auth import STORAGE_SCOPES
+        if not self.auth.signed_in_user():  # type: ignore[attr-defined]
+            raise PermissionError(SAMPLE_SIGNED_OUT)
+        try:
+            token = self.auth.silent_token(STORAGE_SCOPES)  # type: ignore[attr-defined]
+        except requests.RequestException as exc:  # refreshing the sign-in needs the network
+            raise ConnectionError(SAMPLE_UNREACHABLE) from exc
+        if not token:
+            raise PermissionError(SAMPLE_SIGNED_OUT)
         schema, table = row["table"].split(".", 1)
         flat = not self._schemas_enabled(row["workspace_id"], row["lakehouse_id"])  # type: ignore[attr-defined]
         uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
-        opened = DeltaTable(uri, version=row["version"], storage_options=storage_options(self.auth.storage_token()))  # type: ignore[attr-defined]
-        return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+        try:
+            opened = DeltaTable(uri, version=row["version"], storage_options=read_storage_options(token))
+            return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
+        except OSError as exc:  # delta-rs raises OSError when OneLake doesn't answer
+            raise ConnectionError(SAMPLE_UNREACHABLE) from exc
 
     # ---- opening a bundle and replaying it: the bundle's cells in a notebook of their own, run in
     # the kernel's own process with the proof runtime bound (tables at the bundle's versions, writes
@@ -325,9 +349,13 @@ class ProveMixin:
         schema, table = t["table"].split(".", 1)
         uri = f"{root}/Tables/{table}" if flat else f"{root}/Tables/{schema}/{table}"
         row: dict[str, Any] = {"table": t["table"], "version": t["version"], "readable": True, "latest": None, "why": ""}
+
+        def opts() -> dict[str, str]:  # two small reads on the ordered lane: OneLake's short read limits (#1303)
+            o = options()
+            return read_storage_options(o["bearer_token"]) if "bearer_token" in o else o
         try:
-            row["latest"] = DeltaTable(uri, storage_options=options()).version()
-            DeltaTable(uri, version=t["version"], storage_options=options()).to_pyarrow_dataset().head(1)
+            row["latest"] = DeltaTable(uri, storage_options=opts()).version()
+            DeltaTable(uri, version=t["version"], storage_options=opts()).to_pyarrow_dataset().head(1)
         except Exception as exc:  # noqa: BLE001 - said on the banner
             row["readable"] = False
             row["why"] = (f"Version {t['version']} can't be read any more (vacuumed or its log was cleaned up)"
@@ -564,7 +592,7 @@ class ProveMixin:
         ``location_ref`` is the notebook repository's lakehouse for the current environment, used
         when the notebook has none of its own (as a run of its cells does)."""
         lakehouse_ref = lakehouse_ref or location_ref
-        check = proof.check(cells, lakehouse_ref)
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         env = envprofile.check(cells, self._fabric_observed())
         ws = None
         try:
@@ -597,7 +625,7 @@ class ProveMixin:
             raise RuntimeError("A replay is using the kernel. End it first.")
         if any(r["state"] in ("local", "fabric", "checking") for r in self._sbs_state().values()):  # type: ignore[attr-defined]
             raise RuntimeError("A side-by-side run is going. Wait for it, or cancel it.")
-        check = proof.check(cells, lakehouse_ref)
+        check = proof.check(cells, lakehouse_ref, **self._checks(name))  # type: ignore[attr-defined]
         if not check["ok"]:
             b = check["blockers"][0]
             where = f"Cell {b['cell']} " if b.get("cell") else ""

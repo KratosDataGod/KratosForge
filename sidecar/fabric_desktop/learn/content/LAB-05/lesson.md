@@ -20,7 +20,7 @@ adds a new row.
 
 Run them in that order, in one transaction in production, so a report never sees a customer with
 two current rows or none. Fabric Warehouse, Databricks and Snowflake run the same `UPDATE` and
-`INSERT`; Databricks and Snowflake can also do both steps in one `MERGE` (LM-11).
+`INSERT`; where a platform has `MERGE`, it can also do both steps in one statement (LM-11).
 
 ## The lab
 

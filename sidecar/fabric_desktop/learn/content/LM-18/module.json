@@ -34,7 +34,7 @@
       "solution": "solution.sql",
       "hints": [
         "Run EXPLAIN followed by the starter. Read from the bottom: two scans meet in a CROSS_PRODUCT. How many rows does it make?",
-        "Nothing links a sale to its store, so every sale is counted for every store.",
+        "CROSS JOIN pairs every sale with every store, so every sale is counted for every store.",
         "FROM stores AS s JOIN sales AS x ON x.store_id = s.store_id"
       ],
       "checks": [

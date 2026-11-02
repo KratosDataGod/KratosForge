@@ -16,7 +16,8 @@ Above them sit joins, then aggregates, then sorting, then the result. Look for:
 
 - **A step whose rows jump.** Joining 3 sales to 2 stores should give 3 rows, not 6.
 - **CROSS_PRODUCT** (or a nested loop with no condition): every row meets every row. Rule SQ006
-  flags the SQL that causes it.
+  flags a `CROSS JOIN` or a `JOIN` with no `ON`. Tables listed with commas and no condition linking
+  them make the same plan, and the rule doesn't catch that, so the plan is where you see it.
 - **A scan with no filter** on a big table when the query only needs a slice of it.
 
 ## Try it

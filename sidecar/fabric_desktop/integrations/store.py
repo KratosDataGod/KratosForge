@@ -26,6 +26,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .. import sqlitefile
+
 _SCHEMA = """
 create table if not exists settings (key text primary key, value text not null);
 create table if not exists clients (
@@ -70,7 +72,16 @@ class IntegrationStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
+        # A file SQLite can't read is moved aside and the store starts empty: integrations are off,
+        # and connected tools and approvals are gone, so every tool asks to connect again. That is
+        # the safe way to fail (nothing gets more access), and nothing in it is the person's data.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="integrations start off and empty, so connected AI tools have to connect again")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
             db.executescript(_SCHEMA)
 
@@ -82,12 +93,8 @@ class IntegrationStore:
     def _db(self) -> Iterator[sqlite3.Connection]:
         """A connection for one read or change, closed after it. One kept per thread was never closed:
         each MCP call runs on a new worker thread, and on Windows an open handle keeps the file locked."""
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        try:
-            db.row_factory = sqlite3.Row
+        with sqlitefile.connect(self.path) as db:
             yield db
-        finally:
-            db.close()
 
     def _rows(self, sql: str, args: Any = ()) -> list[sqlite3.Row]:
         with self._db() as db:

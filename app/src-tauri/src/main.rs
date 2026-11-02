@@ -808,8 +808,9 @@ fn rename_to_kratosforge(exe: &std::path::Path) {
 /// Set once this exe's engine has answered (confirm_started).
 static START_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static WATCHING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// How long a new build has, after its window is up, for its engine to answer, installing or updating
-/// the engine included (a first start is slow while Windows scans each new file).
+/// How long a new build has, after its window is up, for its engine to answer. Time spent downloading
+/// or installing the engine doesn't count (update_guard::StartClock); its first start does, which is
+/// slow while Windows scans each new file.
 const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 
 /// The UI calls this once the engine has answered its first call: this build works, so the
@@ -848,12 +849,19 @@ fn confirm_started() {
 /// this exe does it itself. Once per build (update_guard::rolls_back), and the build is remembered
 /// so this PC doesn't install it again.
 fn watch_start(app: tauri::AppHandle) {
-    let deadline = std::time::Instant::now() + CONFIRM_LIMIT;
-    while std::time::Instant::now() < deadline {
+    let mut clock = update_guard::StartClock::default();
+    let mut last = std::time::Instant::now();
+    loop {
         if START_CONFIRMED.load(Ordering::SeqCst) {
             return;
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
+        let now = std::time::Instant::now();
+        let installing = app.state::<SidecarState>().installing.load(Ordering::SeqCst);
+        if clock.tick(now - last, installing, CONFIRM_LIMIT) {
+            break;
+        }
+        last = now;
     }
     let state_file = update_state();
     let failed_before = update_guard::failed_builds(&state_file).iter().any(|c| c.eq_ignore_ascii_case(BUILD_COMMIT));
@@ -865,7 +873,6 @@ fn watch_start(app: tauri::AppHandle) {
     if !old.exists() {
         return; // nothing to put back (removed by hand, say): keep running
     }
-    let _ = update_guard::record_failed(&state_file, BUILD_COMMIT);
     let state = app.state::<SidecarState>();
     state.updating.store(true, Ordering::SeqCst); // so nothing starts the engine again meanwhile
     let _ = state.shut_down(std::time::Duration::from_secs(10));
@@ -874,6 +881,8 @@ fn watch_start(app: tauri::AppHandle) {
         state.updating.store(false, Ordering::SeqCst);
         return;
     }
+    // Only once it is back: a build that stays because the restore failed can still be installed again.
+    let _ = update_guard::record_failed(&state_file, BUILD_COMMIT);
     INSTANCE.release(); // so the previous build claims it straight away
     if let Err(e) = Command::new(&exe).spawn() {
         eprintln!("put the previous build back but could not start it: {e}");

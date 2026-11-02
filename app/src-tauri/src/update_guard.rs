@@ -189,6 +189,23 @@ pub fn refused_as_failed(commit: &str, failed: &[String]) -> Option<String> {
     })
 }
 
+/// The time a new build has used of its limit to confirm its start. Time while the engine is being
+/// downloaded or installed doesn't count, so a slow connection can't roll a good build back.
+#[derive(Debug, Default)]
+pub struct StartClock {
+    used: Duration,
+}
+
+impl StartClock {
+    /// Adds `elapsed` unless an engine install was running; says whether `limit` is now used up.
+    pub fn tick(&mut self, elapsed: Duration, installing: bool, limit: Duration) -> bool {
+        if !installing {
+            self.used += elapsed;
+        }
+        self.used >= limit
+    }
+}
+
 /// Whether a new build that hasn't confirmed its start (its engine never answered) puts the previous
 /// build back. Only a start that an update made (`--updated-to` this build), and only once per build:
 /// if a build from before EA-024 installs it again, it stays, so the two can't hand over forever.
@@ -401,6 +418,18 @@ mod tests {
         assert!(!rolls_back(None, A, false, false), "an ordinary start never rolls back");
         assert!(!rolls_back(Some(B), A, false, false), "the wrong build: the exe that started it handles that");
         assert!(!rolls_back(Some(""), "", false, false), "a local build");
+    }
+
+    #[test]
+    fn an_engine_install_doesnt_count_toward_the_start_limit() {
+        let (sec, limit) = (Duration::from_secs(1), Duration::from_secs(3));
+        let mut clock = StartClock::default();
+        assert!(!clock.tick(sec, false, limit));
+        for _ in 0..100 {
+            assert!(!clock.tick(sec, true, limit), "a long download");
+        }
+        assert!(!clock.tick(sec, false, limit));
+        assert!(clock.tick(sec, false, limit), "three seconds outside the download");
     }
 
     #[test]

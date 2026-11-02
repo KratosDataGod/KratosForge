@@ -59,3 +59,11 @@ def test_what_people_read_names_the_same_python():
                  REPO / "docs" / "architecture.md", REPO / "docs" / "live-testing.md"):
         named = re.findall(r"(?<![\d.])3\.\d+ or later", path.read_text(encoding="utf-8"))
         assert named and set(named) == {want}, (path.name, named)
+
+
+def test_the_shipped_python_is_checked_with_sha256():
+    # MD5 alone no longer stops a deliberately made file with the same hash, so the build also
+    # pins the embeddable package's SHA-256 and refuses any other file.
+    [sha] = re.findall(r'PYTHON_EMBED_SHA256: "([0-9a-f]*)"', CI)
+    assert re.fullmatch(r"[0-9a-f]{64}", sha)
+    assert "if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw" in CI

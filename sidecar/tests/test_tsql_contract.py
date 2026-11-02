@@ -47,7 +47,7 @@ _LINES = [json.loads(line) for line in CASES_FILE.read_text(encoding="utf-8").sp
 META, CASES = _LINES[0]["meta"], _LINES[1:]
 
 TSQL_TARGETS = ("warehouse", "endpoint", "sqldb")
-AREAS = ("top", "cast_convert", "date", "string", "null_handling", "cte", "window", "merge", "unsupported")
+AREAS = ("top", "cast_convert", "date", "string", "null_handling", "aggregate", "cte", "window", "merge", "unsupported")
 VERIFICATIONS = ("local_pinned", "verified_against_fabric")
 EXPECTS = ("accepts", "rejects", "unknown")
 # Parts a case can mark as a known local bug: {"xfail": {part: reason}}.

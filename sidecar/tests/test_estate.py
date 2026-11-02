@@ -494,7 +494,7 @@ def test_publish_variable_library_and_read_it_in_a_notebook(svc, monkeypatch):
     with pytest.raises(LookupError):
         nbu.variableLibrary.getLibrary("VL_Other")
     with pytest.raises(AttributeError):
-        lib.NOPE
+        lib.NOPE  # noqa: B018 (reading it is the test)
 
 
 def test_variable_library_rest_calls():

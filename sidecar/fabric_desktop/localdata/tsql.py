@@ -7,7 +7,9 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - divides integers as integers (``7 / 2`` is 3), and averages integers as integers, as T-SQL
   does, using the project's column types to tell. A division whose types it can't tell is left
   as DuckDB divides and reported in ``notes``;
-- counts ``DATEDIFF(week, ...)`` in Sundays crossed, as T-SQL does;
+- reads date parts by T-SQL's names (``y`` is day of year, ``w`` weekday, ``m`` month), counts
+  ``DATEDIFF(week, ...)`` in Sundays crossed, starts ``DATETRUNC(week, ...)`` on Sunday, and keeps a
+  date a date in ``DATEADD`` and ``DATETRUNC``;
 - counts ``LEN`` without trailing spaces, numbers ``DATEPART(weekday)`` from Sunday = 1 and
   ``DATEPART(week)`` from the week of 1 January (Fabric's defaults: DATEFIRST 7, us_english);
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
@@ -96,6 +98,9 @@ class KfTSQL(TSQL):
 
     class Tokenizer(TSQL.Tokenizer):  # type: ignore[misc,valid-type]  # sqlglot sets Tokenizer per dialect at run time
         KEYWORDS = {**TSQL.Tokenizer.KEYWORDS, "FLOAT": TokenType.DOUBLE}
+
+    # In T-SQL, W is weekday (as DW), not week: DATEPART(w, d) is 1 to 7.
+    DATE_PART_MAPPING = {**TSQL.DATE_PART_MAPPING, "W": "DAYOFWEEK"}
 
 
 def _parse(batch: str) -> list[exp.Expression]:
@@ -193,7 +198,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast)
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc)
     here = _in_order(tree, kinds)
     if not here:
         return []
@@ -233,6 +238,9 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+        elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
+            if _is(info.this.type, {exp.DataType.Type.DATE}):
+                _stays_a_date(node)
         elif isinstance(node, exp.Add):
             a, b = info.this.type, info.expression.type
             if _is(a, _TEXT) and _is(b, _TEXT):
@@ -457,17 +465,29 @@ def _functions(tree: exp.Expression) -> None:
             join.this.set("cross_apply", None)
             join.set("side", None if apply else "LEFT")
             join.set("on", exp.true())
-    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff)):
+    for node in list(tree.find_all(exp.Length, exp.Extract, exp.CurrentTimestamp, exp.Anonymous, exp.DateDiff,
+                                   exp.DateAdd, exp.TimestampTrunc)):
         if isinstance(node, exp.DateDiff):
-            if node.unit and node.unit.name.upper() in ("WEEK", "WK", "WW"):
+            part = _datepart(node, "DATEDIFF")
+            if part == "WEEK":
                 _sunday_weeks(node)
+            elif part == "ISO_WEEK":
+                _sunday_weeks(node, shift=0)
+        elif isinstance(node, exp.DateAdd):
+            _datepart(node, "DATEADD")
+        elif isinstance(node, exp.TimestampTrunc):
+            if _datepart(node, "DATETRUNC") == "WEEK":
+                _sunday_week_start(node)
         elif isinstance(node, exp.Length):
             # LEN doesn't count trailing spaces.
             node.set("this", exp.func("RTRIM", node.this))
         elif isinstance(node, exp.Extract):
             unit = node.this.name.upper()
             day = node.expression
-            if unit in ("DAYOFWEEK", "DW", "WEEKDAY"):  # Sunday = 1 (DATEFIRST 7)
+            if unit in ("MILLISECOND", "MICROSECOND"):  # within the second, as T-SQL counts them (DuckDB adds the seconds)
+                node.replace(exp.paren(exp.Mod(this=node.copy(), expression=exp.Literal.number(
+                    1000 if unit == "MILLISECOND" else 1_000_000)), copy=False))
+            elif unit in ("DAYOFWEEK", "DW", "WEEKDAY"):  # Sunday = 1 (DATEFIRST 7)
                 node.replace(exp.paren(exp.func("DAYOFWEEK", day) + 1, copy=False))
             elif unit in ("WEEK", "WK", "WW"):  # 1 January is in week 1; weeks start on Sunday
                 sunday_first = exp.EQ(this=exp.func("DAYOFWEEK", exp.func("DATE_TRUNC", exp.Literal.string("year"),
@@ -487,17 +507,74 @@ def _functions(tree: exp.Expression) -> None:
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
 
 
-def _sunday_weeks(node: exp.DateDiff) -> None:
+def _sunday_weeks(node: exp.DateDiff, shift: int = 1) -> None:
     """``DATEDIFF(week, a, b)`` counts the Sundays crossed from ``a`` to ``b``, whatever the time of day
     (DATEFIRST doesn't change it); DuckDB's counts whole weeks, so Saturday to Sunday was 0, not 1. A
-    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those."""
+    day later each Sunday is a Monday, which starts DuckDB's weeks: count the days between those.
+    ``shift=0`` counts Mondays, for ``iso_week``."""
     def monday(day: exp.Expression) -> exp.Expression:
-        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(1))
+        shifted = exp.Add(this=exp.cast(day.copy(), "DATE"), expression=exp.Literal.number(shift))
         return exp.Anonymous(this="DATE_TRUNC", expressions=[exp.Literal.string("week"), shifted])
 
     days = exp.Anonymous(this="DATE_DIFF", expressions=[exp.Literal.string("day"), monday(node.expression),
                                                         monday(node.this)])
     node.replace(exp.paren(exp.IntDiv(this=days, expression=exp.Literal.number(7)), copy=False))
+
+
+# T-SQL's date parts by every name it takes (sqlglot reads some as other dialects do: Y as year,
+# W as week, M in DATETRUNC as minute), and the functions each may be used with.
+_DATEPARTS = {name: part for part, names in {
+    "YEAR": ("YEAR", "YY", "YYYY"), "QUARTER": ("QUARTER", "QQ", "Q"), "MONTH": ("MONTH", "MM", "M"),
+    "DAYOFYEAR": ("DAYOFYEAR", "DY", "Y"), "DAY": ("DAY", "DD", "D"), "WEEK": ("WEEK", "WK", "WW"),
+    "WEEKDAY": ("WEEKDAY", "DW", "W"), "HOUR": ("HOUR", "HH"), "MINUTE": ("MINUTE", "MI", "N"),
+    "SECOND": ("SECOND", "SS", "S"), "MILLISECOND": ("MILLISECOND", "MS"), "MICROSECOND": ("MICROSECOND", "MCS"),
+    "NANOSECOND": ("NANOSECOND", "NS"), "ISO_WEEK": ("ISO_WEEK", "ISOWK", "ISOWW"),
+}.items() for name in names}
+_TIME_PARTS = {"HOUR", "MINUTE", "SECOND", "MILLISECOND", "MICROSECOND", "NANOSECOND"}
+_TAKES = {
+    "DATEADD": set(_DATEPARTS.values()) - {"ISO_WEEK", "NANOSECOND"},
+    "DATEDIFF": set(_DATEPARTS.values()) - {"NANOSECOND"},
+    "DATETRUNC": set(_DATEPARTS.values()) - {"WEEKDAY", "NANOSECOND"},
+}
+# What each T-SQL part is in DuckDB: day of year and weekday count in days.
+_DUCKDB_PART = {"DAYOFYEAR": "DAY", "WEEKDAY": "DAY", "ISO_WEEK": "WEEK"}
+
+
+def _datepart(node: exp.Expression, function: str) -> str:
+    """The T-SQL date part of ``node``, which is set to DuckDB's name for it. Raises ValueError for one T-SQL
+    doesn't take there, and for nanoseconds, which the local engine doesn't keep."""
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    part = _DATEPARTS.get(name)
+    if part == "NANOSECOND":
+        raise ValueError(f"{function} with nanosecond can't be run on the local engine: its times are kept to the "
+                         "microsecond.")
+    if part not in _TAKES[function]:
+        raise ValueError(f"{function} doesn't take the date part {name.lower()}.")
+    node.set("unit", exp.var(_DUCKDB_PART.get(part, part)))
+    return part
+
+
+def _stays_a_date(node: exp.Expression) -> None:
+    """``DATEADD`` and ``DATETRUNC`` on a date give a date, as in T-SQL (DuckDB gives a timestamp). A time
+    part on a date is an error there too."""
+    unit = node.args.get("unit")
+    name = unit.name.upper() if unit is not None else "DAY"
+    if _DATEPARTS.get(name) in _TIME_PARTS:
+        function = "DATEADD" if isinstance(node, exp.DateAdd) else "DATETRUNC"
+        raise ValueError(f"{function} doesn't take the date part {name.lower()} for a date.")
+    wrapper = exp.Cast(to=exp.DataType.build("DATE"))
+    node.replace(wrapper)
+    wrapper.set("this", node)  # the same node, so a later step still finds what's inside it
+
+
+def _sunday_week_start(node: exp.TimestampTrunc) -> None:
+    """``DATETRUNC(week, d)`` starts weeks on Sunday (DATEFIRST 7); DuckDB's start on Monday."""
+    day = exp.Interval(this=exp.Literal.string("1"), unit=exp.var("DAY"))
+    node.set("this", exp.Add(this=node.this, expression=day))
+    wrapper = exp.Sub(expression=day.copy())
+    node.replace(wrapper)
+    wrapper.set("this", node)
 
 
 def _first_line(exc: Any) -> str:

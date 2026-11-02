@@ -380,6 +380,63 @@ def fits(source: pa.Schema, target: pa.Schema) -> list[str]:
     return problems
 
 
+def conversions(source: pa.Schema, target: pa.Schema) -> list[tuple[str, pa.DataType, pa.DataType]]:
+    """The columns of ``source`` whose values would change if they were added to a table of
+    ``target`` (EA-001): delta-rs casts an append to the table's types without saying so, so 2.75
+    in an INT column becomes 2, a timestamp in a DATE column loses its time, and '12' in an INT
+    column becomes 12. Each is (column, source type, table type). A type of the same kind that
+    holds every value (INT into BIGINT, FLOAT into DOUBLE, a date into a timestamp) is fine, and
+    so is a whole number delta-rs can't fit: it stops the write itself. Matched by lower-case
+    name; a column the table hasn't got is a schema change, not a conversion."""
+    table = {f.name.lower(): f.type for f in target}
+    return [(f.name, f.type, table[f.name.lower()]) for f in source
+            if f.name.lower() in table and not _keeps_values(f.type, table[f.name.lower()])]
+
+
+def _text(t: pa.DataType) -> bool:
+    return pa.types.is_string(t) or pa.types.is_large_string(t) or getattr(pa.types, "is_string_view", bool)(t)
+
+
+def _keeps_values(src: pa.DataType, dst: pa.DataType) -> bool:
+    if src.equals(dst) or pa.types.is_null(src):
+        return True
+    if pa.types.is_integer(src):
+        # Another whole number: delta-rs refuses one that doesn't fit. A float holds every whole
+        # number only up to its mantissa (24 bits in a float, 53 in a double), so a bigint into
+        # either, or an int into a float, can round (16777217 becomes 16777216).
+        if pa.types.is_integer(dst) or pa.types.is_decimal(dst):
+            return True
+        if pa.types.is_floating(dst):
+            return src.bit_width <= 16 or (src.bit_width <= 32 and dst.bit_width >= 64)
+        return False
+    if pa.types.is_floating(src):
+        return pa.types.is_floating(dst) and dst.bit_width >= src.bit_width
+    if pa.types.is_decimal(src):
+        # delta-rs refuses another precision or scale itself. A float rounds most decimals
+        # (decimal(38, 18) into a double keeps about 16 digits), and a whole number drops the fraction.
+        return pa.types.is_decimal(dst)
+    if pa.types.is_date(src):
+        return pa.types.is_date(dst) or pa.types.is_timestamp(dst)
+    if pa.types.is_timestamp(src):
+        return pa.types.is_timestamp(dst)
+    if _text(src):
+        return _text(dst)
+    if pa.types.is_binary(src) or pa.types.is_large_binary(src):
+        return pa.types.is_binary(dst) or pa.types.is_large_binary(dst)
+    if pa.types.is_boolean(src):
+        return pa.types.is_boolean(dst)
+    if pa.types.is_list(src) or pa.types.is_large_list(src):
+        return (pa.types.is_list(dst) or pa.types.is_large_list(dst)) and _keeps_values(src.value_type, dst.value_type)
+    if pa.types.is_map(src):
+        return pa.types.is_map(dst) and _keeps_values(src.key_type, dst.key_type) and _keeps_values(src.item_type, dst.item_type)
+    if pa.types.is_struct(src):
+        if not pa.types.is_struct(dst):
+            return False
+        fields = {f.name.lower(): f.type for f in dst}
+        return all(f.name.lower() not in fields or _keeps_values(f.type, fields[f.name.lower()]) for f in src)
+    return False
+
+
 def _numeric(t: pa.DataType) -> bool:
     return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
 

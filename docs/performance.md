@@ -1,0 +1,67 @@
+# Performance benchmark
+
+A small, repeatable benchmark for three things a person waits on: the engine starting, a notebook
+starting, and local SQL queries. It is not part of the default CI run: run it by hand, on the PC
+you want numbers for, and compare runs on the same PC.
+
+```
+cd sidecar
+python ../examples/benchmark/startup_and_sql.py
+python ../examples/benchmark/startup_and_sql.py --runs 10 --rows 1000000 --json bench.json
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--runs` | 5 | Times each measurement is repeated. |
+| `--rows` | 1,000,000 | Rows in the generated table the SQL queries read. |
+| `--warmup` | 1 | Uncounted engine and notebook starts first: the very first one compiles bytecode and fills the file cache. |
+| `--json` | none | Also writes the full result to this file. |
+
+Each line is reported as median, p95 (nearest rank, so with 5 runs it is the slowest run) and min,
+in milliseconds. Nothing touches OneLake, Fabric or the network, and no Fabric capacity is used:
+everything runs in a temporary folder that is removed at the end, with `LOCALAPPDATA` and `HOME`
+pointed there so your own settings and notebooks are not read or changed.
+
+## What is measured
+
+| Measurement | From | To |
+| --- | --- | --- |
+| startup | starting `python -m fabric_desktop.server`, as the app does | its first answer on the RPC pipe (`app_settings`) |
+| notebook first cell | starting a fresh Python process | `Kernel()` made and a first cell (`1 + 1`) finished |
+| notebook first spark cell | the same start | a first `spark.range(1000).count()` finished |
+| SQL first query on a new project | a local data project over the generated Parquet file, just added | its first `COUNT(*)` finished (a fresh project each run) |
+| SQL count, group by, filter | the open project | each DuckDB query finished |
+| SQL t-sql top | the open project | a `SELECT TOP 10 ... GROUP BY` in T-SQL, translated and run |
+
+The notebook start is the in-process kernel, timed in a fresh process; when Settings runs notebooks
+in their own process the app adds that process's start. `Kernel()` already makes the local spark
+session, so the first spark cell adds little on top of the first cell.
+
+## Baseline
+
+Recorded on 2026-11-02 at main `59a61423`, with the defaults (5 runs, 1 warm-up, 1,000,000 rows),
+on a Linux cloud build machine (Python 3.13, 4 CPUs). It is a reference for comparing changes on
+that kind of machine, not a figure for a person's Windows PC: a Windows baseline has not been
+recorded yet.
+
+| Measurement | Median | p95 | Min |
+| --- | ---: | ---: | ---: |
+| startup | 1,065.5 | 1,080.6 | 938.8 |
+| notebook first cell | 756.7 | 819.4 | 714.6 |
+| notebook first spark cell | 759.3 | 822.7 | 717.0 |
+| SQL first query on a new project | 1.7 | 2.2 | 1.5 |
+| SQL count | 1.4 | 1.5 | 1.2 |
+| SQL group by | 5.6 | 7.5 | 5.5 |
+| SQL filter | 3.4 | 4.3 | 3.1 |
+| SQL t-sql top | 10.6 | 27.7 | 10.1 |
+
+On that machine the T-SQL query's p95 was about 2.6 times its median, and the other lines' p95 was
+within about a third of their median. Treat a change smaller than that spread as noise, and re-run
+with more `--runs` before reading anything into it.
+
+## What it is not
+
+It is not run in CI and nothing fails on its numbers yet; the [quality gates](audits/QUALITY_GATES.md)
+propose recording it per build, warning-only at first. It does not time the app's window, WebView2
+or the Tauri shell, a notebook on Fabric, or OneLake reads and writes. For TPC-H on your PC and in
+Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).

@@ -54,6 +54,11 @@ def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
 
 
+class JobLeaseLost(Abandoned):
+    """This run's lease on its job ran out (it couldn't renew it in time), so the queue put the job
+    back for another attempt; the run stops before its next table rather than run beside that one."""
+
+
 class Agent:
     def __init__(self, config: AgentConfig, runtime: Runtime | None = None, queue: JobQueue | None = None,
                  log: logging.Logger | None = None, clock: Callable[[], float] = time.time):
@@ -312,29 +317,50 @@ class Agent:
 
     # ---- doing work
 
-    def _heartbeat(self, job: dict[str, Any], done: threading.Event) -> None:
+    def _heartbeat(self, job: dict[str, Any], done: threading.Event, lost: threading.Event | None = None) -> None:
+        """Renew the job's lease every third of it until ``done``. A renewal that fails (the queue
+        file busy, a disk error) is tried again at the next beat, so one failure doesn't let the lease
+        lapse; when the lease is gone, ``lost`` is set and the run stops before its next table."""
         beat = self.config.job_lease_seconds / 3
         while not done.wait(beat):
-            if not self.queue.heartbeat(job["id"], self.config.name, self.config.job_lease_seconds):
+            try:
+                ours = self.queue.heartbeat(job["id"], self.config.name, self.config.job_lease_seconds,
+                                            claim=job.get("claim_id"))
+            except Exception as exc:  # noqa: BLE001 - try again at the next beat
+                self.log.warning("couldn't renew the job's lease; trying again", extra=fields(
+                    job_id=job["id"], error=describe(exc)))
+                continue
+            if not ours:
                 self.log.warning("lost the job's lease", extra=fields(job_id=job["id"]))
+                if lost is not None:
+                    lost.set()
                 return
 
     def run_job(self, job: dict[str, Any]) -> None:
         p, owner = job["payload"], self.config.name
         ctx = {"job_id": job["id"], "env": p.get("env"), "attempt": job["attempts"], "source": job["source"]}
         self.log.info("job started", extra=fields(**ctx, entities=p.get("entities")))
-        done = threading.Event()
-        beat = threading.Thread(target=self._heartbeat, args=(job, done), daemon=True)
+        claim = job.get("claim_id")
+        done, lost = threading.Event(), threading.Event()
+        beat = threading.Thread(target=self._heartbeat, args=(job, done, lost), daemon=True)
         beat.start()
         t0 = time.monotonic()
-        extra: dict[str, Any] = {}
-        if self.mailbox and str(job.get("source") or "").startswith("pipeline:"):
-            extra["guard"] = lambda: self._still_ours(job)
+        mailbox = bool(self.mailbox and str(job.get("source") or "").startswith("pipeline:"))
+
+        def guard() -> None:  # before each table: stop if the job isn't this run's any more
+            if lost.is_set():
+                raise JobLeaseLost("this run's lease on the job ran out, so the job was put back to run again")
+            if mailbox:
+                self._still_ours(job)
         try:
             results = self.runtime.run_environment(p["env"], p.get("entities") or None, p.get("backfill") or None,
-                                                   bool(p.get("cascade")), job=job, **extra)
+                                                   bool(p.get("cascade")), job=job, guard=guard)
+        except JobLeaseLost as exc:  # the job is queued (or running) again: leave it to that attempt
+            self._audit(job, "lease_lost", time.monotonic() - t0, error=str(exc))
+            self.log.warning("job stopped: its lease ran out", extra=fields(**ctx, error=str(exc)))
+            return
         except Abandoned as exc:
-            self.queue.cancel(job["id"], str(exc), owner=owner)
+            self.queue.cancel(job["id"], str(exc), owner=owner, claim=claim)
             self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
             self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
             return
@@ -343,13 +369,13 @@ class Agent:
             error = f"{type(exc).__name__}: {exc}"
             self._audit(job, "error", time.monotonic() - t0, error=error)
             if is_retryable(exc):
-                after = self.queue.retry_later(job["id"], owner, error)
+                after = self.queue.retry_later(job["id"], owner, error, claim=claim)
                 self.log.warning("job will retry" if after and after["state"] == "queued" else "job gave up",
                                  extra=fields(**ctx, error=error))
                 if after and after["state"] == "dead":
                     self._alert(job, after["error"])
             else:
-                self.queue.fail(job["id"], owner, error)
+                self.queue.fail(job["id"], owner, error, claim=claim)
                 self.log.error("job failed", extra=fields(**ctx, error=error))
                 self._alert(job, error)
             return
@@ -359,16 +385,21 @@ class Agent:
         summary = self._summary(results)
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
         retry = [r["entity"] for r in failed if r.get("retryable")]
-        self._audit(job, "error" if failed else "ok", seconds,
-                    error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
         if not failed:
-            self.queue.succeed(job["id"], owner, summary)
-            self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
-        elif len(retry) == len(failed):
+            if self.queue.succeed(job["id"], owner, summary, claim=claim):
+                self._audit(job, "ok", seconds, **summary)
+                self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
+            else:  # its lease ran out at the end: the job's next attempt records how it went
+                why = "this run's lease on the job ran out before it could record it, so the job runs again"
+                self._audit(job, "lease_lost", seconds, error=why, **summary)
+                self.log.warning("job finished, but its lease ran out", extra=fields(**ctx, seconds=seconds, **summary))
+            return
+        self._audit(job, "error", seconds, error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
+        if len(retry) == len(failed):
             # Only busy tables or network trouble: try again, for just those and what they block.
             skipped = [r["entity"] for r in results if r["status"] == "skipped"]
             error = "; ".join(f"{r['entity']}: {r['message']}" for r in failed)
-            after = self.queue.retry_later(job["id"], owner, error)
+            after = self.queue.retry_later(job["id"], owner, error, claim=claim)
             if after and after["state"] == "queued" and p.get("entities") != retry + skipped and not p.get("cascade"):
                 self._narrow(job["id"], retry + skipped)
             self.log.warning("job will retry", extra=fields(**ctx, seconds=seconds, error=error, **summary))
@@ -376,7 +407,7 @@ class Agent:
                 self._alert(job, after["error"])
         else:
             error = "; ".join(f"{r['entity']}: {r['message']}" for r in failed)
-            self.queue.fail(job["id"], owner, error, summary)
+            self.queue.fail(job["id"], owner, error, summary, claim=claim)
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
 

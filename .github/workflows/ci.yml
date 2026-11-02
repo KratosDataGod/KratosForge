@@ -10,10 +10,13 @@ permissions:
   contents: read
 
 # A newer push to a pull request cancels that pull request's older run, so the
-# queue holds only current heads. Pushes to main each get their own group and
-# are never cancelled, so every main batch still publishes a Preview.
+# queue holds only current heads. Pushes to main share one group: a running main
+# build is never cancelled, and GitHub keeps at most one main run waiting, the
+# newest, so a burst of merges builds the running commit and then main's tip
+# (only the newest commit's build publishes a Preview anyway). A merge that lands
+# mid-burst gets no main build of its own; its pull request was tested.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

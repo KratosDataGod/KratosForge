@@ -26,13 +26,6 @@
  "fabric_desktop/capacity_history_service.py": {
   "list-item": 1
  },
- "fabric_desktop/central/checks_service.py": {
-  "arg-type": 2,
-  "assignment": 1,
-  "index": 1,
-  "misc": 3,
-  "union-attr": 2
- },
  "fabric_desktop/central/client.py": {
   "operator": 1,
   "var-annotated": 1
@@ -63,11 +56,6 @@
   "arg-type": 2,
   "dict-item": 1,
   "var-annotated": 2
- },
- "fabric_desktop/central/service.py": {
-  "assignment": 1,
-  "index": 3,
-  "var-annotated": 5
  },
  "fabric_desktop/chart_output.py": {
   "attr-defined": 1,

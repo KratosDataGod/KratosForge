@@ -12,6 +12,7 @@ How every pull request to KratosForge gets an engineering quality decision. It s
 
 Each category is scored 0 to 10 from evidence in the diff, the tests and the [standards](architecture.md#standards-the-code-follows).
 
+| 2026-11-02 | #1571 09a4849c | Audit docs re-check | PASS 9.2 | Docs-only push over 6c3e20c0 fixes both nits (target about 82; 30 findings, 29 open, one withdrawn; seven documents, which matches docs/audits) and rewords the EA-020 supply-chain row. Private items still only a count. Merges clean. |
 | 2026-11-02 | #1571 6c3e20c0 | Docs: enterprise engineering audit baseline, scorecard and remediation backlog | PASS 9.0 | Docs only, merges clean; nav entries point at the new pages. Weighted scorecard sums to 54. Baseline b75dcf5 is on main; cited tests and Rust files exist; the EA-026 withdrawal is right (test_quick_calls_match_the_shell_time_limit_list). Private items appear only as a count. Nits: the target column sums to about 82, not about 84; the summary still says 30 findings with one withdrawn. |
 | 2026-11-02 | #1558 c655d431 | Product data: evening check PR count and a docs path | PASS 9.4 | Docs only, 4 lines, merges clean, product_data.py check passes. Fixes the #1550 and #1551 nits: 35 merges, 5 product data or docs, 30 linked (status page and inventory now agree); PB-119 criterion 5 names docs/learn/writing-lessons.md, which exists. |
 | 2026-11-02 | #1551 d0905683 | PB-119 split (restack after #1550) | PASS 9.1 (carried) | Own diff vs main patch-id 6f188630, same as over #1550 at the reviewed 9a1e9825. Merges clean. |

@@ -1,0 +1,95 @@
+"""Characterization of the T-SQL "loud gaps" on the local engine (enterprise audit, T-SQL parity notes
+in the audit's characterization folder): statements that stop with DuckDB's own error instead of the
+answer, or of the "can't be run on the local engine" message.
+
+Each expected value is SQL Server's documented answer, UNVERIFIED on a Fabric Warehouse (no tenant
+calls). Each case is xfail(strict=True): the PR that maps or refuses a function removes its marker, and
+a case that starts passing without that fails the run. The guard test below is not xfail: a loud gap
+may stop with an error, but it must never give a wrong answer.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from fabric_desktop.localdata import LocalData
+
+
+@pytest.fixture(scope="module")
+def engine(tmp_path_factory):
+    local = LocalData(tmp_path_factory.mktemp("app") / "local-data")
+    e = local.engine(local.create("TSQL gaps")["id"])
+    e.execute("CREATE TABLE dbo.orders AS SELECT * FROM (VALUES (1, 2), (2, 2), (3, 5)) v(id, boxes)")
+    yield e
+    local.close_all()
+
+
+def first(engine, sql):
+    return engine.execute(sql, dialect="tsql")["rows"][0][0]
+
+
+# (case, T-SQL, SQL Server's documented answer as the first cell)
+GAPS = [
+    ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", 123.4),
+    ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
+    ("CHOOSE", "SELECT CHOOSE(2, 'a', 'b', 'c')", "b"),
+    ("CAST 'true' AS bit", "SELECT CAST('true' AS bit)", True),
+    ("PATINDEX", "SELECT PATINDEX('%b%', 'abc')", 2),
+    ("DATALENGTH of varchar", "SELECT DATALENGTH('abc')", 3),
+    ("ISNUMERIC of a number", "SELECT ISNUMERIC('12.5')", 1),
+    ("ISNUMERIC of text", "SELECT ISNUMERIC('x')", 0),
+    ("DATEPART quarter of a string literal", "SELECT DATEPART(quarter, '2024-03-05')", 1),
+    ("DATEPART weekday of a string literal", "SELECT DATEPART(weekday, '2024-03-05')", 3),  # Tuesday, DATEFIRST 7
+]
+
+
+def _same(got, want):
+    if isinstance(want, float) and isinstance(got, (int, float)) or hasattr(got, "as_tuple"):
+        return float(got) == float(want)
+    return got == want
+
+
+@pytest.mark.parametrize("sql, want", [(s, w) for _, s, w in GAPS], ids=[c for c, _, _ in GAPS])
+@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: not mapped on the local engine yet")
+def test_a_loud_gap_gives_tsqls_answer(engine, sql, want):
+    assert _same(first(engine, sql), want)
+
+
+@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: STRING_SPLIT isn't mapped on the local engine yet")
+def test_string_split_gives_one_row_per_part(engine):
+    rows = engine.execute("SELECT value FROM STRING_SPLIT('a,b,c', ',')", dialect="tsql")["rows"]
+    assert sorted(r[0] for r in rows) == ["a", "b", "c"]
+
+
+@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: TOP n WITH TIES doesn't parse on the local engine yet")
+def test_top_with_ties_keeps_the_tied_rows(engine):
+    rows = engine.execute("SELECT TOP 1 WITH TIES id FROM dbo.orders ORDER BY boxes", dialect="tsql")["rows"]
+    assert sorted(r[0] for r in rows) == [1, 2]
+
+
+# FORMAT already stops with the local-engine message, so it isn't here.
+UNSAID = [(c, s) for c, s, _ in GAPS if c != "FORMAT N2"] + [
+    ("STRING_SPLIT", "SELECT value FROM STRING_SPLIT('a,b,c', ',')"),
+    ("TOP WITH TIES", "SELECT TOP 1 WITH TIES id FROM dbo.orders ORDER BY boxes")]
+
+
+def test_format_already_says_it_is_a_local_engine_gap(engine):
+    with pytest.raises(Exception, match="on the local engine"):
+        engine.execute("SELECT FORMAT(1234.5, 'N2')", dialect="tsql")
+
+
+@pytest.mark.parametrize("sql", [s for _, s in UNSAID], ids=[c for c, _ in UNSAID])
+@pytest.mark.xfail(strict=True, reason="T-SQL loud gap: stops with DuckDB's error, not the local-engine message")
+def test_an_unmapped_gap_says_it_is_a_local_engine_gap(engine, sql):
+    with pytest.raises(Exception, match="on the local engine"):
+        engine.execute(sql, dialect="tsql")
+
+
+@pytest.mark.parametrize("sql, want", [(s, w) for _, s, w in GAPS], ids=[c for c, _, _ in GAPS])
+def test_a_loud_gap_never_gives_a_wrong_answer(engine, sql, want):
+    """Not xfail: either T-SQL's answer or an error, never a different value (that would be a silent gap)."""
+    try:
+        got = first(engine, sql)
+    except Exception:  # noqa: BLE001 - stopping is what a loud gap does
+        return
+    assert _same(got, want), f"{sql} gave {got!r}, T-SQL gives {want!r}"

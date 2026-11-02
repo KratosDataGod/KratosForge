@@ -374,7 +374,7 @@ def test_timeout_interrupts_then_ends(svc):
 
 
 # Runs for days but streams, so it holds no memory. Reads a lakehouse table, so a view is registered too.
-ENDLESS_SQL = "SELECT count(*) AS n FROM range(1000000000000000) t(i) WHERE hash(i) = (SELECT count(*) FROM sales)"
+ENDLESS_SQL = "SELECT count(*) AS n FROM range(1000000000000000) t(i) WHERE (i * 3) % 1000000007 = (SELECT count(*) FROM sales) + 1000000007"
 
 
 def test_sql_timeout_interrupts_the_query_and_frees_the_engine(svc):

@@ -335,7 +335,15 @@ jobs:
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
+          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+          & "$dir\python.exe" -m pip check
+          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
           # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
@@ -523,6 +531,9 @@ jobs:
       # The exe is kratosforge.exe. Builds from before it download only fabric-desktop.exe, so every
       # release also carries the same file under that name (app/src-tauri/src/exe_name.rs).
       - run: cp kratosforge.exe fabric-desktop.exe
+      # The engine's source, for PCs that install the engine into their own Python
+      # (updater.py download_sidecar): published with this build, its SHA-256 in version.json.
+      - run: git archive --format=zip --prefix="KratosForge-$GITHUB_SHA/" -o sidecar-source.zip "$GITHUB_SHA" sidecar
       # Signed proof that these exact files were built by this workflow from this commit.
       # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -532,6 +543,7 @@ jobs:
             fabric-desktop.exe
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
+            sidecar-source.zip
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -555,16 +567,18 @@ jobs:
             --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
+            --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
+              engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
+              published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then

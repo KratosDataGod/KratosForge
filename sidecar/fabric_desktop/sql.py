@@ -909,7 +909,9 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
                     column.find(*_REWRITTEN) or any(str(a.this).upper() in _ANON_TEMPLATES
                                                     or str(a.this).upper() in _MAP_LAMBDAS
                                                     for a in column.find_all(exp.Anonymous))
-                    or any(r.args.get("finish") is not None for r in column.find_all(exp.Reduce))):
+                    or any(r.args.get("finish") is not None for r in column.find_all(exp.Reduce))
+                    # Spark's CAST is DuckDB's TRY_CAST, and casts to whole numbers and timestamps are written out.
+                    or column.find(exp.Cast, exp.TryCast)):
                 continue
             name = column.sql("spark", normalize_functions="lower")
             select.expressions[i] = exp.alias_(column, name, quoted=True)

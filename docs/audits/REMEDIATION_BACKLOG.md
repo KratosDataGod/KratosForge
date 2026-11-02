@@ -174,32 +174,40 @@ Four further P3 security hardening items are tracked privately and have been rou
 
 ## Progress
 
-As of 2026-11-02 03:45 UTC. "Open PR" means the PR is up and in review; a draft is still being written.
+As of 2026-11-02 07:00 UTC. "Open PR" means the PR is up and in review; a draft is still being written.
 
 | Id | State | PR |
 | --- | --- | --- |
-| EA-001 | Open PRs | #1576 (notebook and job appends), #1600 (metadata runs and published notebooks) |
+| EA-001 | Part merged (notebook and job appends); metadata runs and published notebooks open | #1576 merged, #1600 open |
 | EA-002, EA-019 | Open PR | #1572 |
-| EA-003 | Draft | #1579. Related local T-SQL cast fixes: #1586, #1588, #1591, #1598, #1599 |
+| EA-003 | Merged | #1579. Related local T-SQL casts: #1586 merged; #1588, #1591, #1598, #1599 open |
 | EA-004 | Draft, part 1 (sums as `bigint`) | #1595. Decimal result types still to do |
 | EA-005 | Open PR | #1582 |
-| EA-006 | Open PR | #1585 |
-| EA-007 | Open PR | #1594 |
-| EA-008 | Open PR | #1574 |
+| EA-006 | Open PRs | #1585, #1605 |
+| EA-007 | Open PRs | #1594, #1604 |
+| EA-008 | Merged; follow-up open | #1574 merged, #1617 open |
 | EA-009 | Blocked on the maintainer (signing identity check, live harness run) | |
 | EA-010 | Open PR | #1575 |
 | EA-011 | Open PR | #1578 |
 | EA-012 | Open PR | #1601 |
-| EA-013 to EA-017 | Routed; characterization tests handed over | |
+| EA-013 | Draft | #1626 |
+| EA-014 | Draft | #1609 |
+| EA-015 | Draft | #1607 |
+| EA-016 | Draft | #1624 |
+| EA-017 | Open PR | #1625 |
 | EA-018 | Done | #1571 |
-| EA-020 | Draft, part (embedded Python SHA-256, Preview environment) | #1573. Hash-locked engine wheels and the legacy archive hash still to do |
-| EA-021 | Open PRs | #1581, #1584, follow-ups #1589 |
-| EA-022 | Open PRs | #1590, #1592, #1593 |
+| EA-020 | Part merged (embedded Python SHA-256, Preview environment) | #1573 merged. Hash-locked engine wheels and the legacy archive hash are queued |
+| EA-021 | Part merged (schedule log bound, log tails); engine log cap open | #1581 merged; #1584, #1589 open |
+| EA-022 | Part merged (notebook saves, sign-in cache flushed) | #1590, #1593 merged; #1592 open |
 | EA-023 | Draft | #1580 |
 | EA-024 | Draft | #1596 |
+| EA-025 | Open PRs | #1613, #1614, #1615 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
 | EA-027 | Open PR (first slice) | #1597 |
-| EA-028 | Open PR (first caller) | #1602 |
-| EA-025, EA-029, EA-030 | Not started | |
+| EA-028 | Open PRs (callers moved one at a time) | #1602, #1606, #1627, #1630 |
+| EA-029 | Open PR | #1608 |
+| EA-030 | Parked: needs a Windows PC | |
 
-The private security items: two are fixed, one is in review, and one is being verified.
+The scorecard stays at 54 until EA-001, EA-002 and EA-004 are all merged; see the trend table in [Enterprise readiness](ENTERPRISE_READINESS.md).
+
+The private security items: three are fixed, and one is waiting on a step from the maintainer.

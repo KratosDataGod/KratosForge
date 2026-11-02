@@ -16,7 +16,7 @@ from typing import Any, Callable
 import requests
 
 from . import core
-from .. import http_session, redact
+from .. import http_session, redact, sqlitefile
 from ..retrying import send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -36,7 +36,17 @@ class LocalPlatform:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._user = user or (lambda: "")
         self._lock = threading.Lock()
+        # A file SQLite can't read is refused, not replaced: it holds the keys this platform issued
+        # and its rules, which starting again empty would not give back. The person restores it or
+        # moves it away, as the message says.
+        sqlitefile.open_store(self.path, self._first_open, refuse=(
+            "The platform file on this PC ({path}) can't be read: {reason}. It holds the keys and rules "
+            "this platform issued, so the app doesn't replace it. Restore it from a backup, or move it "
+            "away to start a new local platform."))
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db.conn)
             core.ensure_schema(db)
             # A platform on someone's own PC is theirs: they're its first admin.
             if not core.list_admins(db) and self._user():

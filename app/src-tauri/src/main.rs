@@ -557,13 +557,49 @@ fn read_replies(stdout: ChildStdout, pending: Arc<Mutex<replies::Pending<String>
 /// Opens a fresh engine log, first keeping the last run's as `sidecar.prev.log`, so
 /// the log of an engine that crashed survives the restart that follows. If the old log
 /// can't be moved (an engine from the last run still holds it, say), it is appended to
-/// rather than emptied: nothing it holds is lost either way.
+/// rather than emptied: nothing it holds is lost either way. The log is opened to append,
+/// so every write lands at its end even after [`trim_sidecar_log`] has shortened it.
 fn open_sidecar_log(log: &Path) -> std::io::Result<std::fs::File> {
-    let prev = log.with_file_name("sidecar.prev.log");
-    match std::fs::rename(log, &prev) {
-        Ok(()) => std::fs::File::create(log),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::File::create(log),
-        Err(_) => std::fs::OpenOptions::new().append(true).create(true).open(log),
+    let _ = std::fs::rename(log, log.with_file_name("sidecar.prev.log"));
+    std::fs::OpenOptions::new().append(true).create(true).open(log)
+}
+
+/// The engine's log may grow to this while it runs; past it, only its newest half is kept.
+const SIDECAR_LOG_CAP: u64 = 20 * 1024 * 1024;
+const SIDECAR_LOG_TRIMMED: &str = "(earlier lines of this log were dropped to keep it under 20 MB)\n";
+
+/// Cuts a log past `cap` down to its newest `cap / 2` bytes, from a line start, under a note
+/// that lines were dropped: the end is what explains a crash. Returns whether it cut.
+fn trim_sidecar_log(log: &Path, cap: u64) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(log)?;
+    let len = file.metadata()?.len();
+    if len <= cap {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::Start(len - cap / 2))?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail)?;
+    let start = tail.iter().position(|&b| b == b'\n').map_or(tail.len(), |i| i + 1);
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(SIDECAR_LOG_TRIMMED.as_bytes())?;
+    file.write_all(&tail[start..])?;
+    Ok(true)
+}
+
+/// Every half minute while the engine runs, keeps its log under [`SIDECAR_LOG_CAP`].
+fn watch_sidecar_log(log: PathBuf, child: std::sync::Weak<Mutex<Child>>) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        let Some(child) = child.upgrade() else { return };
+        let running = child.lock().map(|mut c| matches!(c.try_wait(), Ok(None))).unwrap_or(false);
+        if !running {
+            return;
+        }
+        if let Err(e) = trim_sidecar_log(&log, SIDECAR_LOG_CAP) {
+            eprintln!("could not shorten the engine's log: {e}");
+        }
     }
 }
 
@@ -590,7 +626,10 @@ impl Sidecar {
         let pending = Arc::new(Mutex::new(replies::Pending::default()));
         let reader = pending.clone();
         std::thread::Builder::new().name("engine-replies".into()).spawn(move || read_replies(stdout, reader))?;
-        Ok(Self { child: Arc::new(Mutex::new(child)), stdin, pending, next_id: AtomicU64::new(1), log })
+        let child = Arc::new(Mutex::new(child));
+        let (watched, weak) = (log.clone(), Arc::downgrade(&child));
+        std::thread::Builder::new().name("engine-log".into()).spawn(move || watch_sidecar_log(watched, weak))?;
+        Ok(Self { child, stdin, pending, next_id: AtomicU64::new(1), log })
     }
 
     fn forget(&self, id: u64) {
@@ -2750,6 +2789,30 @@ mod sidecar_log_tests {
         open_sidecar_log(&log).unwrap();
         assert_eq!(std::fs::read_to_string(&prev).unwrap(), "second run\n");
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_log_past_its_cap_keeps_its_newest_lines_and_the_engine_keeps_writing_at_its_end() {
+        let dir = std::env::temp_dir().join(format!("kf-sidecar-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("sidecar.log");
+        let mut engine = open_sidecar_log(&log).unwrap(); // the handle the engine writes through
+        for i in 0..100 {
+            writeln!(engine, "line {i:03}").unwrap(); // 9 bytes a line
+        }
+        assert!(!trim_sidecar_log(&log, 2000).unwrap()); // 900 bytes: under the cap, left alone
+        assert!(trim_sidecar_log(&log, 400).unwrap());
+        writeln!(engine, "after the trim").unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.starts_with(SIDECAR_LOG_TRIMMED), "{text}");
+        let lines: Vec<&str> = text.lines().skip(1).collect();
+        assert_eq!(lines.last(), Some(&"after the trim"));
+        assert_eq!(lines[lines.len() - 2], "line 099");
+        assert!(lines[..lines.len() - 1].iter().all(|l| l.len() == 8 && l.starts_with("line ")), "{text}");
+        assert!(text.len() <= SIDECAR_LOG_TRIMMED.len() + 200 + 15);
+        assert!(!text.contains('\0'));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

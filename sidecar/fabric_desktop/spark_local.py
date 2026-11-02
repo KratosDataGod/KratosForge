@@ -44,8 +44,9 @@ def _arrow(df: DataFrame) -> pa.Table:
 
 
 # Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
-# option that changes what gets written (replaceWhere, partitionOverwriteMode, path) can never be
-# dropped and turn into a full overwrite.
+# option that changes what gets written (replaceWhere, partitionOverwriteMode) can never be
+# dropped and turn into a full overwrite. A path option is save()'s path, as in Spark; a table write
+# refuses it (_TABLE_PATH).
 _SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
 # Options that only change how files are laid out, not which rows end up in the table.
 _LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
@@ -54,8 +55,8 @@ _REFUSED = {
                     "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
     "partitionoverwritemode": "partitionOverwriteMode isn't supported on this PC, and ignoring it would replace the "
                               "whole table. Run the cell in Fabric.",
-    "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
 }
+_TABLE_PATH = "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option."
 
 
 _OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
@@ -113,6 +114,8 @@ class LakehouseWriter:
 
     def _check_options(self, allowed: tuple[str, ...], what: str) -> None:
         for name in self._options:
+            if name == "path":  # save() takes its path first, so here it's a table write's
+                raise NotImplementedError(_TABLE_PATH)
             if name in _LAYOUT_OPTIONS:
                 print(f"Note: the {name} option only changes file layout and is ignored on this PC.")
             elif name not in allowed:
@@ -183,7 +186,8 @@ class LakehouseWriter:
         if len(current) != data.num_columns:
             raise ValueError(f"insertInto matches columns by position: the data has {data.num_columns} columns "
                              f"and table {tableName} has {len(current)}.")
-        self._write(data.rename_columns(current), tableName, "overwrite" if overwrite else "append", None)
+        self._write(_store_assign(data.rename_columns(current), tableName), tableName,
+                    "overwrite" if overwrite else "append", None)
 
     def save(self, path: str | None = None, format: str | None = None, mode: str | None = None,  # noqa: A002
              partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -192,6 +196,10 @@ class LakehouseWriter:
         if partitionBy:
             self.partitionBy(partitionBy)
         self.options(**options)
+        given = self._options.pop("path", None)  # .option("path", p).save(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to save(). Give the path once.")
+        path = given if path is None else path
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -339,6 +347,8 @@ def writer_option_refusal(name: str, terminal: str | None) -> str | None:
         first = _REFUSED[key].split(". ")[0]
         return f"uses the {name} write option: {first[0].lower()}{first[1:].rstrip('.')}"
     takes = WRITE_TAKES.get(terminal or "")
+    if takes is not None and key == "path":
+        return f"uses the {name} write option on {terminal}: writing a table to its own path (an external table) runs in Fabric"
     if takes is not None and key not in takes:
         return f"uses the {name} write option, which {terminal} doesn't take on this PC"
     return None
@@ -421,6 +431,58 @@ def _preview_on(what: str) -> None:
                                   "or by your organization's policy. Run the cell in Fabric.")
 
 
+def _store_assign(data: pa.Table, table: str) -> pa.Table:
+    """INSERT and insertInto cast their values to the table's column types where Spark's ANSI store
+    assignment does (a number into another number, anything into text, a date into a timestamp: the
+    literal 1.0 is a decimal, and goes into a double column), and only when every value comes through
+    the cast as it was. Any other column is left as it is, for write_table to refuse (EA-001): '5'
+    into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
+    target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
+    columns = []
+    for name, column in zip(data.column_names, data.columns):
+        field = target.get(name.lower())
+        if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
+            columns.append(column)
+            continue
+        try:
+            cast = column.cast(field.type, safe=True)
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}): {exc}. Nothing was written. Cast the column first.") from None
+        if not _same_values(column, cast):
+            raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
+                             f"({field.type}). Nothing was written. Cast the column first.")
+        columns.append(cast)
+    return pa.table(columns, names=data.column_names)
+
+
+def _numeric_type(t: pa.DataType) -> bool:
+    return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
+
+
+def _store_assigns(src: pa.DataType, dst: pa.DataType) -> bool:
+    """The casts Spark's ANSI store assignment makes (Cast.canANSIStoreAssign), for top-level columns."""
+    if pa.types.is_null(src):
+        return False  # write_table gives an all-NULL column the table's type
+    if _numeric_type(src) and _numeric_type(dst):
+        return True
+    if pa.types.is_string(dst) or pa.types.is_large_string(dst):
+        return True
+    return pa.types.is_date(src) and pa.types.is_timestamp(dst)
+
+
+def _same_values(before: Any, after: Any) -> bool:
+    """Whether a cast kept every value. A safe cast refuses an overflow and a truncated fraction,
+    but still rounds a number into a float (1.1 into a float, 2**53 + 1 into a double) and a float
+    into a decimal, so those go back to the source type and are compared."""
+    if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
+        return True
+    try:
+        return bool(after.cast(before.type, safe=False).equals(before))
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+        return False
+
+
 def _columns(table: str) -> list[str] | None:
     """The table's column names, or None when it doesn't exist."""
     from deltalake.exceptions import TableNotFoundError
@@ -501,6 +563,10 @@ class LakehouseReader:
     def load(self, path: str | None = None, format: str | None = None, **opts: Any) -> DataFrame:  # noqa: A002
         self.options(**opts)
         fmt = (format or self._format or "parquet").lower()
+        given = self._options.pop("path", None)  # .option("path", p).load(), as in Spark
+        if given is not None and path is not None:  # Spark refuses both too, rather than pick one
+            raise ValueError("There's a path option and a path given to load(). Give the path once.")
+        path = given if path is None else path
         if path is None:
             raise ValueError("Give load a path: a Tables/ or Files/ path, or a file or folder on this PC.")
         rel = lakehouse.relative_path(path) if path else None
@@ -721,7 +787,7 @@ class LocalSparkSession(SparkSession):
                     if len(current) != arrow.num_columns:
                         raise ValueError(f"INSERT matches columns by position: the query has {arrow.num_columns} "
                                          f"columns and table {name} has {len(current)}.")
-                    print(_write_table(arrow.rename_columns(current), name, mode, None))
+                    print(_write_table(_store_assign(arrow.rename_columns(current), name), name, mode, None))
                 else:
                     print(lakehouse.write_table(arrow, name, mode=mode))
                 return None

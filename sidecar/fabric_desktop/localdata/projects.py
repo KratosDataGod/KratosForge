@@ -111,7 +111,7 @@ class ProjectStore:
 
     def list(self) -> list[Project]:
         projects = []
-        for pid, folder in sorted(self._index().items()):
+        for pid in sorted(self._index()):
             try:
                 projects.append(self.load(pid))
             except (OSError, ValueError, KeyError):

@@ -414,7 +414,7 @@ def _rewrite_to_char(statement: exp.Expression) -> None:
 
 def _rewrite_object_construct(statement: exp.Expression) -> None:
     """SFX-004: OBJECT_CONSTRUCT drops pairs whose value is SQL NULL and keeps JSON nulls."""
-    for node in list(statement.find_all(exp.StarMap)):
+    for _node in list(statement.find_all(exp.StarMap)):
         raise _Untranslatable(_refuse("SFX-004", "OBJECT_CONSTRUCT(*)", "Building an object from every column "
                                       "isn't rewritten.", f"{_DOCS}/functions/object_construct"))
     for node in list(statement.find_all(exp.Struct)):

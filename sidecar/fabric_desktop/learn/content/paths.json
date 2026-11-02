@@ -1,7 +1,7 @@
 [
   {"id": "data-fundamentals", "title": "Data Fundamentals", "modules": ["LM-01", "LM-02", "LM-03", "LM-04", "LM-05", "LM-13", "LM-14", "LAB-01"]},
   {"id": "sql-development", "title": "SQL Development", "modules": ["LM-15", "LM-16", "LM-17", "LM-18", "LAB-02", "LAB-05"]},
-  {"id": "python-data-engineering", "title": "Python & Data Engineering", "modules": ["LM-12"]},
+  {"id": "python-data-engineering", "title": "Python & Data Engineering", "modules": ["LM-12", "LM-19", "LM-20", "LM-21", "LM-22", "LAB-06"]},
   {"id": "microsoft-fabric", "title": "Microsoft Fabric", "modules": ["LM-06", "LM-07", "LM-08", "LM-09", "LM-23", "LM-24", "LM-25", "LAB-03", "LAB-04", "LAB-07"]},
   {"id": "databricks", "title": "Databricks", "modules": ["LM-11"]},
   {"id": "snowflake", "title": "Snowflake", "modules": ["LM-10"]},

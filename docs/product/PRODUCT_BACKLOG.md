@@ -139,7 +139,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.
 - **Proposed capability:** A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.
-- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial; compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers; Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met
+- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial; compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers; Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met; Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written
 - **Inventory features:** [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** [PB-013](#pb-013)
 - **Owner:** Prove (FD-111)
@@ -997,7 +997,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.; Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
@@ -1077,7 +1077,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | Accepted |
 | [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 | [PB-113](#pb-113) | Action-first experience program | P2 | Action-first experience | L | In progress |
-| [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | In review |
+| [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | Accepted |
 | [PB-122](#pb-122) | Guided Development: levels, Try the fix and Compare | P2 | Guided development (GD) | L | In progress |
 | [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | Proposed |
 | [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | Proposed |
@@ -1237,11 +1237,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-119
 
-**Learn v1: lessons, labs and finding actions** · P2 (score 2.34) · L · confidence Medium · In review
+**Learn v1: lessons, labs and finding actions** · P2 (score 2.34) · L · confidence Medium · Accepted
 
 - **Problem:** People new to Fabric, Databricks or the app have no guided way to learn them inside KratosForge.
 - **Proposed capability:** A Learn page (Preview) with paths, lessons and labs that run on this PC with generated data, Explain, Show example, Lesson and Dismiss beside findings, the Microsoft Fabric path, and Learn evidence in Profile.
-- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce; Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn); Lab time and memory limits now have tests (#1552) on main at 32cbd98f; Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept
+- **Current-state evidence:** LX-01 to LX-08 merged (#1063 to #1140): docs/learn.md, learn_service.py, learn.test.cjs and test_learn_*.py on main at 02118fa4; LX-09 finding actions (#1160), the one-time guidance question (#1158) and the Microsoft Fabric path (#1159) merged on main at 0c96c9ce; Split on 2026-11-01: Guided Development (GD-01 to GD-10) moved to PB-122 and Learn phase 2 (LX-11 to LX-16) to PB-123; the Learn thread checked the criteria. 146 Learn engine tests pass (test_learn_* and test_profile_learn); Lab time and memory limits now have tests (#1552) on main at 32cbd98f; Implementation review docs/product/reviews/PB-119-learn-v1.md (2026-11-02): all five criteria met; recommend Accept; Implementation review docs/product/reviews/PB-119-learn-v1.md: Accepted (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-GOV-09](FEATURE_INVENTORY.md#feat-gov-09)
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (LX-01..09)
@@ -1296,7 +1296,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Learning experience (LX) (Learn curriculum design 2026-11-02)
 - **Acceptance criteria:**
     - A rank is earned only from the person's own verified evidence on this PC (Learn passes, clean Validate runs and checked fixes), never set by hand; Proof Forged is never required
-    - Ranks follow the Developer progression switch (Profile > Settings)
+    - Ranks follow the Developer progression switch (Settings > Developer progression)
     - Every rank name and picture prompt follows the approved ladder; no rank name contains god, deity or divine, and a test enforces it
     - A person can add, change and remove their own profile picture; it stays on this PC and is checked for type and size
     - The picture prompts are text only: the app generates no images and calls no AI service
@@ -1590,7 +1590,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-001](#pb-001) | Sign the app and engine | P0 | Enterprise readiness | S | Proposed |
-| [PB-005](#pb-005) | Encrypt the token cache | P1 | Enterprise readiness | S | In review |
+| [PB-005](#pb-005) | Encrypt the token cache | P1 | Enterprise readiness | S | Accepted |
 | [PB-006](#pb-006) | Content Security Policy for the main window | P1 | Enterprise readiness | M | Accepted |
 | [PB-007](#pb-007) | Audit trail of runs and changes | P1 | Enterprise readiness | M | Accepted |
 | [PB-008](#pb-008) | Keep the embedded Fabric view on Fabric hosts | P1 | Enterprise readiness | S | Accepted |
@@ -1620,11 +1620,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-005
 
-**Encrypt the token cache** · P1 (score 1.96) · S · confidence High · In review
+**Encrypt the token cache** · P1 (score 1.96) · S · confidence High · Accepted
 
 - **Problem:** The MSAL token cache is a plain file on Windows.
 - **Proposed capability:** DPAPI-protected cache through msal-extensions.
-- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).; Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f; Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check
+- **Current-state evidence:** auth.py writes a plain cache file; PR #593 encrypts the cache with DPAPI (HD-013); merged and promoted to Stable 3633b4a; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): Quality's blocking finding is still open. A small fix PR (lock and merge on save) would let this go to Accept with limits.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): Needs a small fix PR (lock and merge on save).; Review finding 1 fixed: the sign-in cache is changed under a lock on the file's latest contents (#1554), flushed to disk before it is swapped in (#1590), and sign-out says so when the file can't be changed (#1557) on main at 32cbd98f; Re-review of criterion 2 in docs/product/reviews/PB-005-593.md (2026-11-02): met (#1554, #1590, #1557); recommend Accept with Documented Limitations, since criterion 1 still waits on the product owner's Windows check; Re-review in docs/product/reviews/PB-005-593.md: Accepted with Documented Limitations (Chris chose 'Accept both as recommended' on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpM5rfV2KseWoz8TKdhyNGeZ); limitations: criterion 1 and the Windows file-lock behaviour aren't checked on Windows (the product owner's check with a second Windows account is still to do), and the plain cache from before encryption isn't wiped
 - **Inventory features:** [FEAT-AUTH-03](FEATURE_INVENTORY.md#feat-auth-03)
 - **Dependencies:** Decision D-C2, Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-131b)

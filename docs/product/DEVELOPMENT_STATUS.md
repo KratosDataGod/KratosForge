@@ -7,6 +7,9 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
 
 ## Summary
 
+- Decisions, 2026-11-02: the product owner accepted PB-119 (Learn v1) and PB-005 (token cache, with documented
+  limitations until a Windows check with a second account), chose fix (a) for PB-084 (only incidents post to
+  Teams, #1553), and asked for a UX mockup of Unknown cells before PB-014 is re-reviewed.
 - Morning check, 2026-11-02: 66 PRs merged after 761a7949 (#1550 to #1638). 3 were product data
   PRs; the other 63 were linked. An enterprise engineering audit (#1571, docs/audits/) scored
   readiness 54/100 and opened the EA remediation backlog, and its first fixes landed: Spark casts,
@@ -65,7 +68,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 16 are Proposed, 28 In progress, 5 In review and 65 Accepted.
+- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 16 are Proposed, 28 In progress, 3 In review and 67 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -92,7 +95,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 5 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 3 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

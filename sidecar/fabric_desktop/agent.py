@@ -24,7 +24,6 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
-from urllib.parse import urlsplit
 
 from . import agent_status, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
@@ -39,6 +38,7 @@ from .meta import mesh as mesh_mod
 from .meta.engine import Abandoned
 from .onelake import FileStore
 from .redact import describe
+from .redact import without_webhook as _without_webhook
 from .runtime import Runtime
 from .workloads import evaluate
 from .workloads.agents import read_status
@@ -53,17 +53,6 @@ KIND_META = "meta"
 def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
 
-
-
-def _without_webhook(text: str, url: str) -> str:
-    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
-    secret in the path, which requests puts in connection errors and redact.secrets doesn't know (QA-016)."""
-    parts = urlsplit(url)
-    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
-                        key=len, reverse=True):
-        if len(piece) > 1:
-            text = text.replace(piece, "[webhook]")
-    return text
 
 class Agent:
     def __init__(self, config: AgentConfig, runtime: Runtime | None = None, queue: JobQueue | None = None,

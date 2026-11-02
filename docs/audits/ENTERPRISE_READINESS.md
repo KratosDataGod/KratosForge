@@ -51,7 +51,7 @@ Each category is scored on the brief's scale: 0 none, 1 experimental, 2 function
 | Interoperability | 5% | 2.5 | 2.5 | 3.5 |
 | UX and accessibility | 5% | 3.0 | 3.0 | 4.0 |
 | Documentation and support | 5% | 3.0 | 3.0 | 4.0 |
-| **Total** | 100% | | **54 / 100** | about 84 at these targets; 90 is the long-term aim |
+| **Total** | 100% | | **54 / 100** | about 82 at these targets; 90 is the long-term aim |
 
 **Verdict: not enterprise-ready.** Two release-critical requirements are still unverified: signed builds, and a live tenant run of the integration harness. On top of that, one confirmed data-integrity defect is open: appends quietly convert values to fit the table's column types (EA-001). No category scores 4 while those stay open.
 

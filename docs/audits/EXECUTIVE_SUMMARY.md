@@ -30,7 +30,7 @@ Three things hold the score down:
 
 ## Completed so far
 
-- Baseline checks run and recorded. Five audit documents and a backlog of 30 findings, each with evidence, an owner and a priority.
+- Baseline checks run and recorded. Seven audit documents, including a backlog of 30 findings (29 open, one withdrawn), each with evidence, an owner and a priority.
 - **First remediation PR:** notebook Parquet and CSV file writes now follow Spark's save mode. Before, `append` silently replaced the file. A non-hermetic test was also fixed.
 
 ## Next actions

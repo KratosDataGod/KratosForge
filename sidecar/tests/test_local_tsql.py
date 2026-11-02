@@ -333,3 +333,21 @@ def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine)
     assert one["rows"] == [[None, 0.0, None, 0.0]]  # one row: no sample spread, a population spread of 0
     w = tsql(engine, "SELECT id, VARP(qty) OVER () AS vp FROM dbo.orders ORDER BY id")
     assert w["rows"] == [[1, 49.0], [2, 49.0]]
+
+
+def test_substring_stuff_and_replicate_at_the_edges(engine):
+    # Each as in T-SQL, not DuckDB: a negative start isn't counted from the end, and so on.
+    r = tsql(engine, "SELECT SUBSTRING('abcdef', -1, 3) AS a, SUBSTRING('abcdef', -5, 3) AS b, "
+                     "SUBSTRING(name, id - 1, 2) AS c, SUBSTRING('abc', 2, 5) AS d FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [["a", "", "A", "bc"], ["a", "", "Bo", "bc"]]
+    r = tsql(engine, "SELECT STUFF('abc', 5, 1, 'x') AS a, STUFF('abc', 0, 1, 'x') AS b, STUFF('abc', 2, 1, 'x') AS c, "
+                     "STUFF('abc', 2, -1, 'x') AS d, STUFF('abc', 2, 1, NULL) AS e, STUFF('abc', 2, 9, 'x') AS f")
+    assert r["rows"] == [[None, None, "axc", None, "ac", "ax"]]
+    r = tsql(engine, "SELECT REPLICATE('ab', -1) AS a, REPLICATE('ab', 2) AS b, REPLICATE('ab', qty) AS c "
+                     "FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[None, "abab", "ab" * 7], [None, "abab", None]]
+    r = tsql(engine, "SELECT SUBSTRING('abc', CAST(NULL AS INT), 2) AS a, SUBSTRING('abc', 0, CAST(NULL AS INT)) AS b, "
+                     "SUBSTRING('abc', 1, CAST(NULL AS INT)) AS c, SUBSTRING(CAST(NULL AS VARCHAR(3)), 0, 2) AS d")
+    assert r["rows"] == [[None, None, None, None]]
+    with pytest.raises(Exception, match="Invalid length parameter passed to the SUBSTRING function"):
+        tsql(engine, "SELECT SUBSTRING(name, 1, qty) AS s FROM dbo.orders")

@@ -80,6 +80,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             notes += _types(tree, schema)
             notes += _likes(tree)
             _functions(tree)
+            _string_edges(tree)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
@@ -505,6 +506,56 @@ def _functions(tree: exp.Expression) -> None:
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.
             node.replace(exp.cast(exp.CurrentTimestamp(), "TIMESTAMP"))
+
+
+def _whole(node: exp.Expression | None, low: int) -> bool:
+    """A whole-number literal of at least ``low``: then the edge rules can't apply."""
+    return isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit() and int(node.name) >= low
+
+
+def _string_edges(tree: exp.Expression) -> None:
+    """Where DuckDB's string functions answer differently from T-SQL's at the edges, as T-SQL does:
+
+    - ``SUBSTRING(s, start, n)`` with a start below 1 counts the positions before 1 and returns only
+      what falls from 1 on (``SUBSTRING('abc', 0, 2)`` is ``'a'``); DuckDB counts a negative start
+      from the end. A negative length is an error.
+    - ``STUFF(s, start, n, x)`` is NULL when the start is below 1 or past the end, or the length is
+      negative; a NULL ``x`` deletes without inserting.
+    - ``REPLICATE(s, n)`` is NULL when ``n`` is negative.
+
+    Literal starts and lengths that can't hit an edge are left as they are."""
+    for node in list(tree.find_all(exp.Substring, exp.Stuff, exp.Repeat)):
+        if isinstance(node, exp.Substring):
+            start, length = node.args.get("start"), node.args.get("length")
+            if start is None or length is None or (_whole(start, 1) and _whole(length, 0)):
+                continue
+            cut: exp.Expression = node.copy()
+            if not _whole(start, 1):
+                first = exp.func("GREATEST", start.copy(), exp.Literal.number(1))
+                count = exp.func("GREATEST", exp.paren(start.copy() + length.copy() - first.copy(), copy=False),
+                                 exp.Literal.number(0))
+                # GREATEST skips NULLs, so a NULL start or length is kept NULL first, as in T-SQL.
+                unknown = exp.or_(exp.Is(this=start.copy(), expression=exp.null()),
+                                  exp.Is(this=length.copy(), expression=exp.null()))
+                cut = exp.Case(ifs=[exp.If(this=unknown, true=exp.null())],
+                               default=exp.Substring(this=node.this, start=first, length=count))
+            if not _whole(length, 0):
+                negative = exp.LT(this=length.copy(), expression=exp.Literal.number(0))
+                message = exp.Literal.string("Invalid length parameter passed to the SUBSTRING function.")
+                cut = exp.Case(ifs=[exp.If(this=negative, true=exp.func("ERROR", message))], default=cut)
+            node.replace(cut)
+        elif isinstance(node, exp.Stuff):
+            start, length = node.args["start"], node.args["length"]
+            text = node.this
+            past = exp.or_(exp.LT(this=start.copy(), expression=exp.Literal.number(1)),
+                           exp.GT(this=start.copy(), expression=exp.func("LENGTH", text.copy())),
+                           exp.LT(this=length.copy(), expression=exp.Literal.number(0)))
+            node.set("expression", exp.func("COALESCE", node.expression, exp.Literal.string("")))
+            node.replace(exp.Case(ifs=[exp.If(this=past, true=exp.null())], default=node.copy()))
+        elif not _whole(node.args.get("times"), 0):
+            times = node.args["times"]
+            negative = exp.LT(this=times.copy(), expression=exp.Literal.number(0))
+            node.replace(exp.Case(ifs=[exp.If(this=negative, true=exp.null())], default=node.copy()))
 
 
 def _sunday_weeks(node: exp.DateDiff, shift: int = 1) -> None:

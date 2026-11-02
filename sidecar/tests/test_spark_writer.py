@@ -300,3 +300,32 @@ def test_save_and_load_without_a_path_say_what_they_need(lake, code):
     status, text = run(code)
     assert status == "error"
     assert "Give save a path" in text or "Give load a path" in text
+
+
+def test_save_and_load_take_the_path_option_as_spark_does(lake, tmp_path):
+    out = (tmp_path / "out.parquet").as_posix()
+    status, text = run(f"df.write.format('parquet').option('path', {out!r}).save()\n"
+                       f"print(spark.read.format('parquet').option('path', {out!r}).load().count())")
+    assert status == "ok", text
+    assert text.strip().endswith("1")
+    status, text = run("df.write.format('delta').mode('append').option('path', 'Tables/dbo/sales').save()\n"
+                       "print(spark.read.format('delta').option('path', 'Tables/dbo/sales').load().count())")
+    assert status == "ok", text
+    assert text.strip().endswith("4")
+    assert len(rows(lake)) == 4
+
+
+@pytest.mark.parametrize("write", ["df.write.mode('append').option('path', 'Files/elsewhere').saveAsTable('dbo.sales')",
+                                   "df.write.option('path', 'Files/elsewhere').insertInto('dbo.sales')"])
+def test_a_table_write_with_a_path_option_is_still_refused(lake, write):
+    status, text = run(write)
+    assert status == "error" and "external table" in text, text
+    assert rows(lake) == ORIGINAL
+
+
+@pytest.mark.parametrize("code", ["df.write.format('delta').mode('append').option('path', 'Files/x').save('Tables/dbo/sales')",
+                                  "spark.read.format('delta').option('path', 'Files/x').load('Tables/dbo/sales')"])
+def test_a_path_option_and_a_path_argument_together_are_refused_as_in_spark(lake, code):
+    status, text = run(code)
+    assert status == "error" and "Give the path once" in text, text
+    assert rows(lake) == ORIGINAL

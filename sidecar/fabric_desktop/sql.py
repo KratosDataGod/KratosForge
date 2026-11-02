@@ -97,7 +97,7 @@ def spark_fixes(statement: exp.Expression) -> exp.Expression:
     """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
     the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
-    return _spark_functions(_spark_json(spark_substring(_spark_dates(_spark_names(statement)))))
+    return _spark_functions(_spark_json(spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -574,6 +574,78 @@ def _with_args(template: str, args: list[exp.Expression]) -> exp.Expression:
             column.replace(args[int(column.name[6:])].copy())
     return tree
 
+
+# Casts to a whole-number type (EA-003). DuckDB rounds a fraction (3.7 -> 4) where Spark truncates (3), and
+# reads text such as '1.9' and '1e2' that Spark reads differently, so these casts are written out:
+# whole-number values cast as they are; a DOUBLE or FLOAT is truncated; text is read as Spark reads it (spaces trimmed, then digits, and
+# with Spark's CAST with ANSI off a fraction that is dropped; anything else is NULL, or an error for
+# Databricks SQL's ANSI CAST); a number DuckDB writes in plain digits keeps its whole part; anything else
+# (a number in exponent form, which is whole or below 0.0001, or a boolean) is DuckDB's own cast.
+_INT_CASTS = {exp.DataType.Type.TINYINT: ("TINYINT", "TINYINT"), exp.DataType.Type.SMALLINT: ("SMALLINT", "SMALLINT"),
+              exp.DataType.Type.INT: ("INTEGER", "INT"), exp.DataType.Type.BIGINT: ("BIGINT", "BIGINT")}
+_WHOLE_TYPES = ("'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', "
+                "'UBIGINT', 'UHUGEINT'")
+_PLAIN_NUMBER = r"^\s*([+-]?[0-9]+)(\.[0-9]*)?\s*$"
+_WHOLE_NUMBER = r"^\s*([+-]?[0-9]+)\s*$"
+
+
+def spark_integer_cast(value: str, duck_type: str, spark_type: str, mode: str) -> str:
+    """DuckDB SQL casting ``value`` (DuckDB SQL) to a whole-number type as Spark does. ``mode`` is
+    "legacy" (Spark's CAST with ANSI off), "try" (try_cast: ANSI rules, NULL when it can't) or "ansi"
+    (Databricks SQL's CAST, which stops on text that isn't a whole number)."""
+    text = f"CAST({value} AS VARCHAR)"
+    cast_ = "CAST" if mode == "ansi" else "TRY_CAST"
+    if mode == "ansi":
+        message = (f"'[CAST_INVALID_INPUT] The value ''' || left({text}, 200) || ''' of the type \"STRING\" cannot be cast to "
+                   f"\"{spark_type}\" because it is malformed. Use try_cast to tolerate malformed input and return "
+                   "NULL instead.'")
+        string = (f"CASE WHEN regexp_matches({text}, '{_WHOLE_NUMBER}') THEN CAST(regexp_extract({text}, "
+                  f"'{_WHOLE_NUMBER}', 1) AS {duck_type}) ELSE ERROR({message}) END")
+    else:
+        pattern = _PLAIN_NUMBER if mode == "legacy" else _WHOLE_NUMBER
+        string = f"TRY_CAST(NULLIF(regexp_extract({text}, '{pattern}', 1), '') AS {duck_type})"
+    return (f"CASE WHEN typeof({value}) IN ({_WHOLE_TYPES}) THEN {cast_}({value} AS {duck_type}) "
+            f"WHEN typeof({value}) IN ('DOUBLE', 'FLOAT') THEN {cast_}(trunc(TRY_CAST({value} AS DOUBLE)) AS {duck_type}) "
+            f"WHEN typeof({value}) = 'VARCHAR' THEN {string} "
+            f"WHEN regexp_matches({text}, '{_PLAIN_NUMBER}') THEN {cast_}(regexp_extract({text}, '{_PLAIN_NUMBER}', 1) "
+            f"AS {duck_type}) ELSE {cast_}({value} AS {duck_type}) END")
+
+
+def _whole_number(node: exp.Expression) -> bool:
+    """Plainly a whole number already: an integer literal or a cast to a whole-number type."""
+    if isinstance(node, exp.Paren):
+        return _whole_number(node.this)
+    if isinstance(node, exp.Literal):
+        return node.is_int
+    return isinstance(node, (exp.Cast, exp.TryCast)) and node.to.this in _INT_CASTS
+
+
+def spark_integer_casts(statement: exp.Expression) -> exp.Expression:
+    """Casts to TINYINT, SMALLINT, INT or BIGINT written out as Spark casts (EA-003): see spark_integer_cast.
+    sqlglot reads Spark's CAST as a TryCast, try_cast as a TryCast marked safe, and Databricks SQL's
+    CAST as a Cast."""
+    done: set[int] = set()
+    for node in reversed(list(statement.find_all(exp.Cast, exp.TryCast))):
+        target = _INT_CASTS.get(node.to.this) if isinstance(node.to, exp.DataType) else None
+        source = node.this
+        if target is None or _whole_number(source) or id(source) in done or isinstance(source, exp.Null):
+            continue
+        if isinstance(node, exp.TryCast):
+            mode = "try" if node.args.get("safe") else "legacy"
+        else:
+            mode = "ansi"
+        if isinstance(source, (exp.Column, exp.Literal)):
+            text = spark_integer_cast("fj_arg0", *target, mode)
+        else:
+            # Read once through a lambda argument, so nested casts don't multiply the SQL with each level
+            # and a source such as rand() is evaluated once. The source sits outside the lambda.
+            text = f"(LIST_TRANSFORM([fj_arg0], kf_cast -> {spark_integer_cast('kf_cast', *target, mode)}))[1]"
+        replacement = exp.paren(_with_args(text, [source]))
+        done.add(id(replacement))
+        if node is statement:
+            return replacement
+        node.replace(replacement)
+    return statement
 
 class _JsonNull:
     """Spark's NullType while inferring: merges into anything, and is STRING when it stays alone."""

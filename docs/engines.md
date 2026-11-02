@@ -34,7 +34,7 @@ APIs and clients, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | No | Nothing | Tested |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Partial (DuckDB queries stop, also on a notebook's own duckdb.connect; Polars, and queries on connections opened in threads the cell starts, finish first) | No | Native | No | Nothing | Tested |
 | DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
@@ -196,6 +196,8 @@ test runs them again, so the table changes when an upgrade fixes or breaks one. 
 here or below hasn't been checked.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
+
+Casts to TINYINT, SMALLINT, INT or BIGINT answer as Spark does, in Spark SQL, Databricks SQL, `F.expr` and `Column.cast`: a fraction is truncated (`CAST(3.7 AS INT)` is 3, not 4), and text is read as Spark reads it (`CAST('1.9' AS INT)` is 1 with ANSI off, NULL for `try_cast`, and stops in Databricks SQL's ANSI `CAST`).
 
 `from_json` runs here when its schema is written out as text, such as `'a INT, b STRING'` or `'ARRAY<STRUCT<n: BIGINT>>'`, with fields of INT, BIGINT, SMALLINT, TINYINT, DOUBLE, FLOAT, DECIMAL, STRING, BOOLEAN, DATE, TIMESTAMP, ARRAY and STRUCT. JSON keys match field names case-sensitively, as in Databricks. Values are read as Databricks' JSON reader reads them: DOUBLE also takes "NaN" and "Infinity", DECIMAL also takes a number written as text ("1,000.5"), and TIMESTAMP also takes a whole number of seconds since 1970. A value that doesn't fit its field (text in an INT field, for example) gives NULL for that field, as Databricks does with partial results on; text that isn't JSON gives a struct of NULLs. An object that repeats one of the schema's keys stops with a message, since Databricks keeps the last value. A number read into a STRING field is written as DuckDB writes it, which can differ from Databricks for very large or very small numbers (1e20). A schema with MAP or TIMESTAMP_NTZ fields, a schema that isn't written-out text, from_json options, and a JSON array read with a struct schema are refused with a message, so nothing runs with a different answer. `str_to_map` splits on regular expressions, as Databricks does. `schema_of_json` of JSON written out as text is worked out when the query is translated, as Databricks infers it with default options, so `from_json(x, schema_of_json('...'))` runs too; options, a whole number too big for BIGINT, and a repeated key are refused.
 

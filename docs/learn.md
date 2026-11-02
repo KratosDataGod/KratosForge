@@ -41,7 +41,13 @@ A lesson marked **Draft** is still being written and may change.
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
 | LM-10 | QUALIFY: filter on a window function | Snowflake | |
+| LM-28 | Semi-structured data: nested records and arrays | Snowflake | |
+| LM-29 | Time travel and restoring a table | Snowflake | |
+| LAB-09 | Port Snowflake SQL to a Fabric Warehouse: standard functions, no QUALIFY, and division that keeps its fraction | Snowflake | |
 | LM-11 | MERGE: update, insert and delete in one step | Databricks | |
+| LM-26 | Three-part names: Unity Catalog and Fabric | Databricks | SQ005 |
+| LM-27 | Clustering and file pruning | Databricks | |
+| LAB-08 | Port a Databricks notebook to Fabric: names, functions and the write | Databricks | SQ005, SQ010 |
 | LM-12 | Incremental loads: a watermark that misses nothing | Python & Data Engineering | |
 | LM-19 | Lazy pipelines: filter and choose columns early | Python & Data Engineering | SQ002 |
 | LM-20 | Data quality checks in code | Python & Data Engineering | |

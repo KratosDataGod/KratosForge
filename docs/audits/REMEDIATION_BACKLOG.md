@@ -174,9 +174,32 @@ Four further P3 security hardening items are tracked privately and have been rou
 
 ## Progress
 
+As of 2026-11-02 03:45 UTC. "Open PR" means the PR is up and in review; a draft is still being written.
+
 | Id | State | PR |
 | --- | --- | --- |
-| EA-002, EA-019 | In review | the first remediation PR (linked from the PR list) |
-| EA-018 | In this docs PR | |
+| EA-001 | Open PRs | #1576 (notebook and job appends), #1600 (metadata runs and published notebooks) |
+| EA-002, EA-019 | Open PR | #1572 |
+| EA-003 | Draft | #1579. Related local T-SQL cast fixes: #1586, #1588, #1591, #1598, #1599 |
+| EA-004 | Draft, part 1 (sums as `bigint`) | #1595. Decimal result types still to do |
+| EA-005 | Open PR | #1582 |
+| EA-006 | Open PR | #1585 |
+| EA-007 | Open PR | #1594 |
+| EA-008 | Open PR | #1574 |
+| EA-009 | Blocked on the maintainer (signing identity check, live harness run) | |
+| EA-010 | Open PR | #1575 |
+| EA-011 | Open PR | #1578 |
+| EA-012 | Open PR | #1601 |
+| EA-013 to EA-017 | Routed; characterization tests handed over | |
+| EA-018 | Done | #1571 |
+| EA-020 | Draft, part (embedded Python SHA-256, Preview environment) | #1573. Hash-locked engine wheels and the legacy archive hash still to do |
+| EA-021 | Open PRs | #1581, #1584, follow-ups #1589 |
+| EA-022 | Open PRs | #1590, #1592, #1593 |
+| EA-023 | Draft | #1580 |
+| EA-024 | Draft | #1596 |
 | EA-026 | Withdrawn: already covered by `test_server_lanes.py` | |
-| Others | Routed to owners | |
+| EA-027 | Open PR (first slice) | #1597 |
+| EA-028 | Open PR (first caller) | #1602 |
+| EA-025, EA-029, EA-030 | Not started | |
+
+The private security items: two fixes are in (#1570 merged), one is open (#1569), and one is being verified.

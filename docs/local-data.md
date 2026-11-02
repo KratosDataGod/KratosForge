@@ -109,6 +109,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | --- | --- |
 | `7 / 2`, `qty / boxes` on integer columns | `3`: integers divide as integers, truncated toward zero |
 | `AVG(qty)` on an integer column, also with `OVER (...)` | An integer |
+| `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)` | `'a'`, `NULL`, `NULL`: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` of a negative count are `NULL`, and a negative `SUBSTRING` length is an error |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |

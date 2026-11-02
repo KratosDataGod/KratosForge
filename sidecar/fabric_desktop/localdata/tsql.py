@@ -271,17 +271,23 @@ def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:
 
 def _whole_text(node: exp.Expression, to: exp.DataType) -> None:
     """Text to an integer type: T-SQL takes only a whole number, with spaces around it, and '' as 0;
-    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4."""
-    text = node.this
-    whole = exp.func("REGEXP_FULL_MATCH", text.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
-    blank = exp.EQ(this=exp.func("TRIM", text.copy()), expression=exp.Literal.string(""))
+    ``CAST('3.7' AS INT)`` fails (TRY_CAST gives NULL), where DuckDB rounds it to 4. The text is
+    bound once, as LIST_TRANSFORM([text], v -> ...)[1], so a source that changes each time it's read
+    is read once."""
+    v = exp.to_identifier("kf_text")
+    whole = exp.func("REGEXP_FULL_MATCH", v.copy(), exp.Literal.string(" *[+-]?[0-9]+ *"))
+    blank = exp.EQ(this=exp.func("TRIM", v.copy()), expression=exp.Literal.string(""))
     message = exp.Literal.string(f"Conversion failed when converting the text to data type {to.sql(dialect='tsql')}.")
     other = exp.Null() if isinstance(node, exp.TryCast) else exp.func("ERROR", message)
-    node.replace(exp.Case(ifs=[exp.If(this=whole, true=node.copy()),
-                               exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
-                               exp.If(this=exp.Is(this=text.copy(), expression=exp.Null()), true=exp.Cast(
-                                   this=exp.Null(), to=to.copy()))],
-                          default=other))
+    cast = node.copy()
+    cast.set("this", v.copy())
+    case = exp.Case(ifs=[exp.If(this=whole, true=cast),
+                         exp.If(this=blank, true=exp.Cast(this=exp.Literal.number(0), to=to.copy())),
+                         exp.If(this=exp.Is(this=v.copy(), expression=exp.Null()),
+                                true=exp.Cast(this=exp.Null(), to=to.copy()))],
+                    default=other)
+    bound = exp.func("LIST_TRANSFORM", exp.Array(expressions=[node.this]), exp.Lambda(this=case, expressions=[v]))
+    node.replace(exp.Bracket(this=bound, expressions=[exp.Literal.number(1)], offset=1))  # DuckDB lists count from 1
 
 
 _SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
@@ -428,6 +434,9 @@ def _unknown(kind: exp.DataType | None) -> bool:
     return kind is None or kind.this in (exp.DataType.Type.UNKNOWN, exp.DataType.Type.NULL)
 
 
+_SPREADS = {"VAR": exp.Variance, "VARP": exp.VariancePop, "STDEVP": exp.StddevPop}
+
+
 def _functions(tree: exp.Expression) -> None:
     for kind in tree.find_all(exp.DataType):
         if kind.this == exp.DataType.Type.DOUBLE and kind.expressions:
@@ -469,6 +478,10 @@ def _functions(tree: exp.Expression) -> None:
                     exp.cast(exp.func("STRFTIME", day, exp.Literal.string("%U")), "INT")
                     + exp.Case(ifs=[exp.If(this=sunday_first, true=exp.Literal.number(0))],
                                default=exp.Literal.number(1)), copy=False))
+        elif isinstance(node, exp.Anonymous) and node.name.upper() in _SPREADS and len(node.expressions) == 1:
+            # VAR is the sample variance, VARP the population's, STDEVP the population's standard deviation
+            # (STDEV is read as the sample's already). DuckDB has none of these names.
+            node.replace(_SPREADS[node.name.upper()](this=node.expressions[0]))
         elif isinstance(node, exp.CurrentTimestamp) or (
                 isinstance(node, exp.Anonymous) and node.name.upper() in ("GETUTCDATE", "SYSUTCDATETIME")):
             # A Fabric Warehouse's clock is UTC, and GETDATE() has no time zone. The project runs in UTC.

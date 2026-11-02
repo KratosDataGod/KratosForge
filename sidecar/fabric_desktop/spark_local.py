@@ -134,6 +134,29 @@ class LakehouseWriter:
             return "overwrite"
         raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
 
+    def _file_mode(self, path: str, kind: str) -> bool:
+        """Whether to write the file at ``path``, following the save mode as Spark does. Error (the
+        default) refuses a path that is already there and ignore leaves it as it is; overwrite
+        replaces it. This PC writes one file, which can't take more rows, so append is refused
+        rather than replacing what the file holds."""
+        exists = os.path.exists(path)
+        if self._mode == "overwrite":
+            return True
+        if self._mode == "append":
+            raise ValueError(f"Appending to a {kind} file isn't supported on this PC: it writes one file, and "
+                             f"appending would replace {path}. Write to a new path, use .mode(\"overwrite\") to "
+                             "replace it, or append to a lakehouse table with saveAsTable.")
+        if self._mode == "ignore":
+            if exists:
+                print(f"Note: {path} already exists, so nothing was written (mode ignore).")
+            return not exists
+        if self._mode in ("error", "errorifexists", "default"):
+            if exists:
+                raise ValueError(f"{path} already exists. Use .mode(\"overwrite\") to replace it, "
+                                 "or write to a new path.")
+            return True
+        raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
+
     def _schema_mode(self, how: str) -> str | None:
         """Delta's schema rules, as Spark applies them: a different schema is an error unless
         overwriteSchema (overwrite only) or mergeSchema allows it."""
@@ -212,10 +235,14 @@ class LakehouseWriter:
             raise ValueError("Give save a path, or write a lakehouse table with saveAsTable.")
         if fmt == "parquet":
             self._check_options((), "a Parquet file")
-            return self._df.relation.write_parquet(path)
+            if self._file_mode(path, "Parquet"):
+                self._df.relation.write_parquet(path)
+            return None
         if fmt == "csv":
             self._check_options(("header",), "a CSV file")
-            return self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
+            if self._file_mode(path, "CSV"):
+                self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
+            return None
         raise ValueError(f"Can't write format {fmt!r} to {path} on this PC.")
 
     def parquet(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
@@ -478,10 +505,15 @@ def _same_values(before: Any, after: Any) -> bool:
     into a decimal, so those go back to the source type and are compared."""
     if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
         return True
+    import pyarrow.compute as pc
     try:
-        return bool(after.cast(before.type, safe=False).equals(before))
+        back = after.cast(before.type, safe=False)
     except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
         return False
+    same = pc.equal(back, before)
+    if pa.types.is_floating(before.type):  # NaN is NaN after the cast, though it equals nothing
+        same = pc.or_(same, pc.and_(pc.is_nan(back), pc.is_nan(before)))
+    return pc.all(pc.or_kleene(same, pc.is_null(before))).as_py() is not False
 
 
 def _columns(table: str) -> list[str] | None:

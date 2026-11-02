@@ -60,7 +60,6 @@ def test_a_wider_type_of_the_same_kind_still_appends(lake):
 
 
 # EA-005: an overwrite must not keep rows another writer appended while it uploaded.
-@pytest.mark.xfail(strict=True, reason="EA-005: overwrite commits without a predicate pinned to its snapshot")
 def test_an_overwrite_never_keeps_rows_appended_during_its_upload(tmp_path):
     ref = Ref((tmp_path / "t").as_posix())
     publish.publish(pa.table({"id": [1, 2, 3]}), ref, "overwrite", "tok")
@@ -145,3 +144,10 @@ def test_a_failed_upload_keeps_the_file_it_was_replacing():
     with pytest.raises(Exception):  # noqa: B017 - the upload must still report its failure
         fs.upload("ws", "lh", "Files/config.json", b'{"v": 2}')
     assert [v for k, v in fake.files.items() if k.endswith("Files/config.json")] == [b'{"v": 1}']
+
+
+def test_an_overwrite_that_replaces_the_schema_still_writes(tmp_path):
+    ref = Ref((tmp_path / "t").as_posix())
+    publish.publish(pa.table({"id": [1, 2, 3]}), ref, "overwrite", "tok")
+    publish.publish(pa.table({"name": ["a"]}), ref, "overwrite", "tok")
+    assert DeltaTable(ref.uri).to_pyarrow_table().to_pylist() == [{"name": "a"}]

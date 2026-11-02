@@ -63,3 +63,18 @@ def test_databricks_sql_keeps_ansi_casts():
     assert "TRY_CAST" not in sql.duckdb_sql(statement)
     legacy = sql.spark_legacy_times(sqlglot.parse_one("SELECT to_timestamp(x)", read="spark"))
     assert "TRY_CAST" in sql.duckdb_sql(legacy)
+
+
+def test_timestamp_and_whole_number_casts_compose_on_column_cast():
+    """Column.cast is wrapped twice: whole-number targets truncate as Spark does (EA-003), dates and
+    timestamps give NULL for bad text (EA-015); other targets reach DuckDB's own cast."""
+    status, text = run("e = spark.createDataFrame([('abc', 3.7, '2024-01-02 03:04:05'), ('2024-01-02', -3.7, 'x')],"
+                       " 's string, x double, t string')\n"
+                       "out = e.select(F.col('s').cast('timestamp').alias('ts'), F.col('x').cast('int').alias('i'),"
+                       " F.col('t').cast(TimestampType()).alias('tt'), F.col('s').cast(DateType()).alias('d'),"
+                       " F.col('x').cast('long').alias('l'), F.col('x').cast('string').alias('str'))\n"
+                       "print([tuple(r) for r in out.collect()])")
+    assert status == "ok", text
+    rows = text.strip()
+    assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5" in rows and ", None, 3, '3.7')" in rows
+    assert "(datetime.datetime(2024, 1, 2, 0, 0), -3, None, datetime.date(2024, 1, 2), -3, '-3.7')" in rows

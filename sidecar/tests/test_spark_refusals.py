@@ -144,3 +144,11 @@ def test_a_refused_option_on_a_writer_held_in_a_variable_is_blocked():
                    "w = df.write.mode('overwrite')\nw = w.option('partitionOverwriteMode', 'dynamic')\nw.saveAsTable('dbo.t')"):
         local = check(source)["local"]
         assert local["status"] == "blocked" and "write option" in local["reasons"][0]["text"], source
+
+
+def test_a_path_option_is_blocked_on_a_table_write_and_fine_on_save():
+    local = check("df.write.option('path', 'Files/out').saveAsTable('dbo.t')")["local"]
+    assert local["status"] == "blocked" and "external table" in local["reasons"][0]["text"]
+    for source in ("df.write.format('parquet').option('path', 'C:/out/x.parquet').save()",
+                   "df = spark.read.format('parquet').option('path', 'Files/x.parquet').load()"):
+        assert check(source)["local"]["status"] != "blocked", source

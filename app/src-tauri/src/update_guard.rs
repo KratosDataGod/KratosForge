@@ -158,6 +158,44 @@ pub fn remember(path: &Path, tag: &str, accepted: Option<&Seen>) -> Result<(), S
     write_state(path, &state)
 }
 
+/// Builds that this PC rolled back because they never finished starting (EA-024), newest last.
+pub fn failed_builds(path: &Path) -> Vec<String> {
+    read_state(path)["failed"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|c| c.as_str().filter(|c| is_commit(c)).map(str::to_ascii_lowercase)).collect())
+        .unwrap_or_default()
+}
+
+/// Remembers that `commit` was rolled back, so this PC doesn't install it again. Keeps the last ten.
+pub fn record_failed(path: &Path, commit: &str) -> Result<(), String> {
+    let mut state = read_state(path);
+    let mut failed = failed_builds(path);
+    let commit = commit.to_ascii_lowercase();
+    failed.retain(|c| *c != commit);
+    failed.push(commit);
+    let keep = failed.len().saturating_sub(10);
+    state["failed"] = json!(failed[keep..]);
+    write_state(path, &state)
+}
+
+/// Why an accepted release isn't installed after all: its build was rolled back on this PC before.
+pub fn refused_as_failed(commit: &str, failed: &[String]) -> Option<String> {
+    failed.iter().any(|c| c.eq_ignore_ascii_case(commit)).then(|| {
+        format!(
+            "Build {} didn't finish starting on this PC, so the previous build was put back and it won't be \
+             installed again. A newer build will be.",
+            &commit[..7.min(commit.len())]
+        )
+    })
+}
+
+/// Whether a new build that hasn't confirmed its start (its engine never answered) puts the previous
+/// build back. Only a start that an update made (`--updated-to` this build), and only once per build:
+/// if a build from before EA-024 installs it again, it stays, so the two can't hand over forever.
+pub fn rolls_back(updated_to: Option<&str>, build: &str, confirmed: bool, failed_before: bool) -> bool {
+    !confirmed && !failed_before && is_commit(build) && updated_to.is_some_and(|to| to.eq_ignore_ascii_case(build))
+}
+
 /// The build the last accepted check offered, the only one update_app installs.
 pub fn offered(path: &Path) -> Option<String> {
     read_state(path)["offered"].as_str().filter(|c| is_commit(c)).map(str::to_owned)
@@ -342,6 +380,37 @@ pub fn hand_over(h: &mut impl Handover) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_build_rolls_back_only_after_its_own_update_and_only_once() {
+        assert!(rolls_back(Some(A), A, false, false));
+        assert!(!rolls_back(Some(A), A, true, false), "its engine answered");
+        assert!(!rolls_back(Some(A), A, false, true), "rolled back once already: it stays");
+        assert!(!rolls_back(None, A, false, false), "an ordinary start never rolls back");
+        assert!(!rolls_back(Some(B), A, false, false), "the wrong build: the exe that started it handles that");
+        assert!(!rolls_back(Some(""), "", false, false), "a local build");
+    }
+
+    #[test]
+    fn a_rolled_back_build_is_refused_and_remembered() {
+        let dir = std::env::temp_dir().join(format!("kf-failed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("update-state.json");
+        remember(&path, "latest", Some(&Seen { commit: B.into(), published: Some(NOW) })).unwrap();
+        assert!(failed_builds(&path).is_empty());
+        record_failed(&path, &A.to_ascii_uppercase()).unwrap();
+        record_failed(&path, A).unwrap();
+        assert_eq!(failed_builds(&path), [A]);
+        assert_eq!(load_seen(&path, "latest").unwrap().commit, B, "what the channel showed is kept");
+        assert!(refused_as_failed(A, &failed_builds(&path)).unwrap().contains("won't be installed again"));
+        assert!(refused_as_failed(B, &failed_builds(&path)).is_none());
+        for i in 0..12 {
+            record_failed(&path, &format!("{i:040x}")).unwrap();
+        }
+        assert_eq!(failed_builds(&path).len(), 10);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     const A: &str = "13cd5dfa54ee4be7c066919bd3828eda3e5c1326";
     const B: &str = "2c9d1f23eee5857a79a72be77d4c8f4f913febcd";

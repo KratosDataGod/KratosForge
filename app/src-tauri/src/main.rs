@@ -471,9 +471,15 @@ fn apply_release_rule(latest: &mut Value) {
     let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
     let path = update_state();
     match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
-        Ok(seen) => {
-            let _ = update_guard::remember(&path, &tag, Some(&seen));
-        }
+        Ok(seen) => match update_guard::refused_as_failed(&seen.commit, &update_guard::failed_builds(&path)) {
+            None => {
+                let _ = update_guard::remember(&path, &tag, Some(&seen));
+            }
+            Some(reason) => {
+                let _ = update_guard::remember(&path, &tag, None);
+                latest["refused"] = json!(reason);
+            }
+        },
         Err(reason) => {
             let _ = update_guard::remember(&path, &tag, None);
             latest["refused"] = json!(reason);
@@ -799,36 +805,95 @@ fn rename_to_kratosforge(exe: &std::path::Path) {
     let _ = exe;
 }
 
+/// Set once this exe's engine has answered (confirm_started).
+static START_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WATCHING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How long a new build has, after its window is up, for its engine to answer, installing or updating
+/// the engine included (a first start is slow while Windows scans each new file).
+const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+
+/// The UI calls this once the engine has answered its first call: this build works, so the
+/// previous one (exe.old) can go. It goes once its process has exited. Not when this is the wrong
+/// build: the exe that started it is putting itself back.
+#[tauri::command]
+fn confirm_started() {
+    if START_CONFIRMED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let updated_to = updated_to_arg();
+    if updated_to.as_deref().is_some_and(|to| to != BUILD_COMMIT) {
+        return;
+    }
+    let after_update = updated_to.is_some();
+    std::thread::spawn(move || {
+        let Ok(exe) = app_exe() else { return };
+        let old = exe.with_extension("exe.old");
+        for _ in 0..120 {
+            if !old.exists() || std::fs::remove_file(&old).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        // The previous exe has exited and gone, so nothing else holds this file's name: a copy
+        // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
+        // takes itself; a managed PC's file stays where IT put it.
+        if after_update && !old.exists() && bundled() && auto_update_allowed() {
+            rename_to_kratosforge(&exe);
+        }
+    });
+}
+
+/// After an update, puts the previous build back when this one's engine hasn't answered within
+/// CONFIRM_LIMIT of its window coming up (EA-024): the previous exe has already exited by then, so
+/// this exe does it itself. Once per build (update_guard::rolls_back), and the build is remembered
+/// so this PC doesn't install it again.
+fn watch_start(app: tauri::AppHandle) {
+    let deadline = std::time::Instant::now() + CONFIRM_LIMIT;
+    while std::time::Instant::now() < deadline {
+        if START_CONFIRMED.load(Ordering::SeqCst) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    let state_file = update_state();
+    let failed_before = update_guard::failed_builds(&state_file).iter().any(|c| c.eq_ignore_ascii_case(BUILD_COMMIT));
+    if !update_guard::rolls_back(updated_to_arg().as_deref(), BUILD_COMMIT, START_CONFIRMED.load(Ordering::SeqCst), failed_before) {
+        return;
+    }
+    let Ok(exe) = app_exe() else { return };
+    let old = exe.with_extension("exe.old");
+    if !old.exists() {
+        return; // nothing to put back (removed by hand, say): keep running
+    }
+    let _ = update_guard::record_failed(&state_file, BUILD_COMMIT);
+    let state = app.state::<SidecarState>();
+    state.updating.store(true, Ordering::SeqCst); // so nothing starts the engine again meanwhile
+    let _ = state.shut_down(std::time::Duration::from_secs(10));
+    if let Err(e) = update_guard::restore_previous(&exe, &old) {
+        eprintln!("could not put the previous build back: {e}");
+        state.updating.store(false, Ordering::SeqCst);
+        return;
+    }
+    INSTANCE.release(); // so the previous build claims it straight away
+    if let Err(e) = Command::new(&exe).spawn() {
+        eprintln!("put the previous build back but could not start it: {e}");
+    }
+    app.exit(0);
+}
+
 /// Reports this exe's build, the Python and sidecar it will use, and the
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
-async fn check_components() -> Result<Value, String> {
+async fn check_components(app: tauri::AppHandle) -> Result<Value, String> {
     let updated_to = updated_to_arg();
     // The window is up and the UI has asked for this check, so this exe started. After an update,
-    // the exe that started this one waits for this marker, then exits.
+    // the exe that started this one waits for this marker, then exits. From here this exe watches
+    // its own start: until its engine answers (confirm_started), the previous build stays as exe.old.
     if updated_to.is_some() {
         let _ = update_guard::mark_started(&start_marker(), BUILD_COMMIT);
-    }
-    // The previous exe (exe.old) is kept until now so it can be put back; it goes once its process
-    // has exited. Not when this is the wrong build: the exe that started it is putting itself back.
-    if updated_to.as_deref().is_none_or(|to| to == BUILD_COMMIT) {
-        let after_update = updated_to.is_some();
-        std::thread::spawn(move || {
-            let Ok(exe) = app_exe() else { return };
-            let old = exe.with_extension("exe.old");
-            for _ in 0..120 {
-                if !old.exists() || std::fs::remove_file(&old).is_ok() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            // The previous exe has exited and gone, so nothing else holds this file's name: a copy
-            // still called fabric-desktop.exe becomes kratosforge.exe. Only after an update this PC
-            // takes itself; a managed PC's file stays where IT put it.
-            if after_update && !old.exists() && bundled() && auto_update_allowed() {
-                rename_to_kratosforge(&exe);
-            }
-        });
+        if updated_to.as_deref() == Some(BUILD_COMMIT) && !WATCHING_START.swap(true, Ordering::SeqCst) {
+            std::thread::spawn(move || watch_start(app));
+        }
     }
     let mut report = if bundled() && engine_python().is_none() {
         // Nothing to run the check with until the engine is installed; the UI installs
@@ -2313,7 +2378,7 @@ fn main() {
         .register_uri_scheme_protocol(EMBED_SCHEME, |ctx, request| embed_host(ctx.webview_label(), request.uri().path()))
         .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
-            rpc, stop_kernel, check_components, check_for_update, update_sidecar, update_app,
+            rpc, stop_kernel, check_components, confirm_started, check_for_update, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, fabric_view_url, open_doc, fabric_view_sign_out, open_link, add_to_vscode, open_in_vscode, take_pending_link, pick_folder,
             pop_out_open, pop_out_close, pop_out_on_top, pop_out_list, pop_out_open_in_fabric
         ])

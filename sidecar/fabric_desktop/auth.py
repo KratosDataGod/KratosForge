@@ -19,12 +19,16 @@ import logging
 import os
 import re
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import msal
 
 from . import dpapi, jsonfile
+from .leases import _file_lock
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -154,6 +158,154 @@ def cache_bytes(text: str) -> bytes:
     return DPAPI_HEADER + dpapi.protect(data) if dpapi.available() else data
 
 
+def write_cache(path: Path, text: str) -> None:
+    """Swap ``text`` in as the cache file, encrypted as cache_bytes() says. A temporary file is written
+    and swapped in, so the app and scheduled runs never read half a file. OSError when DPAPI refuses
+    (nothing is written then, never a plain file) or the file can't be replaced."""
+    data = cache_bytes(text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    if os.name != "nt":
+        tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
+    jsonfile.replace(tmp, path)
+
+
+_UNREAD = object()
+
+
+class SharedTokenCache(msal.SerializableTokenCache):
+    """The token cache the app and scheduled runs share, as msal-extensions' PersistedTokenCache does
+    it: each change is made under a lock file (``msal_cache.bin.lock``) to the file's latest contents
+    and written straight away, and a lookup first re-reads the file if another process changed it. So
+    one process never writes back a whole copy that is out of date: a sign-in elsewhere stays.
+
+    A sign-out elsewhere stays too. A process that was already refreshing a token for that account
+    when it was signed out would add it back; its accounts the file lost since this process last read
+    it (``removed_elsewhere``) are dropped from what it adds, until this process signs in itself."""
+
+    def __init__(self, path: Path):
+        super().__init__()
+        self.path = path
+        self.lock_path = path.with_name(f"{path.name}.lock")
+        self.removed_elsewhere: set[str] = set()
+        self.migrate = False  # a plain file from an earlier version was read: write it again encrypted
+        self._seen: object = _UNREAD  # the file's _signature() when last read or written
+        self._depth = 0
+        self._reload()
+
+    def _signature(self) -> tuple[int, int, int] | None:
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return st.st_ino, st.st_mtime_ns, st.st_size  # each write swaps in a new file
+
+    def _accounts(self) -> set[str]:
+        return {a.get("home_account_id") or "" for a in msal.TokenCache.search(self, self.CredentialType.ACCOUNT)}
+
+    def _reload(self, strict: bool = False) -> None:
+        """Read the file again if it changed since this process last read or wrote it. A read that
+        fails (Windows: a virus scan, or a reader with it open) keeps what's in memory, and _seen, so
+        the next lookup reads it again; ``strict`` raises the OSError instead."""
+        seen = self._signature()
+        if seen == self._seen:
+            return
+        before = self._accounts()
+        try:
+            text, self.migrate = read_cache(self.path)
+        except OSError as exc:
+            if strict:
+                raise
+            _log.warning("Couldn't read the saved sign-in just now; trying again at the next lookup: %s", describe(exc))
+            return
+        try:
+            self.deserialize(text)
+        except ValueError:  # a damaged cache file: sign in again rather than fail every call
+            self.deserialize(None)
+            self.migrate = False
+        self._seen = seen
+        after = self._accounts()
+        self.removed_elsewhere = (self.removed_elsewhere | (before - after)) - after
+
+    @contextmanager
+    def locked(self) -> Iterator[bool]:
+        """Holds the lock file (once per process: nested calls share it). True for the outermost call,
+        which writes the change."""
+        with self._lock:
+            if self._depth:
+                self._depth += 1
+                try:
+                    yield False
+                finally:
+                    self._depth -= 1
+                return
+            with _file_lock(self.lock_path):
+                self._depth = 1
+                try:
+                    self._reload_for_change()
+                    yield True
+                finally:
+                    self._depth = 0
+
+    def _reload_for_change(self) -> None:
+        """A change must start from the file's latest contents, or writing it would undo what another
+        process wrote (a sign-out). The read is tried for about 1.5 s, as jsonfile.replace waits; then
+        the OSError is raised and nothing is changed or written."""
+        for attempt in range(jsonfile._REPLACE_ATTEMPTS):
+            try:
+                self._reload(strict=True)
+                return
+            except OSError:
+                if attempt == jsonfile._REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(jsonfile._REPLACE_BACKOFF * (2 ** attempt))
+
+    def write(self) -> None:
+        """Write the cache as it is now; call it holding ``locked()``. OSError as write_cache says."""
+        write_cache(self.path, self.serialize())
+        self._seen = self._signature()
+
+    def write_or_retry_later(self) -> None:
+        try:
+            self.write()
+        except OSError as exc:  # keep the token; the change is written with the next one
+            self.has_state_changed = True
+            _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
+
+    def search(self, credential_type, target=None, query=None, *, now=None):  # MSAL's signature
+        with self._lock:
+            if not self._depth:
+                self._reload()
+            return super().search(credential_type, target=target, query=query, now=now)
+
+    def add(self, event, **kwargs) -> None:  # MSAL's signature
+        with self.locked() as outer:
+            before = self._accounts()
+            super().add(event, **kwargs)
+            for home in (self._accounts() - before) & self.removed_elsewhere:
+                self.forget(home)
+            if outer:
+                self.write_or_retry_later()
+
+    def modify(self, credential_type, old_entry, new_key_value_pairs=None) -> None:
+        with self.locked() as outer:
+            super().modify(credential_type, old_entry, new_key_value_pairs)
+            if outer:
+                self.write_or_retry_later()
+
+    def forget(self, home: str) -> None:
+        """Every entry of the account ``home``, which another process signed out."""
+        kinds = (self.CredentialType.ACCESS_TOKEN, self.CredentialType.REFRESH_TOKEN,
+                 self.CredentialType.ID_TOKEN, self.CredentialType.ACCOUNT)
+        for kind in kinds:
+            for entry in list(msal.TokenCache.search(self, kind, query={"home_account_id": home})):
+                msal.TokenCache.modify(self, kind, entry)
+
+
 class SignInError(RuntimeError):
     """Microsoft sign-in returned no token. The message starts with Entra's code (``AADSTS50076``)
     when there is one, so the app can say what happened and what to do; see docs/troubleshooting.md."""
@@ -188,14 +340,8 @@ class Authenticator:
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
         self._short_lived = False  # the tenant issues tokens with less than STORAGE_MIN_SECONDS to live
-        self.cache = msal.SerializableTokenCache()
-        text, migrate = read_cache(self.cache_path)
-        if text is not None:
-            try:
-                self.cache.deserialize(text)
-            except ValueError:  # a damaged cache file: sign in again rather than fail every call
-                migrate = False
-        if migrate:  # a plain file from an earlier version: encrypt it now
+        self.cache = SharedTokenCache(self.cache_path)
+        if self.cache.migrate:  # a plain file from an earlier version: encrypt it now
             try:
                 self._save(force=True)
             except OSError as exc:  # e.g. the folder is read-only: still signed in, try again next save
@@ -220,23 +366,16 @@ class Authenticator:
         return [default_scope(scopes)] if self.microsoft else scopes
 
     def _save(self, force: bool = False) -> None:
+        """Each change is written as it's made (SharedTokenCache). This writes what is left: a plain
+        file being encrypted (force), or a change whose write failed."""
         if self.cache.has_state_changed or force:
-            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            # Write a temporary file and swap it in: the app and scheduled runs share this cache,
-            # and a half-written file would stop every sign-in.
             try:
-                data = cache_bytes(self.cache.serialize())
-            except OSError as exc:  # DPAPI refused (no user profile loaded): keep the last file, never a plain one
-                _log.warning("Couldn't encrypt the saved sign-in, so it wasn't updated: %s", describe(exc))
-                return
-            tmp = self.cache_path.with_name(f"{self.cache_path.name}.{os.getpid()}.tmp")
-            # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            if os.name != "nt":
-                tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
-            jsonfile.replace(tmp, self.cache_path)
+                with self.cache.locked():
+                    self.cache.write()
+            except OSError as exc:
+                if force:
+                    raise
+                _log.warning("Couldn't save the sign-in, so it wasn't updated: %s", describe(exc))
 
     def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
         scopes = self.scopes_for(scopes)
@@ -260,6 +399,7 @@ class Authenticator:
             raise RuntimeError("KratosForge isn't signed in to Fabric, or the sign-in has expired. Open KratosForge "
                                "and sign in, then try again.")
         if not result:
+            self.cache.removed_elsewhere.clear()  # signing in here: the account may come back
             if self.broker:  # Windows sign-in returns when its window is closed
                 result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle())
             else:
@@ -324,9 +464,14 @@ class Authenticator:
         return self._token(KUSTO_SCOPES)
 
     def sign_out(self) -> None:
-        for account in self.app.get_accounts():
-            self.app.remove_account(account)
-        self._save()
+        """Every account and its tokens, removed in one change under the cache's lock, so a token
+        refresh in another process lands before it or after it, never in between."""
+        with self.cache.locked() as outer:
+            for account in self.app.get_accounts():
+                self.app.remove_account(account)
+                self.cache.forget(account.get("home_account_id") or "")
+            if outer:
+                self.cache.write_or_retry_later()
 
     def signed_in_user(self) -> str | None:
         accounts = self.app.get_accounts()

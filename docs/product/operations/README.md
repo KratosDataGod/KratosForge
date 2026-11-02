@@ -25,6 +25,8 @@ Each workstream has one lead thread, which owns its queue and hands stories to t
 
 Leads top up their own ready stories when they drop below two: no-go, no-mockup, no-spend work only, as an issue in the same format and labels, checked against main first. Work that needs a mockup, Chris's go or capacity spend goes to the orchestrator to batch for Chris. Leads keep each story's `status:` label current (`active` when started, `review` when its PR is open), so the weekly report's counts are right.
 
+**Open issues.** Since 2026-11-02 fewer than five issues stay open, and only for work someone is doing now. A queued story's issue stays closed until its lead starts it: the lead reopens it, or links the PR to it. Its place in the queue is kept here and in [workstreams.json](workstreams.json).
+
 **Work in progress.** Review and CI, not building, are the bottleneck. A workstream keeps at most four PRs waiting for a quality or security verdict (a PR with a PASS that only waits to merge doesn't count); past that, it works review findings before opening another. Review fixes go up as one push per PR, stacks are rebased only when their base merges, and a PR is stacked on another only when both change the same code.
 
 <!-- BEGIN GENERATED: queues -->

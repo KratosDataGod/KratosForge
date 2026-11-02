@@ -421,31 +421,50 @@ def _preview_on(what: str) -> None:
 
 
 def _store_assign(data: pa.Table, table: str) -> pa.Table:
-    """INSERT and insertInto cast their values to the table's column types, as Spark's store
-    assignment does (the literal 1.0 is a decimal, and goes into a double column), but only where
-    every value comes through the cast as it was: 2.75 into a whole-number column still stops,
-    as write_table does (EA-001)."""
+    """INSERT and insertInto cast their values to the table's column types where Spark's ANSI store
+    assignment does (a number into another number, anything into text, a date into a timestamp: the
+    literal 1.0 is a decimal, and goes into a double column), and only when every value comes through
+    the cast as it was. Any other column is left as it is, for write_table to refuse (EA-001): '5'
+    into a whole-number column, true into one, 2.75 into one, 1.1 into a float column."""
     target = {f.name.lower(): f for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
     columns = []
     for name, column in zip(data.column_names, data.columns):
         field = target.get(name.lower())
-        if field is None or column.type.equals(field.type) or pa.types.is_null(column.type):
+        if field is None or column.type.equals(field.type) or not _store_assigns(column.type, field.type):
             columns.append(column)
             continue
         try:
-            columns.append(column.cast(field.type, safe=True))
+            cast = column.cast(field.type, safe=True)
         except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
             raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
                              f"({field.type}): {exc}. Nothing was written. Cast the column first.") from None
-        if not _same_values(column, columns[-1]):
+        if not _same_values(column, cast):
             raise ValueError(f"Inserting into {table} would change values in {name} to fit its type "
                              f"({field.type}). Nothing was written. Cast the column first.")
+        columns.append(cast)
     return pa.table(columns, names=data.column_names)
 
 
+def _numeric_type(t: pa.DataType) -> bool:
+    return pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t)
+
+
+def _store_assigns(src: pa.DataType, dst: pa.DataType) -> bool:
+    """The casts Spark's ANSI store assignment makes (Cast.canANSIStoreAssign), for top-level columns."""
+    if pa.types.is_null(src):
+        return False  # write_table gives an all-NULL column the table's type
+    if _numeric_type(src) and _numeric_type(dst):
+        return True
+    if pa.types.is_string(dst) or pa.types.is_large_string(dst):
+        return True
+    return pa.types.is_date(src) and pa.types.is_timestamp(dst)
+
+
 def _same_values(before: Any, after: Any) -> bool:
-    """Whether a numeric cast kept every value (a safe cast still rounds a float or a decimal)."""
-    if not (pa.types.is_floating(after.type) and (pa.types.is_decimal(before.type) or pa.types.is_integer(before.type))):
+    """Whether a cast kept every value. A safe cast refuses an overflow and a truncated fraction,
+    but still rounds a number into a float (1.1 into a float, 2**53 + 1 into a double) and a float
+    into a decimal, so those go back to the source type and are compared."""
+    if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
         return True
     try:
         return bool(after.cast(before.type, safe=False).equals(before))

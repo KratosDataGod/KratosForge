@@ -134,7 +134,7 @@ jobs:
 
   lint:
     # Mistakes rather than style in the engine's Python: syntax errors, names that are unused or
-    # undefined (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
+    # undefined, likely bugs (bugbear) (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
     # and new type errors. The engine's packages are installed so mypy sees their types.
     runs-on: ubuntu-latest
     defaults:

@@ -928,6 +928,17 @@ def _collect_structs_as_rows(collect: Any) -> Any:
     return collect_rows
 
 
+def _spark_divide(reverse: bool) -> Any:
+    """Column division as Spark's (ANSI off): dividing by zero gives NULL (EA-012); DuckDB gives inf,
+    -inf or NaN. Spark's ``/`` is a double division, as DuckDB's is."""
+    from duckdb.experimental.spark.sql.column import _get_expr
+
+    def divide(self: Column, other: Any) -> Column:
+        left, right = (_get_expr(other), self.expr) if reverse else (self.expr, _get_expr(other))
+        return Column(left / duckdb.FunctionExpression("nullif", right, duckdb.ConstantExpression(0)))
+    return divide
+
+
 # Column.cast to a whole-number type truncates as Spark does (EA-003); DuckDB's cast rounds.
 _INT_CAST_NAMES = {"tinyint": ("TINYINT", "TINYINT"), "byte": ("TINYINT", "TINYINT"),
                    "smallint": ("SMALLINT", "SMALLINT"), "short": ("SMALLINT", "SMALLINT"),
@@ -940,10 +951,21 @@ def _int_cast(original: Any) -> Any:
     def cast(self: Column, dataType: Any) -> Column:
         name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
         target = _INT_CAST_NAMES.get(name or "")
-        if target is None:
+        if isinstance(dataType, str) and name == "timestamp":
+            stamp: str | None = "TIMESTAMP"
+        elif type(dataType).__name__ in ("TimestampType", "TimestampNTZType"):
+            stamp = str(dataType.duckdb_type)
+        else:
+            stamp = None
+        if target is None and stamp is None:
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
-        cast_sql = spark_sql.spark_integer_cast("kf_cast", *target, "legacy")
+        # A number cast to a timestamp is its seconds since 1970 (EA-014), as spark_timestamp_cast writes it.
+        if stamp is not None:
+            cast_sql = spark_sql.spark_timestamp_cast("kf_cast", stamp, "legacy")
+        else:
+            duck_type, spark_type = target  # type: ignore[misc]  # not None here: one of the two is set
+            cast_sql = spark_sql.spark_integer_cast("kf_cast", duck_type, spark_type, "legacy")
         return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
     return cast
 
@@ -957,6 +979,8 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
     Column.cast = _int_cast(Column.cast)  # type: ignore[method-assign]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))

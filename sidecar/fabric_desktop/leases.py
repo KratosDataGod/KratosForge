@@ -68,6 +68,9 @@ class Stored:
     data: bytes
     etag: str
     modified: float  # epoch seconds
+    # The store's own clock when it answered (OneLake's Date), when it gave both that and the file's
+    # Last-Modified: then the lease's age is judged on one clock, whatever the PCs' clocks say (EA-025).
+    store_now: float | None = None
 
 
 class Backend(Protocol):
@@ -286,8 +289,12 @@ class OneLakeBackend:
         try:
             modified = parsedate_to_datetime(resp.headers["Last-Modified"]).timestamp()
         except (KeyError, TypeError, ValueError):
-            modified = time.time()
-        return Stored(resp.content, resp.headers.get("ETag", ""), modified)
+            return Stored(resp.content, resp.headers.get("ETag", ""), time.time())
+        try:
+            store_now: float | None = parsedate_to_datetime(resp.headers["Date"]).timestamp()
+        except (KeyError, TypeError, ValueError):
+            store_now = None
+        return Stored(resp.content, resp.headers.get("ETag", ""), modified, store_now)
 
     def replace(self, key: str, data: bytes, etag: str) -> str | None:
         return self._write(key, data, {"If-Match": etag})
@@ -315,7 +322,7 @@ class Leases:
         now = self.clock() if now is None else now
         return json.dumps({"owner": self.owner, "host": socket.gethostname(), "pid": os.getpid(),
                            "acquired_at": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
-                           "expires": now + self.ttl}).encode()
+                           "expires": now + self.ttl, "ttl": self.ttl}).encode()
 
     def _expires(self, stored: Stored) -> tuple[float, str]:
         try:
@@ -335,10 +342,30 @@ class Leases:
         stored = self.backend.read(key)
         if stored is None:
             return self.backend.create(key, self._body(now))  # released just now
-        expires, _ = self._expires(stored)
-        if expires < self.clock():
+        if self._expired(stored):
             return self.backend.replace(key, self._body(now), stored.etag)  # take over an expired lease
         return None
+
+    def _expired(self, stored: Stored) -> bool:
+        """Whether ``stored``'s lease has run out. Where the store says when it last wrote the file
+        and what its clock says now (OneLake), that's the lease's age on one clock, against the length
+        its holder gave it: PCs' clocks differ, so the expiry one PC wrote can't be compared with
+        another's clock (EA-025). Elsewhere (a folder on this PC: one clock) the body's expiry."""
+        if stored.store_now is None:
+            return self._expires(stored)[0] < self.clock()
+        # Both times are whole seconds (HTTP dates), so a second more before taking it over.
+        return stored.store_now - stored.modified > self._length(stored) + 1
+
+    def _length(self, stored: Stored) -> float:
+        """How long the holder's lease runs from each write of it: the body's ttl, or for a body from
+        before it said so, its expiry less the time it was written; this writer's ttl while empty."""
+        try:
+            body = json.loads(stored.data)
+            if "ttl" in body:
+                return float(body["ttl"])
+            return float(body["expires"]) - dt.datetime.fromisoformat(body["acquired_at"]).timestamp()
+        except (ValueError, KeyError, TypeError):
+            return self.ttl
 
     def holder(self, key: str) -> str:
         stored = self.backend.read(key)

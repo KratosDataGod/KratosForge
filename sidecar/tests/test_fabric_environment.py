@@ -108,7 +108,8 @@ def test_ids_that_arent_guids_are_refused_before_any_call():
 def test_a_runtime_that_cant_be_read_still_compares_the_libraries():
     item = fabric_environment.read(Fabric([{"name": "rich", "libraryType": "External", "version": "1"}],
                                           runtime_fail=FabricError("x", None, 403)), WS, ENV)
-    out = fabric_environment.drift(item, fabric_environment.on_this_pc(), python="3.11")
+    # This PC is given as a fixed list, so the result doesn't depend on what the test's Python has installed.
+    out = fabric_environment.drift(item, {}, python="3.11")
     assert out["missing_here"] == [{"name": "rich", "fabric": "1"}] and "can't read" in out["runtime_problem"]
     assert out["python"]["differs"] is False
 

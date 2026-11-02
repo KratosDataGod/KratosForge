@@ -1,6 +1,7 @@
 """LX-03: Learn datasets are the same every time, each check passes and fails for the right reasons,
 and a lab runs on this PC only: no file or network access, answers checked without changing the lab,
-reset back to the start, and a lab folder never outside <data>/learn."""
+reset back to the start, a lab folder never outside <data>/learn, and each run or check stopped at
+30 seconds with 1 GB of memory."""
 
 from __future__ import annotations
 
@@ -230,3 +231,26 @@ def test_guard_refuses_only_transaction_statements(con):
     for sql in ("COMMIT", "SELECT 1; ROLLBACK", "BEGIN; SELECT 1"):
         with pytest.raises(ValueError):
             checks.guard(con, sql)
+
+
+# Limits ------------------------------------------------------------------------------------------
+
+SLOW = "SELECT count(*) FROM range(100000000000) a"   # minutes of work: only a stop ends it
+
+
+def test_a_run_and_a_check_are_stopped_at_the_time_limit(tmp_path, monkeypatch):
+    labs.start(tmp_path, "LM-01")
+    monkeypatch.setattr(labs, "TIME_LIMIT", 0.5)
+    with pytest.raises(ValueError, match="Stopped after 0.5 seconds"):
+        labs.run(tmp_path, "LM-01", SLOW)
+    result = labs.check(tmp_path, "LM-01", "north-big-orders", SLOW)
+    assert not result["passed"] and result["results"][0]["detail"].startswith("Stopped after 0.5 seconds")
+    assert labs.run(tmp_path, "LM-01", "SELECT 1 AS one")["rows"] == [[1]], "the lab works again after a stop"
+
+
+def test_the_limits_are_30_seconds_and_1gb_and_an_answer_cant_raise_the_memory(tmp_path):
+    assert labs.TIME_LIMIT == 30 and labs.MEMORY_LIMIT == "1GB"
+    labs.start(tmp_path, "LM-01")
+    assert labs.run(tmp_path, "LM-01", "SELECT current_setting('memory_limit') AS m")["rows"] == [["953.6 MiB"]]
+    with pytest.raises(duckdb.Error, match="locked"):
+        labs.run(tmp_path, "LM-01", "SET memory_limit = '8GB'")

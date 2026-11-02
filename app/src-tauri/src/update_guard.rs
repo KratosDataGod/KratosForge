@@ -252,24 +252,36 @@ pub fn swap_in(exe: &Path, new: &Path, old: &Path) -> Result<(), String> {
 /// Puts the previous exe (`old`) back in place of a new one that didn't start. Retries for a
 /// few seconds while Windows still holds the ended process's file.
 pub fn restore_previous(exe: &Path, old: &Path) -> Result<(), String> {
+    restore_with(exe, old, |from, to| std::fs::rename(from, to), Duration::from_millis(250))
+}
+
+/// restore_previous with the rename and the pause between attempts given, so tests can make a move fail.
+fn restore_with(
+    exe: &Path,
+    old: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    pause: Duration,
+) -> Result<(), String> {
     if !old.exists() {
         return Err(format!("The previous version ({}) is missing, so it could not be put back.", old.display()));
     }
     let failed = exe.with_extension("exe.failed");
+    // Only a copy left by an earlier update: once the new exe is moved there, it is the only copy of
+    // that build, and the fallback below puts it back if the previous one can't be.
+    let _ = std::fs::remove_file(&failed);
     let mut last = String::new();
     for attempt in 0..20 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(250));
+            std::thread::sleep(pause);
         }
-        let _ = std::fs::remove_file(&failed);
         // Move the new exe aside first (it may still be held open), then the old one back.
         if exe.exists() {
-            if let Err(e) = std::fs::rename(exe, &failed) {
+            if let Err(e) = rename(exe, &failed) {
                 last = e.to_string();
                 continue;
             }
         }
-        match std::fs::rename(old, exe) {
+        match rename(old, exe) {
             Ok(()) => {
                 let _ = std::fs::remove_file(&failed);
                 return Ok(());
@@ -279,7 +291,7 @@ pub fn restore_previous(exe: &Path, old: &Path) -> Result<(), String> {
     }
     // Never leave no exe at all: put the new one back where it was.
     if !exe.exists() {
-        let _ = std::fs::rename(&failed, exe);
+        let _ = rename(&failed, exe);
     }
     Err(format!("Could not put the previous version back in place of {}: {last}", exe.display()))
 }
@@ -568,6 +580,29 @@ mod tests {
         assert!(swap_in(&exe, &new, &old).is_err(), "no download to put in place");
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "previous");
         assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_restore_that_cant_move_the_previous_exe_back_keeps_the_new_one() {
+        let dir = scratch("restorefail");
+        let (exe, old) = (dir.join("app.exe"), dir.join("app.exe.old"));
+        std::fs::write(&exe, "next").unwrap();
+        std::fs::write(&old, "previous").unwrap();
+        std::fs::write(exe.with_extension("exe.failed"), "stale").unwrap();
+        // A virus scanner holds exe.old, so every move of it fails; other moves work.
+        let held = old.clone();
+        let rename = |from: &Path, to: &Path| {
+            if from == held {
+                Err(std::io::Error::other("in use"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        };
+        assert!(restore_with(&exe, &old, rename, Duration::ZERO).unwrap_err().contains("in use"));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "next", "the new build is still there to start");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "previous");
+        assert!(!exe.with_extension("exe.failed").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

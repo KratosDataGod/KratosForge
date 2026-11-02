@@ -25,10 +25,13 @@ from .jsonfile import read_json, read_text, write_json, write_text
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
-# The runs log is trimmed to its newest RUNS_KEEP rows once it passes RUNS_TRIM_BYTES (a row is
-# a few hundred bytes), so years of scheduled runs can't grow it, or every read of it, without bound.
+# The runs log is trimmed once it passes RUNS_TRIM_BYTES, to its newest RUNS_KEEP rows or RUNS_KEEP_BYTES,
+# whichever is smaller (a row is a few hundred bytes), so years of scheduled runs can't grow it, or every
+# read of it, without bound. Keeping half the trigger size means rows with long error text can't leave the
+# file over the cap and rewritten on every run.
 RUNS_KEEP = 10_000
 RUNS_TRIM_BYTES = 8 * 1024 * 1024
+RUNS_KEEP_BYTES = RUNS_TRIM_BYTES // 2
 SCHEDULES_FILE = "schedules.json"
 
 
@@ -351,7 +354,13 @@ class LocalSchedules:
                 f.write(json.dumps(row, default=str) + "\n")
             if self.runs_file.stat().st_size > RUNS_TRIM_BYTES:
                 lines = self.runs_file.read_text(encoding="utf-8").splitlines(keepends=True)
-                write_text(self.runs_file, "".join(lines[-RUNS_KEEP:]))
+                kept, size = [], 0
+                for line in reversed(lines[-RUNS_KEEP:]):
+                    size += len(line.encode("utf-8"))
+                    if size > RUNS_KEEP_BYTES and kept:
+                        break
+                    kept.append(line)
+                write_text(self.runs_file, "".join(reversed(kept)))
 
     def listing(self, now: dt.datetime | None = None) -> list[dict[str, Any]]:
         """Every schedule with its next run and its latest result."""

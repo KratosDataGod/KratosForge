@@ -76,10 +76,15 @@ def test_timestamp_and_whole_number_casts_compose_on_column_cast():
                        "out = e.select(F.col('s').cast('timestamp').alias('ts'), F.col('x').cast('int').alias('i'),"
                        " F.col('t').cast(TimestampType()).alias('tt'), F.col('s').cast(DateType()).alias('d'),"
                        " F.col('x').cast('long').alias('l'), F.col('x').cast('string').alias('str'))\n"
-                       "print([tuple(r) for r in out.collect()])")
+                       "print([type(out.schema[c].dataType).__name__ for c in ('ts', 'tt')])\n"
+                       # DuckDB 1.x hands a TimestampType back with its zone (UTC here), 2.x as a naive local
+                       # time, as Spark does: the type above says which it is, the values are compared without it.
+                       "print([tuple(v.replace(tzinfo=None) if hasattr(v, 'hour') else v for v in r)"
+                       " for r in out.collect()])")
     assert status == "ok", text
-    rows = text.strip()
-    assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5" in rows and ", None, 3, '3.7')" in rows
+    types, rows = text.strip().splitlines()
+    assert types == "['TimestampType', 'TimestampType']"  # cast('timestamp') is TimestampType, not NTZ
+    assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5), None, 3, '3.7')" in rows
     assert "(datetime.datetime(2024, 1, 2, 0, 0), -3, None, datetime.date(2024, 1, 2), -3, '-3.7')" in rows
 
 
@@ -94,3 +99,25 @@ def test_time_cast_keeps_duckdbs_cast_for_numbers():
                        "print(d.select(plain(F.col('s'), 'date').alias('v')).collect())\n"
                        "n.select(plain(F.col('n'), 'date').alias('v')).collect()")
     assert status == "error" and "v=None" in text, text
+
+
+def test_cast_to_timestamp_by_name_and_by_type_agree():
+    """cast('timestamp') is Spark's TimestampType, a moment in time, as cast(TimestampType()) and Spark
+    SQL's CAST AS TIMESTAMP are; DuckDB's own 'timestamp' has no time zone."""
+    status, text = run("n = spark.createDataFrame([(10, '2024-01-02')], 'n int, s string')\n"
+                       "out = n.select(F.col('n').cast('timestamp').alias('a'), F.col('n').cast(TimestampType()).alias('b'),"
+                       " F.col('s').cast('timestamp').alias('c'), F.col('s').cast(TimestampType()).alias('d'))\n"
+                       "print(out.relation.types)\n"
+                       "print(spark.sql(\"SELECT CAST('2024-01-02' AS TIMESTAMP) AS e\").relation.types)")
+    assert status == "ok", text
+    by_cast, by_sql = text.strip().splitlines()
+    assert by_cast == "[TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE]"
+    assert by_sql == "[TIMESTAMP WITH TIME ZONE]"
+
+
+def test_f_expr_casts_to_whole_numbers_as_spark_does():
+    status, text = run("e = spark.createDataFrame([('3.7', 3.7)], 't string, x double')\n"
+                       "print(tuple(e.select(F.expr('CAST(t AS INT)'), F.expr('CAST(x AS BIGINT) AS b'),"
+                       " F.expr('CAST(-3.7 AS INT)')).first()))")
+    assert status == "ok", text
+    assert "(3, 3, -3)" in text

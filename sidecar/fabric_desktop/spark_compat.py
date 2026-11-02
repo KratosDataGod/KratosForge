@@ -354,7 +354,8 @@ def initcap(col: Any) -> Column:
 
 def expr(text: str) -> Column:
     """A Spark SQL expression. ``AS name`` names the column, as in Spark."""
-    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(sqlglot.parse_one(text, read="spark")))
+    parsed = spark_sql.spark_legacy_times(spark_sql.spark_substring(spark_sql.spark_integer_casts(
+        sqlglot.parse_one(text, read="spark"))))
     if isinstance(parsed, exp.Alias):
         return _sql(spark_sql.duckdb_sql(parsed.this)).alias(parsed.alias)
     return _sql(spark_sql.duckdb_sql(parsed))
@@ -946,6 +947,9 @@ def _collect_structs_as_rows(collect: Any) -> Any:
 
 
 _TIME_TYPE_NAMES = ("date", "timestamp")
+# Spark's "timestamp" is TimestampType, a moment in time: the same DuckDB type as cast(TimestampType())
+# and Spark SQL's CAST AS TIMESTAMP, not DuckDB's own "timestamp" (without a time zone).
+_TIME_TARGETS = {"date": "DATE", "timestamp": "TIMESTAMPTZ"}
 
 
 def _time_cast(original: Any) -> Any:
@@ -958,7 +962,7 @@ def _time_cast(original: Any) -> Any:
         if isinstance(dataType, str):
             if dataType.strip().lower() not in _TIME_TYPE_NAMES:
                 return plain
-            target = dataType.strip().upper()
+            target = _TIME_TARGETS[dataType.strip().lower()]
         elif isinstance(dataType, (DateType, TimestampType, TimestampNTZType)):
             target = str(dataType.duckdb_type)
         else:
@@ -996,7 +1000,7 @@ def _int_cast(original: Any) -> Any:
         name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
         target = _INT_CAST_NAMES.get(name or "")
         if isinstance(dataType, str) and name == "timestamp":
-            stamp: str | None = "TIMESTAMP"
+            stamp: str | None = _TIME_TARGETS["timestamp"]
         elif type(dataType).__name__ in ("TimestampType", "TimestampNTZType"):
             stamp = str(dataType.duckdb_type)
         else:

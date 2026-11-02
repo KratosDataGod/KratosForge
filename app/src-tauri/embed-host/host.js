@@ -166,6 +166,15 @@
         .then((result) => send({ reply: seq, ok: true, result: clean(result) }))
         .catch((err) => send({ reply: seq, ok: false, error: String((err && err.message) || err).slice(0, MAX_TEXT) }));
     });
+    // The SDK sends the load request when Power BI's frame has loaded, and drops that promise: a refused load
+    // (an error status from Power BI) surfaces only as an unhandled rejection here. It goes to the app as an
+    // error event, so the screen can say what happened instead of waiting.
+    win.addEventListener("unhandledrejection", (e) => {
+      const reason = e.reason;
+      if (!current || !reason || typeof reason !== "object" || !(reason.message || reason.errorCode)) return;
+      e.preventDefault();
+      emit("error", reason);
+    });
     // Ready: the parent can send commands now. It carries nothing, so it goes to each app origin it may be.
     for (const origin of APP_ORIGINS) send({ event: "ready" }, origin);
     return { commands };

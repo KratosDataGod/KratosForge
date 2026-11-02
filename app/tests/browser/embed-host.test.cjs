@@ -184,3 +184,15 @@ test("Power BI's frame can't take itself off app.powerbi.com", { skip }, async (
   assert.match(await blocked, /^frame-src https:\/\/example\.com/);
   assert.ok(!page.frames().some((f) => f.url().startsWith("https://example.com/")), "the frame reached example.com");
 });
+
+// The SDK sends /report/load itself and doesn't wait on the answer, so a refused load is an unhandled rejection
+// in the host: it must still reach the app as an error event, with Power BI's request id and no token.
+test("a load Power BI refuses comes back as an error event", { skip }, async () => {
+  const id = await page.evaluate((url) => window.command({ command: "embed", kind: "report", id: "r2", embedUrl: url, accessToken: "secret-token" }),
+    "https://app.powerbi.com/reportEmbed?reportId=r2&groupId=w1&fail=load");
+  assert.strictEqual((await replyTo(id)).ok, true);
+  const err = await page.waitForFunction(() => window.got.find((m) => m.event === "error" && m.detail?.technicalDetails?.requestId === "req-load"))
+    .then((h) => h.jsonValue());
+  assert.strictEqual(err.detail.message, "LoadReportFailed");
+  assert.ok(!JSON.stringify(err).includes("leaked-token") && !JSON.stringify(err).includes("secret-token"));
+});

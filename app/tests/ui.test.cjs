@@ -1656,6 +1656,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
+    // 256 px square PNG, and <img> only decodes it.
+    "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
   ]);
@@ -3666,7 +3669,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -5245,7 +5248,7 @@ test("Profile shows proofs, and Journey and Achievements only while progression 
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);

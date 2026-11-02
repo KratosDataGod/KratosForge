@@ -445,6 +445,7 @@ def main() -> None:
     from . import notebook
     notebook.sweep_spills()  # output files a closed notebook session left behind
     service = Service()
+    service.policy_record()  # a policy file changed since the last start goes in the audit trail (#1670)
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:
         serve(service, stdin=sys.stdin, stdout=rpc_out)

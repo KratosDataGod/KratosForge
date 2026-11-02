@@ -276,7 +276,7 @@ def same(got: Any, want: Any) -> bool:
     """Equal as Databricks would show it: numbers by value (3 == 3.0 == DECIMAL 3), dates and
     timestamps by value, lists item by item."""
     if isinstance(want, (list, tuple)):
-        return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want))
+        return isinstance(got, (list, tuple)) and len(got) == len(want) and all(same(g, w) for g, w in zip(got, want, strict=True))
     if isinstance(want, bool) or isinstance(got, bool):
         return type(got) is type(want) and got == want
     if isinstance(want, (int, float, Decimal)) and isinstance(got, (int, float, Decimal)):

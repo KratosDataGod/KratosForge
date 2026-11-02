@@ -40,6 +40,10 @@ A lesson marked **Draft** is still being written and may change.
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
+| LM-23 | Warehouse or lakehouse: where T-SQL writes | Microsoft Fabric | SQ004 |
+| LM-24 | Shortcuts and OneLake security | Microsoft Fabric | |
+| LM-25 | V-Order, OPTIMIZE and VACUUM | Microsoft Fabric | NB020 |
+| LAB-07 | A Gold layer that stays in Direct Lake: tables, the report's grain, and an Unknown member | Microsoft Fabric | |
 | LM-10 | QUALIFY: filter on a window function | Snowflake | |
 | LM-28 | Semi-structured data: nested records and arrays | Snowflake | |
 | LM-29 | Time travel and restoring a table | Snowflake | |

@@ -567,8 +567,12 @@ function navKey(e) {
 function renderNavButtons() {
   const back = document.getElementById("nav-back");
   const fwd = document.getElementById("nav-forward");
-  if (back) back.disabled = !navCan(-1);
-  if (fwd) fwd.disabled = !navCan(1);
+  const canBack = navCan(-1), canFwd = navCan(1);
+  if (back) back.disabled = !canBack;
+  if (fwd) fwd.disabled = !canFwd;
+  // Hidden until there is somewhere to go: two faint arrows on a fresh start read as broken.
+  const wrap = back?.parentElement;
+  if (wrap) wrap.hidden = !canBack && !canFwd;
 }
 
 function go(view) {
@@ -2393,15 +2397,26 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here?.reasons?.length) {  // Unknown cells (here.unknown) aren't shown as blockers
+  const unknown = here?.unknown || [];
+  const place = where.fabric ? "in Fabric" : "on this PC";
+  const cells = (n) => `${n} cell${n === 1 ? "" : "s"}`;
+  if (here?.reasons?.length) {
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),
         h("b", { class: "grow" }, where.fabric ? "This notebook can't run in Fabric yet" : "This notebook only runs in Fabric"),
         other?.ok ? btn(where.fabric ? "Run on this PC" : "Run in Fabric", where.fabric ? "desktop" : "cloud",
           () => setNotebookCompute(switchTo), "tool small") : null),
-      computeReasons(here.reasons)));
-  } else if (where.fabric) {
+      computeReasons(here.reasons),
+      unknown.length ? [h("p", { class: "compute-unknown-head" }, `The check also can't tell for ${cells(unknown.length)}:`), computeReasons(unknown)] : null));
+  } else if (unknown.length) {
+    slot.append(h("div", { class: "compute-unknown" },
+      h("div", { class: "row" }, icon("help", 16),
+        h("b", { class: "grow" }, `The check can't tell whether ${cells(unknown.length)} run${unknown.length === 1 ? "s" : ""} ${place}`)),
+      computeReasons(unknown),
+      h("p", { class: "muted-text" }, "Prove and the risk check count these cells as not checked. Run them to find out, or write the names they use in the code.")));
+  }
+  if (!here?.reasons?.length && where.fabric) {
     const run = nb.fabricRun;
     slot.append(h("div", { class: "callout compute-callout" }, icon("cloud", 18),
       h("span", { class: "grow" }, `Run all publishes this notebook and runs it on ${publishWorkspaceName(nb)}'s Fabric capacity. `,
@@ -2988,7 +3003,11 @@ async function checkComponents(afterInstall = false) {
   if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
-    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);
+    // A developer's own Python that lacks a package a newer engine needs (PyYAML, for the Ossie converter): say
+    // the command that installs what's missing rather than only the import error.
+    const missing = /^ModuleNotFoundError: No module named '[^'.]+'$/.exec(sidecar.error || "");
+    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}` + (missing
+      ? `. This Python (${report.python}) is missing a package the engine needs. In the sidecar folder, run: python -m pip install -e . -c constraints.txt` : ""));
     else if (sidecar.version) set("sidecar", "ok", `${sidecar.version}, ${kind}`);
     else set("sidecar", "error", "Not installed. In the sidecar folder, run: python -m pip install -e .");
   } else if (sidecar.commit === app.commit && !sidecar.error) {

@@ -15,6 +15,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
 - runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
   ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` is refused for now);
+- gives ``POWER`` its first argument's type (an integer base gives an integer; a decimal base is refused);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
 - returns ``GETDATE()`` and friends as UTC times without a zone, as a Fabric Warehouse does.
@@ -203,7 +204,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc)
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast, exp.DateAdd, exp.TimestampTrunc, exp.Pow)
     here = _in_order(tree, kinds)
     if not here:
         return []
@@ -230,7 +231,7 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 "integers are done as DuckDB does them (T-SQL divides and averages integers as integers, and cuts a "
                 "decimal cast to an integer toward zero)."]
     notes: list[str] = []
-    for node, info in zip(here, there):
+    for node, info in zip(here, there, strict=True):
         if isinstance(node, exp.Div):
             a, b = info.this.type, info.expression.type
             if _is(a, _INTEGERS) and _is(b, _INTEGERS):
@@ -243,6 +244,8 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
                 # AVG(x) OVER (...) is a Window around the AVG: the whole window is what gets cut.
                 whole = node.parent if isinstance(node.parent, exp.Window) and node.parent.this is node else node
                 whole.replace(exp.Cast(this=exp.Trunc(this=whole.copy()), to=exp.DataType.build("BIGINT")))
+        elif isinstance(node, exp.Pow):
+            notes += _power(node, info.this.type)
         elif isinstance(node, (exp.DateAdd, exp.TimestampTrunc)):
             if _is(info.this.type, {exp.DataType.Type.DATE}):
                 _stays_a_date(node)
@@ -267,6 +270,27 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             _truncated(node, info.this.type)
             _sized_text(node, info.this.type)  # a no-op for the integer casts _truncated may replace
     return notes
+
+
+def _power(node: exp.Pow, base: exp.DataType | None) -> list[str]:
+    """``POWER(x, y)`` has x's type in T-SQL: an integer base gives an integer, cut toward zero
+    (``POWER(2, -1)`` is 0), and a result too big for that type is an error. A decimal base keeps the
+    decimal's scale, which isn't carried here, so it is refused rather than answered differently."""
+    first = node.this.this if isinstance(node.this, exp.Neg) else node.this
+    written_decimal = isinstance(first, exp.Literal) and not first.is_string and "." in first.name \
+        and "e" not in first.name.lower()  # 2.0 is a decimal in T-SQL, 2e0 a float
+    if _is(base, _INTEGERS - {exp.DataType.Type.BIT}) and not written_decimal:
+        assert base is not None
+        big = base.this == exp.DataType.Type.BIGINT  # tinyint and smallint give an int, as T-SQL's POWER does
+        node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT" if big else "INT")))
+    elif written_decimal or _is(base, {exp.DataType.Type.DECIMAL, exp.DataType.Type.MONEY,
+                                        exp.DataType.Type.SMALLMONEY}):
+        raise ValueError(_NOT_YET + "POWER of a decimal keeps the decimal's scale in T-SQL, which isn't mapped "
+                         "yet. Cast the first argument to FLOAT, or to the integer type you mean.")
+    elif _unknown(base):
+        return [f"Couldn't tell the type in {node.sql(dialect='tsql')}: it raises as DuckDB does, in floating "
+                "point, and T-SQL gives the first argument's type (an integer base gives an integer)."]
+    return []
 
 
 def _truncated(node: exp.Expression, source: exp.DataType | None) -> None:

@@ -55,3 +55,17 @@ def test_decimal_division_stays_decimal(lake):
                        ".write.mode('overwrite').saveAsTable('dbo.q')")
     assert status == "ok", text
     assert pa.types.is_decimal(DeltaTable(str(lake / "dbo" / "q")).to_pyarrow_table().schema.field("q").type)
+
+
+@pytest.mark.parametrize("expr", ["F.col('s').cast('timestamp')", "F.col('s').cast(TimestampType())",
+                                  "F.expr('CAST(s AS TIMESTAMP)')"])
+def test_a_cast_to_timestamp_is_written_as_delta_timestamp_not_ntz(lake, expr):
+    status, text = run("from pyspark.sql import functions as F\n"
+                       "from pyspark.sql.types import TimestampType\n"
+                       "spark.createDataFrame([('2024-01-02 03:04:05',)], 's string')"
+                       f".select({expr}.alias('ts')).write.mode('overwrite').saveAsTable('dbo.stamps')")
+    assert status == "ok", text
+    table = DeltaTable(str(lake / "dbo" / "stamps"))
+    field = next(f for f in table.schema().fields if f.name == "ts")
+    assert str(field.type.type) == "timestamp"
+    assert table.to_pyarrow_table().column("ts").to_pylist()[0].isoformat() == "2024-01-02T03:04:05+00:00"

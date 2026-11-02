@@ -40,7 +40,7 @@ def test_an_integrations_file_damaged_inside_is_set_aside_too(tmp_path):
     store = IntegrationStore(path)
     with store._tx() as db:
         db.executemany("insert into settings (key, value) values (?, ?)", [(f"k{i}", '"' + "x" * 500 + '"') for i in range(200)])
-    with sqlite3.connect(path) as db:
+    with sqlitefile.connect(path) as db:  # closed after, so Windows can move the file aside
         db.execute("pragma wal_checkpoint(truncate)")
     data = bytearray(path.read_bytes())
     data[8192:12288] = b"\xff" * 4096  # a page in the middle, past the header

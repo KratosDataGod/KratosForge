@@ -484,12 +484,6 @@
   "attr-defined": 1,
   "index": 2
  },
- "fabric_desktop/spark_compat.py": {
-  "arg-type": 3,
-  "assignment": 2,
-  "index": 2,
-  "misc": 1
- },
  "fabric_desktop/spark_local.py": {
   "arg-type": 17,
   "assignment": 4,

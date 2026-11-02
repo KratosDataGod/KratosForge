@@ -92,10 +92,12 @@ def last_load(runs: list[dict[str, Any]], entities: list[str], unavailable: dict
     partial = ""
     for env in ENVS_HIGH_FIRST:
         here = [latest.get((env, e)) for e in entities]
-        if all(here):
-            rows = [r.get("rows_written") for r in here]
-            return {"last_load": min(str(r["started_at"]) for r in here), "load_env": env,
-                    "last_rows": None if any(x is None for x in rows) else min(int(x) for x in rows)}
+        loaded = [r for r in here if r]
+        if len(loaded) == len(here):
+            rows = [r.get("rows_written") for r in loaded]
+            counts = [x for x in rows if x is not None]
+            return {"last_load": min(str(r["started_at"]) for r in loaded), "load_env": env,
+                    "last_rows": None if len(counts) != len(rows) else min(int(x) for x in counts)}
         if any(here) and not partial:
             missing = [e for e, r in zip(entities, here) if not r]
             partial = f"{', '.join(missing)} hasn't loaded in {env.title()} yet."
@@ -494,8 +496,8 @@ class ChecksMixin:
             elif entry["status"] == "not_checked" and not entry.get("no_items"):
                 entry["note"] = "Its parameters turn its rules off (enabled = false), so nothing checks it."
             elif entry["status"] == "not_checked":
-                kinds = ", ".join(sorted(set(entry["no_items"])))
-                entry["note"] = f"Check now found nothing for its {kinds} rules to check."
+                empty = ", ".join(sorted(set(entry["no_items"])))
+                entry["note"] = f"Check now found nothing for its {empty} rules to check."
             entry.pop("no_items", None)
             entry.pop("off", None)
             policies.append(entry)
@@ -574,11 +576,11 @@ class ChecksMixin:
             found = [(f"{f['object']}: " if f.get("object") else "") + str(f.get("description") or f.get("rule") or "")
                      for f in pol["findings"]]
             if pol["status"] == "excepted":
-                exc = pol.get("exception") or {}
-                by = f" Approved by {exc['approved_by']}." if exc.get("approved_by") else ""
+                waiver = pol.get("exception") or {}
+                by = f" Approved by {waiver['approved_by']}." if waiver.get("approved_by") else ""
                 out["notes"].append(f"{name}: {len(found)} finding{'s' if len(found) != 1 else ''} let through by an "
-                                    f"exception. {exc.get('note') or ''}{by}".rstrip())
-                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": exc})
+                                    f"exception. {waiver.get('note') or ''}{by}".rstrip())
+                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": waiver})
                 continue
             out["errors"] += [f"{name}: {text}" for text in found[:GATE_LISTED]]
             if len(found) > GATE_LISTED:
@@ -637,9 +639,10 @@ class ChecksMixin:
             item["status"] = "published"  # the checklist is what publishing it would need
         rows = []
         for rid, label in CHECKLIST:
-            checker, rule = gc.find_rule(rid) or (None, None)
-            if checker is None:
+            known = gc.find_rule(rid)
+            if known is None:
                 continue
+            checker, rule = known
             settings = gc.settings_for(rule, source.get("severity") or "", params)
             settings["thresholds"] = {k: v for k, v in settings["thresholds"].items() if k in rule.get("default_thresholds", {})}
             found = [f for f in (checker.check(item, {rid: settings}) or []) if f["rule_id"] == rid]

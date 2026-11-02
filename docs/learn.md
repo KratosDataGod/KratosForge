@@ -48,6 +48,14 @@ A lesson marked **Draft** is still being written and may change.
 | LM-21 | Loads that are safe to run again | Python & Data Engineering | SQ010 |
 | LM-22 | Schema drift: when a source adds a column | Python & Data Engineering | |
 | LAB-06 | Bronze to Silver that survives a rerun: typed, one row per order, rebuilt the same every time | Python & Data Engineering | |
+| LM-30 | Data contracts | Enterprise Architecture | |
+| LM-31 | Domains and data products | Enterprise Architecture | |
+| LM-32 | Least privilege in workspaces | Enterprise Architecture | |
+| LM-33 | Capacity and cost | Enterprise Architecture | SQ002 |
+| LM-34 | Environments, Git and deployments | Enterprise Architecture | |
+| LM-35 | Monitoring and incidents | Enterprise Architecture | |
+| LAB-10 | Ship a domain data product | Enterprise Architecture | SQ004, SQ010 |
+| LAB-11 | Incident: late and broken data | Enterprise Architecture | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
 teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:

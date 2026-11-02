@@ -271,7 +271,7 @@ def test_03_change_a_derived_column(repo):
     assert value(so, "order_id", 106, "net_amount") == 50.0
     assert value(so, "order_id", 102, "net_amount") == 20.0
     log = repo.dev.meta("run_log")
-    logic = dict(zip(log["run_id"], log["logic"]))
+    logic = dict(zip(log["run_id"], log["logic"], strict=True))
     assert logic[value(so, "order_id", 102, "_run_id")] == logic[old_run]
     assert len({logic[r] for r in so["_run_id"]}) == 2
 

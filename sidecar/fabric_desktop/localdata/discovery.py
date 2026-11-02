@@ -177,7 +177,7 @@ def _dataset_folder(folder: Path, extra: list[str]) -> tuple[str, bool] | None:
 
 
 def _hive_format(folder: Path) -> str | None:
-    for root, dirs, files in os.walk(folder):
+    for _root, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs if _HIVE.match(d)]
         for name in files:
             got = file_format(name)

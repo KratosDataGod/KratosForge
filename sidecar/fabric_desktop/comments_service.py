@@ -128,7 +128,7 @@ def _make_pc_id(path: Path) -> str:
                 break
             time.sleep(0.02)
         if not found:
-            raise ValueError(f"{path} is empty. Delete it and try again.")
+            raise ValueError(f"{path} is empty. Delete it and try again.") from None
         return found
 
 

@@ -252,3 +252,42 @@ def test_drop_and_truncate_of_a_lakehouse_table_stop_with_a_clear_message(lake):
     out = k.run("spark.table('dbo.sales').limit(0).write.mode('overwrite').saveAsTable('dbo.sales')\n"
                 "print(spark.table('dbo.sales').count())")
     assert out["outputs"][-1]["text"].strip().splitlines()[-1] == "0", out
+
+
+# A Parquet or CSV file on this PC follows the save mode as Spark does, so a second write never
+# quietly replaces the first: append used to overwrite the file and drop its rows.
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_a_file_that_is_there_is_refused_by_default_and_kept(tmp_path, fmt):
+    out = tmp_path / f"out.{fmt}"
+    assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
+    before = out.read_bytes()
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.{fmt}({str(out)!r})")
+    assert status == "error" and "already exists" in text
+    assert out.read_bytes() == before
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_append_to_a_file_is_refused_and_the_file_is_kept(tmp_path, fmt):
+    out = tmp_path / f"out.{fmt}"
+    assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
+    before = out.read_bytes()
+    status, text = run(f"df.write.mode('append').{fmt}({str(out)!r})")
+    assert status == "error" and "append" in text.lower() and "saveAsTable" in text
+    assert out.read_bytes() == before
+
+
+def test_ignore_leaves_a_file_and_overwrite_replaces_it(tmp_path):
+    out = tmp_path / "out.parquet"
+    assert run(f"df.write.parquet({str(out)!r})")[0] == "ok"
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('ignore').parquet({str(out)!r})")
+    assert status == "ok" and "nothing was written" in text
+    assert run(f"print(spark.read.parquet({str(out)!r}).collect())")[1].count("id=9") == 1
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('overwrite')"
+                       f".parquet({str(out)!r})\nprint(spark.read.parquet({str(out)!r}).collect())")
+    assert status == "ok" and "id=1" in text and "id=9" not in text
+
+
+def test_an_unknown_mode_is_refused_before_a_file_is_written(tmp_path):
+    out = tmp_path / "out.parquet"
+    status, text = run(f"df.write.mode('upsert').parquet({str(out)!r})")
+    assert status == "error" and "Unknown save mode" in text and not out.exists()

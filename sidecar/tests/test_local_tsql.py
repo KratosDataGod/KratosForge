@@ -127,6 +127,20 @@ def test_plus_with_a_number_adds_as_numbers(engine):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
+def test_float_is_eight_bytes_and_real_four_as_in_sql_server(engine):
+    """T-SQL FLOAT is FLOAT(53), an 8-byte float; REAL and FLOAT(1) to FLOAT(24) are 4 bytes."""
+    r = tsql(engine, "SELECT CAST(0.1 AS FLOAT) AS a, CAST(0.1 AS FLOAT(53)) AS b, CAST(0.1 AS FLOAT(25)) AS c, "
+                     "CONVERT(FLOAT, 0.1) AS d, CAST(0.1 AS DOUBLE PRECISION) AS e")
+    assert r["rows"] == [[0.1, 0.1, 0.1, 0.1, 0.1]]
+    r = tsql(engine, "SELECT CAST(0.1 AS REAL) AS a, CAST(0.1 AS FLOAT(24)) AS b, CAST(0.1 AS FLOAT(1)) AS c")
+    assert all(v != 0.1 and abs(v - 0.1) < 1e-7 for v in r["rows"][0])  # 0.1 as a 4-byte float
+    tsql(engine, "CREATE TABLE dbo.f (a FLOAT, b REAL, c FLOAT(10)); INSERT INTO dbo.f VALUES (0.1, 0.1, 0.1)")
+    assert tsql(engine, "SELECT a FROM dbo.f")["rows"] == [[0.1]]
+    for bad in ("FLOAT(1.5)", "FLOAT(0)", "FLOAT(54)"):
+        with pytest.raises(ValueError, match=r"FLOAT\(n\) takes a whole number from 1 to 53"):
+            translate(f"SELECT CAST(1 AS {bad})")
+
+
 def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
     """CAST(3.7 AS INT) is 3 in T-SQL (DuckDB rounds it to 4), for every integer type, CONVERT and
     TRY_CAST too, from a decimal column, a literal or a float."""
@@ -177,3 +191,31 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
+    ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
+    ("x.y", "x[.]y", True), ("xzy", "x[.]y", False), ("a\\b", "a[\\]b", True), ("ab", "[ab]%", True),
+    ("line\nbreak", "line[^x]%", True), ("[a]", "[[]a]", True), ("-", "[-]", True), ("a(b", "a(b%", True),
+])
+def test_like_takes_tsql_character_ranges(engine, value, pattern, matches):
+    v, p = value.replace("'", "''"), pattern.replace("'", "''")
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(matches)]]
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' NOT LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(not matches)]]
+
+
+def test_like_with_ranges_keeps_its_escape_character(engine):
+    sql = "SELECT CASE WHEN 'a[b' LIKE 'a![[b]' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[1]]
+
+
+def test_a_like_pattern_that_isnt_text_is_reported():
+    texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
+    assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
+    assert notes == ["Couldn't tell the pattern in a LIKE b: it matches as DuckDB's LIKE does, which takes no "
+                     "[a-c] character ranges."]
+
+
+def test_a_like_without_ranges_stays_a_like():
+    assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]

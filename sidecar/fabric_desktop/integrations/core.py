@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import describe, secret_key
+from ..redact import describe, walk
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -79,13 +79,7 @@ def redact_result(value: Any) -> Any:
     secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
     every capability's result, so a token that slipped into a notebook, a log line or a receipt
     doesn't leave through a tool."""
-    if isinstance(value, str):
-        return redact_secrets(value)
-    if isinstance(value, dict):
-        return {k: "[removed]" if secret_key(k) and isinstance(v, str) else redact_result(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [redact_result(v) for v in value]
-    return value
+    return walk(value)
 
 
 def error_from(exc: BaseException) -> IntegrationError:

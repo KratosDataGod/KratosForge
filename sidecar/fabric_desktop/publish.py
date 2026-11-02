@@ -138,6 +138,8 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
             return table  # type: ignore[return-value]
         meta = CommitProperties(custom_metadata={ROWS_KEY: rows}) if rows and mode == "overwrite" else None
         had = _files(table) if table is not None and mode != "overwrite" else {}
+        if table is not None and how != "overwrite":
+            refuse_conversions(data.schema, table, f"{ref.schema}.{ref.table}")
         check_held()  # the lease is still ours, with time to commit (HD-016)
         write_deltalake(table if table is not None else ref.uri, data, mode=mode, storage_options=opts, schema_mode=how,
                         writer_properties=writer_properties(), commit_properties=meta)
@@ -149,6 +151,29 @@ def publish(data: Any, ref: TableRef, mode: str, storage_token: str, schema_mode
     now = _files(table)
     table.written_bytes = sum(n for path, n in now.items() if path not in had) if now is not None and had is not None else None  # type: ignore[attr-defined]
     return table
+
+
+def refuse_conversions(source: pa.Schema, table: DeltaTable, name: str) -> None:
+    """Stop a write into an existing table that would change values to fit its column types
+    (localdata.delta.conversions, EA-001), before anything is uploaded or committed."""
+    from .localdata.delta import conversions
+    found = conversions(source, pa.schema(table.schema().to_arrow()))
+    if not found:
+        return
+    what = "; ".join(f"{col} is {_type_label(have)} here but {_type_label(want)} in the table" for col, have, want in found)
+    raise ValueError(f"Writing to {name} would change values to fit its column types ({what}): 2.75 in a whole-number "
+                     "column would become 2, a timestamp in a date column would lose its time. Nothing was written. Cast "
+                     "the column to the table's type first, or replace the table's schema with an overwrite "
+                     "(schema_mode=\"overwrite\").")
+
+
+def _type_label(t: pa.DataType) -> str:
+    from .frames import type_name
+    if pa.types.is_integer(t):
+        return {8: "tinyint", 16: "smallint", 32: "int"}.get(t.bit_width, "bigint")
+    if pa.types.is_floating(t):
+        return "float" if t.bit_width < 64 else "double"
+    return type_name(t)
 
 
 def _files(table: DeltaTable) -> dict[str, int] | None:

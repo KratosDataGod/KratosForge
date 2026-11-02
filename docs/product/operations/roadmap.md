@@ -2,21 +2,21 @@
 
 Rolling plan from week 1 (starting Monday 2026-11-02) to week 12 (ending 2027-01-24). The weekly review moves it on by a week, records what changed and why, and keeps it in line with the [work queues](README.md#work-queues). Items with a PB id are in [the backlog](../PRODUCT_BACKLOG.md). Anything marked *needs Chris* waits for his mockup approval, his go on a new feature, or his yes on capacity spend.
 
-Why this order: as of 2026-10-28 about 370 PRs merged into main in the week from 2026-10-21, main CI is green, and 3 of 142 features are verified end to end. A Fortune 100 rollout needs proof and reliability before breadth, so weeks 1 to 4 turn built work into verified work.
+Why this order: as of 2026-11-02 about 590 PRs merged into main since 2026-10-26. The enterprise engineering audit ([scorecard](../../audits/ENTERPRISE_READINESS.md)) scores KratosForge 54 of 100 and says it is not enterprise-ready: builds are unsigned, nothing has run against a live tenant, and data integrity, enterprise deployment and performance score lowest. Most audit findings (EA-001 to EA-029) are already fixed. A Fortune 100 rollout needs proof and reliability before breadth, so weeks 1 to 4 close the audit's remaining gaps and turn built work into verified work. Since 2026-11-02, open issues track only work someone can do today; blocked items keep their state in the backlog.
 
 ## Weeks 1 to 4: stabilize and verify (2026-11-02 to 2026-11-29)
 
 | Workstream | Goal | Stories |
 | --- | --- | --- |
-| Microsoft Fabric | Live evidence for the core flows | PB-002 ten-flow tenant smoke test in a throwaway workspace on Trial capacity (*needs Chris*: capacity yes); PB-003 OneLake leases and MERGE writes live; PB-043 cancel a Fabric run where people watch it; PB-013 last parity defect |
-| Platform Engineering | Nothing freezes, nothing ships unaudited | PB-074 release waits for the audit job; PB-072 every long engine call has a limit and never blocks a quick one; PB-051 REST client retries and token refresh; PB-001 signing (waits on Microsoft); PB-010 security docs match the code |
-| Local Execution | Correct numbers and the most common write pattern on the PC | PB-094 kernel-process measurements; PB-068 key lookups without whole-table reads; PB-015 MERGE, UPDATE and DELETE semantics (after PB-012) |
-| Enterprise Services | Policies checked without Fabric | PB-057 offline policy validation; PB-083 endorsed-items wording; PB-053 scheduled shortcut health check; PB-052 central platform on a tenant (*needs Chris*) |
-| Developer Experience | Docs and Preview tags tell the truth; editor regressions get caught | PB-078 Preview ids for every Preview feature; PB-077 docs match the code; PB-070 notebook editor UI tests |
-| Databricks and Snowflake | Architecture before code | Fabric Spark (Livy) Preview engine draft; Snowflake audit, ADRs and parity matrix (research only); Databricks conversion loss report |
-| All | Acceptance | One acceptance batch for the 39 items In review, with evidence prepared by quality |
+| All | Release-critical | EA-009: signing (waits on Microsoft's identity check, *needs Chris*) and one live run of the FD-101 harness on the non-production workspace (*needs Chris*: capacity yes) |
+| Local Execution | Correct numbers, measured speed | #1664 benchmark in CI (EA-029); #1665 a test on every append path (EA-001); PB-015's live Prove run (*needs Chris*) |
+| Microsoft Fabric | Warehouse parity without surprises | #1666 every characterized T-SQL gap runs or is refused; #1667 retry loops move to retrying.py (EA-028); PB-002 ten-flow tenant smoke test (*needs Chris*) |
+| Databricks and Snowflake | Parity a user can read | #1668 generated Spark function coverage list; #1669 JSON and Parquet reader options (EA-013 pattern); Databricks live run (*needs Chris*: workspace) |
+| Enterprise Services | Deployment an IT team can trust | #1670 policy changes outside IT's channel are recorded; #1671 one IT deployment checklist; MSI or MSIX package (*needs Chris*: new capability) |
+| Developer Experience | Accessibility that doesn't regress | #1672 keyboard-only check on every page (automatable half of EA-030); #1673 axe guard test; Learn content PB-126 (PRs open) |
+| Platform Engineering | Shared plumbing, stricter lint | #1674 SQLite stores share one corruption-safe helper (EA-028); #1675 ruff BLE (EA-027); mypy ratchet PRs |
 
-Exit: PB-002 run with defects filed; no P0 or P1 reliability item open without an owner; every In review item accepted, rejected or given a dated fix.
+Exit: signing done or dated, the FD-101 live run done or dated with Chris; audit score re-measured; no P0 or P1 audit finding open without an owner.
 
 ## Weeks 5 to 8: expand the three platforms (2026-11-30 to 2026-12-27)
 
@@ -44,3 +44,5 @@ Exit: PB-002 run with defects filed; no P0 or P1 reliability item open without a
 | --- | --- | --- |
 | 2026-10-28 | First version | Orchestrator brief; built from the backlog, inventory and open PRs on main d0747a6 |
 | 2026-10-28 (evening) | Queues refreshed after the first day's work; a limit of four PRs waiting for review per workstream | Review and CI became the bottleneck: about 20 drafts waited for review and CI queued over 100 runs |
+
+| 2026-11-02 | Weeks 1 to 4 rebuilt around the enterprise audit's remaining gaps; 12 new story issues #1664 to #1675 | The audit (54/100, not enterprise-ready) replaced the old week-1 plan, most of whose stories had merged; Chris's rule that open issues track only work someone can do today |

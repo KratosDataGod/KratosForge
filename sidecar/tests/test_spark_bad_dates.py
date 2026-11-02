@@ -59,8 +59,11 @@ def test_spark_sql_to_timestamp_of_bad_text_is_null(query):
 
 
 def test_databricks_sql_keeps_ansi_casts():
-    statement = sql.spark_fixes(sqlglot.parse_one("SELECT to_timestamp(x), CAST(y AS TIMESTAMP)", read="databricks"))
-    assert "TRY_CAST" not in sql.duckdb_sql(statement)
+    statement = sql.duckdb_sql(sql.spark_fixes(sqlglot.parse_one("SELECT to_timestamp(x), CAST(y AS TIMESTAMP)",
+                                                                  read="databricks")))
+    # Text reaches the ANSI CAST, which stops on a bad value (numbers are read as seconds, EA-014).
+    assert "ELSE CAST(x AS TIMESTAMP) END" in statement and "ELSE CAST(y AS TIMESTAMPTZ) END" in statement
+    assert "TRY_CAST(x AS TIMESTAMP" not in statement and "TRY_CAST(y AS TIMESTAMP" not in statement
     legacy = sql.spark_legacy_times(sqlglot.parse_one("SELECT to_timestamp(x)", read="spark"))
     assert "TRY_CAST" in sql.duckdb_sql(legacy)
 
@@ -78,3 +81,16 @@ def test_timestamp_and_whole_number_casts_compose_on_column_cast():
     rows = text.strip()
     assert "(None, 3, datetime.datetime(2024, 1, 2, 3, 4, 5" in rows and ", None, 3, '3.7')" in rows
     assert "(datetime.datetime(2024, 1, 2, 0, 0), -3, None, datetime.date(2024, 1, 2), -3, '-3.7')" in rows
+
+
+def test_time_cast_keeps_duckdbs_cast_for_numbers():
+    """_time_cast alone (without the whole-number wrapper in front): a number cast to a date isn't
+    silently NULL; text that isn't a date is."""
+    status, text = run("from fabric_desktop import spark_compat\n"
+                       "from duckdb.experimental.spark.sql.column import Column\n"
+                       "import duckdb\n"
+                       "plain = spark_compat._time_cast(lambda self, t: Column(self.expr.cast(duckdb.sqltype('DATE'))))\n"
+                       "n = spark.createDataFrame([(1,)], 'n int')\n"
+                       "print(d.select(plain(F.col('s'), 'date').alias('v')).collect())\n"
+                       "n.select(plain(F.col('n'), 'date').alias('v')).collect()")
+    assert status == "error" and "v=None" in text, text

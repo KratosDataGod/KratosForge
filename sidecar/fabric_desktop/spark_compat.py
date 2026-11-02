@@ -963,7 +963,12 @@ def _time_cast(original: Any) -> Any:
             target = str(dataType.duckdb_type)
         else:
             return plain
-        return _sql(f"TRY_CAST({_col_sql(self)} AS {target})").alias(plain.expr.get_name())
+        # Only text, a date or a timestamp can fail to be one: those give NULL. Anything else (a number)
+        # keeps DuckDB's own cast, so it is never NULL without a word.
+        value = _col_sql(self)
+        return _sql(f"(LIST_TRANSFORM([{value}], lambda kf_t: CASE WHEN typeof(kf_t) = 'VARCHAR' OR typeof(kf_t) "
+                    f"IN ({spark_sql._TIME_TYPES}) THEN TRY_CAST(kf_t AS {target}) ELSE CAST(kf_t AS {target}) END))[1]"
+                    ).alias(plain.expr.get_name())
     return cast
 
 
@@ -979,10 +984,21 @@ def _int_cast(original: Any) -> Any:
     def cast(self: Column, dataType: Any) -> Column:
         name = dataType.strip().lower() if isinstance(dataType, str) else _INT_CAST_TYPES.get(type(dataType).__name__)
         target = _INT_CAST_NAMES.get(name or "")
-        if target is None:
+        if isinstance(dataType, str) and name == "timestamp":
+            stamp: str | None = "TIMESTAMP"
+        elif type(dataType).__name__ in ("TimestampType", "TimestampNTZType"):
+            stamp = str(dataType.duckdb_type)
+        else:
+            stamp = None
+        if target is None and stamp is None:
             return original(self, dataType)
         named = original(self, dataType).expr.get_name()   # the name DuckDB's own cast would give the column
-        cast_sql = spark_sql.spark_integer_cast("kf_cast", *target, "legacy")
+        # A number cast to a timestamp is its seconds since 1970 (EA-014), as spark_timestamp_cast writes it.
+        if stamp is not None:
+            cast_sql = spark_sql.spark_timestamp_cast("kf_cast", stamp, "legacy")
+        else:
+            duck_type, spark_type = target  # type: ignore[misc]  # not None here: one of the two is set
+            cast_sql = spark_sql.spark_integer_cast("kf_cast", duck_type, spark_type, "legacy")
         return _sql(f"(LIST_TRANSFORM([{_col_sql(self)}], lambda kf_cast: {cast_sql}))[1]").alias(named)
     return cast
 

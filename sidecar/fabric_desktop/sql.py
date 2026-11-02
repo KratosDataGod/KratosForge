@@ -793,6 +793,14 @@ def _spark_names(statement: exp.Expression) -> exp.Expression:
     return statement
 
 
+def refuse_spark_hashes(node: exp.Expression) -> None:
+    """ValueError if Spark SQL ``node`` calls hash or xxhash64 (_SPARK_HASH). Every Spark path calls
+    it: spark_substring, and the Local data engine's Spark SQL."""
+    for call in node.find_all(exp.Anonymous):
+        if str(call.this).upper() in _SPARK_HASHES:
+            raise ValueError(_SPARK_HASH.format(name=str(call.this).lower()))
+
+
 def spark_substring(node: exp.Expression) -> exp.Expression:
     """Spark's substring counts position 0 as 1 (substring('hello', 0, 2) is 'he'); DuckDB starts
     before the first character and returns 'h'.
@@ -812,9 +820,7 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
 
     hash and xxhash64 are refused: DuckDB's hash is another function, so the value would differ
     from Fabric's without a word (EA-017)."""
-    for call in node.find_all(exp.Anonymous):
-        if str(call.this).upper() in _SPARK_HASHES:
-            raise ValueError(_SPARK_HASH.format(name=str(call.this).lower()))
+    refuse_spark_hashes(node)
     for ignore in list(node.find_all(exp.IgnoreNulls)):
         agg = ignore.this
         if not isinstance(agg, (exp.First, exp.Last, exp.FirstValue, exp.LastValue)):

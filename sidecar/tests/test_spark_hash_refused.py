@@ -70,3 +70,16 @@ def test_randomsplit_and_sample_keep_working():
                        "a, b = d.randomSplit([0.5, 0.5], seed=1)\nprint(a.count() + b.count())")
     assert status == "ok", text
     assert "True" in text and "100" in text
+
+
+def test_local_data_projects_refuse_spark_hash_and_keep_duckdb_s(tmp_path):
+    from fabric_desktop.localdata import LocalData
+    local = LocalData(tmp_path / "ld")
+    try:
+        eng = local.engine(local.create("P")["id"])
+        for query in ("SELECT hash(1)", "SELECT xxhash64('a') AS h", "CREATE TABLE t AS SELECT hash(1) AS h"):
+            with pytest.raises(ValueError, match="can't run on this PC the way it runs in Fabric"):
+                eng.execute(query, dialect="spark")
+        assert eng.execute("SELECT hash(1) AS h", dialect="duckdb")["rows"]
+    finally:
+        local.close_all()

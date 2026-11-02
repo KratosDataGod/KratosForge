@@ -254,6 +254,45 @@ def test_drop_and_truncate_of_a_lakehouse_table_stop_with_a_clear_message(lake):
     assert out["outputs"][-1]["text"].strip().splitlines()[-1] == "0", out
 
 
+# A Parquet or CSV file on this PC follows the save mode as Spark does, so a second write never
+# quietly replaces the first: append used to overwrite the file and drop its rows.
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_a_file_that_is_there_is_refused_by_default_and_kept(tmp_path, fmt):
+    out = tmp_path / f"out.{fmt}"
+    assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
+    before = out.read_bytes()
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.{fmt}({str(out)!r})")
+    assert status == "error" and "already exists" in text
+    assert out.read_bytes() == before
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_append_to_a_file_is_refused_and_the_file_is_kept(tmp_path, fmt):
+    out = tmp_path / f"out.{fmt}"
+    assert run(f"df.write.{fmt}({str(out)!r})")[0] == "ok"
+    before = out.read_bytes()
+    status, text = run(f"df.write.mode('append').{fmt}({str(out)!r})")
+    assert status == "error" and "append" in text.lower() and "saveAsTable" in text
+    assert out.read_bytes() == before
+
+
+def test_ignore_leaves_a_file_and_overwrite_replaces_it(tmp_path):
+    out = tmp_path / "out.parquet"
+    assert run(f"df.write.parquet({str(out)!r})")[0] == "ok"
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('ignore').parquet({str(out)!r})")
+    assert status == "ok" and "nothing was written" in text
+    assert run(f"print(spark.read.parquet({str(out)!r}).collect())")[1].count("id=9") == 1
+    status, text = run(f"spark.createDataFrame([(1, 'US')], ['id', 'region']).write.mode('overwrite')"
+                       f".parquet({str(out)!r})\nprint(spark.read.parquet({str(out)!r}).collect())")
+    assert status == "ok" and "id=1" in text and "id=9" not in text
+
+
+def test_an_unknown_mode_is_refused_before_a_file_is_written(tmp_path):
+    out = tmp_path / "out.parquet"
+    status, text = run(f"df.write.mode('upsert').parquet({str(out)!r})")
+    assert status == "error" and "Unknown save mode" in text and not out.exists()
+
+
 @pytest.mark.parametrize("code", ["df.write.format('parquet').save()", "df.write.format('csv').save()",
                                   "spark.read.format('csv').load()", "spark.read.format('delta').load()",
                                   "spark.read.load()"])
@@ -261,3 +300,32 @@ def test_save_and_load_without_a_path_say_what_they_need(lake, code):
     status, text = run(code)
     assert status == "error"
     assert "Give save a path" in text or "Give load a path" in text
+
+
+def test_save_and_load_take_the_path_option_as_spark_does(lake, tmp_path):
+    out = (tmp_path / "out.parquet").as_posix()
+    status, text = run(f"df.write.format('parquet').option('path', {out!r}).save()\n"
+                       f"print(spark.read.format('parquet').option('path', {out!r}).load().count())")
+    assert status == "ok", text
+    assert text.strip().endswith("1")
+    status, text = run("df.write.format('delta').mode('append').option('path', 'Tables/dbo/sales').save()\n"
+                       "print(spark.read.format('delta').option('path', 'Tables/dbo/sales').load().count())")
+    assert status == "ok", text
+    assert text.strip().endswith("4")
+    assert len(rows(lake)) == 4
+
+
+@pytest.mark.parametrize("write", ["df.write.mode('append').option('path', 'Files/elsewhere').saveAsTable('dbo.sales')",
+                                   "df.write.option('path', 'Files/elsewhere').insertInto('dbo.sales')"])
+def test_a_table_write_with_a_path_option_is_still_refused(lake, write):
+    status, text = run(write)
+    assert status == "error" and "external table" in text, text
+    assert rows(lake) == ORIGINAL
+
+
+@pytest.mark.parametrize("code", ["df.write.format('delta').mode('append').option('path', 'Files/x').save('Tables/dbo/sales')",
+                                  "spark.read.format('delta').option('path', 'Files/x').load('Tables/dbo/sales')"])
+def test_a_path_option_and_a_path_argument_together_are_refused_as_in_spark(lake, code):
+    status, text = run(code)
+    assert status == "error" and "Give the path once" in text, text
+    assert rows(lake) == ORIGINAL

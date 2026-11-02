@@ -1,6 +1,7 @@
 """Schedules on this PC (Task Scheduler) and the one list of every schedule."""
 
 import datetime as dt
+import sys
 import time
 from pathlib import Path
 
@@ -114,6 +115,147 @@ def test_a_run_still_going_is_not_started_twice(svc):
     sid = svc.add_pc_schedule({"kind": "notebook", "name": "Slow"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
     assert svc._lock(sid) is not None
     assert svc.run_schedule(sid)["status"] == "skipped"
+
+
+def _dead_pid():
+    import subprocess
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    return p.pid
+
+
+def test_a_run_whose_process_was_killed_is_logged_as_stopped_and_the_next_run_goes(svc):
+    import subprocess
+    svc.notebooks.save("Killed", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Killed"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    # a real run killed mid-run: it took the lock, then its process ended with exit code 137
+    code = ("import os, sys; from fabric_desktop.schedule_service import ScheduleMixin as M; from pathlib import Path\n"
+            "class S(M):\n    root = Path(sys.argv[1])\n"
+            "assert S()._lock(sys.argv[2], {'started': '2026-11-02T01:00:00+00:00', 'trigger': 'manual'})\nos._exit(137)")
+    assert subprocess.run([sys.executable, "-c", code, str(svc.root), sid]).returncode == 137
+    assert svc.pc_schedules.runs() == []
+    row = svc.run_schedule(sid)
+    assert row["status"] == "ok", row
+    stopped, = [r for r in svc.pc_schedules.runs() if r.get("interrupted")]
+    assert stopped["status"] == "failed" and stopped["started"] == "2026-11-02T01:00:00+00:00"
+    assert stopped["trigger"] == "manual" and stopped["label"] == "Killed" and stopped["ended"] is None
+    assert "Stopped before it finished" in stopped["message"]
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["ok", "failed"]  # newest first
+    assert svc.pc_schedules.listing()[0]["last"]["status"] == "ok"
+    assert not (svc.root / "schedule_locks" / f"{sid}.lock").exists()
+
+
+def test_the_app_logs_a_stopped_run_when_it_starts(svc):
+    svc.notebooks.save("Gone", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Gone"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    (svc.root / "schedule_locks").mkdir(parents=True, exist_ok=True)
+    (svc.root / "schedule_locks" / f"{sid}.lock").write_text(str(_dead_pid()))  # as older builds wrote it
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["failed"] and svc.pc_schedules.runs()[0]["interrupted"]
+    assert svc.sync_pc_schedules()["interrupted"] == 0  # logged once
+
+
+def test_a_lock_held_by_a_live_process_or_one_that_cant_be_told_is_kept(svc):
+    import os
+    svc.notebooks.save("Busy", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Busy"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    for held in (str(os.getppid()), "not a pid", ""):
+        (folder / f"{sid}.lock").write_text(held)
+        assert svc.run_schedule(sid)["status"] == "skipped"
+    assert svc.sync_pc_schedules()["interrupted"] == 0
+    # past STALE_LOCK_SECONDS it is taken over whatever it says
+    old = time.time() - schedule_service.STALE_LOCK_SECONDS - 60
+    os.utime(folder / f"{sid}.lock", (old, old))
+    assert svc.run_schedule(sid)["status"] == "ok"
+
+
+def test_a_stopped_run_that_cant_be_logged_doesnt_hold_the_schedule_up(svc, monkeypatch):
+    svc.notebooks.save("Full", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Full"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(str(_dead_pid()))
+    real = LocalSchedules.log_run
+    def full(self, row):
+        if row.get("interrupted"):
+            raise OSError(28, "No space left on device")
+        return real(self, row)
+    monkeypatch.setattr(LocalSchedules, "log_run", full)
+    assert svc.sync_pc_schedules()["interrupted"] == 0  # nothing was logged, so nothing is counted
+    assert not (folder / f"{sid}.lock").exists()
+    assert svc.run_schedule(sid)["status"] == "ok"
+
+
+def test_only_one_run_takes_over_a_dead_lock(svc):
+    svc.notebooks.save("Race", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Race"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(str(_dead_pid()))
+    (folder / f"{sid}.lock.takeover").write_text("")  # another run is deciding right now
+    assert svc._lock(sid) is None
+    assert svc.pc_schedules.runs() == []
+
+
+def _no_identity_only_off_windows_and_linux():
+    """Windows (GetProcessTimes) and Linux (/proc) always say when a process started, so there a
+    missing identity is a bug, not a skip: CI's Windows job proves the Windows branch this way."""
+    import sys
+    assert not sys.platform.startswith(("win32", "linux")), f"process_identity read nothing on {sys.platform}"
+    pytest.skip("this OS doesn't say when a process started")
+
+
+def test_a_lock_whose_pid_another_process_now_has_is_taken_over(svc):
+    """EA-008: a PID is reused once its process ends. The lock keeps its process's start time, so a
+    live process with the same PID isn't taken for the run that held it."""
+    import json
+    import os
+    svc.notebooks.save("Reused", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Reused"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    live = os.getppid()  # alive, but not the process that took this lock
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": live, "process": "an earlier process's start",
+                                                    "started": "2026-11-02T01:00:00+00:00"}))
+    if schedule_service.process_identity(live) is None:
+        _no_identity_only_off_windows_and_linux()
+    assert svc.run_schedule(sid)["status"] == "ok"
+    assert [r["status"] for r in svc.pc_schedules.runs()] == ["ok", "failed"]
+    # The same PID with its own start time is the live run: kept.
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": live, "process": schedule_service.process_identity(live)}))
+    assert svc.run_schedule(sid)["status"] == "skipped"
+
+
+def test_a_stopped_run_logs_only_what_a_lock_should_hold(svc):
+    import json
+    svc.notebooks.save("Edited", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Edited"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    folder = svc.root / "schedule_locks"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": _dead_pid(), "trigger": "<b>x</b>", "started": "x" * 500,
+                                                    "status": "ok", "message": "all fine", "extra": 1}))
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    row, = svc.pc_schedules.runs()
+    assert row["status"] == "failed" and row["trigger"] == "schedule" and row["started"] is None
+    assert "extra" not in row and row["message"].startswith("Stopped before it finished")
+    (folder / f"{sid}.lock").write_text(json.dumps({"pid": _dead_pid(), "schedule_id": "another",
+                                                    "started": "2026-11-02T01:00:00+00:00", "trigger": "manual"}))
+    assert svc.sync_pc_schedules()["interrupted"] == 1
+    row = svc.pc_schedules.runs()[0]
+    assert row["schedule_id"] == sid and row["started"] is None and row["trigger"] == "schedule"
+
+
+def test_a_lock_names_its_process_and_can_t_tell_still_counts_as_alive(monkeypatch):
+    import os
+    me = schedule_service.process_identity(os.getpid())
+    if me is None:
+        _no_identity_only_off_windows_and_linux()
+    assert schedule_service._pid_alive(os.getpid(), me)
+    assert not schedule_service._pid_alive(os.getpid(), "another process's start")
+    monkeypatch.setattr(schedule_service, "process_identity", lambda pid: None)  # can't read it now
+    assert schedule_service._pid_alive(os.getpid(), "another process's start")
 
 
 def test_scheduled_metadata_run_on_this_pc(svc, tmp_path):

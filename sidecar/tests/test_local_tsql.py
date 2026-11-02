@@ -36,6 +36,13 @@ def test_integers_divide_and_average_as_integers(engine):
     assert tsql(engine, "SELECT AVG(boxes + id) AS a FROM dbo.orders")["rows"] == [[3]]  # (3 + 4) / 2
 
 
+def test_an_integer_average_over_a_window_is_an_integer(engine):
+    # The whole AVG(...) OVER (...) is cut, not the AVG inside it (that was a parser error).
+    r = tsql(engine, "SELECT AVG(id) OVER () AS a, AVG(qty - id) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING "
+                     "AND CURRENT ROW) AS b, AVG(price) OVER () AS c FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[1, 6, 3.25], [1, -1, 3.25]]  # 1.5 and -1.5 toward zero; non-integers are not cut
+
+
 def test_len_weekday_week_and_plus_on_text(engine):
     r = tsql(engine, "SELECT LEN(name) AS n, DATEPART(weekday, day) AS wd, DATEPART(week, day) AS wk, "
                      "name + '!' AS s FROM dbo.orders ORDER BY id")
@@ -127,6 +134,44 @@ def test_plus_with_a_number_adds_as_numbers(engine):
         tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
 
 
+def test_float_is_eight_bytes_and_real_four_as_in_sql_server(engine):
+    """T-SQL FLOAT is FLOAT(53), an 8-byte float; REAL and FLOAT(1) to FLOAT(24) are 4 bytes."""
+    r = tsql(engine, "SELECT CAST(0.1 AS FLOAT) AS a, CAST(0.1 AS FLOAT(53)) AS b, CAST(0.1 AS FLOAT(25)) AS c, "
+                     "CONVERT(FLOAT, 0.1) AS d, CAST(0.1 AS DOUBLE PRECISION) AS e")
+    assert r["rows"] == [[0.1, 0.1, 0.1, 0.1, 0.1]]
+    r = tsql(engine, "SELECT CAST(0.1 AS REAL) AS a, CAST(0.1 AS FLOAT(24)) AS b, CAST(0.1 AS FLOAT(1)) AS c")
+    assert all(v != 0.1 and abs(v - 0.1) < 1e-7 for v in r["rows"][0])  # 0.1 as a 4-byte float
+    tsql(engine, "CREATE TABLE dbo.f (a FLOAT, b REAL, c FLOAT(10)); INSERT INTO dbo.f VALUES (0.1, 0.1, 0.1)")
+    assert tsql(engine, "SELECT a FROM dbo.f")["rows"] == [[0.1]]
+    for bad in ("FLOAT(1.5)", "FLOAT(0)", "FLOAT(54)"):
+        with pytest.raises(ValueError, match=r"FLOAT\(n\) takes a whole number from 1 to 53"):
+            translate(f"SELECT CAST(1 AS {bad})")
+
+
+def test_a_cast_to_an_integer_type_cuts_toward_zero_as_in_tsql(engine):
+    """CAST(3.7 AS INT) is 3 in T-SQL (DuckDB rounds it to 4), for every integer type, CONVERT and
+    TRY_CAST too, from a decimal column, a literal or a float."""
+    r = tsql(engine, "SELECT CAST(3.7 AS INT) AS a, CAST(-3.7 AS BIGINT) AS b, CAST(2.5 AS SMALLINT) AS c, "
+                     "CAST(3.9 AS TINYINT) AS d, CONVERT(INT, -2.5) AS e, TRY_CAST(3.7 AS INT) AS f, "
+                     "TRY_CONVERT(INT, 3.99) AS g, CAST(CAST(3.7 AS FLOAT) AS INT) AS h, "
+                     "CAST(price AS INT) AS i, CAST(price * -1 AS INT) AS j FROM dbo.orders ORDER BY id")
+    assert r["rows"] == [[3, -3, 2, 3, -2, 3, 3, 3, 2, -2], [3, -3, 2, 3, -2, 3, 3, 3, 4, -4]]
+    # Already whole, or to a type that isn't an integer: unchanged.
+    r = tsql(engine, "SELECT CAST(qty AS BIGINT) AS a, CAST(3.7 AS DECIMAL(5, 0)) AS b FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [[7, "4"]]  # decimals come back as text; T-SQL rounds to a DECIMAL with a smaller scale
+
+
+def test_text_to_an_integer_type_takes_only_a_whole_number_as_in_tsql(engine):
+    """CAST('3.7' AS INT) fails in T-SQL (DuckDB gives 4); spaces around a whole number are fine, and
+    '' is 0. TRY_CAST and TRY_CONVERT give NULL where CAST fails."""
+    r = tsql(engine, "SELECT CAST(' -5 ' AS INT) AS a, CAST('+7' AS BIGINT) AS b, CAST('' AS INT) AS c, "
+                     "CAST(CAST(NULL AS VARCHAR) AS INT) AS d, TRY_CAST('3.7' AS INT) AS e, TRY_CONVERT(INT, '1e3') AS f")
+    assert r["rows"] == [[-5, 7, 0, None, None, None]]
+    for sql in ("SELECT CAST('3.7' AS INT)", "SELECT CONVERT(BIGINT, '1e3')", "SELECT CAST('5 x' AS SMALLINT)"):
+        with pytest.raises(Exception, match="Conversion failed"):
+            tsql(engine, sql)
+
+
 def test_text_lengths_cut_and_pad_as_in_tsql(engine):
     r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
                      "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")
@@ -147,6 +192,53 @@ def test_max_lengths_in_table_definitions(engine):
     r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
                      "SELECT body FROM #notes")
     assert r["rows"] == [["hello"]]
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b1", "[a-c]1", True), ("d1", "[a-c]1", False), ("d1", "[^a-c]1", True), ("b1", "[^a-c]1", False),
+    ("50%", "50[%]", True), ("500", "50[%]", False), ("a_c", "a[_]c", True), ("abc", "a[_]c", False),
+    ("x.y", "x[.]y", True), ("xzy", "x[.]y", False), ("a\\b", "a[\\]b", True), ("ab", "[ab]%", True),
+    ("line\nbreak", "line[^x]%", True), ("[a]", "[[]a]", True), ("-", "[-]", True), ("a(b", "a(b%", True),
+])
+def test_like_takes_tsql_character_ranges(engine, value, pattern, matches):
+    v, p = value.replace("'", "''"), pattern.replace("'", "''")
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(matches)]]
+    assert tsql(engine, f"SELECT CASE WHEN '{v}' NOT LIKE '{p}' THEN 1 ELSE 0 END")["rows"] == [[int(not matches)]]
+
+
+def test_like_with_ranges_keeps_its_escape_character(engine):
+    sql = "SELECT CASE WHEN 'a[b' LIKE 'a![[b]' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[1]]
+
+
+def test_a_like_pattern_that_isnt_text_is_reported():
+    texts, notes = translate("SELECT 1 FROM dbo.t WHERE a LIKE b")
+    assert texts == ["SELECT 1 FROM dbo.t WHERE a LIKE b"]
+    assert notes == ["A LIKE pattern that isn't written in the query (such as LIKE other_column) matches as DuckDB's "
+                     "LIKE does, which takes no [a-c] character ranges."]
+
+
+def test_several_like_patterns_that_arent_text_make_one_note():
+    assert len(translate("SELECT 1 FROM dbo.t WHERE a LIKE b OR c LIKE d OR e NOT LIKE f")[1]) == 1
+
+
+@pytest.mark.parametrize("value, pattern, matches", [
+    ("b", "[z-a]", False), ("b", "[^z-a]", True), ("y", "[a-cz-x]", False), ("b", "[a-cz-x]", True),
+    ("]", "[!]]", True), ("x", "[!]x]", True), ("a", "[!]x]", False), ("-", "[a!-c]", True), ("b", "[a!-c]", False),
+])
+def test_like_ranges_backwards_and_with_the_escape_character(engine, value, pattern, matches):
+    sql = f"SELECT CASE WHEN '{value}' LIKE '{pattern}' ESCAPE '!' THEN 1 ELSE 0 END"
+    assert tsql(engine, sql)["rows"] == [[int(matches)]]
+
+
+def test_set_datefirst_7_is_skipped_and_others_refused(engine):
+    assert tsql(engine, "SET DATEFIRST 7\nGO\nSELECT DATEPART(weekday, CAST('2024-03-03' AS DATE))")["rows"] == [[1]]
+    with pytest.raises(ValueError, match="doesn't run other DATEFIRST settings"):
+        tsql(engine, "SET DATEFIRST 1\nGO\nSELECT 1")
+
+
+def test_a_like_without_ranges_stays_a_like():
+    assert translate("SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'")[0] == ["SELECT 1 FROM dbo.t WHERE a LIKE 'a_%'"]
 
 
 def test_substring_stuff_and_replicate_at_the_edges(engine):

@@ -466,10 +466,15 @@ def _same_values(before: Any, after: Any) -> bool:
     into a decimal, so those go back to the source type and are compared."""
     if not (pa.types.is_floating(after.type) or (pa.types.is_floating(before.type) and pa.types.is_decimal(after.type))):
         return True
+    import pyarrow.compute as pc
     try:
-        return bool(after.cast(before.type, safe=False).equals(before))
+        back = after.cast(before.type, safe=False)
     except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
         return False
+    same = pc.equal(back, before)
+    if pa.types.is_floating(before.type):  # NaN is NaN after the cast, though it equals nothing
+        same = pc.or_(same, pc.and_(pc.is_nan(back), pc.is_nan(before)))
+    return pc.all(pc.or_kleene(same, pc.is_null(before))).as_py() is not False
 
 
 def _columns(table: str) -> list[str] | None:

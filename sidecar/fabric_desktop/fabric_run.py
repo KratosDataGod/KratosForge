@@ -40,6 +40,9 @@ import polars as _pl
 from deltalake import DeltaTable as _DeltaTable, write_deltalake as _write_deltalake
 from deltalake.exceptions import TableNotFoundError as _TableNotFoundError
 import notebookutils as _nbu
+import pyarrow as _fd_pa
+_fd_conversions = {}
+exec(%(conversions)s, _fd_conversions)  # the PC's rule for which column types keep every value (EA-001)
 
 def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
     root = root or f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
@@ -125,6 +128,19 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
         arrow = data.to_arrow() if isinstance(data, _pl.DataFrame) else data
 
         def write(target, rows, how="overwrite"):
+            if how == "append":
+                # As on the PC (EA-001): an append keeps the table's types, and delta-rs would cast
+                # to them without a word, so one that would change values stops first.
+                try:
+                    have = _fd_pa.schema(_DeltaTable(target, storage_options=opts()).schema().to_arrow())
+                except _TableNotFoundError:
+                    have = None
+                found = _fd_conversions["conversions"](rows.schema, have) if have is not None else []
+                if found:
+                    what = "; ".join(f"{c} is {a} here but {b} in the table" for c, a, b in found)
+                    raise ValueError(f"Writing to {table} would change values to fit its column types ({what}). "
+                                     "Nothing was written. Cast the column to the table's type first, or replace "
+                                     "the table's schema with an overwrite (schema_mode='overwrite').")
             _write_deltalake(target, rows, mode=how, storage_options=opts(),
                              schema_mode="overwrite" if how == "overwrite" else None)
         target = lh._proof.write_location(*parts(table), mode, write) if lh._proof is not None else uri(table)
@@ -189,7 +205,16 @@ def uses_local_module(cells: list[dict[str, Any]]) -> bool:
 def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[str, Any]:
     return {"type": "code", "source": SHIM_MARKER + "\n" + _SHIM % {
         "workspace_id": lakehouse["workspace_id"], "lakehouse_id": lakehouse["lakehouse_id"],
-        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled)}}
+        "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled), "conversions": repr(_conversions_source())}}
+
+
+def _conversions_source() -> str:
+    """localdata.delta's conversions and the functions it calls, as source the shim runs in Fabric."""
+    import inspect
+
+    from .localdata import delta
+    return "from __future__ import annotations\nimport pyarrow as pa\n\n" + "\n\n".join(
+        inspect.getsource(f) for f in (delta._text, delta._keeps_values, delta.conversions))
 
 
 def _sql_cell(source: str, source_cell_id: str | None = None) -> dict[str, Any]:

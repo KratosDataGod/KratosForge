@@ -15,7 +15,6 @@ A person can :meth:`JobQueue.requeue` a ``dead`` or ``failed`` job once they've 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import time
 import uuid
@@ -326,13 +325,13 @@ def _set_aside(path: Path, exc: Exception) -> Path:
     """Move a queue file SQLite can't read (with its -wal and -shm) to ``<name>.corrupt-<time>``, so the
     agent starts with an empty queue instead of failing to start again and again. Its jobs stay in
     the moved file for a person to look at; schedules add their next runs again on their own."""
-    from .jsonfile import set_aside
+    from .jsonfile import replace, set_aside
     from .redact import describe
     dest = set_aside(path, f"the agent starts with an empty queue ({describe(exc)}); its jobs "
                            "are in the moved file, and schedules add their next runs again")
     for suffix in ("-wal", "-shm"):
         side = path.with_name(path.name + suffix)
         if side.exists():
-            os.replace(side, dest.with_name(dest.name + suffix))
+            replace(side, dest.with_name(dest.name + suffix))
     return dest
 

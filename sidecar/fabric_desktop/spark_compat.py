@@ -928,6 +928,16 @@ def _collect_structs_as_rows(collect: Any) -> Any:
     return collect_rows
 
 
+def _spark_divide(reverse: bool) -> Any:
+    """Column division as Spark's (ANSI off): dividing by zero gives NULL (EA-012); DuckDB gives inf,
+    -inf or NaN. Spark's ``/`` is a double division, as DuckDB's is."""
+    from duckdb.experimental.spark.sql.column import _get_expr
+
+    def divide(self: Column, other: Any) -> Column:
+        left, right = (_get_expr(other), self.expr) if reverse else (self.expr, _get_expr(other))
+        return Column(left / duckdb.FunctionExpression("nullif", right, duckdb.ConstantExpression(0)))
+    return divide
+
 def install() -> None:
     """Add the calls above to DuckDB's Spark API (once per process)."""
     if getattr(DataFrame, "_fd_compat", False):
@@ -938,6 +948,8 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
+    Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
     for name in _ORDERS:
         setattr(Column, name, _ordered(name, getattr(Column, name)))
     DataFrame.agg = _agg  # type: ignore[attr-defined]

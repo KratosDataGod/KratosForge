@@ -63,3 +63,34 @@ def test_a_busy_integrations_file_is_not_set_aside(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.OperationalError):
         IntegrationStore(path)
     assert path.exists() and not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_an_unreadable_workloads_file_is_refused_and_kept(tmp_path):
+    from fabric_desktop.workloads.store import ManagementStore
+    path = tmp_path / "workloads.sqlite"
+    path.write_bytes(b"garbage" * 1000)
+    with pytest.raises(ValueError, match="holds who owns each workload"):
+        ManagementStore(path)
+    assert path.read_bytes() == b"garbage" * 1000 and not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_a_healthy_workloads_file_keeps_its_owners(tmp_path):
+    from fabric_desktop.workloads.store import ManagementStore
+    path = tmp_path / "workloads.sqlite"
+    ManagementStore(path).assign("w1", {"criticality": "high"}, by="me")
+    assert ManagementStore(path).assignments()["w1"]["criticality"]["value"] == "high"
+
+
+def test_an_unreadable_outbox_and_ledger_are_set_aside_and_start_empty(tmp_path, caplog):
+    from fabric_desktop.workloads.notify import Outbox
+    from fabric_desktop.workloads.platform_notify import Ledger
+    box = tmp_path / "platform_outbox.sqlite"  # one file for both, as platform_notify_service opens them
+    box.write_bytes(b"garbage" * 1000)
+    outbox = Outbox(box)
+    assert outbox.set_aside is not None and outbox.set_aside.read_bytes() == b"garbage" * 1000
+    assert outbox.pending() == [] and "new ones are sent as usual" in caplog.text
+    ledger = Ledger(box)
+    assert ledger.set_aside is None and ledger.get("k") is None  # the file Outbox made is fine
+    alone = tmp_path / "ledger.sqlite"
+    alone.write_bytes(b"garbage" * 1000)
+    assert Ledger(alone).set_aside is not None and "sent once more" in caplog.text

@@ -9,8 +9,9 @@ It isn't offline and it isn't free of capacity: Power BI draws the content and r
 | Find a report, paginated report or dashboard | **Workspaces › Power BI** (shown when preview features are on) |
 | Open it embedded | **Open in Embed Studio** on its row |
 | Change page | The page buttons above the report. Power BI's own page list is hidden, as most apps hide it |
-| See what it raised (loaded, rendered, page changed, data selected, errors) | The **Events** panel. **Copy events** copies them as JSON, with tokens taken out |
-| See what the SDK supports for it | The **Supports** tab beside it |
+| Fill the screen with it | **Full screen**. Esc comes back |
+| See what it raised (loaded, rendered, page changed, data selected, errors) | **Troubleshooting** shows the **Events** panel, hidden until you ask. **Copy events** copies them as JSON, with tokens taken out |
+| See its details and what the SDK supports for it | **Troubleshooting**, then the **Details** and **Supports** tabs |
 | Open it in Fabric instead | **Open in Fabric** |
 
 ## What you need

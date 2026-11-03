@@ -3,7 +3,7 @@
 // The shell serves this page from its pbiembed scheme, to the main window only, with a policy that lets it
 // frame app.powerbi.com and nothing else. The main window frames it and talks to it by postMessage. It runs
 // Microsoft's powerbi-client SDK (vendor/powerbi.min.js) and does only what a fixed list of commands asks:
-// embed one item, give it a new token, change page, reload, full screen, reset. Messages are taken only
+// embed one item, give it a new token, change page, reload, reset. Messages are taken only
 // from the parent window on one of the app's own origins, and answered only to that origin. Events go back
 // with anything that looks like a token or secret removed, so the screen can show and copy them.
 //
@@ -146,11 +146,6 @@
       reload() {
         if (!current) throw new Error("Nothing is open.");
         return current.reload().then(() => ({}));
-      },
-      fullscreen() {
-        if (!current) throw new Error("Nothing is open.");
-        current.fullscreen();
-        return {};
       },
       reset() {
         service.reset(el);

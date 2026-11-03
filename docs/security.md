@@ -89,7 +89,7 @@ frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost
 
 - It frames `https://app.powerbi.com` and nothing else, and fetches nothing. The SDK posts the person's token to its frame with target origin `*`, so `frame-src` is what keeps that frame, and the token, on Power BI. The host also refuses an embed address on any other host before the SDK sees it.
 - Only the app's own window can frame it (`frame-ancestors`), and the shell serves its files to no other webview.
-- It acts only on a fixed list of commands (embed, new token, pages, change page, reload, full screen, reset), only from its parent window on one of the app's origins, and answers only that origin. Messages from Power BI's frame, or anything else, are ignored.
+- It acts only on a fixed list of commands (embed, new token, pages, change page, reload, reset), only from its parent window on one of the app's origins, and answers only that origin. Messages from Power BI's frame, or anything else, are ignored.
 - Events go back to the app with every key that looks like a token or secret removed. A token quoted inside text (a JWT, or a `Bearer` value in an error's message) is replaced too; other text is passed as Power BI wrote it.
 - The token comes from the engine (`pbi_embed_token`, PBE-04) and lives only in memory: the app's window, the host frame and Power BI's frame. It is never written to disk or a log.
 - Its origin isn't the app's, so the Tauri API refuses it like any remote page.

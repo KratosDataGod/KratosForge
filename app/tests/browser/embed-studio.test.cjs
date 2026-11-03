@@ -28,7 +28,7 @@ const STUB = `<!doctype html><meta charset="utf-8"><body>stand-in host<script>
     if (m.command === "embed") {
       ok({ kind: m.kind });
       send({ event: "embed", detail: { kind: m.kind } });
-      setTimeout(() => send({ event: "loaded", detail: {} }), 10);
+      setTimeout(() => send({ event: "loaded", detail: { initiator: null } }), 10);
       setTimeout(() => send({ event: "rendered", detail: {} }), 20);
     } else if (m.command === "setPage") {
       ok();
@@ -106,7 +106,13 @@ test("Workspaces > Power BI lists only reports, paginated reports and dashboards
 test("Embed Studio embeds through the host on its own origin, and the token goes nowhere else", { skip }, async () => {
   await page().locator("tr", { hasText: "Sales performance" }).getByRole("button", { name: "Open in Embed Studio" }).click();
   await page().getByRole("heading", { name: /Sales performance/ }).waitFor();
+  // Details and Events are for troubleshooting: hidden until asked for, and they keep recording meanwhile.
+  await page().waitForFunction(() => pbiStudio.session?.events.some((e) => e.name === "rendered"));
+  assert.ok(!(await page().isVisible(".pbi-side")) && !(await page().isVisible(".pbi-events-card")), "hidden by default");
+  await page().getByRole("button", { name: "Troubleshooting" }).click();
+  assert.strictEqual(await page().getByRole("button", { name: "Troubleshooting" }).getAttribute("aria-pressed"), "true");
   await page().locator(".pbi-events li", { hasText: "rendered" }).waitFor();
+  assert.ok(await page().isVisible(".pbi-side"), "Details shows with Troubleshooting");
   const frame = page().locator("iframe.pbi-frame");
   assert.strictEqual(await frame.getAttribute("src"), `${HOST}/host.html`);
   const sandbox = (await frame.getAttribute("sandbox")).split(" ");
@@ -134,6 +140,15 @@ test("the page strip is the only page switcher and follows pageChanged", { skip 
   await page().waitForFunction(() => document.querySelector('.pbi-pages [aria-selected="true"]')?.textContent === "Regions");
   const got = await hostFrame().evaluate(() => window.got.map((m) => m.command));
   assert.ok(got.includes("setPage"), got.join(", "));
+});
+
+test("Full screen puts the report frame itself in full screen, from the click", { skip }, async () => {
+  const loaded = page().locator(".pbi-events li", { hasText: "loaded" }).first();
+  assert.doesNotMatch(await loaded.textContent(), /initiator|null/, "empty fields from Power BI aren't shown");
+  await page().getByRole("button", { name: "Full screen" }).click();
+  await page().waitForFunction(() => document.fullscreenElement === document.querySelector(".pbi-frame"));
+  await page().evaluate(() => document.exitFullscreen());
+  await page().waitForFunction(() => !document.fullscreenElement);
 });
 
 test("messages from anything but the host frame are ignored", { skip }, async () => {

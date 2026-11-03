@@ -20,7 +20,8 @@ const PBI_EVENTS_KEPT = 500;
 
 const pbiPage = { filter: "all", favoritesOnly: false, find: "", workspace: "", reading: 0, failed: new Set(), load: 0 };
 // The item open in Embed Studio ({workspace_id, workspace_name, item_id, type, name}); Back and Forward keep it.
-const pbiStudio = { item: null, side: "details", session: null };
+// troubleshoot: the Details panel and Events are for troubleshooting, so they stay hidden until asked for.
+const pbiStudio = { item: null, side: "details", session: null, troubleshoot: false };
 
 // The host's origin, as the shell serves it next to the app: http(s)://pbiembed.localhost on Windows,
 // pbiembed://localhost elsewhere.
@@ -227,8 +228,11 @@ function pbiEventText(name, detail) {
   if (name === "error") return `${d.message || "Error"}${d.errorCode ? ` (${d.errorCode})` : ""}${d.technicalDetails?.requestId ? `, request ${d.technicalDetails.requestId}` : ""}`;
   if (name === "dataHyperlinkClicked") return String(d.url || "");
   if (name === "embed") return "Started with your sign-in";
-  const text = JSON.stringify(d);
-  return text === "{}" || text === "null" ? "" : text.slice(0, 300);
+  // Empty fields (Power BI sends {"initiator": null} with loaded and rendered) say nothing, so they're left out.
+  const kept = d && typeof d === "object" && !Array.isArray(d)
+    ? Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined && v !== "")) : d;
+  const text = JSON.stringify(kept);
+  return text === "{}" || text === "null" || text === undefined ? "" : text.slice(0, 300);
 }
 
 // The app's side of the host conversation. Messages are taken only from this session's host frame, on the
@@ -287,8 +291,23 @@ async function renderEmbedStudio() {
   const problemBox = h("div", { class: "pbi-problem-slot" });
   const side = h("aside", { class: "card pbi-side", "aria-label": "Details" });
   const eventList = h("ol", { class: "pbi-events", "aria-label": "Events" });
+  const eventsCard = h("section", { class: "card pbi-events-card", "aria-label": "Events" },
+    h("div", { class: "pbi-events-head" }, h("h2", {}, "Events"),
+      h("span", { class: "muted-text small" }, "Timings measured in this window, not capacity units"), h("span", { class: "spacer" }),
+      btn("Copy events", null, () => copyText(JSON.stringify(s.events, null, 2), "Events"), "tool outline small")),
+    eventList);
+  const troubleBtn = btn("Troubleshooting", null, () => { pbiStudio.troubleshoot = !pbiStudio.troubleshoot; showTrouble(); }, "tool outline");
+  function showTrouble() {
+    side.hidden = eventsCard.hidden = !pbiStudio.troubleshoot;
+    troubleBtn.setAttribute("aria-pressed", String(pbiStudio.troubleshoot));
+  }
   const reloadBtn = btn("Reload", "restart", () => s.link?.send({ command: "reload" }).catch((e) => toast(e.message, true)), "tool outline");
-  const fullBtn = btn("Full screen", null, () => s.link?.send({ command: "fullscreen" }).catch((e) => toast(e.message, true)), "tool outline");
+  // Full screen is asked for here, on the click: a browser only grants it to the frame that was clicked
+  // (or its parents), so a message to the host page arrives without that permission and does nothing.
+  const fullBtn = btn("Full screen", null, () => {
+    const ask = frame.requestFullscreen ? frame.requestFullscreen() : Promise.reject(new Error("Full screen isn't available here."));
+    ask.catch((e) => toast(e.message || "Full screen isn't available here.", true));
+  }, "tool outline");
 
   setView(h("div", { class: "page embed-studio" },
     h("div", { class: "page-head" },
@@ -296,7 +315,7 @@ async function renderEmbedStudio() {
         h("button", { class: "crumb learn-more", onclick: () => go("powerbi") }, "Workspaces › Power BI"),
         h("h1", {}, item.name, previewTag()),
         h("p", { class: "sub" }, `${typeLabel(item.type)} · ${item.workspace_name || "Workspace"} · Runs in Power BI and uses its capacity`)),
-      h("div", { class: "head-actions" }, reloadBtn, fullBtn,
+      h("div", { class: "head-actions" }, reloadBtn, fullBtn, troubleBtn,
         btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(item)), "tool outline"))),
     withHowItWorks([
       h("div", { class: "pbi-studio" },
@@ -304,20 +323,18 @@ async function renderEmbedStudio() {
           h("div", { class: "pbi-stage-bar" }, pagesBar, h("span", { class: "spacer" }), h("span", { class: "muted-text small" }, "Drawn by Power BI")),
           h("div", { class: "pbi-frame-wrap" }, frame, problemBox)),
         side),
-      h("section", { class: "card pbi-events-card", "aria-label": "Events" },
-        h("div", { class: "pbi-events-head" }, h("h2", {}, "Events"),
-          h("span", { class: "muted-text small" }, "Timings measured in this window, not capacity units"), h("span", { class: "spacer" }),
-          btn("Copy events", null, () => copyText(JSON.stringify(s.events, null, 2), "Events"), "tool outline small")),
-        eventList)],
+      eventsCard],
     howItWorks("workspaces.embedstudio", {
       reads: "The item's embed address, pages or tiles from Power BI, and a Power BI token from your sign-in. Power BI then reads the content's data, as it does in Fabric.",
       changes: "Nothing by itself. Viewing runs the content's queries on the workspace's capacity, as viewing it in Fabric does.",
-      results: "The events below stay in this window until you copy them. Tokens are taken out of every event.",
+      results: "Troubleshooting shows the item's details and its events. Events stay in this window until you copy them. Tokens are taken out of every event.",
       more: [
         ["Your token", "Power BI's frame gets your own Power BI token: it can do what you can do in Power BI. It stays in memory, goes only to app.powerbi.com, and is renewed before it expires."],
         ["Q&A", "Q&A isn't offered: Microsoft retires it, embedded included, in December 2026."],
       ],
     }))));
+
+  showTrouble();
 
   function drawPages() {
     const show = s.content?.capabilities?.pages && s.pages.length;

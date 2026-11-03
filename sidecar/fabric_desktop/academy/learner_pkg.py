@@ -15,9 +15,9 @@ before it can reach a learner's process (tests/test_academy_pyspark_lab.py).
 from __future__ import annotations
 
 import ast
-import os
-import tempfile
 from pathlib import Path
+
+from .. import jsonfile
 
 PACKAGE = "kf_learner"
 _HERE = Path(__file__).resolve().parent
@@ -57,10 +57,7 @@ def build(dest: Path) -> Path:
     files = {"__init__.py": '"""KratosForge code a learner exercise may import (generated; see academy/learner_pkg.py)."""\n',
              **{name: text(name) for name in SOURCES}}
     for name, body in files.items():
-        fd, tmp = tempfile.mkstemp(dir=pkg, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(tmp, pkg / name)
+        jsonfile.write_text(pkg / name, body)
     return Path(dest)
 
 

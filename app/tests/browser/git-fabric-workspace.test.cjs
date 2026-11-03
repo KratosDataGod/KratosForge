@@ -22,6 +22,7 @@ const OTHER_WS = "99999999-2222-3333-4444-555555555555";
 const SHA = (c) => c.repeat(40);
 const copy = (x) => JSON.parse(JSON.stringify(x));
 const WRITES = ["fabric_git_link", "fabric_git_unlink"];
+const updates = [];  // fabric_git_update calls that carried a confirm_name: the only ones that may write
 
 const CONN = { state: "ConnectedAndInitialized", connected: true, initialized: true, selective: false, provider: "github",
   provider_label: "GitHub", owner: "contoso", project: "", repository: "sales", branch: "main", folder: "/fabric", host: "",
@@ -83,7 +84,24 @@ const mocks = {
     return { envs: { dev: db.link, test: null, prod: null }, problem: null, exists: true, status: status() };
   }),
   fabric_git_unlink: guard(() => { db.link = null; return { envs: { dev: null, test: null, prod: null }, problem: null, exists: true, status: status() }; }),
-  fabric_git_status: guard(() => copy(STATUS)),
+  fabric_git_status: guard(() => copy(db.status || STATUS)),
+  // fabric_git_service.py fabric_git_update: the plan, and a write only with every gate.
+  fabric_git_update: guard(({ fingerprint, policy, confirm_name, allow_override }) => {
+    const st = db.status || STATUS;
+    const plan = { from: SHA("7"), to: SHA("9"), policy: policy || "", conflicts: 1, needs_policy: !policy, nothing: false,
+      changes: [{ ...st.items[1], why: "Replaced with the version in Git" }],
+      overwrites: [...(policy === "PreferRemote" ? [{ ...st.items[0], why: "lost" }] : []), { ...st.items[2], why: "at risk" }, { ...st.items[3], why: "at risk" }],
+      kept: [] };
+    const name = db.fabricName || "Sales Dev";
+    const base = { env: "dev", plan, confirm_text: name, linked_name: "Sales Dev", name_differs: name !== "Sales Dev",
+      allow_override: !!allow_override, fingerprint: st.fingerprint };
+    if (fingerprint !== st.fingerprint) return { ...base, stale: true, status: copy(st), done: false };
+    if (!policy) return { ...base, needs_choice: true, done: false };
+    if (!allow_override) return { ...base, needs_override: true, done: false };
+    if (confirm_name !== name) return { ...base, needs_confirm: true, done: false };
+    updates.push({ policy, confirm_name, allow_override });
+    return { ...base, done: true };
+  }),
 };
 
 before(async () => {
@@ -203,4 +221,73 @@ test("unlink asks first, and only then writes", { skip }, async () => {
   await ask.getByRole("button", { name: "Unlink" }).click();
   await page().getByText("No Dev workspace linked").waitFor();
   assert.deepStrictEqual(writes(from), [{ method: "fabric_git_unlink", params: { repo: REPO, env: "dev" } }]);
+});
+
+test("Update from Git: a preview, a conflict choice and the workspace name, before the one write", { skip }, async () => {
+  db.link = copy(LINK);
+  updates.length = 0;
+  await openTab();
+  await page().getByRole("button", { name: "Check status in Fabric" }).click();
+  await page().locator("tr.fg-conflict").waitFor();
+  await page().getByRole("button", { name: "Update from Git…" }).click();
+  const dialog = page().getByRole("dialog", { name: "Update Sales Dev from Git" });
+  await dialog.waitFor();
+  const text = await dialog.innerText();
+  assert.match(text, /PL_Daily_Load[\s\S]*Replaced with the version in Git/);
+  assert.match(text, /1 conflict: NB_Orders_Silver/);
+  assert.match(text, /May be lost[\s\S]*LH_Silver[\s\S]*SM_Sales/);
+  assert.doesNotMatch(text, /fabric-desktop.toml says/);
+  const go = dialog.getByRole("button", { name: "Update workspace" });
+  assert.strictEqual(await go.isDisabled(), true, "the update can start before the name is typed");
+  assert.match(await go.getAttribute("class"), /danger-solid/);
+  await dialog.getByLabel("Take the Git version (the workspace's change is lost)").check();
+  assert.match(await dialog.innerText(), /1 loses the workspace's own change\. 2 uncommitted workspace changes may be lost/);
+  await dialog.getByRole("textbox").fill("sales dev");
+  assert.strictEqual(await go.isDisabled(), true, "a name in the wrong case starts it");
+  await dialog.getByRole("textbox").fill("Sales Dev");
+  assert.strictEqual(await go.isDisabled(), true, "it starts without consent to replace items");
+  await dialog.getByLabel("Let Fabric replace the workspace items listed above with the Git versions").check();
+  assert.deepStrictEqual(updates, []);
+  assert.deepStrictEqual(await serious("#dialog-root .dialog"), []);
+  await shot("5-update-from-git");
+  await go.click();
+  await dialog.waitFor({ state: "detached" });
+  assert.deepStrictEqual(updates, [{ policy: "PreferRemote", confirm_name: "Sales Dev", allow_override: true }]);
+});
+
+test("Update from Git asks for Fabric's own workspace name and warns when the link file disagrees", { skip }, async () => {
+  db.link = copy(LINK);
+  db.fabricName = "Sales Prod";
+  updates.length = 0;
+  try {
+    await openTab();
+    await page().getByRole("button", { name: "Check status in Fabric" }).click();
+    await page().locator("tr.fg-conflict").waitFor();
+    await page().getByRole("button", { name: "Update from Git…" }).click();
+    const dialog = page().getByRole("dialog", { name: "Update Sales Prod from Git" });
+    await dialog.waitFor();
+    assert.match(await dialog.getByRole("alert").innerText(), /Fabric calls this workspace Sales Prod, but fabric-desktop.toml says Sales Dev/);
+    const go = dialog.getByRole("button", { name: "Update workspace" });
+    await dialog.getByLabel("Let Fabric replace the workspace items listed above with the Git versions").check();
+    await dialog.getByRole("textbox").fill("Sales Dev");
+    assert.strictEqual(await go.isDisabled(), true, "the link file's name starts it");
+    await dialog.getByRole("textbox").fill("Sales Prod");
+    await go.click();
+    await dialog.waitFor({ state: "detached" });
+    assert.deepStrictEqual(updates, [{ policy: "PreferWorkspace", confirm_name: "Sales Prod", allow_override: true }]);
+  } finally { db.fabricName = null; }
+});
+
+test("Update from Git stops when Fabric changed since the check, and shows the new list", { skip }, async () => {
+  db.link = copy(LINK);
+  updates.length = 0;
+  await openTab();
+  await page().getByRole("button", { name: "Check status in Fabric" }).click();
+  await page().locator("tr.fg-conflict").waitFor();
+  db.status = { ...copy(STATUS), fingerprint: "changed", items: STATUS.items.slice(1),
+    counts: { ...STATUS.counts, conflict: 0 } };
+  await page().getByRole("button", { name: "Update from Git…" }).click();
+  await page().locator("tr.fg-conflict").waitFor({ state: "detached" });
+  assert.strictEqual(await page().getByRole("dialog").count(), 0, "a dialog opened on an out-of-date preview");
+  assert.deepStrictEqual(updates, []);
 });

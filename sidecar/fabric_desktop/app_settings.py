@@ -47,7 +47,8 @@ Keys:
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
-                     it's ended; 0 (default) for no limit
+                     it's ended; 0 (default) for no limit. A new process already uses about
+                     0.8 GB on Windows (pyarrow), so under 2 leaves a notebook little room
     kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
                      opening one more stops the least recently used idle one (default 5)
     kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle

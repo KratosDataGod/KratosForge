@@ -84,10 +84,13 @@ test("Dismiss Not in this file hides a finding in this notebook only, and Show a
   await pane().locator("[data-rule=NB003] .learn-dismiss-item", { hasText: "Not in this file" }).click();
   await pane().locator("[data-rule=NB003]").waitFor({ state: "detached" });
   assert.match(await page().locator("button[data-practices]").innerText(), /Best practices · 1/);
+  const cellLines = () => page().locator("[data-cell]").nth(2).locator(".practice-strip .practice-line").allInnerTexts();
+  assert.deepStrictEqual((await cellLines()).map((t) => t.split(" ")[2]), ["NB005"], "a dismissed finding leaves its cell too");
   assert.deepStrictEqual(await page().evaluate(() => learnDismissed.map((d) => [d.rule_id, d.scope, d.where])), [["NB003", "file", "notebooks/Load orders"]]);
   await pane().locator(".learn-dismissed button", { hasText: "1 dismissed · Show" }).click();
   await pane().locator(".learn-dismissed button", { hasText: "Show all again" }).click();
   await pane().locator("[data-rule=NB003]").waitFor();
+  assert.deepStrictEqual((await cellLines()).map((t) => t.split(" ")[2]).sort(), ["NB003", "NB005"], "and comes back under its cell");
 });
 
 test("Explain says how important a rule is, its principle and how to check the change (GD-03)", { skip }, async () => {

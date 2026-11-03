@@ -15,7 +15,7 @@ from fabric_desktop.academy import dbsql_lab, exercises, lab, registry
 from fabric_desktop.learn import checks
 
 PACK = "dbx-de-associate"
-EXERCISES = ("E20", "E25")
+EXERCISES = ("E20", "E25", "E26")
 
 
 @pytest.mark.parametrize("eid", EXERCISES)
@@ -155,3 +155,19 @@ def test_check_rules_for_sql_adapters(packs):
     dp = next((packs / "dp-700" / "exercises").glob("E21")) / "exercise.json"
     _edit(dp, lambda d: d["validation"][0].update(table="silver_orders"))
     assert any("a duckdb_lab check reads the answer's last result" in p for p in exercises.problems(packs))
+
+
+def test_a_failure_on_hidden_data_never_echoes_the_hidden_rows():
+    ex, ref = exercises.get(PACK, "E25"), dbsql_lab.reference(PACK, "E25")
+    leak = "SELECT CAST((SELECT string_agg(CAST(order_id AS STRING), ',') FROM sales.order_events) AS INT) AS x"
+    results = dict(zip([c.get("data") for c in ex["validation"]], dbsql_lab.grade(ex, ref, leak)["results"], strict=True))
+    assert "1,1,2" in results["practice"]["detail"] or "Conversion" in results["practice"]["detail"]
+    assert results["hidden"]["detail"] == dbsql_lab.HIDDEN_FAILED
+    assert "11" not in results["hidden"]["detail"]
+
+
+def test_an_answer_too_long_or_too_deep_is_refused_in_words():
+    with pytest.raises(ValueError, match="longer than"):
+        dbsql_lab.translate("SELECT 1 " + " " * dbsql_lab.MAX_ANSWER)
+    with pytest.raises(ValueError, match="can't run on this PC"):
+        dbsql_lab.translate("SELECT " + "(" * 5000 + "1" + ")" * 5000)

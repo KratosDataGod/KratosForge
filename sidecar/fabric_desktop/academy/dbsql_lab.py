@@ -41,6 +41,11 @@ from ..learn import checks
 from . import exercises, registry
 
 ZONE = "UTC"
+# sqlglot reads an answer before the lab's time limit starts, so a longer one isn't read at all.
+MAX_ANSWER = 100_000
+# A failure on hidden data never echoes DuckDB's error: a crafted cast could put the hidden rows in it.
+HIDDEN_FAILED = "Your SQL failed on the check's own data; run it on the practice data to see why."
+_ERROR_DETAILS = ("Your SQL failed", "Your SQL didn't run", "Your query didn't run")
 # What the parity table doesn't list but every exercise needs: casts and the standard aggregates,
 # which the SQL page's own tests cover (tests/test_sql_*.py) and which take no Spark-only arguments.
 BASE = frozenset({"cast", "try_cast", "count", "sum", "avg", "min", "max"})
@@ -60,11 +65,15 @@ PROVEN = _proven() | BASE
 def translate(text: str) -> str:
     """The Databricks SQL ``text`` as DuckDB SQL, statement by statement. A ValueError in words for a
     learner when it can't be read or has no DuckDB form (nothing then runs)."""
+    if len(text) > MAX_ANSWER:
+        raise ValueError(f"This SQL can't run on this PC: it is longer than {MAX_ANSWER:,} characters.")
     try:
         statements = _databricks(text)
         return ";\n".join(sql.duckdb_sql(s) for s in statements)
     except ValueError as exc:
         raise ValueError(f"This SQL can't run on this PC: {exc}") from None
+    except RecursionError:
+        raise ValueError("This SQL can't run on this PC: it is nested too deeply to read.") from None
 
 
 def functions(text: str) -> set[str]:
@@ -194,6 +203,8 @@ def check_all(ex: dict[str, Any], ref: dict[str, Any], answer: str,
                 r = run_check(cons[data], c, duck, solution)
             if stop.fired:
                 r = _no(c["kind"], stopped)
+            elif data == "hidden" and not r["passed"] and str(r.get("detail", "")).startswith(_ERROR_DETAILS):
+                r = _no(c["kind"], HIDDEN_FAILED)
             results.append(_message(c, r))
     finally:
         for con in cons.values():

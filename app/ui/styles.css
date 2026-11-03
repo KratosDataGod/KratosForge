@@ -57,7 +57,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .breadcrumb .current:hover { background: var(--hover); }
 .breadcrumb .crumb { background: none; border: 0; padding: 2px 4px; color: var(--muted); cursor: pointer; border-radius: 4px; }
 .breadcrumb .crumb:hover { background: var(--hover); color: var(--text); }
-.search-wrap { flex: 1 1 200px; display: flex; justify-content: center; }
+.search-wrap { flex: 1 1 200px; min-width: 0; display: flex; justify-content: center; }
+/* Zoomed to 200% (Ctrl+=) the default window is about 720 px wide: the lettering and the Ctrl+K hint
+   and the Data mesh environment label give their room, so the account button and Runs on stay whole (PB-063). */
+@media (max-width: 860px) {
+  .brand .brand-name, .search kbd, .env-label > .muted-text { display: none; }  /* the picker keeps its name: aria-label "Environment" */
+  .topbar { gap: 10px; padding: 0 10px; }
+}
 .search {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px;
   min-height: 32px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 4px;
@@ -195,7 +201,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cell.selected:not(.markdown) .cell-box, .cell.markdown.selected .cell-box { box-shadow: inset 3px 0 0 var(--accent); }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: #fafafa; }
-.cell-head { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
+.cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
 .cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }
@@ -1497,6 +1503,11 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .cell-head .deps-fx { background: #fde7e9; color: #b10e1c; }
 .deps-strip { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 10px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--text-2); }
 .deps-strip .warn { color: #8a5300; }
+/* A cell's best-practice findings while the Best practices panel is open (nbpractices.js). */
+.practice-strip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 10px; border-top: 1px solid var(--border-soft); font-size: 12px; }
+.practice-line { padding: 0; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
+.practice-line:hover, .practice-line:focus-visible { text-decoration: underline; }
+.practice-line.fail { color: #b10e1c; } .practice-line.wrn { color: #8a5300; } .practice-line.info { color: #0f548c; }
 .deps-ref { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-dark); text-decoration: underline; cursor: pointer; }
 .deps-fx-list { margin: 6px 0; padding-left: 20px; }
 
@@ -2557,6 +2568,15 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .zone-field optgroup { color: var(--muted); font-weight: 600; font-style: normal; }
 .zone-field option { color: var(--text); font-weight: 400; padding: 3px 6px; }
 
+/* "Run even when I'm signed out of Windows" on this PC's schedules (PB-048). */
+.signed-out-field { display: flex; flex-direction: column; gap: 8px; }
+.signed-out-field label.check { align-items: flex-start; gap: 8px; }
+.signed-out-field ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* Shown while Windows' own password prompt is open for a signed-out schedule (PB-048): that prompt can open on another screen. */
+.windows-prompt-note { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10000; max-width: 520px;
+  padding: 12px 16px; border: 1px solid #f3dca5; border-radius: 6px; background: #fff8e6; color: #242424;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 /* A folder box with Browse… beside it (#971, folderField in app.js). */
 .folder-field { display: flex; gap: 8px; align-items: center; }
 .folder-field > input { flex: 1; min-width: 0; }

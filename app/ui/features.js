@@ -380,6 +380,12 @@ function shortcutsDialog() {
   showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
 }
 
+// Zoom is WebView2's own (tauri.conf.json zoomHotkeysEnabled), so these keys aren't in the app-wide table
+// that app.js reads: listed here for people to find (PB-063).
+registerShortcuts("Window", [
+  { keys: ["Ctrl+=", "Ctrl+-", "Ctrl+0"], label: "Make everything bigger or smaller, or back to 100% (Ctrl+mouse wheel too). Every page still fits at 200%" },
+]);
+
 // ---------- command bar (Ctrl+K) ----------
 
 const palette = { notebooks: null, selected: 0, opener: null };

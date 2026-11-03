@@ -371,6 +371,8 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
         raise ProjectError("That file isn't an exported App Studio project (.zip).") from None
     with z:
         infos = z.infolist()
+        if len(infos) > MAX_VERSIONS + 4:  # the four project files plus at most MAX_VERSIONS versions
+            raise ProjectError("The zip has more files than an App Studio project can have.")
         bad = [i.filename for i in infos if not i.is_dir() and not _member_ok(i.filename)]
         if bad:
             raise ProjectError(f"The zip has files that aren't part of a project: {', '.join(b[:60] for b in bad[:5])}.")
@@ -391,8 +393,9 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
     dest = create(parent, name or spec["name"], spec)
     if HISTORY in files:
         write_text(dest / HISTORY, history, newline="\n")
-    for fname, body in files.items():
-        if fname.startswith(f"{VERSIONS}/"):
+    taken = 0
+    for fname, body in sorted(files.items()):
+        if fname.startswith(f"{VERSIONS}/") and taken < MAX_VERSIONS:
             try:
                 doc = json.loads(body.decode("utf-8"))
                 _guard(doc["spec"])
@@ -401,4 +404,5 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
             except (ValueError, KeyError, TypeError):
                 continue  # a damaged or unsafe version is left behind; the current specification is what matters
             write_json(dest / VERSIONS / PurePosixPath(fname).name, doc)
+            taken += 1
     return dest

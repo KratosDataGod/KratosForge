@@ -375,3 +375,15 @@ def test_import_drops_a_version_with_a_secret_label(tmp_path):
     dest = project.import_(_zip({"kfapp.json": "{}", "app.json": json.dumps(sales()),
                                  "versions/0001.json": json.dumps(version)}), tmp_path)
     assert project.versions(dest) == []
+
+
+def test_import_refuses_too_many_files_and_caps_versions(tmp_path, monkeypatch):
+    base = {"kfapp.json": "{}", "app.json": json.dumps(sales())}
+    version = json.dumps({"version": 1, "label": "v", "at": "x", "spec": sales()})
+    too_many = base | {f"versions/{n:04d}.json": version for n in range(1, project.MAX_VERSIONS + 4)}
+    with pytest.raises(ProjectError, match="more files"):
+        project.import_(_zip(too_many), tmp_path / "a")
+    assert not (tmp_path / "a").exists()
+    monkeypatch.setattr(project, "MAX_VERSIONS", 3)
+    dest = project.import_(_zip(base | {f"versions/{n:04d}.json": version for n in range(1, 6)}), tmp_path / "b")
+    assert len(list((dest / "versions").glob("*.json"))) == 3

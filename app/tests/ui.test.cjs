@@ -5822,3 +5822,14 @@ test("a developer Python missing a package says the command that installs it", (
   assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
   assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
 });
+
+// Platform skins (docs/skins.md): every color is meant to come from a token on :root, so a skin or dark
+// mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
+// when a change moves more of them onto tokens.
+test("styles.css writes no more colors outside its tokens than it did", () => {
+  const LITERAL_COLORS = 157;
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
+  assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
+});

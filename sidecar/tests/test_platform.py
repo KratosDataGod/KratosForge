@@ -296,6 +296,8 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
     assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    # Fabric refuses a connection binding without an item type it knows (live run 3, 2026-11-03)
+    assert key_table["bindings"][1]["itemType"] == "SqlDbNative"
     assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
         {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
     assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
@@ -1541,3 +1543,18 @@ def test_the_refusing_fake_refuses_a_udf_with_no_functions():
     with pytest.raises(FabricError, match="Functions is null or empty") as err:
         check_item("UserDataFunction", empty)
     assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)
+
+
+def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
+    from tests.fabric_refusals import UDF_NO_ARTIFACT_TYPE, check_item
+    files = udf.definition("ws", "sql")
+    check_item("UserDataFunction", files)  # what the app sends now is accepted
+    meta = json.loads(files["resources/functions.json"])
+    for f in meta["functionsMetadata"]:
+        for b in f["bindings"]:
+            if "itemType" in b:
+                b["itemType"] = None
+    files["resources/functions.json"] = json.dumps(meta)
+    with pytest.raises(Exception, match="artifactType") as err:
+        check_item("UserDataFunction", files)
+    assert UDF_NO_ARTIFACT_TYPE in str(err.value)

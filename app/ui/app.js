@@ -1553,6 +1553,7 @@ const FABRIC_ITEM_PATHS = {
   DataPipeline: "pipelines", Dashboard: "dashboards", Datamart: "datamarts", Eventhouse: "eventhouses", KQLDatabase: "databases",
   KQLQueryset: "queryworkbenches", KQLDashboard: "kustodashboards", Eventstream: "eventstreams", MirroredDatabase: "mirroreddatabases",
   SQLDatabase: "sqldatabases", MLModel: "mlmodels", MLExperiment: "mlexperiments",
+  CopyJob: "copyjobs",  // checked on a tenant 2026-10-30; a Dataflow (Gen2) still opens its workspace
 };
 
 function fabricItemLink(r) {

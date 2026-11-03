@@ -88,8 +88,10 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
 # contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
 _SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
-# a site or team name often carries the organization's: /sites/ContosoFinance
-_SHAREPOINT_SITE = re.compile(r"(?i)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)[^/\s\"'<>?#]+")
+# a site or team name often carries the organization's: /sites/ContosoFinance. One with spaces
+# (/sites/Contoso Finance/...) is hidden whole when its words run to a "/", a quote or the line's end.
+_SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)"
+                              r"[^/\s\"'<>?#]+(?:(?: [^/\s\"'<>?#]+)+(?=[/\"'<>?#\r]|$))?")
 # a OneDrive web address names its owner: /personal/ann_contoso_com/
 _ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
 _ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")

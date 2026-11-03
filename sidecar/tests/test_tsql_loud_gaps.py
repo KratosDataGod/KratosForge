@@ -28,6 +28,8 @@ def first(engine, sql):
     return engine.execute(sql, dialect="tsql")["rows"][0][0]
 
 
+SQ, DQ = "'", '"'
+
 # (case, T-SQL, SQL Server's documented answer as the first cell). These run on the local engine now.
 MAPPED = [  # decimals come back as text, as the engine sends them
     ("ROUND truncate mode", "SELECT ROUND(123.456, 1, 1)", "123.4"),
@@ -51,6 +53,14 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("POWER of an integer, positive", "SELECT POWER(-2, 3)", -8),
     ("POWER of an integer, fractional exponent", "SELECT POWER(2, 0.5)", 1),
     ("POWER of a float", "SELECT POWER(2e0, -1)", 0.5),
+    ("QUOTENAME doubles the closing bracket", "SELECT QUOTENAME('a]b')", "[a]]b]"),
+    ("QUOTENAME with double quotes", "SELECT QUOTENAME('a" + DQ + "b', '" + DQ + "')", DQ + "a" + DQ * 2 + "b" + DQ),
+    ("QUOTENAME with single quotes", "SELECT QUOTENAME('ab', " + SQ * 4 + ")", SQ + "ab" + SQ),
+    ("QUOTENAME over 128 characters", "SELECT QUOTENAME(REPLICATE('x', 129))", None),
+    ("STR defaults", "SELECT STR(123.45)", "       123"),
+    ("STR with places", "SELECT STR(123.45, 6, 1)", " 123.5"),
+    ("STR gives up places that don't fit", "SELECT STR(123.45, 5, 2)", "123.5"),
+    ("STR too long for the length", "SELECT STR(-1234.5, 4)", "****"),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
@@ -118,6 +128,9 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT POWER(2.0, 0.5)",
     "SELECT POWER(-2.5, 2)",
     "SELECT POWER(CAST(2 AS DECIMAL(5, 2)), 2)",
+    "SELECT QUOTENAME('a', '(')",
+    "SELECT STR(1.5, 10, 20)",
+    "SELECT STR(1.5, boxes) FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -169,3 +182,28 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
         assert f"`{name}" in section, f"{name} is refused in tsql.py but not in docs/local-data.md's T-SQL section"
     for whole in ("ISNUMERIC", "POWER"):  # refused outright, or for a whole kind of argument
         assert f"`{whole}" in refused, f"{whole} is missing from the docs' refused list"
+
+
+@pytest.mark.parametrize("sql, name", [
+    ("SELECT ISDATE('2024-01-01')", "ISDATE"),
+    ("SELECT CHECKSUM('a')", "CHECKSUM"),
+    ("SELECT DIFFERENCE('a', 'b')", "DIFFERENCE"),
+    ("SELECT TRY_PARSE('1' AS int)", "TRY_PARSE"),
+    ("SELECT id FROM dbo.orders WHERE BINARY_CHECKSUM(id) > 0", "BINARY_CHECKSUM"),
+    ("SELECT SYSDATETIMEOFFSET()", "SYSDATETIMEOFFSET"),
+])
+def test_a_function_duckdb_doesnt_have_is_refused_by_its_tsql_name(engine, sql, name):
+    with pytest.raises(Exception, match=f"on the local engine: {name} isn't mapped yet") as err:
+        engine.execute(sql, dialect="tsql")
+    assert "Catalog Error" not in str(err.value)
+
+
+def test_functions_duckdb_has_still_run(engine):
+    row = engine.execute("SELECT UPPER('a'), CHARINDEX('b', 'abc'), LEN(CAST(NEWID() AS VARCHAR(36)))",
+                         dialect="tsql")["rows"][0]
+    assert row == ["A", 2, 36]
+
+
+def test_a_macro_in_the_database_is_a_known_function(engine):
+    engine.execute("CREATE MACRO twice(x) AS x * 2")
+    assert first(engine, "SELECT twice(4)") == 8

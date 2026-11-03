@@ -91,7 +91,7 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-012](#pb-012) | Published Spark API compatibility matrix for this PC | P1 | Prove | M | Accepted |
 | [PB-013](#pb-013) | Fix local-parity defects that give wrong answers | P1 | Master product (unassigned) | M | Accepted |
-| [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | In review |
+| [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Accepted |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | In progress |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | In progress |
 | [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
@@ -135,11 +135,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-014
 
-**AST-based compatibility analyzer with an Unknown outcome** · P1 (score 2.73) · M · confidence Medium · In review
+**AST-based compatibility analyzer with an Unknown outcome** · P1 (score 2.73) · M · confidence Medium · Accepted
 
 - **Problem:** The compute check is a regex scan, so it misses aliased imports and can't say 'not sure'.
 - **Proposed capability:** A Python AST analyzer that reports, per cell, runs on PC / runs in Fabric / unknown with the reason, shared by Runs on, Prove and the advisor.
-- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial; compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers; Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met; Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written; The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed; Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept
+- **Current-state evidence:** fabric_run.py compute_check reads Python cells' AST (PB-014 branch): aliased and from-imports, SQL kept in variables, an Unknown status per side; Prove, Validate, the advisor and the risk check read it. Unknown in the ribbon is not built yet.; docs/product/enterprise-gap-analysis.md FD-111 partial; compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers; Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met; Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written; The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed; Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept; Re-review in docs/product/reviews/PB-014-1190.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); criterion 2's ribbon is met by the notebook's compute note, per the mockup Chris approved
 - **Inventory features:** [FEAT-NB-07](FEATURE_INVENTORY.md#feat-nb-07)
 - **Dependencies:** [PB-013](#pb-013)
 - **Owner:** Prove (FD-111)
@@ -886,7 +886,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Accepted |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Accepted |
 | [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Accepted |
-| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
+| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | Accepted |
 | [PB-108](#pb-108) | Best-practice checks and governance templates | P1 | Enterprise governance foundation | L | Accepted |
 | [PB-111](#pb-111) | Check now covers SQL scripts and scheduled notebooks | P2 | Enterprise governance foundation | S | Accepted |
 | [PB-112](#pb-112) | Semantic model best-practice checks in governance policies | P2 | Best Practice Analyzer | M | Accepted |
@@ -993,11 +993,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-084
 
-**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · In review
+**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · Accepted
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.; Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges; Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7; Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review; acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.; acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.; Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges; Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7; Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations; Implementation review docs/product/reviews/PB-084-1553.md: Accepted with Documented Limitations (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); limitations: no Windows or live Teams run; with Preview off the incident list uses capacity for an environment in Fabric
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
@@ -1080,8 +1080,8 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-119](#pb-119) | Learn v1: lessons, labs and finding actions | P2 | Learning experience (LX) | L | Accepted |
 | [PB-122](#pb-122) | Guided Development: levels, Try the fix and Compare | P2 | Guided development (GD) | L | In progress |
 | [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | Proposed |
-| [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | In review |
-| [PB-126](#pb-126) | Learn curriculum content batches by path | P2 | Learning experience (LX) | L | In review |
+| [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | Accepted |
+| [PB-126](#pb-126) | Learn curriculum content batches by path | P2 | Learning experience (LX) | L | Accepted |
 
 ### PB-034
 
@@ -1286,11 +1286,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-125
 
-**Learn ranks and profile pictures** · P2 (score 2.34) · M · confidence Medium · In review
+**Learn ranks and profile pictures** · P2 (score 2.34) · M · confidence Medium · Accepted
 
 - **Problem:** Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.
 - **Proposed capability:** Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is "Data God"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.
-- **Current-state evidence:** Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp; Nothing built. Builds as draft PRs once Chris approves the rank ladder; Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7; Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept
+- **Current-state evidence:** Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp; Nothing built. Builds as draft PRs once Chris approves the rank ladder; Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7; Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept; Implementation review docs/product/reviews/PB-125-1657.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (Learn curriculum design 2026-11-02)
@@ -1304,11 +1304,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-126
 
-**Learn curriculum content batches by path** · P2 (score 2.34) · L · confidence Medium · In review
+**Learn curriculum content batches by path** · P2 (score 2.34) · L · confidence Medium · Accepted
 
 - **Problem:** Learn v1 has the first lessons and labs only, so no path is a full curriculum.
 - **Proposed capability:** A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.
-- **Current-state evidence:** From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09); Nothing built. Each batch needs Chris's go before it is built; All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7; Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept
+- **Current-state evidence:** From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09); Nothing built. Each batch needs Chris's go before it is built; All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7; Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept; Implementation review docs/product/reviews/PB-126-curriculum.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Learning experience (LX) (LM-13..35, LAB-05..12)
@@ -1482,15 +1482,15 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.
 - **Proposed capability:** Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).
-- **Current-state evidence:** Chris's Optimize brief, 2026-10-18 08:55Z; No code or plan merged yet
+- **Current-state evidence:** Chris's Optimize brief, 2026-10-18 08:55Z; Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py; Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01)
 - **Dependencies:** none
-- **Owner:** Optimize central lakehouse (PR-OPT-001..009)
+- **Owner:** Optimize central lakehouse (PR-OPT-001..013)
 - **Priority set by the product owner:** P1 (Chris (product owner), 2026-10-18): Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3
 - **Merged duplicates:** Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item
 - **Acceptance criteria:**
-    - As defined in PR-OPT-001..009 by its owning thread
-    - Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized
+    - As defined in PR-OPT-001..013 in docs/optimize/plan.md section 4
+    - Savings follow the brief's rule: no CU savings without a measured Fabric baseline, and estimated savings are never labelled realized
 
 ## Extensibility, APIs, CLI, and MCP
 

@@ -18,6 +18,8 @@ The tab has five views, picked with the buttons under the title.
 
 **New shortcut** makes one in any lakehouse you can write to. **Refresh** reads every lakehouse again. **Check all now** checks every shortcut's health.
 
+**Export CSV** on **All shortcuts** saves the shortcuts the list shows, with its search and filters, as a new CSV in your Downloads folder: name, place, environment, what it points at, data product, health, what's worth a look, the managed tables that read it and its last change. It never replaces a file. Who can read each shortcut and connection details aren't in the file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so Excel shows it as text instead of running it.
+
 ## One shortcut's panel
 
 Select a shortcut to see:

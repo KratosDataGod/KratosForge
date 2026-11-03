@@ -43,7 +43,7 @@ def test_sharing_asks_first_and_adds_each_run_once(svc):  # noqa: F811
     assert svc._optimize_shared().local_execution_ids() == set()  # asking wrote nothing
     out = svc.optimize_share_local_runs(approve=True)
     assert out["shared"] == 2 and out["notebook_runs"] == 1
-    assert svc.optimize_share_local_runs() == {"new": 0, "notebook_writes": 0, "notebook_runs": 0, "already": 2,
+    assert svc.optimize_share_local_runs() == {"new": 0, "notebook_writes": 0, "notebook_runs": 0, "already": 2, "waiting": 0,
                                                "shared": 0}
     rows = svc._optimize_shared().rows("local_execution")
     assert sorted(rows["workload_type"].to_list()) == ["notebook_run", "notebook_write"]

@@ -45,7 +45,8 @@ The last five are final: the agent never changes a final status again.
 
 Takeover (``[pipeline] take_over = true``, Preview): a request that is ``accepted`` or ``running``
 belongs to the agent its status names. Once that agent's own status record (``agents/<name>.json``)
-is past its ``stale_after``, plus ``TAKEOVER_GRACE`` for clock differences, another agent may take
+is past its ``stale_after``, plus ``TAKEOVER_GRACE`` for clock differences (in OneLake, judged on
+OneLake's clock: the record's age against its ``stale_after`` less ``heartbeat_at``), another agent may take
 the request over by replacing the status with ``If-Match`` on the etag it read, so exactly one
 agent does. The status then names the new agent, ``taken_over_from`` and ``taken_over_at``, and
 ``agents`` lists every agent that has held it. A request that ``max_attempts`` agents have held
@@ -534,7 +535,16 @@ class Mailbox:
             return False
         try:
             record = json.loads(stored.data)
-            return record.get("kind") == "agent_status" and self.clock() > _epoch(str(record["stale_after"])) + TAKEOVER_GRACE
+            if record.get("kind") != "agent_status":
+                return False
+            stale_after = _epoch(str(record["stale_after"]))
+            if stored.store_now is not None and record.get("heartbeat_at"):
+                # On OneLake's clock: how long the record has gone unwritten, against how long its
+                # writer said it stays fresh (both its writer's clock, so the difference holds). A PC
+                # whose clock ran fast would take over requests from an agent that is still running.
+                fresh_for = max(0.0, stale_after - _epoch(str(record["heartbeat_at"])))  # a record out of order never shortens the grace
+                return _age(stored, self.clock()) > fresh_for + TAKEOVER_GRACE
+            return self.clock() > stale_after + TAKEOVER_GRACE
         except (ValueError, KeyError, TypeError, AttributeError):
             return False
 

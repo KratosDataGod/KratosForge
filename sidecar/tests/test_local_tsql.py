@@ -337,6 +337,10 @@ def test_patindex_finds_where_a_like_pattern_first_matches(engine):
     assert r["rows"] == [[3, 8, 33]]
     with pytest.raises(ValueError, match="PATINDEX needs its pattern written out as text"):
         tsql(engine, "SELECT PATINDEX(s, 'abc') AS x FROM dbo.p")
+    # A NULL pattern gives NULL, as in T-SQL, however it is written.
+    r = tsql(engine, "SELECT PATINDEX(NULL, 'abc') AS a, PATINDEX(CAST(NULL AS VARCHAR(10)), s) AS b, "
+                     "PATINDEX((NULL), s) AS c FROM dbo.p WHERE id = 1")
+    assert r["rows"] == [[None, None, None]]
 
 
 def test_var_varp_stdev_and_stdevp_are_the_sample_s_and_the_population_s(engine):

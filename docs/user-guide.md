@@ -54,6 +54,7 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
 - While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either, unless you untick **Respect Windows' reduced-motion setting** in [Motion and effects](#motion-and-effects).
+- **Ctrl+=** and **Ctrl+-** zoom the whole window in and out, and **Ctrl+0** goes back to 100%; **Ctrl** with the mouse wheel does the same. Pages are checked to fit the default window at 200%: the top bar keeps your account button, and wide tables scroll inside their box.
 - With a Windows contrast theme on (**Settings > Accessibility > Contrast themes**), the app uses the theme's colors. The current page in the rail, the selected tab or option, and a selected notebook cell are drawn in the theme's highlight color, and the focus ring uses it too.
 
 ### Keyboard shortcuts
@@ -70,6 +71,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Alt+Left**, **Alt+Right** | Go back or forward to the page you were on, as the top bar's arrows do (not while typing in a box) |
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
+| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** | Zoom the window in or out, or back to 100% (**Ctrl** and the mouse wheel too) |
 
 Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces; press **Esc**, then **Tab**, to move on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 

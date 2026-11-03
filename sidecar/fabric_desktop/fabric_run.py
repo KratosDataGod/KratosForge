@@ -667,7 +667,7 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
     if method == "load" and fmt_text not in sl.READ_FORMATS:
         out["fabric"].append((line, sl.READ_FORMAT_TEXT.format(fmt_text or "parquet")))
         return
-    if fmt_text == "csv":
+    if fmt_text in ("csv", "json", "parquet"):
         options: list[tuple[str, Any]] = [(k.arg, _value(k.value)) for k in node.keywords
                                           if k.arg and k.arg not in ("path", "format", "schema")]
         for name, call in links[1:]:
@@ -675,7 +675,8 @@ def _spark_refused(node: ast.Call, values: dict[str, list[ast.expr | None]],
                 options.append((key, _value(call.args[1]) if len(call.args) > 1 else None))
             elif call is not None and name == "options":
                 options += [(k.arg, _value(k.value)) for k in call.keywords if k.arg]
-        if hit := sl.csv_option_refusal(options, "schema" in names[1:]):
+        has_schema = "schema" in names[1:] or any(k.arg == "schema" for k in node.keywords)
+        if hit := sl.read_option_refusal(fmt_text, options, has_schema):
             out["fabric"].append((line, hit))
             return
     if "schema" in names[1:]:

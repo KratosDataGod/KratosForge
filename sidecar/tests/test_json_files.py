@@ -345,3 +345,25 @@ def test_app_settings_with_a_byte_order_mark_still_read(app_settings_file):
     path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"show_preview": True}).encode())  # as PowerShell writes it
     assert app_settings.load()["show_preview"] == {"value": True, "source": "user"}
     assert not set_aside_files(path)
+
+
+def test_only_the_newest_set_aside_copies_are_kept(tmp_path):
+    # A file damaged again and again can't fill the disk; each copy goes with its -wal and -shm, and a
+    # copy renamed by hand, or another file's, is never removed.
+    path = tmp_path / "store.sqlite"
+    old = [tmp_path / f"store.sqlite.corrupt-2026010{i}T000000000000Z" for i in range(1, 8)]
+    for p in old:
+        p.write_text("x")
+        p.with_name(p.name + "-wal").write_text("w")
+    kept_by_hand = tmp_path / "store.sqlite.corrupt-mine"
+    other = tmp_path / "other.sqlite.corrupt-20260101T000000000000Z"
+    kept_by_hand.write_text("x")
+    other.write_text("x")
+    path.write_text("damaged")
+    dest = jsonfile.set_aside(path)
+    left = sorted(p.name for p in tmp_path.glob("store.sqlite.corrupt-2*") if not p.name.endswith("-wal"))
+    assert len(left) == jsonfile.KEEP_SET_ASIDE and dest.name in left
+    assert left[0] == old[3].name  # the three oldest of the seven went
+    assert not old[0].exists() and not old[0].with_name(old[0].name + "-wal").exists()
+    assert old[3].with_name(old[3].name + "-wal").exists()
+    assert kept_by_hand.exists() and other.exists() and dest.read_text() == "damaged"

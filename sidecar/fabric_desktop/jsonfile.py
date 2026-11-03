@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -25,6 +26,8 @@ _log = logging.getLogger(__name__)
 # (auth.SharedTokenCache) use the same.
 REPLACE_ATTEMPTS = 6
 REPLACE_BACKOFF = 0.05
+# Set-aside copies kept per file: the newest ones, so a file damaged again and again can't fill the disk.
+KEEP_SET_ASIDE = 5
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
@@ -87,7 +90,21 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     else:
         os.replace(path, dest)
     _log.warning("%s could not be read and was %s to %s; %s.", path, "copied" if keep else "moved", dest.name, then)
+    _prune_set_aside(path)
     return dest
+
+
+def _prune_set_aside(path: Path) -> None:
+    """Remove all but the KEEP_SET_ASIDE newest ``<name>.corrupt-<timestamp>`` copies of ``path``, each
+    with its -wal and -shm. A copy renamed by hand doesn't match the pattern and is never removed."""
+    own = re.compile(re.escape(path.name) + r"\.corrupt-\d{8}T\d{12}Z")
+    copies = sorted(p for p in path.parent.glob(f"{path.name}.corrupt-*") if own.fullmatch(p.name))
+    for old in copies[:-KEEP_SET_ASIDE]:
+        for victim in (old, old.with_name(old.name + "-wal"), old.with_name(old.name + "-shm")):
+            try:
+                victim.unlink(missing_ok=True)
+            except OSError as exc:  # in use or read-only: it stays, and the next set-aside tries again
+                _log.info("Couldn't remove the old set-aside copy %s: %s", victim, exc)
 
 
 def read_text(path: Path) -> str:

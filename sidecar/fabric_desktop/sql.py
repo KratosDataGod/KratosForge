@@ -22,7 +22,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import lakehouse, sql_dialects
+from . import lakehouse, spark_builtins_sql, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
@@ -94,11 +94,15 @@ def _only_empty_structs_fail(query: str) -> bool:
 _SPARK_UNITS = {"YYYY": "YEAR", "YY": "YEAR", "MON": "MONTH", "MM": "MONTH", "DD": "DAY"}
 
 
-def spark_fixes(statement: exp.Expression) -> exp.Expression:
+def spark_fixes(statement: exp.Expression, databricks: bool = False) -> exp.Expression:
     """What a Spark SQL statement read by sqlglot needs to answer on DuckDB as it does on Spark:
     Spark's column names, its date functions and substring from 0. The Spark SQL path here and
-    the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift."""
-    return _spark_functions(_spark_json(spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement))))))
+    the DuckDB engine's Databricks SQL (engines/local_sql.py) both use it, so they can't drift.
+    ``databricks``: schema_of_json writes every field name in backticks, as Databricks documents it;
+    Apache Spark 3.5 (Fabric) quotes only names that need it."""
+    statement = spark_builtins_sql.mark(statement)
+    return spark_builtins_sql.rewrite(
+        _spark_functions(_spark_json(databricks, spark_substring(_spark_dates(spark_integer_casts(_spark_names(statement)))))))
 
 
 # Spark functions whose sqlglot DuckDB SQL answers differently or doesn't run, as DuckDB SQL that
@@ -145,6 +149,15 @@ _ANON_TEMPLATES = {
                "kf_c -> RPAD(LEFT(ARRAY_TO_STRING(LIST_FILTER(kf_c[2:], (kf_v, kf_i) -> kf_v <> '0' AND kf_v <> kf_c[kf_i]), "
                "''), 3), 3, '0')))[1] END))[1]",
 }
+def _bround(places: int) -> str:
+    """bround(x, places) with places written out: half-even, as Spark's, keeping a decimal a decimal
+    (DuckDB's ROUND and TRUNC do; ROUND_EVEN returns a DOUBLE). A value exactly half way whose lower
+    neighbour is even is truncated; everything else rounds half away from zero."""
+    scaled = f"({{0}}) * {10 ** places}" if places >= 0 else f"({{0}}) / {10 ** -places}"
+    return (f"CASE WHEN ABS({scaled} - TRUNC({scaled})) = 0.5 AND TRUNC({scaled}) % 2 = 0 "
+            f"THEN TRUNC({{0}}, {places}) ELSE ROUND({{0}}, {places}) END")
+
+
 # format_number(x, d) with a whole number of places: decimals round half-even first, as Spark's
 # BigDecimal does; doubles are formatted as they are, as Java's DecimalFormat does.
 _FORMAT_NUMBER = ("CASE WHEN TYPEOF({0}) LIKE 'DECIMAL%' THEN FORMAT('{{:,.{1}f}}', CAST(ROUND_EVEN({0}, {1}) AS DOUBLE)) "
@@ -350,7 +363,7 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
                 node.replace(exp.Anonymous(this="LIST_SORT", expressions=[
                     node.this, exp.Literal.string("ASC" if up else "DESC"),
                     exp.Literal.string("NULLS FIRST" if nulls_first else "NULLS LAST")]))
-        elif isinstance(node, exp.Quantile):
+        elif isinstance(node, exp.Quantile) and not isinstance(node, exp.ApproxQuantile):
             node.replace(exp.Anonymous(this="QUANTILE_CONT", expressions=[node.this, node.args["quantile"]]))
         elif isinstance(node, exp.ArrayDistinct):
             node.replace(_from_template(_DISTINCT, [node.this]))
@@ -376,6 +389,10 @@ def _spark_functions(statement: exp.Expression) -> exp.Expression:
                 continue
             if name == "BROUND" and len(args) == 1:
                 args.append(exp.Literal.number(0))
+            places = args[1] if name == "BROUND" and len(args) == 2 else None
+            if places is not None and (places.is_int or (isinstance(places, exp.Neg) and places.this.is_int)):
+                node.replace(_from_template(_bround(int(places.sql())), [args[0]]))
+                continue
             if name == "FORMAT_NUMBER" and len(args) == 2:
                 places = args[1]
                 if isinstance(places, exp.Neg) and places.this.is_int:  # a negative count is NULL in Spark
@@ -738,16 +755,25 @@ def _canonical_json_type(t: Any) -> Any:
     return t
 
 
-def _json_type_sql(t: Any) -> str:
-    """DataType.sql as Spark writes it: STRUCT<`name`: TYPE, ...>, with backticks doubled in a name."""
+def _json_type_sql(t: Any, quote_all: bool = False) -> str:
+    """DataType.sql as Spark writes it: STRUCT<name: TYPE, ...>, a name in backticks (doubled inside)
+    only when it needs them (QuotingUtils.quoteIfNeeded: anything but letters, digits and _, or all digits),
+    or always with ``quote_all`` (Databricks)."""
     if isinstance(t, str):
         return t
     if t[0] == "ARRAY":
-        return f"ARRAY<{_json_type_sql(t[1])}>"
-    return "STRUCT<" + ", ".join("`" + n.replace("`", "``") + "`: " + _json_type_sql(f) for n, f in t[1].items()) + ">"
+        return f"ARRAY<{_json_type_sql(t[1], quote_all)}>"
+    return "STRUCT<" + ", ".join(_quote_if_needed(n, quote_all) + ": " + _json_type_sql(f, quote_all)
+                                 for n, f in t[1].items()) + ">"
 
 
-def schema_of_json(text: str) -> str:
+def _quote_if_needed(name: str, quote_all: bool) -> str:
+    if not quote_all and re.fullmatch(r"[a-zA-Z0-9_]+", name) and not name.isdigit():
+        return name
+    return "`" + name.replace("`", "``") + "`"
+
+
+def schema_of_json(text: str, quote_all: bool = False) -> str:
     """Spark's schema_of_json for ``text``, worked out here (#1447): its SchemaOfJson keeps a top-level
     struct (or an array of structs) whose fields all drop as STRUCT<>, and anything else that drops as
     STRING."""
@@ -772,10 +798,10 @@ def schema_of_json(text: str) -> str:
         result = ("ARRAY", _canonical_json_type(inferred[1]) or ("STRUCT", {}))
     else:
         result = _canonical_json_type(inferred) or "STRING"
-    return _json_type_sql(result)
+    return _json_type_sql(result, quote_all)
 
 
-def _spark_json(statement: exp.Expression) -> exp.Expression:
+def _spark_json(databricks: bool, statement: exp.Expression) -> exp.Expression:
     """from_json with a written-out schema and str_to_map, which DuckDB doesn't have, written in DuckDB
     SQL that answers as Spark does (#1404), and schema_of_json of a literal, worked out here as its
     schema text (#1447) before from_json reads it. Anything this can't read exactly is refused."""
@@ -788,7 +814,7 @@ def _spark_json(statement: exp.Expression) -> exp.Expression:
                              "Run the query on Databricks, or leave the options out.")
         if not (isinstance(args[0], exp.Literal) and args[0].is_string):
             raise ValueError("schema_of_json takes JSON written out as text, as Databricks requires, so nothing ran.")
-        literal = exp.Literal.string(schema_of_json(args[0].name))
+        literal = exp.Literal.string(schema_of_json(args[0].name, quote_all=databricks))
         if call is statement:
             return literal
         call.replace(literal)
@@ -940,14 +966,18 @@ def spark_name(column: exp.Expression) -> str:
     return copy.sql("spark", normalize_functions="lower")
 
 
+_BUILTIN_NAMES = spark_builtins_sql.names()
+
+
 def _spark_names(statement: exp.Expression) -> exp.Expression:
     """Name a selected expression this module rewrites as Spark names it ("add_months(d, 1)"), not after
     the DuckDB SQL it becomes."""
     for select in statement.find_all(exp.Select):
         for i, column in enumerate(select.expressions):
             if isinstance(column, (exp.Alias, exp.Column, exp.Star)) or not (
-                    column.find(*_REWRITTEN) or any(str(a.this).upper() in _ANON_TEMPLATES
-                                                    or str(a.this).upper() in _MAP_LAMBDAS
+                    column.find(*_REWRITTEN, *spark_builtins_sql.typed_classes())
+                    or any(str(a.this).upper() in _ANON_TEMPLATES or str(a.this).upper() in _MAP_LAMBDAS
+                           or str(a.this).upper() in _BUILTIN_NAMES
                                                     for a in column.find_all(exp.Anonymous))
                     or any(r.args.get("finish") is not None for r in column.find_all(exp.Reduce))
                     # Spark's CAST is DuckDB's TRY_CAST, and casts to whole numbers and timestamps are written out.

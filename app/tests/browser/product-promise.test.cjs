@@ -2,7 +2,7 @@
 // (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -24,6 +24,12 @@ before(async () => {
       can_edit_terms: false, items: [], terms: [] }),
     incidents_list: ({ env }) => ({ env, incidents, observation: { state: "live" } }),
     mesh_save_product: (params) => { saved = params; return {}; },
+    meta_project: () => ({ path: "C:/work/crm", name: "crm", version: "3", templates: {}, layers: [], products: [], links: [],
+      entities: [{ name: "silver.customers", layer: "silver" }], environments: {}, errors: [], run_order: [],
+      project: { name: "crm", domain: "sales" } }),
+    mesh_overview: () => ({ project: { name: "crm" }, published: [], platform: {}, products: [{ name: "c360", title: "C360", description: "",
+      owner: "bo@contoso.com", access: "public", status: "published", version: "1", ports: [{ name: "customers", entity: "silver.customers" }],
+      promise: { within_hours: 24, by: "06:00", max_rejected_pct: 1 } }] }),
   } });
 });
 after(async () => { if (app) await app.close(); });
@@ -66,6 +72,14 @@ test("its own team sees each promise kept or broken, from the open incidents", {
     assert.deepStrictEqual(marks, [["fresh", "Kept"], ["fresh", "Kept"], ["rejected", "Broken"]]);
     assert.ok(await page().$('.product-promise button:has-text("Edit promise")'));
     assert.ok(await page().$('.product-promise tr[data-promise="rejected"] button:has-text("Open the incident")'));
+    assert.match(await page().textContent('.product-promise tr[data-promise="rejected"] .promise-why'), /^2\.4 % of rows rejected/);
+    if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".product-promise"), []);
+    // Edit promise opens the product's own dialog, at its promise.
+    await page().click('.product-promise button:has-text("Edit promise")');
+    await page().waitForSelector(".dialog .product-promise-fields");
+    assert.strictEqual(await page().inputValue('.product-promise-fields input[type="time"]'), "06:00");
+    if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".dialog"), []);
+    await page().click('.dialog button:has-text("Cancel")');
   } finally {
     mine = null;
     incidents = [];

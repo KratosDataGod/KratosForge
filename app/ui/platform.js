@@ -1484,7 +1484,7 @@ function productPromiseCard(p) {
   const promise = p.promise;
   const own = !!(productsPage.mine && p.project === productsPage.mine);
   const head = h("div", { class: "row tight" }, h("b", { class: "grow" }, "Promise to readers"), previewTag(),
-    own ? btn(promise ? "Edit promise" : "Add a promise", null, () => goMeta("products"), "tool outline small") : null);
+    own ? btn(promise ? "Edit promise" : "Add a promise", null, () => editProductPromise(p), "tool outline small") : null);
   if (!promise) {
     card.replaceChildren(head, h("p", { class: "muted-text small" }, own
       ? "This product promises nothing yet. Add how fresh and how clean it will be, so readers know what they can count on before they link."
@@ -1493,7 +1493,7 @@ function productPromiseCard(p) {
   }
   const envs = (promise.envs || ["prod"]).map((e) => PROMISE_ENV[e] || e).join(" and ");
   const lines = promiseLines(promise);
-  const now = (line) => h("td", { class: "promise-now" }, own ? h("span", { class: "muted-text small" }, "Checking...") : null);
+  const now = (line) => h("td", { class: "promise-now" }, own ? h("span", { class: "muted-text small" }, "Checking…") : null);
   const rows = lines.map((line) => ({ line, cell: now(line) }));
   card.replaceChildren(head,
     h("p", { class: "muted-text small" }, `In ${envs}, from the product's file. A broken promise opens an incident for its team.`),
@@ -1516,15 +1516,27 @@ function productPromiseCard(p) {
       const hits = open.filter((i) => r.line.key === "fresh"
         ? i.kind === "late" || mine(i).some((x) => !/rows rejected/.test(x))
         : mine(i).some((x) => /rows rejected/.test(x)));
+      const why = hits.flatMap(mine).map((x) => x.slice(p.name.length + 2))
+        .find((x) => (r.line.key === "fresh") !== /rows rejected/.test(x));
       r.cell.replaceChildren(hits.length
         ? h("span", { class: "row tight" }, h("span", { class: "pill-s wrn" }, "Broken"),
+          why ? h("span", { class: "muted-text small promise-why" }, why) : null,
           btn(hits.length === 1 ? "Open the incident" : `${hits.length} incidents`, null,
             () => (hits.length === 1 ? openIncident(hits[0]) : backToIncidents()), "tool link small"))
-        : unread ? h("span", { class: "muted-text small" }, "Couldn't read the incidents")
+        : unread ? h("span", { class: "muted-text small" }, "Couldn't read the incidents. Refresh to try again.")
           : h("span", { class: "pill-s pass" }, "Kept"));
     }
   });
   return card;
+}
+
+// Edit promise opens the product's own dialog here: the product is in the project open on this PC.
+async function editProductPromise(p) {
+  const [project, o] = await Promise.all([state.meta.project || loadMetaProject(), meshOverview()]);
+  if (!project || !o) return;
+  const x = (o.products || []).find((y) => y.name === p.name);
+  if (!x) return toast(`${p.name} isn't in the project open on this PC, so its file can't be edited here.`, true);
+  productDialog(project, x, () => render());
 }
 
 // Who was given access to a product, and taking it away. The product's owner or a platform admin

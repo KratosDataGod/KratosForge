@@ -1482,15 +1482,15 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.
 - **Proposed capability:** Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).
-- **Current-state evidence:** Chris's Optimize brief, 2026-10-18 08:55Z; No code or plan merged yet
+- **Current-state evidence:** Chris's Optimize brief, 2026-10-18 08:55Z; Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py; Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01)
 - **Dependencies:** none
-- **Owner:** Optimize central lakehouse (PR-OPT-001..009)
+- **Owner:** Optimize central lakehouse (PR-OPT-001..013)
 - **Priority set by the product owner:** P1 (Chris (product owner), 2026-10-18): Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3
 - **Merged duplicates:** Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item
 - **Acceptance criteria:**
-    - As defined in PR-OPT-001..009 by its owning thread
-    - Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized
+    - As defined in PR-OPT-001..013 in docs/optimize/plan.md section 4
+    - Savings follow the brief's rule: no CU savings without a measured Fabric baseline, and estimated savings are never labelled realized
 
 ## Extensibility, APIs, CLI, and MCP
 

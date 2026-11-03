@@ -75,12 +75,18 @@ Status checked against `main` at 1aad08e (2026-11-03). Merged PRs are listed so 
 | OPT-003 (part 1) | `optimize/local_runs.py` and `optimize_share_local_runs`: notebook writes to OneLake tables and scheduled notebook runs | Merged (#356), engine only, no button yet |
 | FINOPS-005 | `calibration.py`: Fabric CU avoided only from Fabric runs of the same workload, else Unknown | Merged (owned by FinOps) |
 | **OPT-006** | **Offline queue and sync status** | **Next** |
+| OPT-010 | Opportunities: Effort column and Dismiss for this PC's findings (approved action-first mockup) | Planned |
+| OPT-011 | Estate X-ray: an action for every finding, and empty, DataflowsStaging and FUAM lakehouses handled | Planned |
 | OPT-007 | Multiple lakehouses: the rest | Planned |
 | OPT-003 (part 2) | Local execution: the rest | Planned |
 | OPT-004 | Measurements and savings rows | Planned |
+| OPT-012 | Optimize motion events | Planned, with OPT-004 |
+| OPT-013 | Local vs Fabric advisor screen (FinOps advisor) | Planned, mockup first |
 | OPT-005 | Dashboard and reports | Planned, mockup first |
 | OPT-008 | Security and retention | Planned |
 | OPT-009 | Optimize's own overhead | Planned |
+
+OPT-010 to 013 were found missing in the closed-thread audit of 2026-11-03: Chris asked for them (unit testing items 9 and 10 on 2026-10-18, the action-first go on 2026-10-26, the FinOps brief's FINOPS-005 screen, the motion brief's Optimization experience) and the threads that held them closed without building them.
 
 One PR per row, in this order. Each engine PR comes with tests on local Delta folders; each UI PR waits for a mockup Chris has reacted to.
 
@@ -88,10 +94,26 @@ One PR per row, in this order. Each engine PR comes with tests on local Delta fo
 What's wrong today: when the lakehouse can't be reached, a finished X-ray scan keeps the error with its result and its findings never reach the lakehouse (`xray_service.py`, "never fails the scan"). Shared local runs are only sent when someone asks.
 - A local SQLite outbox under the app's data folder, modelled on `jobqueue.py`: one row per pending batch, keyed by lakehouse id, with attempts, next try and the last error (secrets removed with `redact.py`).
 - A write that fails for a transient reason (`retrying.py`'s classes: network, throttling, a lost commit race) goes in the outbox instead of being dropped. A permission error, a read-only lakehouse or the policy switch being off is not queued: it's shown, as today.
-- The outbox is drained when the app starts, when a lakehouse is connected or switched to, and after each scan. Rows already carry a `record_id` and are written with insert-only MERGE, so sending twice adds nothing and a part-sent batch finishes cleanly.
+- The outbox is drained before the next write to that lakehouse (a finished scan, sharing runs) and when a lakehouse is connected or switched to. Not at app start: sending needs a sign-in, and nothing sends in the background. Rows already carry a `record_id` and are written with insert-only MERGE, so sending twice adds nothing and a part-sent batch finishes cleanly.
 - Bounded: a cap on rows and age per lakehouse; past the cap the oldest pending batch is dropped and that is recorded and shown, never silent.
-- `optimize_status` gains `pending` (batches and rows), `last_sync`, `last_error`. One status line on Optimize > Overview; no other UI.
-- Disconnecting a lakehouse keeps its pending rows until it's connected again or the person discards them (with a confirm).
+- `optimize_status` gains `outbox`: `pending` (batches and rows), `last_sync`, `last_error`, `dropped`. Engine only in this PR; a status line on Optimize > Overview follows after a mockup.
+- Disconnecting a lakehouse keeps its pending rows until it's connected again. Discarding them (with a confirm) comes with the OPT-007 Settings work.
+
+### OPT-010: Effort column and Dismiss for this PC's findings
+Optimize > Opportunities already shows Effort and Dismiss for shared recommendations. The table of this PC's X-ray findings (AF-5, #865) has Improvement, Impact and State only. Add the Effort column and a Dismiss with a reason, as in the action-first mockup Chris approved on 2026-10-26. A dismissal is kept on this PC with its reason and can be undone; once the PC is connected, it becomes the shared recommendation's Dismissed event, so the two lists agree.
+
+### OPT-011: An action for every X-ray finding
+Chris's unit testing (2026-10-18, items 9 and 10): every finding gets an in-app action that follows best practice and is documented. Today an empty lakehouse only offers Open in Fabric and "Delete it if nothing will use it".
+- **Empty lakehouse:** the steps to check nothing uses it (shortcuts, notebooks, pipelines, semantic models) before deleting it in Fabric. The app doesn't delete it.
+- **DataflowsStagingLakehouse:** recognized by name and shown as Dataflow Gen2's own staging, with a guide to removing leftovers safely. The cleaner itself is PR #799 (Leftover dataflow staging lakehouses), owned by its own thread; this PR links to it and doesn't duplicate it.
+- **FUAM and other monitoring solutions' lakehouses:** recognized and marked "leave alone", with no fix offered, because they belong to that solution.
+- Every finding kind (small files, not changing, needs vacuum, empty, unidentified folders, access, cost, adopt) has an action or a "How to fix this" guide; a test fails if a kind has neither.
+
+### OPT-012: Optimize motion events
+Optimize has no events in the motion system (`FORGE_EVENTS` in `app/ui/motion.js`). Add `optimize.analysis.finished`, `optimize.recommendation.applied` and `optimize.savings.verified`, on finished state changes only, using the existing effects and settings. Per the motion brief, savings figures are never animated in a way that makes them look bigger, and only a Measured result gets the verified effect.
+
+### OPT-013: Local vs Fabric advisor screen
+FINOPS-005's placement advice (RECOMMEND LOCAL, RECOMMEND FABRIC, EITHER, INSUFFICIENT INFORMATION) exists only for AI tools (`fabric_desktop_placement_advice`); PB-017 was accepted with "has no screen" as its limitation. Show it next to the notebook's Runs on control, with its evidence one click away, never switching the choice for the person. Mockup first.
 
 ### OPT-007: Multiple lakehouses, the rest
 Register, switch and disconnect are in (#186). Left: an explicit **Upgrade** for a lakehouse on an older schema (asks first; upgrades only add), **Check all** in Settings that validates each registered lakehouse read-only, and showing each one's pending outbox rows from OPT-006.

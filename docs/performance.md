@@ -97,7 +97,8 @@ from Playwright 1.63). Times in milliseconds.
 | elements in the page, on Home | 356 | 1,500 |
 | background, per 10 s | 11.1 | 60 |
 
-`app/tests/browser/ui-budgets.test.cjs` runs it once in CI and fails when a number goes over its budget in
+`app/tests/browser/ui-budgets.test.cjs` runs it in CI, one uncounted warm-up run and then one
+counted run, and fails when a number goes over its budget in
 `ui-budgets.json`. Each budget is about three times the baseline, so a slow CI machine doesn't fail it and a
 real regression does. Lower a budget when a change makes the app faster; raising one needs the reason in the
 pull request.
@@ -118,7 +119,7 @@ What the baseline shows:
 
 ## What it is not
 
-It is not run in CI and nothing fails on its numbers yet; the [quality gates](audits/QUALITY_GATES.md)
-propose recording it per build, warning-only at first. It does not time WebView2 or the Tauri shell
+The engine benchmark (`startup_and_sql.py`) is not run in CI and nothing fails on its numbers yet; the
+[quality gates](audits/QUALITY_GATES.md) propose recording it per build, warning-only at first. It does not time WebView2 or the Tauri shell
 (see [The app window](#the-app-window) for the page itself), a notebook on Fabric, or OneLake reads and
 writes. For TPC-H on your PC and in Fabric side by side, see [the TPC-H benchmark notebooks](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark).

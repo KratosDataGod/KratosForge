@@ -152,7 +152,9 @@ async function once() {
 }
 
 // Runs the whole measurement `runs` times and keeps each number's median.
-async function measure(runs = 3) {
+// warmup: uncounted runs first; the first Chromium and page start on a machine is slower (file cache).
+async function measure(runs = 3, warmup = 1) {
+  for (let i = 0; i < warmup; i++) await once();
   const all = [];
   for (let i = 0; i < runs; i++) all.push(await once());
   const out = { runs };

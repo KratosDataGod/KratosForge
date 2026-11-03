@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.4",
+  "questions": [
+    {
+      "id": "3.3.4-q1",
+      "type": "single",
+      "stem": "At Fernway, dashboards mostly query the last 30 days of readings. Which eventhouse policy keeps that data in fast storage?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An update policy"
+        },
+        {
+          "id": "b",
+          "text": "A retention policy of 30 days"
+        },
+        {
+          "id": "c",
+          "text": "A caching policy with a 30-day hot cache period"
+        },
+        {
+          "id": "d",
+          "text": "A row-level security policy"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The caching policy decides how much recent data is kept in hot cache for fast queries. Retention decides how long data is kept at all.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/cache-policy",
+      "case": "fernway-telemetry",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.4-q2",
+      "type": "single",
+      "stem": "Readings older than two years are never needed. Which policy removes them automatically?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A caching policy"
+        },
+        {
+          "id": "b",
+          "text": "A retention policy with a two-year soft delete period"
+        },
+        {
+          "id": "c",
+          "text": "An ingestion mapping"
+        },
+        {
+          "id": "d",
+          "text": "A materialized view"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A retention policy removes data older than its period.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/retention-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.4-q3",
+      "type": "single",
+      "stem": "Dashboards repeatedly run the same heavy aggregation over an eventhouse table. What reduces the cost of those queries?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A larger hot cache only"
+        },
+        {
+          "id": "b",
+          "text": "Exporting to CSV"
+        },
+        {
+          "id": "c",
+          "text": "A materialized view that keeps the aggregation up to date"
+        },
+        {
+          "id": "d",
+          "text": "Running the query more often"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Materialized views precompute aggregations as data arrives, so queries read a small result.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/materialized-views/materialized-view-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.4-q4",
+      "type": "single",
+      "stem": "An eventhouse query filters on a time range. What helps it read the least data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convert timestamps to strings first"
+        },
+        {
+          "id": "b",
+          "text": "Use contains on the timestamp"
+        },
+        {
+          "id": "c",
+          "text": "Filter on the datetime column early in the query, so only the relevant data is scanned"
+        },
+        {
+          "id": "d",
+          "text": "Filter last, after joins"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Eventhouses organize data by ingestion time, and early time filters let the engine skip data outside the range.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

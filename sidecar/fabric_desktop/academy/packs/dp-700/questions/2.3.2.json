@@ -1,0 +1,144 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3.2",
+  "questions": [
+    {
+      "id": "2.3.2-q1",
+      "type": "single",
+      "stem": "An eventstream must drop events whose temperature is below zero before they reach the destination, without code. What do you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A new workspace"
+        },
+        {
+          "id": "b",
+          "text": "A KQL update policy"
+        },
+        {
+          "id": "c",
+          "text": "A notebook activity"
+        },
+        {
+          "id": "d",
+          "text": "A Filter operation in the eventstream"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The eventstream editor has no-code operations such as Filter between the source and destinations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.2-q2",
+      "type": "single",
+      "stem": "The same stream must reach an eventhouse for live queries and a lakehouse for history. How do you set this up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add both as destinations of the one eventstream"
+        },
+        {
+          "id": "b",
+          "text": "Create two event hubs and send the data twice from the devices"
+        },
+        {
+          "id": "c",
+          "text": "Copy the eventhouse to the lakehouse every night with a pipeline"
+        },
+        {
+          "id": "d",
+          "text": "It isn't possible; an eventstream has one destination"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "An eventstream can send its events, or processed versions of them, to several destinations at once.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.2-q3",
+      "type": "multiple",
+      "stem": "Which three are no-code operations you can add in an eventstream? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Manage fields"
+        },
+        {
+          "id": "b",
+          "text": "Group by"
+        },
+        {
+          "id": "c",
+          "text": "Call a stored procedure"
+        },
+        {
+          "id": "d",
+          "text": "Filter"
+        },
+        {
+          "id": "e",
+          "text": "Run a Python script"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "b"
+      ],
+      "explanation": "The event processor offers operations such as Filter, Manage fields, Aggregate, Group by, Union, Expand and Join. Scripts and stored procedures aren't eventstream operations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.2-q4",
+      "type": "order",
+      "stem": "Put the steps of setting up a new eventstream in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a source"
+        },
+        {
+          "id": "b",
+          "text": "Add a destination"
+        },
+        {
+          "id": "c",
+          "text": "Publish the eventstream"
+        },
+        {
+          "id": "d",
+          "text": "Create the eventstream"
+        },
+        {
+          "id": "e",
+          "text": "Add any processing operations"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "e",
+        "b",
+        "c"
+      ],
+      "explanation": "You create the eventstream, connect a source, add processing, connect destinations, and publish so the changes take effect and the eventstream returns to Live view.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

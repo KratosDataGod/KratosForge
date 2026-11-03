@@ -2,10 +2,11 @@
 
 ## What can't be practised on this PC
 
-The coverage gap records G-01 to G-09 are listed in [DP-700 coverage](dp-700-coverage.md#coverage-gap-records).
+The coverage gap records G-01 to G-11 are listed in [DP-700 coverage](dp-700-coverage.md#coverage-gap-records).
 In short: KQL, Eventstream and Eventhouse; T-SQL execution on Warehouse; workspace, domain and tenant
-settings; sensitivity labels; mirroring; Apache Airflow jobs; Spark engine tuning; and the
-monitoring hub, alerts and semantic model refresh. Those 36 objectives stay incomplete in readiness
+settings; sensitivity labels; mirroring; Apache Airflow jobs; Spark engine tuning; the monitoring
+hub, alerts and semantic model refresh; item behavior only the service shows, such as Git sync,
+deployment, triggers and V-Order; and Power Query (M). Those 36 objectives stay incomplete in readiness
 until a FABRIC VERIFIED exercise passes in the learner's own workspace.
 
 ## Fabric runs Academy will need

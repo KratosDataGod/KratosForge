@@ -178,6 +178,17 @@ jobs:
         working-directory: vscode
         env:
           FABRIC_DESKTOP_PYTHON: python
+      # The installable extension (.vsix), attached to each Preview release. Each run gets its own
+      # version, so VS Code takes a newer file as an update of the one it has.
+      - run: |
+          npm pkg set version="0.1.${{ github.run_number }}"
+          npm run package
+        working-directory: vscode
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kratosforge-vscode
+          path: vscode/kratosforge.vsix
+          if-no-files-found: error
 
   ui-browser:
     # app/tests/browser: the real UI in headless Chromium with the shell stubbed; SQL and Optimize
@@ -496,7 +507,7 @@ jobs:
     # exe, and is also kept as a release of its own (build-<sha>) for pinning and rollback.
     # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell, sbom-app, audit]
+    needs: [sidecar, ui, engine, shell, sbom-app, audit, vscode-extension]
     runs-on: ubuntu-latest
     # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
     # live in Settings > Environments > preview: allow only the main branch to deploy, and add
@@ -531,6 +542,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom-app
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: kratosforge-vscode
       # The exe is kratosforge.exe. Builds from before it download only fabric-desktop.exe, so every
       # release also carries the same file under that name (app/src-tauri/src/exe_name.rs).
       - run: cp kratosforge.exe fabric-desktop.exe
@@ -547,6 +561,7 @@ jobs:
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
             sidecar-source.zip
+            kratosforge.vsix
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -581,7 +596,7 @@ jobs:
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -609,12 +624,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
+            gh release upload latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
+            gh release create latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

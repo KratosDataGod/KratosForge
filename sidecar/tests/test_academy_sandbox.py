@@ -129,8 +129,8 @@ def test_python_sockets_are_refused(lab: tuple[Path, Path], code: str) -> None:
     "import polars as pl; pl.read_csv('x.csv', storage_options={{'k': 'v'}})",
     "import deltalake, polars as pl; deltalake.write_deltalake({outside_dir!r}, pl.DataFrame({{'a': [1]}}).to_arrow())",
     "import deltalake; deltalake.DeltaTable('abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Tables/t')",
-    "import duckdb; duckdb.sql(\"COPY (SELECT 1) TO '{outside}'\")",
-    "import duckdb; duckdb.connect().sql(\"SELECT * FROM read_csv('{outside}')\").fetchall()",
+    "import duckdb; duckdb.sql(\"COPY (SELECT 1) TO '{outside_posix}'\")",
+    "import duckdb; duckdb.connect().sql(\"SELECT * FROM read_csv('{outside_posix}')\").fetchall()",
     "import duckdb; duckdb.connect({outside!r})",
     "import duckdb; duckdb.sql(\"SET enable_external_access = true\")",
     "import pyarrow.parquet as pq, pyarrow as pa; pq.write_table(pa.table({{'a': [1]}}), {outside!r})",
@@ -144,7 +144,8 @@ def test_python_sockets_are_refused(lab: tuple[Path, Path], code: str) -> None:
 ])
 def test_native_readers_and_writers_refuse_urls_and_outside_paths(lab: tuple[Path, Path], tmp_path: Path, code: str) -> None:
     outside = tmp_path / "native-out.parquet"
-    res = run(lab, code.format(outside=str(outside), outside_dir=str(tmp_path / "dl")) + "\n")
+    res = run(lab, code.format(outside=str(outside), outside_posix=outside.as_posix(),
+                               outside_dir=str(tmp_path / "dl")) + "\n")
     assert res["status"] == "error", res
     last = res["stderr"].strip().splitlines()[-1]
     assert last.startswith(("PermissionError", "_duckdb.PermissionException", "duckdb.PermissionException",
@@ -157,7 +158,7 @@ def test_native_readers_and_writers_refuse_urls_and_outside_paths(lab: tuple[Pat
     "import os; os.system('echo hi')",
     "import os; os.fork() if hasattr(os, 'fork') else os.system('x')",
     "import os; os.execv(sys.executable, [sys.executable])",
-    "import ctypes; ctypes.CDLL(None)",
+    "import ctypes; ctypes.CDLL('kernel32' if sys.platform == 'win32' else None)",
     "import os; os.kill(os.getppid(), 9)",
 ])
 def test_child_processes_and_ctypes_are_refused_even_first(lab: tuple[Path, Path], code: str) -> None:
@@ -251,7 +252,8 @@ def test_windows_bootstrap_wont_run_outside_a_job(lab: tuple[Path, Path]) -> Non
     _, work = lab
     (work / "answer.py").write_text("print('ran')")
     cfg = {"workspace": str(work), "script": "answer.py", "read_roots": sandbox.read_roots(),
-           "denied_roots": [], "blocked_modules": list(sandbox.BLOCKED_MODULES)}
+           "denied_roots": [], "blocked_modules": list(sandbox.BLOCKED_MODULES),
+           "job_name": "KratosForgeAcademy-not-a-job"}   # the CI runner's own job mustn't count
     res = subprocess.run([sys.executable, "-I", "-c", sandbox.BOOTSTRAP.read_text(encoding="utf-8"), json.dumps(cfg)],
                          capture_output=True, text=True, timeout=60)
     assert res.returncode == 3 and "ran" not in res.stdout

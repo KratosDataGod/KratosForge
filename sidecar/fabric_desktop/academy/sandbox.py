@@ -35,6 +35,7 @@ import sys
 import sysconfig
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -115,12 +116,14 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
     # The data root is denied for reads, but the workspace lives under it: the hook checks
     # "inside the workspace" first, so the learner reads its own folder and nothing else of the app's.
+    job_name = f"KratosForgeAcademy-{uuid.uuid4().hex}"
     cfg = {"workspace": str(work), "script": path.relative_to(work).as_posix(), "read_roots": read_roots(),
            "denied_roots": denied_roots(data_root), "blocked_modules": list(BLOCKED_MODULES),
-           "lib_roots": [_check_lib_root(r, work, data_root) for r in lib_roots or []]}
+           "lib_roots": [_check_lib_root(r, work, data_root) for r in lib_roots or []],
+           "job_name": job_name}
     argv = [sys.executable, "-I", "-X", "utf8", "-c", BOOTSTRAP.read_text(encoding="utf-8"), json.dumps(cfg)]
     started = time.monotonic()
-    proc, limiter = _start(argv, work, memory_limit, cpu_limit)
+    proc, limiter = _start(argv, work, memory_limit, cpu_limit, job_name)
     out: dict[str, bytes] = {}
     readers = [threading.Thread(target=_drain, args=(proc.stdout, out, "stdout"), daemon=True),
                threading.Thread(target=_drain, args=(proc.stderr, out, "stderr"), daemon=True)]
@@ -166,12 +169,12 @@ def _drain(stream: Any, out: dict[str, bytes], key: str) -> None:
     out[key] = bytes(kept)
 
 
-def _start(argv: list[str], work: Path, memory_limit: int, cpu_limit: int) -> tuple[subprocess.Popen[bytes], Any]:
+def _start(argv: list[str], work: Path, memory_limit: int, cpu_limit: int, job_name: str) -> tuple[subprocess.Popen[bytes], Any]:
     env = environment(work)
     common: dict[str, Any] = {"cwd": str(work), "env": env, "stdin": subprocess.DEVNULL,
                               "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
     if sys.platform == "win32":
-        job = _WinJob(memory_limit, cpu_limit)
+        job = _WinJob(memory_limit, cpu_limit, job_name)
         flags = 0x00000004 | getattr(subprocess, "CREATE_NO_WINDOW", 0)   # CREATE_SUSPENDED
         proc = subprocess.Popen(argv, creationflags=flags, **common)
         try:
@@ -219,7 +222,7 @@ class _PosixGroup:
 class _WinJob:
     """A Job Object: one process, a memory and CPU limit, ended when closed, no breakaway."""
 
-    def __init__(self, memory_limit: int, cpu_limit: int):
+    def __init__(self, memory_limit: int, cpu_limit: int, name: str):
         import ctypes
         from ctypes import wintypes
         from ..kernel_proc import _kernel32   # typed CreateJobObjectW and friends
@@ -227,7 +230,10 @@ class _WinJob:
         self.ctypes, self.wintypes = ctypes, wintypes
         self.ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
         self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
-        self.job = self.k.CreateJobObjectW(None, None)
+        self.job = self.k.CreateJobObjectW(None, name)   # named, so the bootstrap can check it is in this job
+        if self.job and self.ctypes.get_last_error() == 183:  # type: ignore[attr-defined]  # ERROR_ALREADY_EXISTS: not ours
+            self.k.CloseHandle(self.job)
+            self.job = None
         if not self.job:
             raise OSError("Windows wouldn't make a job for the exercise, so it wasn't run.")
         info = _extended()()

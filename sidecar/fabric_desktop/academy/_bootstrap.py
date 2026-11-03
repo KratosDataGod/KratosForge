@@ -30,9 +30,14 @@ def _main() -> None:
         from ctypes import wintypes
         k = ctypes.WinDLL("kernel32", use_last_error=True)
         k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.OpenJobObjectW.restype = wintypes.HANDLE
+        k.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
         k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        # The engine names its job; asking about a NULL job would accept any job, such as a CI runner's.
+        name = cfg.get("job_name")
+        job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
         inside_job = wintypes.BOOL(False)
-        if not k.IsProcessInJob(k.GetCurrentProcess(), None, ctypes.byref(inside_job)) or not inside_job.value:
+        if not job or not k.IsProcessInJob(k.GetCurrentProcess(), job, ctypes.byref(inside_job)) or not inside_job.value:
             sys.stderr.write("academy: the learner process isn't in its job; nothing was run.\n")
             os._exit(3)
 

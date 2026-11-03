@@ -21,6 +21,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from . import progress, ranks
+from .redact import secrets
 
 ROADMAP_VERSION = 1
 MAX_GOALS = 12
@@ -166,7 +167,8 @@ def add_goal(profile: dict[str, Any], milestone: str | None = None, text: str | 
             raise ValueError("That milestone is already one of your goals.")
         goal = {"id": f"m-{milestone}", "milestone": milestone, "text": "", "set_at": _now(), "done_at": None}
     else:
-        words = " ".join(str(text or "").split())[:MAX_GOAL_TEXT]
+        # A pasted key or connection string never reaches the file or the shared report (redact.secrets).
+        words = secrets(" ".join(str(text or "").split()))[:MAX_GOAL_TEXT]
         if not words:
             raise ValueError("Write the goal first.")
         stamp = _now()

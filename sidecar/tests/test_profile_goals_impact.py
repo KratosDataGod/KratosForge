@@ -268,3 +268,9 @@ def test_the_roadmap_shares_the_ranks_vocabulary():
     shipped = {m["id"] for m in live_modules()}
     check = ranks._check(need, ranks.facts(progress.empty()), shipped, {"exercises": 0, "labs": 0})
     assert check["text"] == "Finish LM-18 and LAB-02" and check["need"] == 2
+
+
+def test_a_key_pasted_into_a_goal_is_removed_before_it_is_kept():
+    p = progress.empty()
+    goal = roadmap.add_goal(p, text="Rotate the key AccountKey=abc123SECRETxyz== for the finance lake")
+    assert "abc123SECRETxyz" not in goal["text"] and "[removed]" in goal["text"]

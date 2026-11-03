@@ -27,7 +27,7 @@ const page = () => app.page;
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ engine: ENGINE });
+  app = await openApp({ engine: ENGINE, mocks: { readiness_check: () => [] } });
   await page().waitForFunction(() => state.settings && "show_preview" in state.settings);
 });
 

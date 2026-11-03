@@ -64,7 +64,7 @@ async function renderAcademy() {
     }))));
   // The Assessment Center (academy-assessments.js, its own PR) draws into the tab when it's there.
   if (academyPage.tab === "assessments") return typeof renderAssessments === "function" ? renderAssessments(body) : fill(body, academyAssessments());
-  const data = await academyData().catch((err) => { if (body.isConnected) fill(body, h("p", { class: "muted-text" }, friendlyError(err).text)); return null; });
+  const data = await academyData().catch((err) => { if (body.isConnected) fill(body, errorPanel(err, { label: "Couldn't load Academy", retry: () => render() })); return null; });
   if (!data || state.view !== "academy" || !body.isConnected) return;
   const tab = academyPage.tab;
   if (tab === "path") fill(body, ...academyPath(data));
@@ -89,8 +89,8 @@ function academyHome({ pack, ready }) {
       btn("See the path", null, () => { academyPage.tab = "path"; render(); }, "tool outline")))
     : emptyState({ icon: "beaker", title: "Every published exercise is passed", text: "New exercises arrive with app updates. Readiness shows what's still open." });
   const domains = h("section", { class: "card pad", "aria-labelledby": "academy-cert" },
-    h("div", { class: "row wrap academy-cert-head" }, h("h2", { id: "academy-cert" }, cert.title || cert.id),
-      h("span", { class: "muted-text small" }, `Study guide of ${cert.version} · ${pack.coverage.objectives} objectives`)),
+    h("h2", { id: "academy-cert", class: "academy-cert-title" }, `${cert.id.toUpperCase()}: ${cert.title || cert.id}`),
+    h("p", { class: "muted-text small academy-cert-sub" }, `Study guide of ${cert.version} · ${pack.coverage.objectives} objectives`),
     h("div", { class: "academy-domains" }, ready.domains.map((d) => h("a", { href: "#", class: "academy-domain",
       onclick: (e) => { e.preventDefault(); academyPage.tab = "path"; academyPage.open2[d.id] = true; render(); } },
       h("b", {}, `${d.id} ${d.title} `), h("span", { class: "muted-text small" }, `${d.weight.min}–${d.weight.max}%`),
@@ -255,7 +255,7 @@ async function renderAcademyExercise(eid) {
       ` / ${pack.toUpperCase()} · ${ex.objectives.join(", ")}`),
     h("h1", {}, `${ex.id} ${ex.title} `, previewTag()),
     h("p", { class: "sub row wrap" }, academyPill(ex.class), ` ${academyMeta(ex)} · ${ex.verification.engine}`)),
-    h("div", { class: "head-actions" }, btn("Leave", null, leave, "tool outline")));
+    h("div", { class: "head-actions" }));
   const work = h("div", { class: "academy-work" });
   const aside = h("aside", { class: "card academy-panel", "aria-label": "Exercise panel" });
   setView(h("div", { class: "page academy academy-exercise" }, head, h("div", { class: "learn-split" }, work, aside)));

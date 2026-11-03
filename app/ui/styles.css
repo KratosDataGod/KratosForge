@@ -2775,8 +2775,8 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .academy-pill.simulated { background: var(--info-soft); color: var(--info); }
 .academy-pill.fabric_verified, .academy-pill.databricks_verified { background: var(--accent); color: var(--on-accent); }
 .academy-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--surface-3); color: var(--text-2); }
-.academy-cert-head { align-items: baseline; gap: 12px; }
-.academy-cert-head h2 { margin: 0; }
+.academy-body .academy-cert-title { margin: 0; }
+.academy-cert-sub { margin: 2px 0 0; }
 .academy-next { display: flex; flex-direction: column; gap: 8px; }
 .academy-next h2 { margin: 0; }
 .academy-domains { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }

@@ -221,7 +221,7 @@ These 207 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
-what you can use. Discovery is a command, with no screen in the app yet:
+what you can use: **Settings > Connections > Check workspace** in the app (below), or the command:
 
 ```
 fabric-desktop databricks-discover --profile dev
@@ -244,6 +244,26 @@ warehouse and a cluster to try first.
   it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
 
 It's tested against fakes of those APIs, not yet against a live workspace.
+
+## Connection profiles in Settings (Preview)
+
+**Settings > Connections** lists the connection profiles on this PC and adds a connection to one.
+
+- **Sign in with the CLI first.** A Databricks connection uses a profile of the Databricks CLI
+  (`databricks auth login --host <workspace URL> --profile dev`); a Snowflake one uses a connection
+  of the Snowflake CLI (`snow connection add`). You pick it by name: the workspace address or account
+  and the sign-in are read from the CLI's own file, so the app never types or keeps a token. A CLI
+  profile that keeps a personal access token in plain text says so.
+- **Check workspace** runs discovery for the CLI profile you picked and lists the warehouses, the
+  clusters Databricks Connect can use, and the catalogs, with the suggested ones already picked.
+  Nothing starts and nothing bills DBUs.
+- **Save connection** adds it to a profile, or to a new one, with the warehouse, cluster, catalog and
+  schema you picked. The engine picker lists it at once. A profile with connections to two platforms
+  becomes a hybrid profile. A value that looks like a token is refused and nothing is written.
+- **Remove** takes one connection out of a profile, after you confirm. The CLI's own profile or
+  connection stays as it is.
+
+Checking a Snowflake account from Settings, and switching the profile in use, come later.
 
 ## Databricks Connect (Preview)
 
@@ -470,7 +490,8 @@ adapter has one.
 
 ## Not yet
 
-- No profile setup screen: connection profiles are read, not edited, by the engine picker.
+- Settings > Connections adds CLI-based connections only: service principals and the other sign-in
+  methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

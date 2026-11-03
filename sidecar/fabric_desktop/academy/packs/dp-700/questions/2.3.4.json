@@ -97,34 +97,31 @@
     },
     {
       "id": "2.3.4-q4",
-      "type": "order",
-      "stem": "Put the parts of a KQL query that returns the five devices with the most events in the last hour in order.",
+      "type": "single",
+      "stem": "Readings land in a KQL table with a TempC column. A dashboard needs the same rows with an extra TempF column in Fahrenheit. Which query?",
       "options": [
         {
           "id": "a",
-          "text": "Events"
+          "text": "Readings | project TempF = TempC * 9.0 / 5.0 + 32"
         },
         {
           "id": "b",
-          "text": "| top 5 by EventCount"
+          "text": "Readings | extend TempF = TempC * 9.0 / 5.0 + 32"
         },
         {
           "id": "c",
-          "text": "| where Timestamp > ago(1h)"
+          "text": "Readings | summarize TempF = avg(TempC) * 9.0 / 5.0 + 32"
         },
         {
           "id": "d",
-          "text": "| summarize EventCount = count() by DeviceId"
+          "text": "Readings | where TempF = TempC * 9.0 / 5.0 + 32"
         }
       ],
       "answer": [
-        "a",
-        "c",
-        "d",
         "b"
       ],
-      "explanation": "A KQL query starts from the table and pipes rows through each operator in turn: filter to the last hour first so less data is aggregated, count per device, then keep the top five.",
-      "source": "https://learn.microsoft.com/en-us/kusto/query/top-operator",
+      "explanation": "extend adds a calculated column and keeps every existing column and row. project would keep only TempF, summarize collapses the rows, and where filters rather than adds a column.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/extend-operator",
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"

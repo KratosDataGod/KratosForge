@@ -122,7 +122,7 @@ def _question_problems(objective: str, q: dict[str, Any], cases: dict[str, Any])
     out += _text_problems(f"{where} stem", q.get("stem"))
     out += _text_problems(f"{where} explanation", q.get("explanation"))
     options = q.get("options") or []
-    ids = [o.get("id") for o in options if isinstance(o, dict)]
+    ids: list[str] = [str(o.get("id")) for o in options if isinstance(o, dict)]
     if len(ids) != len(options) or len(set(ids)) != len(ids) or not all(_OPTION.match(str(i)) for i in ids):
         out.append(f"{where}: options each need their own id, a to h")
     for o in options:

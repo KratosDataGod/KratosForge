@@ -139,6 +139,98 @@ def same_env_target(s: dict[str, Any], envs: dict[str, str], lakehouses: list[di
     return None
 
 
+def _without_env(workspace_name: str) -> str:
+    """A workspace name with its environment words taken out: "Sales Dev" and "Sales Prod" give "sales"."""
+    every = set().union(*_ENV_WORDS.values())
+    return " ".join(w for w in re.split(r"[^a-z0-9]+", str(workspace_name or "").lower()) if w and w not in every)
+
+
+def env_workspace(workspace_id: str, workspace_name: str, env: str, envs: dict[str, str],
+                  lakehouses: list[dict[str, Any]], groups: list[dict[str, str]]) -> dict[str, str] | None:
+    """The workspace that is ``workspace_id``'s counterpart in ``env``: the metadata project's own say
+    (``groups``, each {env: workspace id}) first, else the one workspace in ``env`` whose name differs only
+    by its environment word. None when there is none, or more than one could be meant."""
+    names = {l["workspace_id"]: l.get("workspace_name") or "" for l in lakehouses}
+    for g in groups:
+        if workspace_id in g.values() and g.get(env):
+            return {"workspace_id": g[env], "workspace_name": names.get(g[env], "")}
+    stem = _without_env(workspace_name)
+    if not stem:
+        return None
+    found = {i for i, n in names.items() if i != workspace_id and _without_env(n) == stem and env_of(i, n, envs) == env}
+    if len(found) != 1:
+        return None
+    wid = found.pop()
+    return {"workspace_id": wid, "workspace_name": names[wid]}
+
+
+def _lakehouse_in(workspace_id: str, name: str, lakehouses: list[dict[str, Any]]) -> dict[str, Any] | None:
+    found = [l for l in lakehouses if l["workspace_id"] == workspace_id
+             and str(l.get("lakehouse_name") or "").lower() == str(name or "").lower()]
+    return found[0] if len(found) == 1 else None
+
+
+def env_twins(detail: dict[str, Any], envs: dict[str, str], lakehouses: list[dict[str, Any]],
+              groups: list[dict[str, str]]) -> dict[str, Any]:
+    """Where a shortcut request's shortcut goes in the other environments, so approving makes it in Dev, Test
+    and Prod, each pointing at its own environment. ``detail`` is the request's; ``lakehouses`` every one
+    the approver can list [{workspace_id, workspace_name, lakehouse_id, lakehouse_name}].
+
+    Returns {env, why, places: [{env, workspace_id, workspace_name, lakehouse_id, lakehouse_name, source,
+    target_workspace_name}] or [{env, why}]}. ``why`` at the top says why there are no other environments at
+    all. A place is skipped, with why, rather than pointed at another environment or guessed: no matching
+    workspace or lakehouse, or more than one."""
+    host_env = env_of(detail.get("workspace_id") or "", detail.get("workspace_name") or "", envs)
+    if not host_env:
+        return {"env": "", "why": f"{detail.get('workspace_name') or 'Its workspace'} isn't a Dev, Test or Prod "
+                                  "workspace, so the shortcut is made only where it was asked for", "places": []}
+    source = dict(detail.get("source") or {})
+    if source.get("type") != "oneLake":
+        return {"env": host_env, "why": "A storage shortcut reads with its connection, so it's made only where it was "
+                                        "asked for. Make it in the other environments with New shortcut if they need it",
+                "places": []}
+    by_id = {l["lakehouse_id"]: l for l in lakehouses}
+    target = by_id.get(str(source.get("item_id") or ""))
+    target_env = env_of(target["workspace_id"], target.get("workspace_name") or "", envs) if target else ""
+    places: list[dict[str, Any]] = []
+    for env in ENV_ORDER:
+        if env == host_env:
+            continue
+        label = env.title()
+        ws = env_workspace(detail.get("workspace_id") or "", detail.get("workspace_name") or "", env, envs, lakehouses, groups)
+        lh = _lakehouse_in(ws["workspace_id"], detail.get("lakehouse_name") or "", lakehouses) if ws else None
+        if lh is None:
+            places.append({"env": env, "why": (f"No {label} workspace matches {detail.get('workspace_name') or 'its workspace'}"
+                                               if ws is None else f"No one {detail.get('lakehouse_name') or 'lakehouse'} "
+                                               f"in {_workspace_label(ws, lakehouses)} that you can see")})
+            continue
+        where = {"env": env, "workspace_id": lh["workspace_id"], "workspace_name": lh.get("workspace_name") or "",
+                 "lakehouse_id": lh["lakehouse_id"], "lakehouse_name": lh.get("lakehouse_name") or ""}
+        if target is None:
+            places.append({"env": env, "why": "Its target lakehouse isn't one you can see, so its match can't be found"})
+        elif not target_env:  # a lakehouse in no environment (shared): every environment reads the same one
+            places.append(where | {"source": source, "target_workspace_name": target.get("workspace_name") or ""})
+        elif target_env != host_env:
+            places.append({"env": env, "why": f"It points at {target_env.title()}, not {host_env.title()}, so there's no "
+                                              f"{label} target to match"})
+        else:
+            tws = env_workspace(target["workspace_id"], target.get("workspace_name") or "", env, envs, lakehouses, groups)
+            tlh = _lakehouse_in(tws["workspace_id"], target.get("lakehouse_name") or "", lakehouses) if tws else None
+            if tlh is None:
+                places.append({"env": env, "why": f"No {label} match for its target {target.get('lakehouse_name') or ''} "
+                                                  f"in {target.get('workspace_name') or 'its workspace'}"})
+            else:
+                places.append(where | {"source": source | {"workspace_id": tlh["workspace_id"], "item_id": tlh["lakehouse_id"]},
+                                       "target_workspace_name": tlh.get("workspace_name") or "",
+                                       "target_lakehouse_name": tlh.get("lakehouse_name") or ""})
+    return {"env": host_env, "why": "", "places": places}
+
+
+def _workspace_label(ws: dict[str, str], lakehouses: list[dict[str, Any]]) -> str:
+    return ws.get("workspace_name") or next((l.get("workspace_name") or "" for l in lakehouses
+                                             if l["workspace_id"] == ws["workspace_id"]), "") or "that workspace"
+
+
 def moved_candidates(name: str, gone_id: str, lakehouses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Lakehouses with the lost lakehouse's name (any case), other than the lost one itself."""
     name = str(name or "").strip().lower()

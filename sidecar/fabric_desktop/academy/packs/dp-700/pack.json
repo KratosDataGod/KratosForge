@@ -1,0 +1,8 @@
+{
+  "schema": "kratosforge/academy-pack@1",
+  "id": "dp-700",
+  "title": "DP-700: Implementing Data Engineering Solutions Using Microsoft Fabric",
+  "vendor": "Microsoft",
+  "certification": "certification.json",
+  "status": "draft"
+}

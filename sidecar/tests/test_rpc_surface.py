@@ -76,6 +76,11 @@ NO_UI_CALLER: dict[str, str] = {
     "pbi_embed_token": _EMBED,
     "pbi_embed_content": _EMBED,
     "fabric_item_support": _FABRIC_GIT,
+    "fabric_git_links": _FABRIC_GIT,
+    "fabric_git_check": _FABRIC_GIT,
+    "fabric_git_link": _FABRIC_GIT,
+    "fabric_git_unlink": _FABRIC_GIT,
+    "fabric_git_overview": _FABRIC_GIT,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

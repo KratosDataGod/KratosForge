@@ -16,6 +16,7 @@ All of it is optional: a project without these files works exactly as before.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import math
 import re
 import tomllib
@@ -28,6 +29,8 @@ from ..redact import one_line
 
 if TYPE_CHECKING:
     from .project import Project
+
+_log = logging.getLogger(__name__)
 
 PROJECT_FILE = "project.toml"
 FORMAT = 2
@@ -126,12 +129,18 @@ def describe_promise(p: dict[str, Any] | None) -> str:
 
 
 def promises(project: Project) -> dict[str, list[dict[str, Any]]]:
-    """Each entity's promises to readers, from the products that publish it (drafts promise nothing):
-    entity -> [{product, within_hours, by, max_rejected_pct, envs}]."""
+    """Each entity's promises to readers, from the products that publish it (drafts promise nothing, and
+    neither does a promise the save gate would refuse): entity -> [{product, within_hours, by, max_rejected_pct, envs}]."""
     out: dict[str, list[dict[str, Any]]] = {}
     for p in project.products.values():
         promise = p.promise
         if p.status == "draft" or not promise:
+            continue
+        problems = promise_problems(f"products/{p.name}", p.spec.get("promise"))
+        if problems:
+            # A promise nobody can check (a file edited past the save gate) is left out, so it can't stop
+            # the other incident checks; the save gate names it.
+            _log.warning("Product %s's promise is left out of incident checks: %s", p.name, "; ".join(problems))
             continue
         for port in p.ports:
             entity = str(port.get("entity") or "")

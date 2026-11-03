@@ -91,6 +91,7 @@ learn_fixes learn_fix_compare learn_fix_checked learn_patterns
 academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness
 pbi_embed_token pbi_embed_content
 appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview
+academy_exam_home academy_exam_heartbeat academy_exam_review
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

@@ -43,7 +43,7 @@ LEVELS = {
 }
 STATUSES = ("not_assessed", "missing", "partial", "built", "verified")
 PLATFORMS = {"fabric": "Microsoft Fabric", "databricks": "Azure Databricks", "snowflake": "Snowflake"}
-KUDP_RUN = "KUDP comparison, 2026-10-29 (docs/platforms.md, Live runs)"
+KUDP_RUN = "KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs)"
 
 
 @dataclass(frozen=True)
@@ -112,7 +112,7 @@ AREAS: tuple[Area, ...] = (
        cloud_api=Cell("verified", ("test_fabric_spark.py",), KUDP_RUN, "Spark SQL in one Livy session."),
        local=Cell("partial", ("test_engine_conformance.py", "test_spark_writer.py"),
                   note="PySpark and Spark SQL are simulated on DuckDB; known differences are listed in docs/audits/ENGINE_COMPATIBILITY.md."),
-       equivalence=Cell("partial", ("test_engine_compare.py",), KUDP_RUN, "10 Spark SQL queries: 8 matched, 2 differed (decimal scale, a time-zone bug since fixed).")),
+       equivalence=Cell("partial", ("test_engine_compare.py",), KUDP_RUN, "10 Spark SQL queries: 9 match in the 2026-11-03 re-run; decimal division still differs (Spark keeps 6 places).")),
     _a("fabric", "pipelines", "Data Factory pipelines",
        local=Cell("partial", ("test_pipeline_fabric_parity.py", "test_pipeline_runs.py"),
                   note="Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.")),
@@ -122,7 +122,7 @@ AREAS: tuple[Area, ...] = (
        local=Cell("partial", ("test_tmdl.py", "test_model_directlake.py"),
                   note="TMDL is read offline and the Direct Lake check runs on this PC; models aren't served here.")),
     _a("fabric", "git", "Git integration and deployment",
-       cloud_api=Cell("built", ("test_platform_repo.py", "test_notebook_publish.py"), note="Publishing hasn't been recorded live.")),
+       cloud_api=Cell("built", ("test_platform_repo.py", "test_notebook_publish.py", "test_fabric_git.py"), note="Publishing hasn't been recorded live.")),
     _a("fabric", "monitoring", "Monitoring and capacity",
        cloud_api=Cell("built", ("test_capacity.py",))),
     _a("fabric", "governance", "Security and governance"),

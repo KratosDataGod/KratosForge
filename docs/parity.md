@@ -49,13 +49,13 @@ enterprise ready), see [Platform support levels](platforms.md); this page doesn'
 
 Notes:
 
-- **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29 (docs/platforms.md, Live runs).
+- **Workspaces and items, Cloud API integration:** Listing workspaces and lakehouses was recorded; other item types were not. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Lakehouse tables and files, Cloud API integration:** Tables weren't listed in the recorded live run.
 - **Lakehouse tables and files, Local execution:** Notebooks on this PC read and write OneLake; used live, not recorded.
 - **Warehouse and SQL analytics endpoint, Local execution:** T-SQL is translated to DuckDB; documented gaps fail loudly (docs/sql-compatibility.md).
-- **Notebooks and Spark, Cloud API integration:** Spark SQL in one Livy session. Live: KUDP comparison, 2026-10-29 (docs/platforms.md, Live runs).
+- **Notebooks and Spark, Cloud API integration:** Spark SQL in one Livy session. Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Notebooks and Spark, Local execution:** PySpark and Spark SQL are simulated on DuckDB; known differences are listed in docs/audits/ENGINE_COMPATIBILITY.md.
-- **Notebooks and Spark, Verified runtime equivalence:** 10 Spark SQL queries: 8 matched, 2 differed (decimal scale, a time-zone bug since fixed). Live: KUDP comparison, 2026-10-29 (docs/platforms.md, Live runs).
+- **Notebooks and Spark, Verified runtime equivalence:** 10 Spark SQL queries: 9 match in the 2026-11-03 re-run; decimal division still differs (Spark keeps 6 places). Live: KUDP comparison, 2026-10-29, re-run 2026-11-03 (docs/platforms.md, Live runs).
 - **Data Factory pipelines, Local execution:** Pipelines run on this PC; expected outcomes come from documentation, not a recorded tenant run.
 - **Semantic models, TMDL and Direct Lake, Local execution:** TMDL is read offline and the Direct Lake check runs on this PC; models aren't served here.
 - **Git integration and deployment, Cloud API integration:** Publishing hasn't been recorded live.

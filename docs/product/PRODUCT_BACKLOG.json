@@ -6335,7 +6335,7 @@
         "Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03",
         "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
         "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
-        "Scores were set to match PB-121 (Power BI embedding) until the App Studio owner gives its own"
+        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -6350,21 +6350,21 @@
         "Model output is validated against the specification schema before anything is previewed or published"
       ],
       "scores": {
-        "developer_value": 2,
-        "cu_reduction": 1,
-        "enterprise_value": 4,
-        "differentiation": 3,
-        "strategic_alignment": 3,
-        "complexity": 3,
-        "risk": 3
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 4,
+        "complexity": 5,
+        "risk": 4
       },
       "mandatory": "none",
       "confidence": "Medium",
       "external_dependencies": [],
       "computed": {
-        "benefit": 2.6,
-        "cost": 3.0,
-        "score": 1.56,
+        "benefit": 3.25,
+        "cost": 4.5,
+        "score": 0.97,
         "priority": "P3"
       }
     }

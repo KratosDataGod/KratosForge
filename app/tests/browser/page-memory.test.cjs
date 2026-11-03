@@ -39,7 +39,8 @@ test("a workspace page left for Home keeps none of its rows in memory", { skip }
     show.focus();
     show.click();
   });
-  await page.waitForFunction(() => document.querySelectorAll(".ws-items tr").length === 2000);
+  // At least the first screen: a big list draws more rows as you scroll.
+  await page.waitForFunction(() => document.querySelectorAll(".ws-items tr").length >= 200);
   await page.evaluate(() => go("home"));
   await page.waitForFunction(() => !document.querySelector(".ws-items"));
   const inPage = await page.evaluate(() => document.querySelectorAll("tr").length);

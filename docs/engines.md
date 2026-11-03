@@ -281,6 +281,23 @@ Databricks connection: yours by default, or everyone's, for the last 24 hours or
 Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
 will confirm first and say which cluster.
 
+## Databricks DBUs in Optimize > Cost (Preview)
+
+**Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
+7 days or 30 days, by job, Lakeflow pipeline, SQL warehouse and cluster, read from Databricks'
+`system.billing.usage` table.
+
+- **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
+  pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
+  billing** names the warehouse and says whether it's running and when it stops, and runs nothing
+  until you confirm.
+- **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
+  `system.billing.usage`; without it, the section says Databricks refused.
+- **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never
+  turned into money.
+- **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
+  reading.
+
 ## Databricks Connect (Preview)
 
 PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while

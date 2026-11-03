@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +101,7 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         return state(root, pack_id, exercise_id)
     folder.mkdir(parents=True, exist_ok=True)
     ref = exercises.reference(pack_id, exercise_id)
-    con = duckdb.connect(str(ws.inside(folder, DB_FILE, must_exist=False)))
+    con = duckdb.connect(_db_path(folder, must_exist=False))
     try:
         if ref["setup"]:
             con.execute(ref["setup"])
@@ -148,6 +149,7 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     if translated:
         sql = dbsql_lab.translate(sql)
     con = _connect(folder, zone=dbsql_lab.ZONE if translated else None)
+    began = time.perf_counter()
     try:
         checks.guard(con, sql)
         con.begin()
@@ -163,13 +165,24 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
             con.rollback()
     finally:
         con.close()
-    return {"columns": cols, "rows": [[learn_labs._cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit}
+    return {"columns": cols, "rows": [[learn_labs._cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit,
+            "ms": round((time.perf_counter() - began) * 1000)}
+
+
+def _db_path(folder: Path, must_exist: bool = True) -> str:
+    """lab.duckdb, checked, and its write-ahead log beside it: DuckDB opens that file too, so it must
+    not be a link either (refused by inside()) and must be a plain file when it's there."""
+    db = ws.inside(folder, DB_FILE, must_exist=must_exist)
+    wal = ws.inside(folder, DB_FILE + ".wal", must_exist=False)
+    if os.path.lexists(wal) and not wal.is_file():
+        raise ws.Refused(f"{DB_FILE}.wal isn't a plain file; reset the exercise.")
+    return str(db)
 
 
 def _connect(folder: Path, zone: str | None = None) -> duckdb.DuckDBPyConnection:
     """The workspace database with no file or network access, a memory limit and locked settings: the
     same connection Learn labs use. ``zone``: the session time zone (translated SQL runs in UTC)."""
-    con = duckdb.connect(str(ws.inside(folder, DB_FILE)))
+    con = duckdb.connect(_db_path(folder))
     if zone:
         con.execute(f"SET TimeZone = '{zone}'")
     con.execute("SET enable_external_access = false")
@@ -216,6 +229,8 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
     folder = _started(root, pack_id, exercise_id)
     if answer is None:
         answer = _read_text(folder, ANSWER_FILE)
+    elif len(answer.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
     if ex["adapter"] == "dbsql_lab":
         results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
                                       connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),

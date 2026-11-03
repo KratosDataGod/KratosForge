@@ -17,10 +17,10 @@ The answer's process wrote those tables, so the engine reads one only after chec
 through validators.check_log and each live data file through workspace.inside (``_table``). A table that
 points outside itself, goes through a link or has a checkpoint fails its checks, in words.
 
-**Who runs what.** A learner's answer runs only through the Academy sandbox (sandbox.py, PR-F): until
-it is wired in, ``run_learner`` refuses. The reference solution and the planted wrong answers are the
-pack's own files; ``self_test`` runs them in a plain ``python -I`` process with the same package, the
-way CI proves an exercise is real.
+**Who runs what.** A learner's answer runs only through the Academy learner process (``run_learner``,
+sandbox.py): no sign-in, no network from Python, time and memory limits, writes only in its workspace.
+The reference solution and the planted wrong answers are the pack's own files; ``self_test`` runs them
+in a plain ``python -I`` process with the same package, the way CI proves an exercise is real.
 """
 
 from __future__ import annotations
@@ -107,9 +107,45 @@ def run_reference(work: Path, code: str) -> dict[str, Any]:
     return {"status": "ok" if p.returncode == 0 else "error", "stdout": p.stdout[-4000:], "stderr": p.stderr[-4000:]}
 
 
-def run_learner(work: Path, code: str) -> dict[str, Any]:
-    """A learner's answer runs only in the Academy sandbox (PR-F), which isn't wired in yet."""
-    raise NotImplementedError("PySpark exercises run in the Academy sandbox, which isn't in this version yet")
+# The learner's own first code, run by the Academy learner process (academy/sandbox.py), which puts
+# kf_learner first on the path as a read-only library folder and starts in the workspace.
+LEARNER_SCRIPT = """
+import os, sys, traceback
+from kf_learner import pyspark_shim
+spark = pyspark_shim.session(os.getcwd())
+code = open("answer.py", encoding="utf-8").read()
+try:
+    exec(compile(code, "answer.py", "exec"), {"__name__": "__main__", "spark": spark})
+    rc = 0
+except BaseException:
+    traceback.print_exc(limit=3)
+    rc = 1
+sys.stdout.flush(); sys.stderr.flush()
+os._exit(rc)
+"""
+LEARNER_FILE = "kf_run.py"
+
+
+def _put(work: Path, name: str, text: str) -> None:
+    """Write ``name`` in the workspace; refused if it (or the way to it) is a link the answer left."""
+    path = ws.inside(work, name, must_exist=False)
+    if os.path.lexists(path) and not path.is_file():
+        raise ws.Refused(f"{name} isn't a plain file; reset the exercise.")
+    path.write_text(text, encoding="utf-8")
+
+
+def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[str, Any]:
+    """Run a learner's answer in the Academy learner process (academy/sandbox.py): its own process with
+    time, memory and CPU limits, no network from Python, the app's packages unimportable and writes only
+    in ``work``. ``data_root``: the app's data folder, denied to the learner outside ``work`` (default:
+    work's parent). Returns once the process (and on Windows its job) has ended."""
+    from . import sandbox   # it starts processes; only learner runs need it
+    work = Path(work)
+    _put(work, ANSWER_FILE, code)
+    _put(work, LEARNER_FILE, LEARNER_SCRIPT)
+    r = sandbox.run(work, LEARNER_FILE, Path(data_root) if data_root else work.parent, time_limit=RUN_SECONDS,
+                    lib_roots=[_package_dir()])
+    return {"status": r["status"], "stdout": r["stdout"], "stderr": r["stderr"]}
 
 
 def _table(work: Path, name: str) -> Any:
@@ -164,6 +200,10 @@ def _load(con: duckdb.DuckDBPyConnection, work: Path, name: str) -> bool:
 def _error(run: dict[str, Any]) -> str:
     if run["status"] == "time_limit":
         return f"Your code was stopped after {RUN_SECONDS} seconds."
+    if run["status"] == "memory_limit":
+        return "Your code used more memory than the exercise allows and was stopped."
+    if run["status"] == "refused":
+        return "Your code wasn't run: the app couldn't start it inside its limits."
     last = [ln for ln in (run.get("stderr") or "").strip().splitlines() if ln.strip()]
     return f"Your code stopped with an error: {last[-1] if last else 'no message'}"
 

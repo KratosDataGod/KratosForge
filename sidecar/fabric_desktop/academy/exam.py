@@ -53,7 +53,7 @@ PACKS = Path(__file__).resolve().parent / "packs"
 
 TYPES = ("single", "multiple", "order")
 STATUSES = ("draft", "live", "retired")
-KINDS = ("practice", "diagnostic")
+KINDS = ("practice", "diagnostic", "drill")   # a drill shows the answer and why after each question
 MIN_PER_OBJECTIVE = 4        # live questions every objective needs before the pack ships
 MAX_GAP = 60.0               # most seconds one heartbeat or action may add to the clock
 MAX_MINUTES = 300
@@ -279,7 +279,7 @@ def build(bank: dict[str, Any], *, cert_version: str, objectives: list[str] | No
     return {"schema": SESSION_SCHEMA, "id": secrets.token_hex(16), "pack": bank["pack"], "cert_version": str(cert_version),
             "kind": kind, "seed": seed, "minutes": minutes, "items": items, "answers": {}, "flags": [],
             "elapsed": 0.0, "running": False, "last_seen": t, "created_at": t, "status": "in_progress",
-            "finished_at": None, "result": None}
+            "finished_at": None, "result": None, "checked": []}
 
 
 def _tick(session: dict[str, Any], now: dt.datetime) -> None:
@@ -341,6 +341,8 @@ def answer(session: dict[str, Any], qid: str, choice: list[str], now: dt.datetim
     item = _item(session, qid)
     if time_left(session) == 0:
         raise ExamError("Time is up: finish the exam to see your results")
+    if qid in (session.get("checked") or []):
+        raise ExamError("That answer was already checked, so it can't change")
     choice = [str(c) for c in choice or []]
     if any(c not in item["options"] for c in choice) or len(set(choice)) != len(choice):
         raise ExamError("That answer names an option the question doesn't have")
@@ -371,6 +373,28 @@ def _correct(q: dict[str, Any], choice: list[str] | None) -> bool:
     return sorted(choice) == sorted(q["answer"])
 
 
+def check(session: dict[str, Any], bank: dict[str, Any], qid: str, now: dt.datetime | None = None) -> dict[str, Any]:
+    """A drill only: lock the learner's answer to ``qid`` and give back whether it's right, the right answer, why
+    and the page it's based on. A checked answer can't change, and the final score uses the same answer."""
+    _open(session)
+    if session.get("kind") != "drill":
+        raise ExamError("Only a drill shows answers before the end")
+    _tick(session, now or _now())
+    _item(session, qid)
+    q = bank["questions"].get(qid)
+    if q is None:
+        raise ExamError(f"{qid} is no longer in the question bank")
+    choice = session["answers"].get(qid)
+    if not choice:
+        raise ExamError("Answer the question first")
+    checked = session.setdefault("checked", [])
+    if qid not in checked:
+        checked.append(qid)
+    return {"q": qid, "correct": _correct(q, choice), "answer": list(choice), "key": list(q["answer"]),
+            "also_accept": [list(a) for a in q.get("also_accept") or []], "explanation": q["explanation"],
+            "source": q["source"]}
+
+
 def _expected_count(q: dict[str, Any]) -> int | None:
     return len(q["answer"]) if q["type"] == "multiple" else None
 
@@ -389,7 +413,8 @@ def view(session: dict[str, Any], bank: dict[str, Any]) -> dict[str, Any]:
         items.append({"n": n, "q": it["q"], "objective": it["objective"], "type": q["type"], "stem": q["stem"],
                       "select": _expected_count(q), "case": {"id": q["case"], **case} if case else None,
                       "options": [{"id": o, "text": texts.get(o, "")} for o in it["options"]],
-                      "answer": session["answers"].get(it["q"]), "flagged": it["q"] in session["flags"]})
+                      "answer": session["answers"].get(it["q"]), "flagged": it["q"] in session["flags"],
+                      "checked": it["q"] in (session.get("checked") or [])})
     return {"id": session["id"], "pack": session["pack"], "cert_version": session["cert_version"],
             "kind": session["kind"], "status": session["status"], "items": items,
             "answered": sum(1 for it in session["items"] if it["q"] in session["answers"]),

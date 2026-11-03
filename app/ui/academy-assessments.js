@@ -1,15 +1,16 @@
 // Academy > Assessments (Preview, ACD-013): the Assessment Center from the approved mockup
 // (docs/academy/, mockup v2). Practice exams, domain diagnostics and objective drills built from the
 // pack's original questions (academy_exam_service.py). The Academy page (academy.js) calls
-// renderAssessments(container) for its Assessments tab; this file draws only the tab's content.
+// renderAssessments(container, pack) for its Assessments tab (pack defaults to dp-700); this file draws only the
+// tab's content.
 //
 // Honest clock: time counts only while the exam is on screen. The screen sends a heartbeat every 15 seconds;
 // hiding the window, leaving the tab or closing the app pauses it, and the engine never counts more than a
 // minute for any gap. Results are scored once at Finish and never recalculated. Nothing here reads or
-// writes OneLake. Questions are original, never Microsoft's, and the result is never shown as a Microsoft
-// score or a prediction of passing.
+// writes OneLake. Questions are original, never the vendor's (Microsoft, Databricks), and the result is never
+// shown as the vendor's score or a prediction of passing.
 
-const ASSESS_PACK = "dp-700";
+const ASSESS_DEFAULT_PACK = "dp-700";
 const ASSESS_BEAT_MS = 15000;
 const ASSESS_TYPES = { single: "Single answer", multiple: "Multiple answers", order: "Ordering" };
 const ASSESS_COUNT_WORDS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight"];
@@ -26,6 +27,7 @@ const assess = {
   pick: null,            // home: "domain" or "objectives" while choosing
   timed: true,
   container: null,
+  pack: ASSESS_DEFAULT_PACK,
   timers: { tick: null, beat: null },
   announce: "",
 };
@@ -149,12 +151,16 @@ function assessDrawClock() {
 // ---------- entry ----------
 
 // Called by the Academy page's Assessments tab, and again by render() after an exam.
-async function renderAssessments(container) {
+async function renderAssessments(container, pack) {
   assess.container = container;
+  if (pack && pack !== assess.pack) {   // another certification: start from its home
+    assess.pack = pack;
+    assess.mode = "home"; assess.view = null; assess.result = null; assess.answers = null;
+  }
   if (assess.mode !== "home" && (assess.view || assess.result)) { assessDraw(); return; }
   assess.mode = "home";
   fill(container, loading("Reading the assessments..."));
-  const home = await assessCall("academy_exam_home", { pack: ASSESS_PACK });
+  const home = await assessCall("academy_exam_home", { pack: assess.pack });
   if (!home || assess.container !== container || !container.isConnected) return;
   assess.home = home;
   assessDraw();
@@ -184,7 +190,7 @@ function assessNotice(text) {
 function assessHome() {
   const home = assess.home;
   if (!home) return loading("Reading the assessments...");
-  const code = home.certification.id.toUpperCase();
+  const code = home.certification.code || home.certification.id.toUpperCase();
   const practice = h("section", { class: "card pad assess-card" },
     h("h2", {}, `${code} practice exam`),
     h("p", {}, `${home.practice.count} questions across all ${home.domains.length} domains, spread evenly over the objectives.`),
@@ -252,12 +258,12 @@ function assessHistory(home) {
 }
 
 function assessKindName(s, home) {
-  const code = home.certification.id.toUpperCase();
+  const code = home.certification.code || home.certification.id.toUpperCase();
   return { practice: `${code} practice exam`, diagnostic: "Domain diagnostic", drill: "Objective drill" }[s.kind] || s.kind;
 }
 
 async function assessStart(params) {
-  const v = await assessCall("academy_exam_start", { pack: ASSESS_PACK, ...params });
+  const v = await assessCall("academy_exam_start", { pack: assess.pack, ...params });
   if (!v) return;
   assessEnterExam(v);
 }
@@ -536,7 +542,7 @@ function assessResults() {
     h("div", { class: "assess-headline card" },
       h("div", {}, h("div", { class: "muted-text small" }, `${r.label} · ${r.title}`),
         h("div", { class: "assess-big" }, `${r.correct} of ${r.total} `, h("span", { class: "muted-text" }, `(${r.percent}%)`))),
-      h("p", { class: "muted-text small assess-headline-note" }, `Not a Microsoft score, not a scaled score and not a prediction of passing. It shows which objectives your answers were strong or weak on in this ${r.kind === "practice" ? "practice exam" : "assessment"}. ${time}`),
+      h("p", { class: "muted-text small assess-headline-note" }, `Not ${r.vendor ? `a ${r.vendor}` : "the vendor's"} score, not a scaled score and not a prediction of passing. It shows which objectives your answers were strong or weak on in this ${r.kind === "practice" ? "practice exam" : "assessment"}. ${time}`),
       h("div", { class: "row wrap" },
         btn("See answers and why", null, () => assessOpenAnswers(), "tool primary"),
         weak.length ? btn("Practice weak objectives", null, () => assessStart({ kind: "drill", objectives: weak.map((o) => o.objective) }), "tool outline") : null,
@@ -556,7 +562,7 @@ function assessResults() {
         h("td", {}, h("a", { href: "#", onclick: (e) => { e.preventDefault(); assessStart({ kind: "drill", objectives: [o.objective] }); } }, `Objective drill for ${o.objective}`))))))
       : h("p", { class: "muted-text" }, "Every objective in this assessment was answered correctly."),
     r.left_out?.length ? h("p", { class: "muted-text small" }, `${r.left_out.length} question${r.left_out.length === 1 ? " was" : "s were"} removed from the bank during this exam and left out of the result.`) : null,
-    h("p", { class: "muted-text small" }, `Saved on this PC under ${r.pack.toUpperCase()} version ${r.cert_version}. It's never recalculated if questions change later.`),
+    h("p", { class: "muted-text small" }, `Saved on this PC under ${r.code || r.pack.toUpperCase()} version ${r.cert_version}. It's never recalculated if questions change later.`),
   ];
 }
 
@@ -627,7 +633,7 @@ function assessAnswerList(it, mine, key, also, correct, explanation, source) {
 function assessSourceName(url) {
   try {
     const u = new URL(url);
-    const host = u.hostname === "learn.microsoft.com" ? "Microsoft Learn" : u.hostname;
+    const host = { "learn.microsoft.com": "Microsoft Learn", "docs.databricks.com": "Databricks documentation" }[u.hostname] || u.hostname;
     const last = u.pathname.split("/").filter(Boolean).pop() || "";
     return `${last.replace(/[-_]/g, " ")} (${host})`;
   } catch { return url; }

@@ -22,9 +22,25 @@ METHODS = {"academy_exam_home", "academy_exam_start", "academy_exam_open", "acad
            "academy_exam_check", "academy_exam_heartbeat", "academy_exam_pause", "academy_exam_finish",
            "academy_exam_review"}
 
-PRACTICE_COUNT = 50
+PRACTICE_COUNT = 50          # when the certification doesn't publish its exam's length (certification.json "exam")
 PRACTICE_MINUTES = 100
 DIAGNOSTIC_PER_OBJECTIVE = 2
+
+
+def _practice(cert: dict[str, Any], available: int) -> tuple[int, int]:
+    """A practice exam's questions and minutes: the certification's published ``exam`` (scored questions,
+    minutes) when it has one, else PRACTICE_COUNT and PRACTICE_MINUTES; never more questions than the bank has."""
+    ex = cert.get("exam") or {}
+    count = ex.get("scored_questions") if isinstance(ex.get("scored_questions"), int) else PRACTICE_COUNT
+    minutes = ex.get("minutes") if isinstance(ex.get("minutes"), int) else PRACTICE_MINUTES
+    return min(count, available), minutes
+
+
+def _code(cert: dict[str, Any]) -> str:
+    """How the screen names the certification: its exam code (DP-700) for a Fabric pack, else its title."""
+    if cert.get("platform", registry.DEFAULT_PLATFORM) == "fabric":
+        return str(cert["id"]).upper()
+    return str(cert.get("title") or cert["id"])
 
 
 class AcademyExamMixin:
@@ -66,32 +82,35 @@ class AcademyExamMixin:
         counts: dict[str, int] = {}
         for q in bank["questions"].values():
             counts[q["objective"]] = counts.get(q["objective"], 0) + 1
+        objs = registry.objectives(cert)   # skill areas or, for a guide without them, the domain's own list
         domains = [{"id": d["id"], "title": d["title"], "weight": d.get("weight"),
                     "objectives": [{"id": o["id"], "text": o["text"], "questions": counts.get(o["id"], 0)}
-                                   for s in d.get("skills") or [] for o in s.get("objectives") or []]}
+                                   for o in objs if o["domain"] == d["id"]]}
                    for d in cert.get("domains") or []]
         sessions = [s for s in self._exam_store().list() if s.get("pack") == pid]
+        count, minutes = _practice(cert, len(bank["questions"]))
         return {"pack": pid, "certification": {"id": cert["id"], "title": cert["title"], "vendor": cert.get("vendor"),
-                                               "version": cert.get("version")},
-                "notice": exam.NOTICE, "label": exam.RESULT_LABEL, "questions": len(bank["questions"]),
+                                               "version": cert.get("version"), "code": _code(cert)},
+                "notice": bank["notice"], "label": exam.RESULT_LABEL, "questions": len(bank["questions"]),
                 "domains": domains,
-                "practice": {"count": min(PRACTICE_COUNT, len(bank["questions"])), "minutes": PRACTICE_MINUTES},
+                "practice": {"count": count, "minutes": minutes},
                 "diagnostic_per_objective": DIAGNOSTIC_PER_OBJECTIVE,
                 "unfinished": [s for s in sessions if s.get("status") == "in_progress"],
                 "finished": [s for s in sessions if s.get("status") == "finished"]}
 
     def academy_exam_start(self, pack: str = "dp-700", kind: str = "practice", domain: str | None = None,
                            objectives: list[str] | None = None, timed: bool = True) -> dict[str, Any]:
-        """Start an exam and its clock. practice: PRACTICE_COUNT questions over every objective, PRACTICE_MINUTES
-        or untimed. diagnostic: DIAGNOSTIC_PER_OBJECTIVE per objective in one domain, untimed. drill: every
+        """Start an exam and its clock. practice: the certification's published length and time (``_practice``)
+        over every objective, or untimed. diagnostic: DIAGNOSTIC_PER_OBJECTIVE per objective in one domain, untimed. drill: every
         question for the objectives picked, untimed, with the answer after each one."""
         pid, kind = str(pack), str(kind)
         cert = registry.certification(pid)
         bank = exam.load_bank(pid)
         known = {o["id"]: o for o in registry.objectives(cert)}
         if kind == "practice":
-            session = exam.build(bank, cert_version=cert["version"], count=PRACTICE_COUNT,
-                                 minutes=PRACTICE_MINUTES if timed else None, kind="practice")
+            count, minutes = _practice(cert, len(bank["questions"]))
+            session = exam.build(bank, cert_version=cert["version"], count=count,
+                                 minutes=minutes if timed else None, kind="practice")
         elif kind == "diagnostic":
             ids = [o["id"] for o in known.values() if o["domain"] == str(domain)]
             if not ids:
@@ -176,7 +195,7 @@ class AcademyExamMixin:
 
 
 def _title(session: dict[str, Any], cert: dict[str, Any]) -> str:
-    code = str(cert.get("id", session["pack"])).upper()
+    code = _code(cert)
     if session["kind"] == "diagnostic":
         dom = next((d for d in cert.get("domains") or [] if d["id"] == session.get("domain")), None)
         return f"Domain diagnostic: {dom['title']}" if dom else "Domain diagnostic"
@@ -200,5 +219,6 @@ def _result(session: dict[str, Any]) -> dict[str, Any]:
     res["by_objective"] = [{**t, "text": texts.get(t["objective"])} for t in res.get("by_objective") or []]
     res.pop("items", None)
     return {**res, "title": _title(session, cert), "kind": session["kind"], "pack": session["pack"],
+            "code": _code(cert), "vendor": registry.platform(cert)["vendor"],
             "cert_version": session["cert_version"], "minutes": session["minutes"],
             "finished_at": session["finished_at"], "total_items": len(session["items"])}

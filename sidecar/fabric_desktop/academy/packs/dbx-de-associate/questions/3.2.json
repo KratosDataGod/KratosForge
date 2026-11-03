@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2",
+  "questions": [
+    {
+      "id": "3.2-q1",
+      "type": "single",
+      "stem": "You need every order with its customer's name, keeping orders whose customer isn't found. Which join?",
+      "options": [
+        {
+          "id": "a",
+          "text": "orders INNER JOIN customers USING (customer_id)"
+        },
+        {
+          "id": "b",
+          "text": "orders CROSS JOIN customers"
+        },
+        {
+          "id": "c",
+          "text": "orders UNION customers"
+        },
+        {
+          "id": "d",
+          "text": "orders LEFT JOIN customers USING (customer_id)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A left join returns all rows from the left side and the matched values from the right, or NULL.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-join",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2-q2",
+      "type": "single",
+      "stem": "Two queries return the same columns, and duplicate rows must be kept. Which set operator stacks them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "EXCEPT"
+        },
+        {
+          "id": "b",
+          "text": "INTERSECT"
+        },
+        {
+          "id": "c",
+          "text": "UNION ALL"
+        },
+        {
+          "id": "d",
+          "text": "UNION"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "UNION ALL keeps duplicates; UNION (DISTINCT) removes them.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-setops",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2-q3",
+      "type": "single",
+      "stem": "A large fact table joins a small lookup table in SQL. Which hint avoids shuffling the large side?",
+      "options": [
+        {
+          "id": "a",
+          "text": "/*+ BROADCAST(lookup) */"
+        },
+        {
+          "id": "b",
+          "text": "/*+ REPARTITION(1000) */ on the lookup"
+        },
+        {
+          "id": "c",
+          "text": "/*+ COALESCE(1) */ on the fact"
+        },
+        {
+          "id": "d",
+          "text": "A cross join"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A broadcast hint broadcasts the hinted side whatever the automatic threshold, so the join needs no shuffle of the large side.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-hints",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2-q4",
+      "type": "single",
+      "stem": "Two DataFrames must be joined on both store_id and order_date. How?",
+      "options": [
+        {
+          "id": "a",
+          "text": "a JOIN b USING (store_id) JOIN b USING (order_date)"
+        },
+        {
+          "id": "b",
+          "text": "a UNION b"
+        },
+        {
+          "id": "c",
+          "text": "a CROSS JOIN b WHERE store_id"
+        },
+        {
+          "id": "d",
+          "text": "a JOIN b USING (store_id, order_date)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "USING lists every column that must match on both sides.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-join",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2-q5",
+      "type": "single",
+      "stem": "What does a cross join produce?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The rows in common"
+        },
+        {
+          "id": "b",
+          "text": "Rows from either side without duplicates"
+        },
+        {
+          "id": "c",
+          "text": "Every row of the first input paired with every row of the second"
+        },
+        {
+          "id": "d",
+          "text": "Only matching rows"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A cross join returns the Cartesian product of the two relations.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-join",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

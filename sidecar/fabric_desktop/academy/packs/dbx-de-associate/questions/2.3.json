@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3",
+  "questions": [
+    {
+      "id": "2.3-q1",
+      "type": "single",
+      "stem": "Which source format name starts Auto Loader in a streaming read?",
+      "options": [
+        {
+          "id": "a",
+          "text": "spark.readStream.format(\"cloudFiles\")"
+        },
+        {
+          "id": "b",
+          "text": "spark.readStream.format(\"files-incremental\")"
+        },
+        {
+          "id": "c",
+          "text": "spark.readStream.format(\"autoloader\")"
+        },
+        {
+          "id": "d",
+          "text": "spark.read.format(\"copyinto\")"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Auto Loader is the cloudFiles source: readStream.format(\"cloudFiles\") with cloudFiles.format set to the file type.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/production",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3-q2",
+      "type": "single",
+      "stem": "Quarry Lane's JSON files sometimes gain new fields. With Auto Loader's default schema evolution mode, what happens when a new column appears?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Auto Loader converts the file to CSV"
+        },
+        {
+          "id": "b",
+          "text": "The new column is silently dropped forever"
+        },
+        {
+          "id": "c",
+          "text": "New columns are added to the schema, the stream fails, and a restart resumes with the updated schema"
+        },
+        {
+          "id": "d",
+          "text": "The whole table is deleted"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "In the default addNewColumns mode, Auto Loader adds the new columns to the schema and the stream fails with an UnknownFieldException; restarting resumes processing with the updated schema.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/schema",
+      "case": "quarry-retail",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3-q3",
+      "type": "single",
+      "stem": "Where does Auto Loader keep the inferred schema and its changes over time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nowhere; it infers from scratch every time"
+        },
+        {
+          "id": "b",
+          "text": "In the notebook's markdown"
+        },
+        {
+          "id": "c",
+          "text": "In the location set by cloudFiles.schemaLocation"
+        },
+        {
+          "id": "d",
+          "text": "In the cluster's driver log"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "cloudFiles.schemaLocation stores the inferred schema and its evolution so later runs reuse it.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/schema",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3-q4",
+      "type": "single",
+      "stem": "What does Auto Loader's rescued data column hold?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Data that didn't match the schema, such as unexpected fields or type mismatches, so it isn't lost"
+        },
+        {
+          "id": "b",
+          "text": "The file names that were skipped"
+        },
+        {
+          "id": "c",
+          "text": "Rows deleted by VACUUM"
+        },
+        {
+          "id": "d",
+          "text": "A backup copy of every row"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The rescued data column collects values that couldn't be parsed into the schema, so nothing is silently dropped.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/schema",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3-q5",
+      "type": "single",
+      "stem": "A job should run Auto Loader as a scheduled batch that processes everything new and then stops. Which trigger fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "No trigger and no checkpoint"
+        },
+        {
+          "id": "b",
+          "text": "trigger(continuous=\"1 second\")"
+        },
+        {
+          "id": "c",
+          "text": "trigger(availableNow=True)"
+        },
+        {
+          "id": "d",
+          "text": "trigger(processingTime=\"1 second\") forever"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With Trigger.AvailableNow, a scheduled job processes the files that arrived before the query started, then the run ends: incremental batch runs.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/production",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

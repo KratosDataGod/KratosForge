@@ -1,0 +1,163 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "6.1",
+  "questions": [
+    {
+      "id": "6.1-q1",
+      "type": "single",
+      "stem": "Where can you see a job's recent runs with their durations and outcomes side by side?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The SQL editor history"
+        },
+        {
+          "id": "b",
+          "text": "The cluster's event log only"
+        },
+        {
+          "id": "c",
+          "text": "The Git folder history"
+        },
+        {
+          "id": "d",
+          "text": "The job's Runs tab"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A job's Runs tab shows recent runs and their tasks, with status and duration.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.1-q2",
+      "type": "single",
+      "stem": "The Fernhill job usually takes 20 minutes but has crept to 55 over two weeks. Where do you start?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Compare durations across runs in the job's run history"
+        },
+        {
+          "id": "b",
+          "text": "Turn off the trigger"
+        },
+        {
+          "id": "c",
+          "text": "Grant more privileges to the analysts"
+        },
+        {
+          "id": "d",
+          "text": "Delete the job and recreate it"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "In the matrix view, bar height shows each task's duration across runs, so you see when and where it grew.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "case": "fernhill-health",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.1-q3",
+      "type": "single",
+      "stem": "What does the matrix view on a job's Runs tab show?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The SQL text of each query"
+        },
+        {
+          "id": "b",
+          "text": "A map of the cluster's nodes"
+        },
+        {
+          "id": "c",
+          "text": "Unity Catalog lineage"
+        },
+        {
+          "id": "d",
+          "text": "Each task's status across a series of runs"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The matrix view lays out runs and tasks so you can spot a task that keeps failing or slowing.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.1-q4",
+      "type": "multiple",
+      "stem": "Which questions can run history answer? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Which column holds personal data"
+        },
+        {
+          "id": "b",
+          "text": "What the next DBR version will add"
+        },
+        {
+          "id": "c",
+          "text": "Which task's duration grew over time"
+        },
+        {
+          "id": "d",
+          "text": "Which runs failed and when"
+        }
+      ],
+      "answer": [
+        "c",
+        "d"
+      ],
+      "explanation": "Run history covers durations and outcomes across runs.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.1-q5",
+      "type": "single",
+      "stem": "Where can you see runs across all jobs in a workspace in one list?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The catalog explorer"
+        },
+        {
+          "id": "b",
+          "text": "The Runs tab in Jobs & Pipelines"
+        },
+        {
+          "id": "c",
+          "text": "The Git dialog"
+        },
+        {
+          "id": "d",
+          "text": "The notebook revision history"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Runs tab in Jobs & Pipelines lists running and recently completed runs for all jobs and pipelines.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.7",
+  "questions": [
+    {
+      "id": "2.7-q1",
+      "type": "single",
+      "stem": "A JSON column holds nested objects. Which SQL syntax reads a nested field from a string column raw?",
+      "options": [
+        {
+          "id": "a",
+          "text": "raw:customer.address.city"
+        },
+        {
+          "id": "b",
+          "text": "raw[customer][city]"
+        },
+        {
+          "id": "c",
+          "text": "GET(raw, city)"
+        },
+        {
+          "id": "d",
+          "text": "raw->customer->city"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The colon syntax `<column>:<path>` extracts fields from JSON strings, with dots for nested fields.",
+      "source": "https://docs.databricks.com/aws/en/semi-structured/json",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.7-q2",
+      "type": "single",
+      "stem": "Which function turns each element of an array column into its own row?",
+      "options": [
+        {
+          "id": "a",
+          "text": "collect_list"
+        },
+        {
+          "id": "b",
+          "text": "explode"
+        },
+        {
+          "id": "c",
+          "text": "split"
+        },
+        {
+          "id": "d",
+          "text": "flatten_rows"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "explode returns a set of rows by un-nesting the collection.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/explode",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.7-q3",
+      "type": "single",
+      "stem": "How do you read JSON files that each contain one record spread over many lines?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It isn't possible"
+        },
+        {
+          "id": "b",
+          "text": "Set header to true"
+        },
+        {
+          "id": "c",
+          "text": "Use the CSV reader"
+        },
+        {
+          "id": "d",
+          "text": "Set the multiLine option to true"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "By default the JSON reader expects one record per line; multiLine reads records that span lines.",
+      "source": "https://docs.databricks.com/aws/en/query/formats/json",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.7-q4",
+      "type": "single",
+      "stem": "A connector lands semi-structured payloads whose fields vary by record. Which approach keeps them without losing fields?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Keep only the first field"
+        },
+        {
+          "id": "b",
+          "text": "Drop records whose fields don't match"
+        },
+        {
+          "id": "c",
+          "text": "Store them in a VARIANT column and extract fields when needed"
+        },
+        {
+          "id": "d",
+          "text": "Convert everything to integers"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Databricks recommends VARIANT over JSON strings for semi-structured data; fields are extracted when queried.",
+      "source": "https://docs.databricks.com/aws/en/semi-structured/variant",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.7-q5",
+      "type": "single",
+      "stem": "A JSON string column raw holds an object store with a key bicycle. Besides raw:store.bicycle, which syntax also reads it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "store(raw).bicycle"
+        },
+        {
+          "id": "b",
+          "text": "raw:store['bicycle']"
+        },
+        {
+          "id": "c",
+          "text": "raw.store.bicycle()"
+        },
+        {
+          "id": "d",
+          "text": "raw->store->bicycle"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "After the colon, a path can use dots or brackets with the key in quotes.",
+      "source": "https://docs.databricks.com/aws/en/semi-structured/json",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

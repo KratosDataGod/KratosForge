@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "6.3",
+  "questions": [
+    {
+      "id": "6.3-q1",
+      "type": "single",
+      "stem": "In a stage's summary metrics, the maximum task duration is 50% or more above the 75th percentile. What does that suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The job has no dependencies"
+        },
+        {
+          "id": "b",
+          "text": "The table is managed"
+        },
+        {
+          "id": "c",
+          "text": "The cluster has too many nodes"
+        },
+        {
+          "id": "d",
+          "text": "Data skew: one or a few tasks take much longer than the rest"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Skew is when one or a few tasks take much longer than the rest; a max duration 50% or more above the 75th percentile is the sign to look for.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/long-spark-stage-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.3-q2",
+      "type": "single",
+      "stem": "What does spill mean in the Spark UI?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Data that did not fit in memory was written to disk during the task"
+        },
+        {
+          "id": "b",
+          "text": "Rows dropped by a filter"
+        },
+        {
+          "id": "c",
+          "text": "A failed cluster start"
+        },
+        {
+          "id": "d",
+          "text": "Files deleted by VACUUM"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "When Spark runs low on execution memory it writes data from memory to disk (spill), which can be expensive.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/long-spark-stage-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.3-q3",
+      "type": "single",
+      "stem": "During which kind of work is spill most common?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reading a small lookup file"
+        },
+        {
+          "id": "b",
+          "text": "Shuffling data"
+        },
+        {
+          "id": "c",
+          "text": "Listing files"
+        },
+        {
+          "id": "d",
+          "text": "Writing a comment"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Spill happens when execution memory runs out, and it's most common while data is being shuffled.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/long-spark-stage-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.3-q4",
+      "type": "multiple",
+      "stem": "A join stage shows heavy skew on one key. Which changes can help? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Switch the job to a file arrival trigger"
+        },
+        {
+          "id": "b",
+          "text": "Make sure adaptive query execution is on so it can split skewed partitions"
+        },
+        {
+          "id": "c",
+          "text": "Add a column mask"
+        },
+        {
+          "id": "d",
+          "text": "Spread the hot key with a salt column"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Adaptive query execution can handle skewed joins, and salting spreads a hot key.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/long-spark-stage-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.3-q5",
+      "type": "single",
+      "stem": "Where in the Spark UI do you check whether a stage spilled?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The stage details at the top of the stage's page"
+        },
+        {
+          "id": "b",
+          "text": "The Unity Catalog explorer"
+        },
+        {
+          "id": "c",
+          "text": "The Git folder"
+        },
+        {
+          "id": "d",
+          "text": "The Environment tab only"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Spill statistics appear in the stage details at the top of the stage page.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/long-spark-stage-page",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

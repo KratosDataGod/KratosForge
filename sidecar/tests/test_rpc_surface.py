@@ -23,7 +23,7 @@ from fabric_desktop import server
 UI = Path(__file__).resolve().parents[2] / "app" / "ui"
 
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
-_INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
+_INCIDENTS = "incident history: the engine is released, its screen is stage 4 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
@@ -64,10 +64,6 @@ NO_UI_CALLER: dict[str, str] = {
     "local_set_types": _LOCAL,
     "local_write_delta": _LOCAL,
     # Engine features whose screens come later.
-    "incidents_board": _INCIDENTS,
-    "incident_report": _INCIDENTS,
-    "incident_set_priority": _INCIDENTS,
-    "incident_sla_policy": _INCIDENTS,
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,

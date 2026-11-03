@@ -41,7 +41,7 @@ POLICY = {"id": "table-names", "name": "Table names are snake_case", "category":
 # (list_policy_templates and the product term and item lists make their tables if they are missing, which
 # changes nothing on a platform that has them.)
 READS = {
-    "audit": {}, "enrichment": {"project": "ledger"}, "entra_group_naming": {}, "export_keys": {"name": "customer"},
+    "audit": {}, "enrichment": {"project": "ledger"}, "entra_group_naming": {}, "change_window": {}, "export_keys": {"name": "customer"},
     "get_policy": {"id": "table-names"}, "key_stats": {"name": "customer"}, "keys_state": {}, "list_admins": {},
     "list_assignments": {}, "list_domains": {}, "list_entra_groups": {}, "list_glossary": {}, "list_grants": {},
     "list_key_tables": {}, "list_landing_zones": {}, "list_policies": {}, "list_policy_exceptions": {},
@@ -158,6 +158,7 @@ ROLE_WRITES = [
         "ports": [{"port": "customers", "table": "dim_customer", "workspace_name": "CRM Prod",
                    "lakehouse_name": "LH_Gold", "workspace_id": WS, "lakehouse_id": LH}], "env": "prod"}),
     ("save_entra_group_naming", ADMIN, lambda db: {"naming": {"prefix": "kf"}}),
+    ("save_change_window", ADMIN, lambda db: {"window": {"days": ["mon"], "start": "08:00", "end": "16:00"}}),
     ("link_entra_group", DOMAIN_OWNER, lambda db: {"domain": "sales", "role": "stewards", "env": "prod",
                                                    "group_id": GID}),
     ("unlink_entra_group", DOMAIN_OWNER, lambda db: {"domain": "sales", "role": "readers", "env": "prod"}),

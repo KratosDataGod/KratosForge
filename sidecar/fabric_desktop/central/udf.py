@@ -553,6 +553,21 @@ def product_followers(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCon
     return _run(sqlDB, "product_followers", ctx, product_id=product_id)
 
 
+# ---- the change window (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def change_window(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "change_window")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, window: dict = None) -> dict:
+    return _run(sqlDB, "save_change_window", ctx, window=window)
+
+
 # ---- Entra ID groups per domain (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

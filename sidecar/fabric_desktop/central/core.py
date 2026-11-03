@@ -1042,6 +1042,66 @@ def save_entra_group_naming(db: Db, naming: dict[str, Any], by: str = "") -> dic
     return out
 
 
+# --------------------------------------------------------------------------- the change window
+# When the platform agrees changes to Prod should happen. A promote outside it gets a warning, never a block.
+
+_WINDOW_SETTING = "change_window"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_ZONE = re.compile(r"^(UTC|[A-Za-z_]+(?:/[A-Za-z0-9_+-]+){1,2})$")
+
+
+def checked_change_window(window: Any) -> dict[str, Any] | None:
+    """A change window as the platform keeps it: {days, start, end, time_zone, envs}; None for no window.
+    Days are mon..sun, times "HH:MM" with start before end on the same day, the time zone an IANA name
+    such as "Europe/London" or "UTC", envs some of test and prod (Prod when left out). Raises PlatformError."""
+    if window in (None, "", {}):
+        return None
+    if not isinstance(window, dict):
+        raise PlatformError("The change window is days, start, end and time_zone")
+    unknown = set(window) - {"days", "start", "end", "time_zone", "envs"}
+    if unknown:
+        raise PlatformError(f"The change window doesn't know {', '.join(sorted(unknown))}")
+    days = window.get("days")
+    if not isinstance(days, list) or not days or any(d not in WEEKDAYS for d in days):
+        raise PlatformError(f"The change window's days are some of {', '.join(WEEKDAYS)}")
+    start, end = str(window.get("start") or ""), str(window.get("end") or "")
+    if not _HHMM.match(start) or not _HHMM.match(end) or start >= end:
+        raise PlatformError('The change window\'s start and end are times like "08:00" and "16:00", start first')
+    zone = str(window.get("time_zone") or "UTC")
+    if not _ZONE.match(zone):
+        raise PlatformError('The change window\'s time_zone is a name like "Europe/London" or "UTC"')
+    envs = window.get("envs") or ["prod"]
+    if not isinstance(envs, list) or any(e not in ("test", "prod") for e in envs):
+        raise PlatformError("The change window's envs are some of test, prod")
+    return {"days": sorted(set(days), key=WEEKDAYS.index), "start": start, "end": end, "time_zone": zone,
+            "envs": sorted(set(envs), key=("test", "prod").index)}
+
+
+def change_window(db: Db) -> dict[str, Any]:
+    """{"window": the platform's change window, or None when it has none}. What is stored is checked again
+    on every read; a value that fails the checks reads as none."""
+    if not db.exists("config", "setting"):
+        return {"window": None}
+    saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (_WINDOW_SETTING,))
+    if not saved or not saved[0].get("value"):
+        return {"window": None}
+    try:
+        return {"window": checked_change_window(json.loads(saved[0]["value"]))}
+    except (PlatformError, ValueError, TypeError):
+        return {"window": None}
+
+
+def save_change_window(db: Db, window: dict[str, Any] | None = None, by: str = "") -> dict[str, Any]:
+    """Set the change window, or clear it with none. Platform admins only. Answers {"window": ...}."""
+    require_admin(db, by, "change the change window")
+    out = checked_change_window(window)
+    _upsert(db, "config", "setting", "name", {"name": _WINDOW_SETTING, "value": json.dumps(out) if out else ""})
+    _audit(db, by, "save change window", _WINDOW_SETTING, out or {"cleared": True})
+    db.commit()
+    return {"window": out}
+
+
 def ensure_entra_groups(db: Db) -> list[str]:
     """catalog.entra_group, added after the mesh: additive, safe to run again; linking calls it."""
     if db.exists("catalog", "entra_group"):
@@ -3154,7 +3214,7 @@ def remove_product_item(db: Db, product_id: str, item_id: str, by: str = "") -> 
 # Operations that only read. The app sends them again after a timeout, a dropped connection or a busy
 # platform as they are (tests/test_central_roles.py checks each one changes nothing).
 READ_OPERATIONS = frozenset({
-    "access_reviews", "audit", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
+    "access_reviews", "audit", "change_window", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
     "keys_state", "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_follows",
     "list_glossary", "list_grants", "list_key_tables", "list_landing_zones", "list_policies",
     "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_products",
@@ -3261,6 +3321,7 @@ OPERATIONS = {
     "follow_product": follow_product, "unfollow_product": unfollow_product, "list_follows": list_follows,
     "product_followers": product_followers,
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
+    "change_window": change_window, "save_change_window": save_change_window,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
     "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
     "call_once": call_once,

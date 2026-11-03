@@ -2814,6 +2814,30 @@ mod embed_host_tests {
         assert!(!frames.contains("powerbi.com"), "{frames}");
         assert!(!frames.contains("https://*") && !frames.split_whitespace().any(|s| s == "https:" || s == "*"));
     }
+
+    #[test]
+    fn the_apps_pages_get_only_the_tauri_permissions_they_use() {
+        // The pages use the Tauri bridge for exactly this; everything else is one of the app's own commands.
+        let cap: Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let perms: Vec<&str> = cap["permissions"].as_array().unwrap().iter().map(|p| p.as_str().expect("a plain permission name")).collect();
+        assert_eq!(perms, ["core:event:allow-listen", "core:event:allow-unlisten"]);
+        assert!(cap.get("remote").is_none(), "no remote pages");
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui");
+        let mut used = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(&ui).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "js") {
+                let src = std::fs::read_to_string(&path).unwrap();
+                for (i, _) in src.match_indices("__TAURI__") {
+                    let rest: String = src[i + "__TAURI__".len()..].chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '?').collect();
+                    used.insert(rest.replace('?', ""));
+                }
+            }
+        }
+        // core.invoke reaches only the app's commands; convertFileSrc builds a URL in the page; event.listen is the one permission.
+        let known: std::collections::BTreeSet<String> = ["", ".core", ".core.invoke", ".core.convertFileSrc", ".event", ".event.listen"].iter().map(|s| s.to_string()).collect();
+        assert!(used.is_subset(&known), "a page uses more of the Tauri bridge than the capability grants: {used:?}");
+    }
 }
 
 #[cfg(test)]

@@ -52,6 +52,7 @@ nav = [
     { "Notebook files" = "notebook-files.md" },
     { "VS Code" = "vscode.md" },
     { "Recent notebooks and pinned items" = "home-notebooks.md" },
+    { "Academy" = "academy-guide.md" },
     { "Learn" = "learn.md" },
     { "App Studio" = "app-studio.md" },
     { "Run the last cell on Fabric" = "notebook-fabric-step.md" },

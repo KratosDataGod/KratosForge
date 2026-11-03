@@ -751,7 +751,8 @@
       "evidence": [
         "envprofile.py classifies imports only",
         "fabric_api.py has no Environment item calls",
-        "Package-source decision open (Prove)"
+        "Package-source decision open (Prove)",
+        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-PRV-04",
@@ -790,7 +791,8 @@
       },
       "prs": [
         906,
-        942
+        942,
+        1765
       ],
       "issues": [
         899,
@@ -1676,7 +1678,8 @@
       "capability": "Owned and specified by the Git-native program (Phase 2); not restated here.",
       "evidence": [
         "docs/git-integration-plan.md Phase 2",
-        "A registry of which item types work with Fabric Git, deployment pipelines and KratosForge (#1739) on main at 5f8144f7"
+        "A registry of which item types work with Fabric Git, deployment pipelines and KratosForge (#1739) on main at 5f8144f7",
+        "Link a repository to a workspace (#1740), which items differ and conflict (#1761), a Fabric workspace tab in Source control (#1762), Update from Git only after a fresh status check with conflicts chosen and the workspace name typed (#1763) and its dialog (#1766, Preview) on main at 9b7848eb; deployment pipelines are PB-041"
       ],
       "features": [
         "FEAT-FAB-12"
@@ -1703,7 +1706,7 @@
       ],
       "effort": "L",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In progress",
       "computed": {
         "benefit": 3.85,
         "cost": 3.0,
@@ -1711,7 +1714,12 @@
         "priority": "P2"
       },
       "prs": [
-        1739
+        1739,
+        1740,
+        1761,
+        1762,
+        1763,
+        1766
       ]
     },
     {
@@ -2230,7 +2238,8 @@
         "central/setup.py setup() and join() have no tests",
         "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
         "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
-        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant"
+        "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant",
+        "UDF_Platform's connected data source names SqlDbNative too (#1754) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2296,7 +2305,8 @@
         1351,
         1353,
         1354,
-        1716
+        1716,
+        1754
       ],
       "issues": [
         909
@@ -4338,7 +4348,8 @@
         "DuckDB 2.0 readiness (#1341 parts: #1343 to #1357), sqlglot range tested at both ends (#1274), and OneLake reads, writes, shortcut checks and leases wait out throttling (#1291, #1293, #1327) on main at b3c5b223",
         "DuckDB 2.0: every engine Arrow reader, notebook SQL cells and the TPC-H notebook read relations, and CI runs the engine suite on 2.0 (#1355, #1490, #1498, #1502) on main at 063b84ed; 2.0 is still not allowed in pyproject",
         "pyproject allows DuckDB 2 after the whole engine suite passed on 2.0 (#1401, decision D-E10); the app keeps duckdb==1.5.6 on main at 761a7949",
-        "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f"
+        "Local T-SQL casts, LIKE ranges, DATEDIFF and window averages; OneLake leases judged on OneLake's clock; publish overwrites commit against the version read; value-changing appends stop; a start-up and SQL benchmark with a baseline (#1608) on main at 32cbd98f",
+        "Direct Lake reads the zstd tables this app writes, checked live (#1755) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -4454,7 +4465,8 @@
         1654,
         1686,
         1711,
-        1712
+        1712,
+        1755
       ]
     },
     {
@@ -4566,6 +4578,7 @@
         757,
         768,
         786,
+        799,
         911,
         916,
         918,
@@ -4692,7 +4705,12 @@
         1724,
         1729,
         1730,
-        1743
+        1743,
+        1757,
+        1758,
+        1764,
+        1767,
+        1789
       ],
       "issues": [
         910,
@@ -4809,7 +4827,8 @@
       "evidence": [
         "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
         "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here",
-        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed"
+        "Real-browser tests now reach the remaining screens and their writes (42 PRs from #1381 to #1523) on main at 063b84ed",
+        "Spark results on this PC: decimal arithmetic and F.expr types (#1731), a generated function coverage list checked in CI (#1732), built-ins DuckDB lacks answer like Spark or are refused by name (#1745), to_date formats (#1787), windows ordered by F.col and getItem/getField (#1792) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-NB-04",
@@ -4938,7 +4957,12 @@
         1537,
         1544,
         1565,
-        1697
+        1697,
+        1731,
+        1732,
+        1745,
+        1787,
+        1792
       ]
     },
     {
@@ -5006,7 +5030,8 @@
       "capability": "Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.",
       "evidence": [
         "Chris's unit testing, 2026-10-18, item 33",
-        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)"
+        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
+        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -5036,7 +5061,10 @@
         "cost": 3.5,
         "score": 1.43,
         "priority": "P3"
-      }
+      },
+      "prs": [
+        1735
+      ]
     },
     {
       "id": "PB-106",
@@ -5138,7 +5166,8 @@
       "evidence": [
         "Chris's 'Go' 2026-10-24 18:16Z",
         "DF-1 engine merged as #640",
-        "Mockup waits on Chris"
+        "Mockup waits on Chris",
+        "Open in Fabric goes to the dataflow itself (#1798) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-FAB-10",
@@ -5198,7 +5227,8 @@
         1250,
         1251,
         1256,
-        1333
+        1333,
+        1798
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5920,12 +5950,15 @@
         1643,
         1648,
         1649,
-        1720
+        1720,
+        1738,
+        1760
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
       "evidence": [
-        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4"
+        "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4",
+        "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6062,16 +6095,19 @@
     {
       "id": "PB-123",
       "title": "Learn phase 2: rule batches, Profile v2 and comparison lessons",
-      "state": "Proposed",
+      "state": "In progress",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
-      "prs": [],
+      "prs": [
+        1722
+      ],
       "problem": "Learn v1 covers the first rule catalog and paths only.",
       "capability": "New rule batches, Profile v2 and the professional report (LX-11 to LX-16); the platform comparison lessons moved to PB-126.",
       "evidence": [
         "Split from PB-119 on 2026-11-01; nothing built. Each slice needs Chris's go before it is built",
-        "2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here"
+        "2026-11-02: the platform comparison lessons (Databricks and Snowflake porting) moved to PB-126 (LM-26 to LM-29, LAB-08, LAB-09); rule batches and Profile v2 stay here",
+        "Profile v2 started: Impact tab, goals with a development roadmap and the report as PDF (#1722) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6114,7 +6150,8 @@
         "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
         "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
         "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
-        "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7"
+        "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7",
+        "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6198,7 +6235,8 @@
         1709,
         1710,
         1714,
-        1723
+        1723,
+        1734
       ],
       "issues": [],
       "computed": {
@@ -6326,7 +6364,8 @@
         1718,
         1721,
         1727,
-        1728
+        1728,
+        1736
       ],
       "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
       "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
@@ -6335,7 +6374,8 @@
         "Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03",
         "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
         "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
-        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)"
+        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)",
+        "AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb"
       ],
       "features": [
         "FEAT-FAB-05"
@@ -6366,6 +6406,180 @@
         "cost": 4.5,
         "score": 0.97,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-128",
+      "title": "KratosForge Academy: certification preparation",
+      "state": "In progress",
+      "owner": "Academy",
+      "category": "Developer Experience and Productivity",
+      "effort": "L",
+      "prs": [
+        1771,
+        1776,
+        1777,
+        1778,
+        1779,
+        1781,
+        1782,
+        1783,
+        1784,
+        1785,
+        1788,
+        1791,
+        1793,
+        1794,
+        1795,
+        1796,
+        1801
+      ],
+      "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
+      "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
+      "evidence": [
+        "Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb",
+        "Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant"
+      ],
+      "features": [
+        "FEAT-DEV-04"
+      ],
+      "source_refs": [
+        "ACD-001..020",
+        "DBA-001..016"
+      ],
+      "acceptance": [
+        "Every objective in a certification's registry has exercises or a recorded gap",
+        "An exercise is graded on what the learner made, read as untrusted input, in a limited process",
+        "Practice exams, diagnostics and drills run on one exam engine with original questions",
+        "Nothing in Academy writes to Fabric or spends capacity"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 1,
+        "enterprise_value": 3,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 2.6,
+        "cost": 1.5,
+        "score": 2.34,
+        "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-129",
+      "title": "Platform skins and experience parity",
+      "state": "In progress",
+      "owner": "Platform skins",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1756,
+        1759,
+        1770,
+        1772,
+        1773
+      ],
+      "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
+      "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
+      "evidence": [
+        "Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb",
+        "Not built: Databricks and Snowflake skins, state kept across skin switches, the end-to-end demonstration the brief asks for"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-EXT-05"
+      ],
+      "source_refs": [
+        "Chris's Platform Skins brief, 2026-11-03 13:41Z (P0)"
+      ],
+      "acceptance": [
+        "Appearance, workflow, platform and engine are independent settings",
+        "A skin is declarative configuration, validated on import, and can't change credentials, permissions, engine behaviour or project data",
+        "Switching skins keeps open work, connections and execution settings",
+        "Every skin keeps local-first, multi-engine, optimization, training and deployment features reachable",
+        "The end-to-end demonstration in the brief is recorded, with mocked parts named"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 4,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "blocker",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.25,
+        "cost": 4.5,
+        "score": 0.97,
+        "priority": "P0"
+      },
+      "mandatory_reason": "The product owner set platform skins and experience parity as P0 in the Platform Skins brief of 2026-11-03 13:41 UTC."
+    },
+    {
+      "id": "PB-130",
+      "title": "Data product promises, status and change windows",
+      "category": "Enterprise Shared Services",
+      "problem": "Readers of a data product can't see what its team promises about freshness and quality, or whether the promise is kept.",
+      "capability": "A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.",
+      "evidence": [
+        "Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb"
+      ],
+      "features": [
+        "FEAT-MESH-04",
+        "FEAT-GOV-01",
+        "FEAT-MESH-05"
+      ],
+      "depends_on": [
+        "PB-002"
+      ],
+      "acceptance": [
+        "A product's promise is shown to readers and its team sees Kept or Broken",
+        "A broken promise opens one incident",
+        "Status and change window views read the same records"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 3,
+        "strategic_alignment": 4,
+        "complexity": 3,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "owner": "Data mesh",
+      "effort": "M",
+      "confidence": "Medium",
+      "state": "In progress",
+      "external_dependencies": [
+        "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
+      ],
+      "prs": [
+        1737,
+        1744,
+        1774,
+        1775,
+        1780
+      ],
+      "source_refs": [
+        "Data mesh Wave 2"
+      ],
+      "computed": {
+        "benefit": 3.0,
+        "cost": 3.0,
+        "score": 1.8,
+        "priority": "P2"
       }
     }
   ]

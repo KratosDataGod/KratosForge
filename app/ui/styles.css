@@ -2597,3 +2597,16 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .pbi-events .bad { color: var(--danger); }
 .pbi-event-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1100px) { .pbi-studio { flex-direction: column; } .pbi-side { width: auto; } }
+
+/* Embed Studio gives the report the window: a slim header row, and the frame stretches to the bottom. */
+.page.embed-studio { display: flex; flex-direction: column; padding: 10px 14px 12px; }
+.embed-studio .pbi-head { align-items: center; margin-bottom: 8px; }
+.embed-studio .pbi-head-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.embed-studio .pbi-head h1 { font-size: 18px; margin: 0; }
+.embed-studio .pbi-head .sub { margin: 0; }
+.embed-studio .with-how { flex: 1; min-height: 0; align-items: stretch; }
+.embed-studio .with-how-main { min-height: 0; gap: 10px; }
+.embed-studio .how-it-works { align-self: start; }
+.embed-studio .pbi-studio { flex: 1; min-height: 420px; }
+.embed-studio .pbi-stage-bar { padding: 2px 10px; }
+.embed-studio .pbi-frame-wrap { min-height: 360px; }

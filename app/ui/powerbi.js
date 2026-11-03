@@ -310,11 +310,12 @@ async function renderEmbedStudio() {
   }, "tool outline");
 
   setView(h("div", { class: "page embed-studio" },
-    h("div", { class: "page-head" },
-      h("div", {},
-        h("button", { class: "crumb learn-more", onclick: () => go("powerbi") }, "Workspaces › Power BI"),
+    // One slim row, so the report gets the window.
+    h("div", { class: "page-head pbi-head" },
+      h("div", { class: "pbi-head-title" },
+        h("button", { class: "crumb learn-more", onclick: () => go("powerbi") }, "Power BI ›"),
         h("h1", {}, item.name, previewTag()),
-        h("p", { class: "sub" }, `${typeLabel(item.type)} · ${item.workspace_name || "Workspace"} · Runs in Power BI and uses its capacity`)),
+        h("span", { class: "sub muted-text small" }, `${typeLabel(item.type)} · ${item.workspace_name || "Workspace"} · Runs in Power BI and uses its capacity`)),
       h("div", { class: "head-actions" }, reloadBtn, fullBtn, troubleBtn,
         btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(item)), "tool outline"))),
     withHowItWorks([

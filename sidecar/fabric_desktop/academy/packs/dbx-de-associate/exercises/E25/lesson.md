@@ -17,9 +17,11 @@ columns only after you have picked the latest row: a `WHERE status <> 'cancelled
 the cancellation itself, so an older version of a cancelled order comes back.
 
 **Running totals.** `sum(amount) OVER (PARTITION BY customer_id ORDER BY order_date, order_id ROWS
-BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`. Spell out the frame: with an ORDER BY and no frame,
-the default is `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, which adds every row with the
-same order_date at once, so two orders on one day get the same running total.
+BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`. Spell out the frame. Databricks documents only that a
+frame left out stops at the current row; Apache Spark (and DuckDB here) take it as `RANGE BETWEEN
+UNBOUNDED PRECEDING AND CURRENT ROW` when there's an ORDER BY, which adds every row with the same
+order_date at once, so two orders on one day get the same running total. A ROWS frame and a tie-breaker
+in the ORDER BY mean the same thing on every engine.
 
 **The previous row.** `lag(amount) OVER (PARTITION BY customer_id ORDER BY ...)` is NULL on each
 customer's first order. Without PARTITION BY, the first order of one customer gets the last amount

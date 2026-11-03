@@ -88,6 +88,23 @@ def test_a_hard_link_is_refused(work: Path, tmp_path: Path) -> None:
         ws.files_under(work, ".")
 
 
+def test_hard_links_are_found_through_a_handle_as_on_windows(work: Path, tmp_path: Path,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows lstat and scandir leave the link count out; the handle path must still find it."""
+    monkeypatch.setattr(ws, "_WINDOWS", True)
+    secret = tmp_path / "token_cache.json"
+    secret.write_text('{"refresh": "x"}')
+    os.link(secret, work / "copy.json")
+    (work / "plain.json").write_text("{}")
+    with pytest.raises(ws.Refused, match="hard link"):
+        ws.read_json(work, "copy.json")
+    with pytest.raises(ws.Refused, match="hard link"):
+        ws.files_under(work, ".")
+    zero = os.stat_result((0o100644, 0, 0, 0, 0, 0, 2, 0, 0, 0))   # what Windows scandir gives: no inode, no count
+    assert ws.links(work / "plain.json", zero) == 1
+    assert ws.links(work / "copy.json", zero) == 2
+
+
 def test_the_workspace_itself_may_not_be_a_link(tmp_path: Path) -> None:
     real = tmp_path / "real"
     real.mkdir()

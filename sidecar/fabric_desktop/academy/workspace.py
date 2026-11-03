@@ -35,6 +35,7 @@ _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 # Windows reparse tags with the name-surrogate bit point somewhere else: symbolic links, junctions,
 # WSL links. Others (OneDrive placeholders) are files in place. Same rule as notebook_files_service.
 _NAME_SURROGATE = 0x20000000
+_WINDOWS = os.name == "nt"
 
 
 class Refused(ValueError):
@@ -43,6 +44,26 @@ class Refused(ValueError):
 
 def is_link(st: os.stat_result) -> bool:
     return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_reparse_tag", 0) & _NAME_SURROGATE)
+
+
+def links(path: Path, st: os.stat_result) -> int:
+    """How many names the file has. On Windows ``lstat`` and ``scandir`` don't fill in the link
+    count, so it's read from an open handle (GetFileInformationByHandle, through ``fstat``); the
+    handle must name the same file the ``lstat`` saw, or the file counts as linked."""
+    if not _WINDOWS:
+        return st.st_nlink
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise Refused(f"{path.name} can't be read: {exc.strerror}") from exc
+    try:
+        opened = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if (opened.st_ino, opened.st_dev) != (st.st_ino, st.st_dev) and st.st_ino:
+        return 2   # swapped between the two looks: treat it as a link to somewhere else
+    return opened.st_nlink
 
 
 def is_id(value: Any) -> bool:
@@ -95,7 +116,7 @@ def inside(workspace: Path, rel: str, must_exist: bool = True) -> Path:
             raise Refused(f"{rel} can't be read: {exc.strerror}") from exc
         if is_link(st):
             raise Refused(f"{rel} is a link to somewhere else; the check reads only files in the exercise folder.")
-        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+        if stat.S_ISREG(st.st_mode) and links(here, st) > 1:
             raise Refused(f"{rel} is a hard link to a file that may be outside the exercise folder; "
                           "save a copy of the file instead.")
     return here
@@ -140,7 +161,7 @@ def files_under(workspace: Path, rel: str) -> list[str]:
                 if stat.S_ISDIR(st.st_mode):
                     stack.append(Path(entry.path))
                 elif stat.S_ISREG(st.st_mode):
-                    if st.st_nlink > 1:
+                    if links(Path(entry.path), st) > 1:
                         raise Refused(f"{Path(entry.path).relative_to(workspace).as_posix()} is a hard link; "
                                       "save a copy of the file instead.")
                     out.append(Path(entry.path).relative_to(workspace).as_posix())

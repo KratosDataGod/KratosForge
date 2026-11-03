@@ -242,6 +242,7 @@ class _WinJob:
             self.k.CloseHandle(self.job)
             raise OSError("Windows wouldn't set the exercise's limits, so it wasn't run.")
         self._info = info
+        self.peak = 0
 
     def hold(self, proc: subprocess.Popen[bytes]) -> None:
         handle = int(proc._handle)  # type: ignore[attr-defined]
@@ -250,10 +251,17 @@ class _WinJob:
         if self.ntdll.NtResumeProcess(handle) != 0:
             raise OSError("The exercise's process couldn't be started.")
 
-    def memory_hit(self) -> bool:
+    def _peak(self) -> int:
+        """The job's peak memory, read while the job handle is open. (A NULL handle would ask about
+        the engine's own job, such as a CI runner's, so it is never queried after close.)"""
+        if not self.job:
+            return 0
         info = _extended()()
         ok = self.k.QueryInformationJobObject(self.job, 9, self.ctypes.byref(info), self.ctypes.sizeof(info), None)
-        return bool(ok) and info.PeakJobMemoryUsed >= self._info.JobMemoryLimit * 0.98
+        return int(info.PeakJobMemoryUsed) if ok else 0
+
+    def memory_hit(self) -> bool:
+        return self.peak >= self._info.JobMemoryLimit * 0.98
 
     def active(self) -> int:
         import ctypes
@@ -274,6 +282,7 @@ class _WinJob:
         """End everything in the job and wait until nothing in it runs, then close it."""
         if not self.job:
             return
+        self.peak = self._peak()
         self.k.TerminateJobObject(self.job, 1)
         deadline = time.monotonic() + 10
         while self.active() and time.monotonic() < deadline:

@@ -327,7 +327,9 @@ def build_messages(conn: dict[str, Any], instruction: str, request: str, context
         raise ProviderError("Context must be metadata or rows.")
     if kind == "rows" and not conn["consent"].get("sample_rows"):
         raise ConsentError("This connection doesn't allow sample rows to be sent. Only names and types are sent by default.")
-    data = json.dumps(_clean(context.get("data")), ensure_ascii=False)
+    # < > & as JSON escapes, so nothing in the data (a table description saying "</DATA>") can close the fence.
+    data = (json.dumps(_clean(context.get("data")), ensure_ascii=False)
+            .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
     if len(data) > MAX_CONTEXT_CHARS:
         raise ProviderError("The context is too large to send; choose fewer tables.")
     system = f"{SYSTEM_GUARD}\n\n{instruction}"

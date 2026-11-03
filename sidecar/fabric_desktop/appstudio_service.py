@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import sql_exec
+from .jsonfile import write_bytes
 from .appstudio import project, sample, templates
 from .appstudio import spec as specs
 
@@ -131,7 +132,7 @@ class AppStudioMixin:
         out = Path.home() / "Downloads"
         out.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(out, folder.name[:-len(project.SUFFIX)] + " (App Studio)", ".zip")
-        path.write_bytes(data)
+        write_bytes(path, data)  # swapped in over the empty name reserved for it
         return {"path": str(path), "bytes": len(data)}
 
     def appstudio_import(self, content: str, name: str = "") -> dict[str, Any]:

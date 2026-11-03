@@ -399,13 +399,20 @@ def _patindex(tree: exp.Expression) -> None:
     """``PATINDEX(pattern, s)``: where in ``s`` the LIKE pattern first matches, from 1, or 0; DuckDB has
     no PATINDEX. A pattern that starts with ``%`` is looked for anywhere, the rest of it matched from
     there to the end (``PATINDEX('%b%', 'abc')`` is 2); without one it must match from the start, so the
-    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal."""
+    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal, or NULL."""
     for node in list(tree.find_all(exp.Anonymous)):
         if node.name.upper() != "PATINDEX":
             continue
         if len(node.expressions) != 2:
             raise ValueError("This T-SQL can't be run on the local engine: PATINDEX takes a pattern and a text.")
         pattern, text = node.expressions
+        bare = pattern
+        # CAST(NULL AS VARCHAR(10)), which _types has made LEFT(CAST(NULL AS VARCHAR), 10), or (NULL)
+        while isinstance(bare, (exp.Cast, exp.Paren, exp.Left)):
+            bare = bare.this
+        if isinstance(bare, exp.Null):  # a NULL pattern finds nothing: NULL, as in T-SQL
+            node.replace(exp.null())
+            continue
         if not (isinstance(pattern, exp.Literal) and pattern.is_string):
             raise ValueError("This T-SQL can't be run on the local engine: PATINDEX needs its pattern written out "
                              "as text ('%b%'), not taken from a column or an expression.")

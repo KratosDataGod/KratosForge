@@ -24,7 +24,7 @@ from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
-METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
+METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
@@ -94,6 +94,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
            "fabric_item_support", "fabric_git_links", "fabric_git_check", "fabric_git_link",
            "fabric_git_unlink", "fabric_git_overview", "fabric_git_status",
+           "fabric_git_update",
            "git_info", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_commit", "git_log", "git_commit_detail",

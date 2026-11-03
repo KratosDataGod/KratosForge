@@ -188,3 +188,29 @@ def test_a_pack_folder_with_the_wrong_id_is_caught(tmp_path):
     root = tmp_path / "packs"
     shutil.copytree(registry.ROOT / "dp-700", root / "dp-600")
     assert any("doesn't match its folder" in p for p in registry.problems(root))
+
+
+def _expand(cell):
+    ids = []
+    for part in (p.strip() for p in cell.split(",")):
+        if "–" in part:
+            a, b = part.split("–")
+            pre = a.rsplit(".", 1)[0]
+            ids += [f"{pre}.{i}" for i in range(int(a.rsplit(".", 1)[1]), int(b.rsplit(".", 1)[1]) + 1)]
+        else:
+            ids.append(part)
+    return ids
+
+
+def test_the_registry_agrees_with_the_curriculum_both_ways(dp700):
+    page = (DOCS / "curriculum.md").read_text(encoding="utf-8")
+    planned = {}
+    for line in page.splitlines():
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) > 3 and (cells[1][:1] in ("E", "C")) and cells[1][1:].isdigit():
+            planned[cells[1]] = set(_expand(cells[3]))
+    from_registry = {}
+    for o in registry.objectives(dp700):
+        for x in o["exercises"] + o["capstones"]:
+            from_registry.setdefault(x, set()).add(o["id"])
+    assert from_registry == planned

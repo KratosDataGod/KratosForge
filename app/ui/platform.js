@@ -1234,7 +1234,7 @@ registerFeature({
 // ---------- Data mesh > Products: every team's products, for everyone ----------
 // It was OneLake > Data products; OneLake's tab and every link now open it on Data mesh.
 
-const productsPage = { query: "", domain: "all", open: null, following: false, reviewDue: false, mine: "", offer: "all" };
+const productsPage = { query: "", domain: "all", open: null, following: false, status: false, statusEnv: "prod", reviewDue: false, mine: "", offer: "all" };
 const productsHost = { body: null };
 
 // Open the products list, or one product's page, on Data mesh > Products.
@@ -1267,7 +1267,7 @@ async function renderDataProducts() {
   productsView(h("div", { class: "monitor onelake mesh-products" }, withHowItWorks(
     h("section", { class: "card pad" }, list),
     howItWorks("onelake.products", {
-      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
+      reads: "Every team's published data products, their ports and readers, and the semantic models and reports grouped under each (catalog.product_item, with the endorsement the last tenant scan read in catalog.endorsement), from the platform's catalog (SQL_Platform in Fabric, or the file on this PC), each product's status in each environment as its own team last reported it (catalog.product_status), and, for the products you own, which grants are due for their access review. It reads when the tab opens and when you press Refresh.",
       changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner, and Ask for data adds one for the domain's or product's owners. None of them touches the product's tables in OneLake, and nothing else here writes.",
       results: "The product's owner sees your request on Data mesh > Requests and decides it, and sees your project among the product's readers. A link shows on Project > Products and links > Links.",
       anchor: "data-products-preview",
@@ -1291,6 +1291,7 @@ async function renderDataProducts() {
       }, "tool primary small")
         : p.why === "request" ? btn("Request access", null, () => requestDialog("access", p.id, draw, { title: p.name, owner: p.owner }), "tool outline small")
           : p.why === "requested" ? h("span", { class: "pill-s wrn" }, "Requested") : h("span", { class: "muted-text small" }, p.why);
+    if (pp.status) return list.replaceChildren(productStatusView(shown, out.products.length, draw));
     list.replaceChildren(...[
       reviews?.due ? h("div", { class: "row tight access-review-band" }, icon("shield", 16),
         h("span", { class: "grow" }, `Access review: ${reviews.due} grant${reviews.due === 1 ? "" : "s"} on your products ${reviews.due === 1 ? "hasn't" : "haven't"} been confirmed for ${reviews.every_days} days. Open each product and confirm who still needs it, or take access away.`),
@@ -1321,19 +1322,70 @@ async function renderDataProducts() {
           h("td", {}, action(p))))))
         : h("p", { class: "muted-text" }, out.products.length ? "Nothing matches." : "No team has published a data product yet.")].filter(Boolean));
   };
-  // All products or the ones you follow on the left; the domain, search and Refresh on the right.
+  // All products, the ones you follow, or how each is doing now (Status, Preview) on the left; the domain,
+  // search and Refresh on the right.
   const following = out.can_follow && previewShown();
+  const status = out.can_status && previewShown();
+  if (!following) pp.following = false;
+  if (!status) pp.status = false;
   const views = h("div", { class: "seg", role: "group", "aria-label": "Show" });
-  const drawViews = () => views.replaceChildren(...[[false, "All products"], [true, `Following (${out.products.filter((p) => p.following).length})`]]
-    .map(([on, label]) => h("button", { class: `${pp.following === on ? "on" : ""}${on ? " follow-chip" : ""}`.trim() || null,
-      "aria-pressed": String(pp.following === on), onclick: () => { pp.following = on; drawViews(); draw(); } }, label)));
-  if (following) drawViews();
-  else pp.following = false;
+  const drawViews = () => views.replaceChildren(...[["all", "All products"],
+    following ? ["following", `Following (${out.products.filter((p) => p.following).length})`] : null,
+    status ? ["status", "Status"] : null].filter(Boolean)
+    .map(([id, label]) => {
+      const on = (pp.status ? "status" : pp.following ? "following" : "all") === id;
+      return h("button", { class: `${on ? "on" : ""}${id === "following" ? " follow-chip" : ""}${id === "status" ? " status-chip" : ""}`.trim() || null,
+        "aria-pressed": String(on), onclick: () => { pp.following = id === "following"; pp.status = id === "status"; drawViews(); draw(); } }, label);
+    }));
+  if (following || status) drawViews();
   const domain = h("select", { class: "group-select", "aria-label": "Domain", onchange: (e) => { pp.domain = e.target.value; draw(); } },
     ["all", ...domains].map((d) => h("option", { value: d, selected: pp.domain === d ? true : null }, d === "all" ? "All domains" : d)));
-  meshChrome({ views: following ? views : null, tools: [domains.length ? domain : null, search] });
+  meshChrome({ views: following || status ? views : null, tools: [domains.length ? domain : null, search] });
   search.addEventListener("input", () => { pp.query = search.value; draw(); });
   draw();
+}
+
+// ---------- Data mesh > Products > Status (data mesh P5, Preview) ----------
+// Each team's incident check reports how its products are doing (catalog.product_status), so readers see
+// it without seeing the team's incidents. Red: an open incident stops the load. Amber: late, or a broken
+// promise. Green: nothing open. Text is the kind of problem, the table and who last acted, nothing more.
+
+const PRODUCT_STATUS = { red: ["fail", "Red", 0], amber: ["wrn", "Amber", 1], green: ["pass", "Green", 2] };
+const STATUS_STALE_HOURS = 24;
+
+function productStatusView(shown, total, redraw) {
+  const pp = productsPage;
+  const envs = ["prod", "test", "dev"];
+  const env = h("select", { class: "group-select", "aria-label": "Environment", onchange: (e) => { pp.statusEnv = e.target.value; redraw(); } },
+    envs.map((e) => h("option", { value: e, selected: pp.statusEnv === e ? true : null }, { prod: "Prod", test: "Test", dev: "Dev" }[e])));
+  const of = (p) => p.health?.[pp.statusEnv] || null;
+  const stale = (r) => r && r.checked_at && (Date.now() - Date.parse(r.checked_at)) / 36e5 > STATUS_STALE_HOURS;
+  const rank = (p) => { const r = of(p); return r && PRODUCT_STATUS[r.status] ? PRODUCT_STATUS[r.status][2] : 3; };
+  const rows = [...shown].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  const newest = rows.map(of).filter(Boolean).map((r) => r.checked_at).sort().pop();
+  return h("div", { class: "product-status" },
+    h("div", { class: "row tight" }, env, previewTag(), h("span", { class: "muted-text small grow" },
+      newest ? `Newest check ${relTime(newest)}. Each team's own incident check reports it.` : "No team has reported a status here yet.")),
+    rows.length ? h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Product", "Status", "Why", "Latest update"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, rows.map((p) => {
+        const r = of(p);
+        const [cls, label] = (r && PRODUCT_STATUS[r.status]) || ["neu", "Not checked"];
+        const readers = (p.consumers || []).length;
+        return h("tr", { "data-product": p.id },
+          h("td", {}, h("a", { href: "#", class: "product-open", onclick: (e) => { e.preventDefault(); pp.open = p; render(); } }, h("b", {}, p.name)),
+            h("div", { class: "muted-text small" }, p.project)),
+          h("td", {}, h("span", { class: `pill-s ${cls}` }, label),
+            stale(r) ? h("div", { class: "muted-text small status-stale" }, `Not checked since ${relTime(r.checked_at)}`) : null),
+          h("td", {}, r?.status === "green" ? h("span", { class: "muted-text" }, "Nothing open")
+            : r ? [r.why || "", r.status === "red" && readers ? h("span", { class: "muted-text" }, `, ${readers} reader${readers === 1 ? "" : "s"} affected`) : null]
+              : h("span", { class: "muted-text" }, "Its team's app or agent hasn't checked it here")),
+          h("td", {}, r?.latest ? [r.latest, r.latest_at ? h("span", { class: "muted-text small" }, `, ${relTime(r.latest_at)}`) : null]
+            : h("span", { class: "muted-text" }, "None")));
+      })))
+      : h("p", { class: "muted-text" }, total ? "Nothing matches." : "No team has published a data product yet."),
+    h("p", { class: "muted-text small" }, "Red: an open incident stops the load (a failed load, or an agent offline with no other agent live). Amber: late, a broken promise, or an agent offline while another carries on. ",
+      "Green: nothing open. Follow a product to hear about its changes."));
 }
 
 // ---------- Data mesh > Products > one product: endorsement and business terms (Preview) ----------

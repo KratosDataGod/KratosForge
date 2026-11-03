@@ -16,7 +16,7 @@ Organizations can turn installs off (``allow_notebook_packages`` in the policy f
 Where packages come from (Preview): with ``notebook_package_folder`` set in the policy file, pip
 installs from that folder of approved wheels first and reaches no index at all. Only when a package
 isn't there, and ``allow_pypi_packages`` isn't false, does it try again with PyPI (the folder still
-offered). A folder that's set but can't be reached stops the install; it never falls back to PyPI.
+offered, and every package it has pinned to the folder's version, so PyPI only adds what's missing). A folder that's set but can't be reached stops the install; it never falls back to PyPI.
 """
 
 from __future__ import annotations
@@ -34,6 +34,9 @@ from pathlib import Path
 from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import (InvalidSdistFilename, InvalidWheelFilename, canonicalize_name, parse_sdist_filename,
+                             parse_wheel_filename)
+from packaging.version import Version
 
 from . import jsonfile
 
@@ -86,16 +89,44 @@ def check_packages(specs: list[str]) -> list[str]:
 _NOT_FOUND = ("No matching distribution found", "Could not find a version that satisfies")
 
 
+def folder_pins(folder: Path, engine: list[str]) -> list[str]:
+    """``name==version`` for every package the approved folder has (its highest version),
+    so the PyPI try can't take a different version of it: pip picks the highest version across the
+    folder and the index, so without these a public package of the same name (a squatted internal
+    name, or simply a newer release) would replace the approved wheel. Packages the engine pins are
+    left to the engine's constraint, which already fixes their version."""
+    pinned = {canonicalize_name(p.split("==")[0]) for p in engine}
+    best: dict[str, Version] = {}
+    for item in folder.iterdir():
+        try:  # wheels, and the source archives --find-links also reads
+            if item.name.endswith(".whl"):
+                name, version, _, _ = parse_wheel_filename(item.name)
+            elif item.name.endswith((".tar.gz", ".zip")):
+                name, version = parse_sdist_filename(item.name)
+            else:
+                continue
+        except (InvalidWheelFilename, InvalidSdistFilename):
+            continue
+        if name not in pinned and (name not in best or version > best[name]):
+            best[name] = version
+    return [f"{name}=={version}" for name, version in sorted(best.items())]
+
+
 def install_commands(python: str, target: Path, pins: Path, specs: list[str],
-                     folder: str = "", pypi: bool = True) -> list[list[str]]:
+                     folder: str = "", pypi: bool = True, approved: Path | None = None) -> list[list[str]]:
     """The pip commands an install tries, in order: the approved folder alone, then (if allowed)
-    the index with the folder still offered. With no folder, the index alone, as before."""
+    the index with the folder still offered and ``approved`` (folder_pins) as constraints, so a
+    package the folder has can only be the folder's version. With no folder, the index alone."""
     base = [python, "-m", "pip", "install", "--target", str(target), "--upgrade", "--no-input",
             "--disable-pip-version-check", "-c", str(pins)]
     if not folder:
         return [base + specs]
     first = base + ["--no-index", "--find-links", folder, *specs]
-    return [first, base + ["--find-links", folder, *specs]] if pypi else [first]
+    if not pypi:
+        return [first]
+    if approved is None:
+        raise ValueError("The PyPI try needs the folder's versions as constraints (folder_pins).")
+    return [first, base + ["-c", str(approved), "--find-links", folder, *specs]]
 
 
 def engine_pins() -> list[str]:
@@ -281,7 +312,11 @@ class Environments:
             job["log"] = (f"Your organization's package folder ({folder}) can't be reached from this PC, so nothing "
                           "was installed. Check you're on the network, or ask IT.")
             return False
-        commands = install_commands(self.python, target, pins, specs, folder, pypi)
+        approved = None
+        if folder and pypi:
+            approved = target.parent / "folder-constraints.txt"
+            approved.write_text("\n".join(folder_pins(Path(folder), engine_pins())) + "\n", encoding="utf-8")
+        commands = install_commands(self.python, target, pins, specs, folder, pypi, approved)
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         log, missing = [], False
         for i, cmd in enumerate(commands):

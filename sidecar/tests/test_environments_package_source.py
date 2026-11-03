@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import app_settings
-from fabric_desktop.environments import Environments, install_commands
+from fabric_desktop.environments import Environments, folder_pins, install_commands
 from fabric_desktop.service import Service
 
 # Stands in for pip: records every call, and finds a package only in the --find-links folder
@@ -28,8 +28,19 @@ with open(os.environ["FAKE_PIP_CALLS"], "a") as f:
     f.write(json.dumps(args) + "\n")
 target = pathlib.Path(args[args.index("--target") + 1])
 folder = pathlib.Path(args[args.index("--find-links") + 1]) if "--find-links" in args else None
-for spec in [a for a in args if "==" in a and not a.startswith("-")]:
-    name, version = spec.split("==")
+constraints = {}
+for i, a in enumerate(args):
+    if a == "-c":
+        for line in pathlib.Path(args[i + 1]).read_text().split():
+            constraints[line.split("==")[0]] = line.split("==")[1]
+specs = [a for a in args[args.index("-c") + 2:] if not a.startswith("-") and a not in (str(folder),)]
+specs = [a for a in specs if args[args.index(a) - 1] not in ("-c", "--find-links", "--target")]
+for spec in specs:
+    name, version = spec.split("==") if "==" in spec else (spec, None)
+    if name == "shared-pkg" and "--no-index" not in args:  # also on PyPI, at 2.0: pip takes the highest allowed
+        version = version or constraints.get(name, "2.0")
+        target.joinpath("shared_pkg-" + version).mkdir(parents=True, exist_ok=True)
+        continue
     if name == "bad-build":
         print("error: subprocess-exited-with-error", file=sys.stderr)
         sys.exit(1)
@@ -98,10 +109,14 @@ def test_without_a_folder_the_command_is_as_before(tmp_path):
 
 
 def test_the_folder_is_tried_alone_first_then_pypi_with_the_folder_still_offered(tmp_path):
-    first, then = install_commands("py", tmp_path / "t", tmp_path / "c.txt", ["a==1"], folder="D:\\wheels")
+    first, then = install_commands("py", tmp_path / "t", tmp_path / "c.txt", ["a==1"], folder="D:\\wheels",
+                                   approved=tmp_path / "f.txt")
     assert first[first.index("--find-links") + 1] == "D:\\wheels" and "--no-index" in first
     assert "--no-index" not in then and then[then.index("--find-links") + 1] == "D:\\wheels"
     assert "-c" in first and "-c" in then  # the engine's versions still constrain both
+    assert str(tmp_path / "f.txt") in then  # and the folder's own versions constrain the PyPI try
+    with pytest.raises(ValueError, match="folder_pins"):
+        install_commands("py", tmp_path / "t", tmp_path / "c.txt", ["a==1"], folder="D:\\wheels")
     assert install_commands("py", tmp_path / "t", tmp_path / "c.txt", ["a==1"], folder="D:\\wheels", pypi=False) == [first]
 
 
@@ -234,3 +249,49 @@ def test_no_folder_and_no_pypi_never_runs_pip(tmp_path, fake_python):
     env.create("A")
     job = wait(env, env.start("A", ["pypi-pkg==1.0"], folder="", pypi=False))
     assert job["state"] == "failed" and calls_of(calls) == []
+
+
+def test_folder_pins_name_the_highest_version_of_each_package_but_not_the_engines(tmp_path):
+    folder = tmp_path / "wheels"
+    wheel(folder, "Acme-Utils", "1.0")
+    wheel(folder, "acme_utils", "1.2")
+    (folder / "acme.sdist-1.0.tar.gz").write_bytes(b"")
+    (folder / "acme_src-3.1.tar.gz").write_bytes(b"")
+    (folder / "notes.txt").write_text("x")
+    wheel(folder, "polars", "0.1")
+    assert folder_pins(folder, ["polars==1.0"]) == ["acme-sdist==1.0", "acme-src==3.1", "acme-utils==1.2"]
+
+
+def test_on_the_pypi_try_a_package_the_folder_has_stays_at_the_folders_version(tmp_path, fake_python):
+    """Dependency confusion: the folder has shared-pkg 1.0 and PyPI offers 2.0. Another package
+    missing from the folder sends the install to PyPI, and shared-pkg must still be 1.0."""
+    python, calls = fake_python
+    folder = tmp_path / "wheels"
+    wheel(folder, "shared-pkg", "1.0")
+    env = Environments(tmp_path / "data", python=python)
+    env.create("A")
+    job = wait(env, env.start("A", ["shared-pkg", "pypi-pkg==1.0"], folder=str(folder), pypi=True))
+    assert job["state"] == "done", job["log"]
+    second = calls_of(calls)[1]
+    approved = Path(second[second.index("-c", second.index("-c") + 1) + 1])
+    assert approved.read_text().split() == ["shared-pkg==1.0"]
+    target = env.site_packages("A")
+    assert (target / "shared_pkg-1.0").is_dir() and not (target / "shared_pkg-2.0").exists()
+
+
+def test_a_real_pip_keeps_the_folders_version_when_a_newer_one_is_offered(tmp_path):
+    """The same check with pip itself: a second folder stands in for PyPI, offering 2.0."""
+    if subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, check=False).returncode:
+        pytest.skip("this Python has no pip")
+    wheel(tmp_path / "approved", "kf-demo", "1.0")
+    wheel(tmp_path / "public", "kf-demo", "2.0")
+    approved = tmp_path / "approved.txt"
+    approved.write_text("\n".join(folder_pins(tmp_path / "approved", [])) + "\n")
+    base = [sys.executable, "-m", "pip", "install", "--no-index", "--find-links", str(tmp_path / "public"),
+            "--find-links", str(tmp_path / "approved"), "-c", str(approved), "--disable-pip-version-check"]
+    done = subprocess.run(base + ["--target", str(tmp_path / "t"), "kf-demo"], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    assert [p.name for p in (tmp_path / "t").glob("*.dist-info")] == ["kf_demo-1.0.dist-info"]
+    asked = subprocess.run(base + ["--target", str(tmp_path / "t2"), "kf-demo==2.0"], capture_output=True, text=True,
+                           check=False)
+    assert asked.returncode != 0  # a version the folder doesn't have can't come from PyPI either

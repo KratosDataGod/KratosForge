@@ -1,0 +1,55 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E25",
+  "version": 1,
+  "status": "draft",
+  "title": "Latest version, running total, previous order and rank with window functions",
+  "objectives": ["3.4"],
+  "objective_text": "Deduplicate a change feed to the latest row per key and aggregate over windows: running totals, previous values and ranks.",
+  "scenario": "Customer success wants an order history per customer: each order once as it stands now, how much the customer had spent up to that order, what their previous order was worth, and which orders were their largest. The source is a change feed that writes a new row every time an order changes, including cancellations.",
+  "difficulty": 2,
+  "minutes": 20,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "dbsql_lab",
+  "engine_label": "Databricks SQL translated to DuckDB on this PC",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "sales.order_events", "rows": 12, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A table sales.order_events (12 rows: 8 orders, some changed or cancelled) and a starter answer.sql.",
+  "required": [
+    "Keep each order's latest version (by updated_at), then leave out orders whose latest status is cancelled.",
+    "Return customer_id, order_id, order_date, amount, running_total, previous_amount and amount_rank.",
+    "running_total adds the customer's amounts in order_date, then order_id order, one order at a time.",
+    "previous_amount is the customer's previous order's amount, NULL for their first.",
+    "amount_rank is 1 for the customer's largest amount; equal amounts share a rank with no gaps.",
+    "Order the rows by customer_id, order_date, order_id."
+  ],
+  "expected": {"description": "Seven rows: customer 10's orders 1, 2 and 3, customer 20's orders 5, 6 and 7, and customer 30's order 8. Order 4 was cancelled."},
+  "verifies": [
+    "Your query keeps the latest version of each order, drops cancelled ones and computes running totals, previous amounts and dense ranks per customer, on the exercise data and on rows you haven't seen, after translation to DuckDB on this PC."
+  ],
+  "does_not_verify": [
+    "It doesn't run on a SQL warehouse, so it doesn't show how Databricks plans or shuffles the windows on large data."
+  ],
+  "validation": [
+    {"kind": "result_matches", "ordered": true, "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "ordered": true, "data": "hidden", "weight": 2, "required": true}
+  ],
+  "hints": [
+    "Pick the latest version first: QUALIFY row_number() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1, in a CTE.",
+    "Drop cancelled orders after picking the latest version, not before, or an older version of a cancelled order comes back.",
+    "Customer 10 has two orders on 2026-03-03. A running total with only ORDER BY order_date gives them the same value: add order_id and ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW.",
+    "PARTITION BY customer_id in every window, and dense_rank() for ranks without gaps."
+  ],
+  "explanation": "A CTE keeps each order's latest row with QUALIFY row_number() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1, and only then filters out the cancelled ones; filtering first would bring back an older, uncancelled version. The outer query adds three windows partitioned by customer: sum(amount) with ORDER BY order_date, order_id and an explicit ROWS frame (the default RANGE frame adds same-day orders together), lag(amount) for the previous order, and dense_rank() ordered by amount descending so ties share a rank without gaps.",
+  "troubleshooting": [
+    "An order appears twice: the latest-version step is missing or partitions by the wrong column.",
+    "A cancelled order shows up with an old amount: the status filter runs before the latest-version step.",
+    "Two orders on one day have the same running total: the window uses the default RANGE frame."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-window-functions"],
+  "reset": "Reset rebuilds sales.order_events from setup.sql and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

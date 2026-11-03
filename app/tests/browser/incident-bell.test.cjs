@@ -34,8 +34,11 @@ const acked = [];
 before(async () => {
   if (skip) return;
   app = await openApp({
+    engine: ["app_settings"],
     mocks: {
       incidents_for_me: () => mine,
+      platform_notify_settings: () => ({ routes: [], quiet: "", quiet_exempt: [], waiting: 0,
+        mail_server: { set: true, host: "smtp.contoso.com", port: 587, security: "starttls", sender: "kf@contoso.com", username: "" } }),
       incident_acknowledge: ({ env, id, note }) => {
         acked.push({ env, id, note });
         const i = mine.incidents.find((x) => x.env === env && x.id === id);
@@ -106,6 +109,18 @@ test("with nothing assigned and nothing unreadable, there's no For you filter or
   await page().evaluate(async () => { await loadIncidentsForMe(); toggleTray(true); });
   assert.strictEqual(await page().getByRole("button", { name: /^For you/ }).count(), 0);
   assert.doesNotMatch((await bell()).label, /waiting on you/);
+});
+
+test("with preview features hidden, Settings > Notifications still shows the company mail server", { skip }, async () => {
+  await page().evaluate(() => { toggleTray(false); window.realPreviewShown = previewShown; previewShown = () => false; go("settings"); });
+  try {
+    await page().waitForSelector(".pn-mail");
+    const text = await page().textContent(".pn-mail");
+    assert.ok(text.includes("Company mail server") && text.includes("smtp.contoso.com:587"));
+    assert.strictEqual(await page().getByRole("heading", { name: /^Platform notices/ }).count(), 0, "platform notices stay behind Preview");
+  } finally {
+    await page().evaluate(() => { previewShown = window.realPreviewShown; go("home"); });
+  }
 });
 
 test("axe finds nothing serious in the For you list", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {

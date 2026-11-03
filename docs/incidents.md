@@ -63,7 +63,7 @@ Wrong numbers in a report, a dashboard nobody can open, a source a team says is 
 
 ## In the bell
 
-Incidents assigned to you, in any environment, are under **For you** in the bell (Activity). The ones still waiting on you (open, not acknowledged) count on the bell and come first, then by priority and SLA. Each one has **Acknowledge** (it asks first) and **Open**. The app reads them when it starts, when you open the bell and every 15 minutes while its window has focus. That's one small read of each environment's incident file, and nothing is written. An environment it couldn't read is named.
+Incidents assigned to you, in any environment, are under **For you** in the bell (Activity). The ones still waiting on you (open, not acknowledged) count on the bell and come first, then by priority and SLA. Each one has **Acknowledge** (it asks first) and **Open**. The app reads them when it starts, when you open the bell and every 15 minutes while its window has focus. That's one small read of each environment's incident file, and nothing is written. For an environment in Fabric that read is from OneLake, which uses capacity. An environment it couldn't read is named.
 
 ## Teams, a flow or email
 

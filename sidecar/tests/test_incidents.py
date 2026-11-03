@@ -779,6 +779,10 @@ def test_the_agent_sends_to_a_flow_and_leaves_email_routes_to_the_app(agent_setu
     with caplog.at_level("WARNING"):
         assert agent.incident_routing().routes == []
     assert any("Email routes are sent from the KratosForge app" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level("WARNING"):  # said once per route, not at every check
+        assert agent.incident_routing().routes == []
+    assert not any("Email routes are sent from the KratosForge app" in r.getMessage() for r in caplog.records)
 
 
 def test_the_app_sends_alerts_to_a_flow_or_email_and_needs_a_mail_server_for_email(tmp_path, monkeypatch):

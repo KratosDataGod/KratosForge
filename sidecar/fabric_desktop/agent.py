@@ -121,14 +121,19 @@ class Agent:
         is sent from the KratosForge app, which has the company mail server; an agent has none."""
         if not url:
             return False
+        warned: set[tuple[str, str]] = self.__dict__.setdefault("_route_warned", set())  # once per route and address
         try:
             deliver.check(url)
         except ValueError as exc:
-            self.log.warning("an incident route's address can't be used; its messages go nowhere",
-                             extra=fields(route=route, error=str(exc)))
+            if (route, url) not in warned:
+                warned.add((route, url))
+                self.log.warning("an incident route's address can't be used; its messages go nowhere",
+                                 extra=fields(route=route, error=str(exc)))
             return False
         if deliver.kind(url) == "email":
-            self.log.warning(AGENT_NO_EMAIL, extra=fields(route=route))
+            if (route, url) not in warned:
+                warned.add((route, url))
+                self.log.warning(AGENT_NO_EMAIL, extra=fields(route=route))
             return False
         return True
 

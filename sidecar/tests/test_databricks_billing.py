@@ -143,3 +143,35 @@ def test_billing_refuses_odd_input_before_anything(tmp_path, kw, why):
     with pytest.raises(ValueError, match=why):
         svc.databricks_billing("cli:dev", confirmed=True, **kw)
     assert svc.adapter.log == []
+
+
+def _profile(svc, policy):
+    out = svc.engine_connection_save(profile_name="P", databricks_cli="dev", warehouse_id="wh-run")
+    data = svc._profiles().load(out["profile"])
+    data["execution"] |= policy
+    svc._profiles().save(data)
+    return out["key"]
+
+
+def test_a_never_profile_is_refused_before_anything_even_when_confirmed(tmp_path):
+    svc = Svc(tmp_path)
+    svc.ws = WarehouseWs()
+    key = _profile(svc, {"remote_compute": "never"})
+    for confirmed in (False, True):
+        out = svc.databricks_billing(key, confirmed=confirmed)
+        assert out["refused"] and not out["ok"] and "doesn't allow remote compute" in out["error"]
+    assert svc.adapter.log == [] and svc.ws.calls == []
+
+
+def test_a_policy_profile_that_allows_the_engine_runs_under_the_policy(tmp_path):
+    svc = Svc(tmp_path)
+    key = _profile(svc, {"remote_compute": "policy", "allowed_remote_engines": ["databricks-sql"]})
+    out = svc.databricks_billing(key)
+    assert out["ok"] and svc.adapter.log[0][2].reason == "policy"
+
+
+def test_a_policy_profile_without_the_engine_still_asks(tmp_path):
+    svc = Svc(tmp_path)
+    svc.ws = WarehouseWs()
+    key = _profile(svc, {"remote_compute": "policy", "allowed_remote_engines": []})
+    assert svc.databricks_billing(key)["needs_confirm"] and svc.adapter.log == []

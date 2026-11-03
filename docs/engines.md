@@ -290,7 +290,8 @@ will confirm first and say which cluster.
 - **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
   pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
   billing** names the warehouse and says whether it's running and when it stops, and runs nothing
-  until you confirm.
+  until you confirm. The connection profile's execution policy applies, as for any remote cell: a
+  profile set to `never` refuses, and one that allows Databricks SQL by policy runs without the confirm.
 - **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
   `system.billing.usage`; without it, the section says Databricks refused.
 - **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never

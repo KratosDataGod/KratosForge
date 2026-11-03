@@ -15,6 +15,7 @@ const LAST = { ok: true, schema: "databricks-billing@1", days: 7, warehouse_id: 
 
 let app;
 let saved = null;
+let never = false;
 const page = () => app.page;
 
 before(async () => {
@@ -27,6 +28,7 @@ before(async () => {
         cluster_id: "", catalog: "", schema: "", remote_compute: "ask" }] }),
       databricks_billing_last: () => saved || {},
       databricks_billing: (p) => {
+        if (never) return { ok: false, refused: true, error: "The profile 'P' doesn't allow remote compute." };
         if (!p.confirmed) return { needs_confirm: true, warehouse: { id: "wh-run", name: "Shared SQL", state: "STOPPED", auto_stop_mins: 10 } };
         saved = LAST;
         return LAST;
@@ -65,6 +67,16 @@ test("after the confirm the query runs once and the DBUs show by what used them"
   const rows = await page().locator(".dbx-dbu tbody tr").allTextContents();
   assert.deepStrictEqual(rows, ["SQL warehouse wh-runPREMIUM_SQL_PRO51", "Job 1PREMIUM_JOBS_COMPUTE22.4", "Lakeflow pipeline pl-1PREMIUM_DLT11.2"]);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "optimize-databricks-cost.png"), fullPage: true });
+});
+
+test("a profile whose policy is never says so and runs nothing", { skip }, async () => {
+  const before = billingCalls().length;
+  never = true;
+  await page().locator(".dbx-cost button", { hasText: "Read Databricks billing" }).click();
+  await page().locator(".toast", { hasText: "doesn't allow remote compute" }).waitFor({ timeout: 5000 });
+  assert.strictEqual(await page().locator("#dialog-root .dialog").count(), 0);
+  assert.strictEqual(billingCalls().length, before + 1);
+  never = false;
 });
 
 test("the Databricks DBU section has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {

@@ -1,7 +1,8 @@
 // Optimize > Cost: Databricks DBUs billed (Preview). Billing is a system table, so reading it runs
 // one query on a SQL warehouse you pick, which may start and bill a few DBUs: Read billing asks first,
 // naming the warehouse and its state (engine databricks_billing). DBUs stay DBUs: never added to
-// Fabric CU or Snowflake credits, never turned into money. The last read stays on this PC.
+// Fabric CU or Snowflake credits, never turned into money. The last read stays on this PC. A profile
+// whose execution policy is "never" refuses; one that allows Databricks SQL runs without the confirm.
 // Mockup: https://claude.ai/artifact/XgpknxChxChHfHTKHKHugD (Cost)
 
 const dbxCost = { connection: "", days: 7, reading: false };
@@ -44,6 +45,13 @@ async function dbxCostRead(box, warehouseId) {
   const params = { connection: dbxCost.connection, warehouse_id: warehouseId, days: dbxCost.days };
   const ask = await attempt(() => rpc("databricks_billing", params), "Couldn't check the warehouse");
   if (!ask) return;
+  // The profile's execution policy answers first: "never" refuses, and an allowed engine runs without asking.
+  if (ask.refused) { toast(`Billing wasn't read: ${ask.error}`, true); return; }
+  if (!ask.needs_confirm) {
+    if (!ask.ok) toast(`Billing wasn't read: ${ask.error}`, true);
+    if (box.isConnected) dbxCostLoad(box);
+    return;
+  }
   const w = ask.warehouse || {};
   const state = w.state ? ` It is ${w.state.toLowerCase()} now${w.auto_stop_mins ? ` and stops after ${w.auto_stop_mins} minutes idle` : ", with no auto-stop"}.` : "";
   const ok = await confirmDialog(`Read billing on ${w.name || w.id || warehouseId}?`,

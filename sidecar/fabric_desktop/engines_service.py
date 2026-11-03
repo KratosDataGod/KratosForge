@@ -294,14 +294,20 @@ class EnginesMixin:
         ``confirmed`` nothing runs: the answer says which warehouse would run the query and its state
         (a GET). With it, the query runs on that warehouse under a confirmed authorization."""
         from .engines import databricks_auth, databricks_billing, databricks_discovery, databricks_sql
-        conn, _, _ = self._connection(connection)
+        conn, policy, profile = self._connection(connection)
         warehouse = warehouse_id or str((conn.get("compute") or {}).get("warehouse_id") or "")
         if not warehouse:
             raise ValueError("Pick a SQL warehouse to read billing with.")
         if not _COMPUTE_ID.fullmatch(warehouse):
             raise ValueError("That warehouse id isn't one Databricks gives (letters, digits, - . and _).")
         databricks_billing.query(int(days))   # refuses a number of days it doesn't offer
-        if not confirmed:
+        # The profile's execution policy first, as for any remote cell: "never" refuses before anything,
+        # "policy" with this engine allowed runs without asking, and otherwise the person confirms.
+        try:
+            standing = auth.from_policy(policy, profile, registry.DATABRICKS_SQL.id, warehouse)
+        except auth.RemoteNotAuthorized as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
+        if standing is None and not confirmed:
             try:
                 info = databricks_discovery.warehouse_row(self._discovery_client(conn).warehouse(warehouse))
             except (databricks_auth.DatabricksAuthError, databricks_sql.DatabricksError, databricks_discovery.OddReply) as exc:
@@ -311,7 +317,7 @@ class EnginesMixin:
         who = ""
         if signer is not None and hasattr(signer, "signed_in_user"):
             who = signer.signed_in_user() or ""
-        authorization = auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
+        authorization = standing or auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
         try:
             result = databricks_billing.read(self._engine_adapter(registry.DATABRICKS_SQL.id), conn, warehouse,
                                              int(days), authorization)

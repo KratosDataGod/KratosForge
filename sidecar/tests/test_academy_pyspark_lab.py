@@ -17,6 +17,7 @@ import pytest
 
 from fabric_desktop import progress
 from fabric_desktop.academy import exercises, learner_pkg, pyspark_lab, pyspark_shim, readiness, registry
+from fabric_desktop.academy import workspace as ws
 
 PACK = "dbx-de-associate"
 
@@ -204,3 +205,75 @@ def test_the_session_sets_nothing_after_it_connects(monkeypatch, tmp_path):
     spark = pyspark_shim.AcademySession(tmp_path)
     assert spark.read.table("bronze.t").collect()[0][0] == 1
     assert spark.conn.execute("SELECT current_setting('default_null_order')").fetchone()[0].lower() == "nulls_first_on_asc_last_on_desc"
+
+
+# ---- reading what the answer left: checked before the engine opens it
+
+def _bronze(tmp_path):
+    pyspark_lab.prepare(tmp_path, exercises.file_text(PACK, "E19", "setup.sql"))
+    return pyspark_shim.table_path(tmp_path, "bronze.orders")
+
+
+def test_an_unwritten_table_reads_as_none(tmp_path):
+    _bronze(tmp_path)
+    assert pyspark_lab._rows(tmp_path, "silver.orders") is None
+    assert pyspark_lab._rows(tmp_path, "bronze.orders")[1]
+
+
+def test_a_log_entry_pointing_outside_the_table_is_refused(tmp_path):
+    table = _bronze(tmp_path)
+    commit = sorted((table / "_delta_log").glob("*.json"))[-1]
+    with open(commit, "a", encoding="utf-8") as fh:
+        fh.write('\n{"add": {"path": "/etc/hosts", "size": 1, "modificationTime": 0, "dataChange": true, '
+                 '"partitionValues": {}}}\n')
+    with pytest.raises(ws.Refused, match="outside the table"):
+        pyspark_lab._rows(tmp_path, "bronze.orders")
+
+
+def test_a_checkpoint_is_refused(tmp_path):
+    table = _bronze(tmp_path)
+    (table / "_delta_log" / "00000000000000000000.checkpoint.parquet").write_bytes(b"x")
+    with pytest.raises(ws.Refused, match="checkpoint"):
+        pyspark_lab._rows(tmp_path, "bronze.orders")
+
+
+def test_a_data_file_that_is_a_link_is_refused(tmp_path):
+    table = _bronze(tmp_path)
+    data = next(table.glob("*.parquet"))
+    outside = tmp_path / "outside.parquet"
+    data.rename(outside)
+    try:
+        data.symlink_to(outside)
+    except OSError:
+        pytest.skip("this PC can't make symbolic links")
+    with pytest.raises(ws.Refused):
+        pyspark_lab._rows(tmp_path, "bronze.orders")
+
+
+def test_a_delta_log_that_is_a_link_is_refused(tmp_path):
+    table = _bronze(tmp_path)
+    (table / "_delta_log").rename(tmp_path / "log")
+    try:
+        (table / "_delta_log").symlink_to(tmp_path / "log", target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make symbolic links")
+    with pytest.raises(ws.Refused):
+        pyspark_lab._rows(tmp_path, "bronze.orders")
+
+
+def test_a_refused_table_fails_its_checks_in_words(tmp_path):
+    ex = exercises.get(PACK, "E19")
+    ref = pyspark_lab.reference(PACK, "E19")
+    plain = pyspark_lab.run_reference
+
+    def tampering(work, code):
+        out = plain(work, code)
+        table = pyspark_shim.table_path(work, "silver.orders")
+        if (table / "_delta_log").is_dir():
+            (table / "_delta_log" / "00000000000000000000.checkpoint.parquet").write_bytes(b"x")
+        return out
+
+    result = pyspark_lab.grade(ex, ref["setup"], ref["hidden"], ref["solution"], ref["solution"],
+                               lambda work, code: tampering(work, code) if work.name == "answer" else plain(work, code))
+    assert not result["passed"]
+    assert any("checkpoint" in r["detail"] for r in result["results"])

@@ -13,6 +13,10 @@ Grading reads what the answer left, never how it was written, so any correct sol
     table_shape      columns and types, unique and not-null keys (learn/checks.py)
     idempotent       running the answer a second time leaves the same rows
 
+The answer's process wrote those tables, so the engine reads one only after checking it: its Delta log
+through validators.check_log and each live data file through workspace.inside (``_table``). A table that
+points outside itself, goes through a link or has a checkpoint fails its checks, in words.
+
 **Who runs what.** A learner's answer runs only through the Academy sandbox (sandbox.py, PR-F): until
 it is wired in, ``run_learner`` refuses. The reference solution and the planted wrong answers are the
 pack's own files; ``self_test`` runs them in a plain ``python -I`` process with the same package, the
@@ -33,8 +37,9 @@ import deltalake
 import duckdb
 
 from ..learn import checks
-from . import exercises, learner_pkg, registry
-from .pyspark_shim import table_path
+from . import exercises, learner_pkg, registry, validators
+from . import workspace as ws
+from .pyspark_shim import TABLES, table_path
 
 ANSWER_FILE = "answer.py"
 CHECKS = ("result_matches", "table_shape", "idempotent")
@@ -107,11 +112,33 @@ def run_learner(work: Path, code: str) -> dict[str, Any]:
     raise NotImplementedError("PySpark exercises run in the Academy sandbox, which isn't in this version yet")
 
 
-def _rows(work: Path, name: str) -> tuple[list[str], list[tuple[Any, ...]]] | None:
-    path = table_path(work, name)
-    if not (path / "_delta_log").is_dir():
+def _table(work: Path, name: str) -> Any:
+    """Table ``name`` as the learner's code left it (a pyarrow Table), or None if it wasn't written.
+
+    The answer's process wrote these files, so they are read only once checked: the Delta log through
+    validators.check_log (every commit read as data, no entry pointing outside the table, no checkpoint)
+    and every live data file through workspace.inside (inside the exercise folder, no link on the way).
+    A table that fails either is refused (workspace.Refused, the reason in words for the learner)."""
+    path = table_path(work, name)   # refuses a name that isn't schema.table or table
+    rel = "/".join([TABLES, *name.lower().split(".")])
+    try:
+        log = ws.inside(work, f"{rel}/_delta_log")
+    except ws.Refused:
+        if not os.path.lexists(path / "_delta_log"):
+            return None
+        raise
+    if not log.is_dir():
         return None
-    data = deltalake.DeltaTable(str(path)).to_pyarrow_table()
+    for file in validators._table_facts(validators.check_log(work, rel))["files"]:
+        if not ws.inside(work, f"{rel}/{file}").is_file():
+            raise ws.Refused(f"{name}'s Delta log lists a data file that isn't there.")
+    return deltalake.DeltaTable(str(path)).to_pyarrow_table()
+
+
+def _rows(work: Path, name: str) -> tuple[list[str], list[tuple[Any, ...]]] | None:
+    data = _table(work, name)
+    if data is None:
+        return None
     con = duckdb.connect(":memory:")
     try:
         rel = con.from_arrow(data)
@@ -121,10 +148,10 @@ def _rows(work: Path, name: str) -> tuple[list[str], list[tuple[Any, ...]]] | No
 
 
 def _load(con: duckdb.DuckDBPyConnection, work: Path, name: str) -> bool:
-    path = table_path(work, name)
-    if not (path / "_delta_log").is_dir():
+    data = _table(work, name)
+    if data is None:
         return False
-    con.register("kf_out", deltalake.DeltaTable(str(path)).to_pyarrow_table())
+    con.register("kf_out", data)
     schema, _, bare = name.rpartition(".")   # table_path checked both parts are plain names
     if schema:
         con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
@@ -188,58 +215,61 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
             if first["status"] != "ok":
                 results.append(_check_result(kind, False, _error(first)))
                 continue
-            if kind == "table_shape":
-                con = duckdb.connect(":memory:")
-                try:
-                    if not _load(con, practice, table):
-                        results.append(_check_result(kind, False, f"Your code didn't write {table}."))
+            try:
+                if kind == "table_shape":
+                    con = duckdb.connect(":memory:")
+                    try:
+                        if not _load(con, practice, table):
+                            results.append(_check_result(kind, False, f"Your code didn't write {table}."))
+                        else:
+                            results.append(checks.table_shape(con, table, c.get("columns"), c.get("unique"), c.get("not_null")))
+                    finally:
+                        con.close()
+                elif kind == "result_matches":
+                    data = c.get("data", "practice")
+                    if data == "hidden":
+                        if hidden_run is None:
+                            hw = fresh("hidden", hidden or setup)
+                            hidden_run = {"run": runner(hw, answer), "work": hw}
+                        if hidden_run["run"]["status"] != "ok":
+                            results.append(_check_result(kind, False, "On data you haven't seen, " + _error(hidden_run["run"]).lower()))
+                            continue
+                        got = _rows(hidden_run["work"], table)
                     else:
-                        results.append(checks.table_shape(con, table, c.get("columns"), c.get("unique"), c.get("not_null")))
-                finally:
-                    con.close()
-            elif kind == "result_matches":
-                data = c.get("data", "practice")
-                if data == "hidden":
-                    if hidden_run is None:
-                        hw = fresh("hidden", hidden or setup)
-                        hidden_run = {"run": runner(hw, answer), "work": hw}
-                    if hidden_run["run"]["status"] != "ok":
-                        results.append(_check_result(kind, False, "On data you haven't seen, " + _error(hidden_run["run"]).lower()))
-                        continue
-                    got = _rows(hidden_run["work"], table)
-                else:
-                    got = outputs.setdefault(table, _rows(practice, table))
-                key = (data, table)
-                if key not in refs:
-                    rw = fresh(f"ref-{data}-{table.replace('.', '-')}", hidden if data == "hidden" and hidden else setup)
-                    rrun = runner(rw, solution)
-                    if rrun["status"] != "ok":
-                        raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
-                    refs[key] = _rows(rw, table)
-                want = refs[key]
-                where = "on data you haven't seen" if data == "hidden" else "on the exercise data"
-                if got is None:
-                    results.append(_check_result(kind, False, f"Your code didn't write {table}."))
-                elif [x.lower() for x in got[0]] != [x.lower() for x in want[0]]:
-                    results.append(_check_result(kind, False, f"{table} has columns {', '.join(got[0])}; it should have "
-                                                              f"{', '.join(want[0])}, in that order."))
-                elif got[1] != want[1]:
-                    results.append(_check_result(kind, False, _row_difference(table, where, got[1], want[1])))
-                else:
-                    results.append(_check_result(kind, True, f"{table} holds the right rows {where}."))
-            elif kind == "idempotent":
-                before = outputs.setdefault(table, _rows(practice, table))
-                again = runner(practice, answer)
-                after = _rows(practice, table)
-                outputs[table] = after
-                if again["status"] != "ok":
-                    results.append(_check_result(kind, False, "Run a second time, " + _error(again).lower()))
-                elif before != after:
-                    n0, n1 = len(before[1]) if before else 0, len(after[1]) if after else 0
-                    results.append(_check_result(kind, False, f"Running your code again changed {table} ({n0:,} rows, then {n1:,}). "
-                                                              "A rerun of a load should leave the same table."))
-                else:
-                    results.append(_check_result(kind, True, f"Running your code again leaves {table} as it was."))
+                        got = outputs.setdefault(table, _rows(practice, table))
+                    key = (data, table)
+                    if key not in refs:
+                        rw = fresh(f"ref-{data}-{table.replace('.', '-')}", hidden if data == "hidden" and hidden else setup)
+                        rrun = runner(rw, solution)
+                        if rrun["status"] != "ok":
+                            raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
+                        refs[key] = _rows(rw, table)
+                    want = refs[key]
+                    where = "on data you haven't seen" if data == "hidden" else "on the exercise data"
+                    if got is None:
+                        results.append(_check_result(kind, False, f"Your code didn't write {table}."))
+                    elif [x.lower() for x in got[0]] != [x.lower() for x in want[0]]:
+                        results.append(_check_result(kind, False, f"{table} has columns {', '.join(got[0])}; it should have "
+                                                                  f"{', '.join(want[0])}, in that order."))
+                    elif got[1] != want[1]:
+                        results.append(_check_result(kind, False, _row_difference(table, where, got[1], want[1])))
+                    else:
+                        results.append(_check_result(kind, True, f"{table} holds the right rows {where}."))
+                elif kind == "idempotent":
+                    before = outputs.setdefault(table, _rows(practice, table))
+                    again = runner(practice, answer)
+                    after = _rows(practice, table)
+                    outputs[table] = after
+                    if again["status"] != "ok":
+                        results.append(_check_result(kind, False, "Run a second time, " + _error(again).lower()))
+                    elif before != after:
+                        n0, n1 = len(before[1]) if before else 0, len(after[1]) if after else 0
+                        results.append(_check_result(kind, False, f"Running your code again changed {table} ({n0:,} rows, then {n1:,}). "
+                                                                  "A rerun of a load should leave the same table."))
+                    else:
+                        results.append(_check_result(kind, True, f"Running your code again leaves {table} as it was."))
+            except ws.Refused as exc:   # the answer left a table the engine won't read
+                results.append(_check_result(kind, False, str(exc)))
     passed = sum(r["passed"] for r in results)
     return {"passed": passed == len(results), "score": round(passed / len(results), 2) if results else 0.0,
             "results": results}

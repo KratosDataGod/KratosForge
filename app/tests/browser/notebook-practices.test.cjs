@@ -50,6 +50,15 @@ test("About NB003 opens the rule's section of the docs (LX-01)", { skip }, async
   assert.deepStrictEqual(opened, ["notebook-best-practices.md#nb003"]);
 });
 
+test("each cell shows its own findings under its code", { skip }, async () => {
+  const strip = (i) => page().locator("[data-cell]").nth(i).locator(".practice-strip");
+  assert.strictEqual(await strip(0).isHidden(), true, "the markdown cell has none");
+  assert.match(await strip(1).innerText(), /NB009 .*\(line 1\)/);
+  const third = await strip(2).locator(".practice-line").allInnerTexts();
+  assert.deepStrictEqual(third.map((t) => t.split(" ")[2]).sort(), ["NB003", "NB005"]);
+  assert.match(third.join("\n"), /NB003 .*\(line 2\)/);
+});
+
 test("Go to cell selects the cell and puts the cursor on the line", { skip }, async () => {
   await pane().locator("[data-rule=NB003] .link-btn").click();
   const at = await page().evaluate(() => {
@@ -103,5 +112,6 @@ test("Explain says how important a rule is, its principle and how to check the c
 test("closing the panel stops it", { skip }, async () => {
   await pane().getByRole("button", { name: "Close best practices" }).click();
   assert.strictEqual(await pane().count(), 0);
+  assert.strictEqual(await page().locator(".practice-strip:not([hidden])").count(), 0, "no findings under the cells once closed");
   assert.match(await page().locator("button[data-practices]").innerText(), /^Best practices\n?Preview$/, "no count once closed");
 });

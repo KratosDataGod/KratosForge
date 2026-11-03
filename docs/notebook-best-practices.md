@@ -10,7 +10,8 @@ and it uses no capacity.
 type (when the code changes, every second or so) and lists each finding with its severity, what to
 do, and **Go to cell n, line m**, which selects the cell and puts the cursor on that line.
 **About NB0nn** opens the rule's explanation in [Each rule explained](#each-rule-explained). The button
-shows how many findings there are while the panel is open. Under each finding, **Dismiss** hides it
+shows how many findings there are while the panel is open. While it's open, each cell also lists its own findings under its code;
+click one to go to its line. Under each finding, **Dismiss** hides it
 for you, and in Professional or Guided guidance **Explain** and **Show example** show its section of this
 page in the panel ([Learn](learn.md#beside-a-finding)).
 

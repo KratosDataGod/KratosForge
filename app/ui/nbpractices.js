@@ -110,6 +110,19 @@ function drawPractices(nb) {
   if (state.view !== "notebook" || state.notebook !== nb) return;
   document.querySelector(".practicespane")?.replaceChildren(...practicesContent(nb));
   document.querySelectorAll("button[data-practices]").forEach((b) => { const fresh = practicesToggle(nb); if (fresh) b.replaceWith(fresh); });
+  for (const cell of nb.cells) document.querySelector(`[data-cell="${cell.id}"] .practice-strip`)?.replaceWith(practiceStrip(cell, nb));
+}
+
+// The findings under a cell, as in the mockup: one line each, with the line it's on. Empty (and
+// hidden) when the panel is closed or the cell has none, so a closed panel adds nothing to the cells.
+function practiceStrip(cell, nb = state.notebook) {
+  const p = nb?.practices;
+  const n = nb ? nb.cells.indexOf(cell) + 1 : 0;
+  const mine = p?.open && p.rows ? p.rows.filter((f) => f.n === n) : [];
+  if (!mine.length) return h("div", { class: "practice-strip", hidden: true });
+  return h("div", { class: "practice-strip" }, mine.map((f) =>
+    h("button", { class: `practice-line ${PRACTICE_PILL[f.severity]}`, title: f.description, onclick: () => practiceGo(nb, f) },
+      `${f.severity} · ${f.rule_id} ${f.rule} (line ${f.line})`)));
 }
 
 function practicesPanel(nb) {

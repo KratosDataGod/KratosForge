@@ -55,6 +55,6 @@ These are the gaps the [enterprise readiness scorecard](audits/ENTERPRISE_READIN
 
 <!-- Kept the same as "What's missing" under Enterprise deployment in audits/ENTERPRISE_READINESS.md; the test checks. -->
 - The builds are unsigned.
-- There is no MSI or MSIX package for Intune or Configuration Manager.
+- The MSI is new: it hasn't been tried in an Intune or Configuration Manager tenant yet, and it is unsigned like the exe.
 - The policy file is advisory against a determined local user.
 - Privacy statement and support terms aren't published yet.

@@ -37,6 +37,9 @@ _EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
+    # Data mesh P6 change window: the Platform > Govern settings screen waits for Chris's mockup go.
+    "platform_change_window": "change window settings screen awaits its mockup go (data mesh Wave 2)",
+    "platform_save_change_window": "change window settings screen awaits its mockup go (data mesh Wave 2)",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,
@@ -76,6 +79,11 @@ NO_UI_CALLER: dict[str, str] = {
     "pbi_embed_token": _EMBED,
     "pbi_embed_content": _EMBED,
     "fabric_item_support": _FABRIC_GIT,
+    "fabric_git_links": _FABRIC_GIT,
+    "fabric_git_check": _FABRIC_GIT,
+    "fabric_git_link": _FABRIC_GIT,
+    "fabric_git_unlink": _FABRIC_GIT,
+    "fabric_git_overview": _FABRIC_GIT,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

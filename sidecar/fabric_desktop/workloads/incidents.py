@@ -49,9 +49,9 @@ from typing import Any, Callable
 
 KEY = "incidents/incidents.json"
 CONTRACT = 1
-KINDS = ("run_failed", "needs_decision", "late", "objective", "agent_offline", "cant_evaluate", "reported")
+KINDS = ("run_failed", "needs_decision", "late", "objective", "promise", "agent_offline", "cant_evaluate", "reported")
 KIND_LABELS = {"run_failed": "Run failed", "needs_decision": "Needs a decision", "late": "Late",
-               "objective": "Objective missed", "agent_offline": "Agent offline", "cant_evaluate": "Can't evaluate",
+               "objective": "Objective missed", "promise": "Promise broken", "agent_offline": "Agent offline", "cant_evaluate": "Can't evaluate",
                "reported": "Reported"}
 PRIORITIES = ("P1", "P2", "P3", "P4")
 PRIORITY_LABELS = {"P1": "Many people blocked, no workaround", "P2": "A team blocked, or due soon",

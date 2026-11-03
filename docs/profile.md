@@ -137,16 +137,48 @@ and Engineering Quality (finding planted data quality problems). A checked fix c
 Quality, and toward its rule's area where there is a skill for it (Performance & Optimization for a
 performance rule).
 
+## Impact
+
+**Profile > Impact** shows what your verified work measured, and nothing else:
+
+- **Verified outcomes**: how many notebooks you validated with a clean run, fixes you checked with
+  Compare, data quality exercises where you found every planted problem, and notebooks you proved
+  give the same results on this PC and in Fabric.
+- **Measured results**: each figure exactly as it was measured, newest first. A Learn speed check
+  shows the starting query's time, yours and how many times faster; a checked fix shows its time as
+  written and as fixed (one run each) and the change; a proof shows its end-to-end time on this PC
+  and in Fabric. A change that made something slower is shown too.
+- **Capacity and cost**: *Not measured*. KratosForge doesn't read Fabric capacity units per run
+  yet, so it never claims a capacity or cost saving.
+
+Figures are never added up into a total, estimated or turned into money. Excluding an
+accomplishment takes it out of Impact as well.
+
+## Goals and the development roadmap
+
+**Profile > Goals** keeps up to 12 goals and shows a development roadmap of seven tracks: Data
+Engineering, SQL & Warehouse, Semantic Modeling, Data Integration, Data Governance, Performance
+Optimization and Platform Engineering. Each track has three milestones. A milestone names the skills
+it shows, what to do, how it is verified (the same checks ranks use, such as finishing named Learn
+lessons or validating notebooks), related achievements and the Learn lessons to start from.
+Milestones are suggestions, not a fixed order, and every one can be met on this PC: none needs a
+Fabric run.
+
+A goal is either a milestone (**Make it a goal**), which is met only when its checks are met by
+verified work and can't be ticked, or a goal in your own words, which you mark done yourself.
+**Suggested next** offers, in each track where you've met a milestone, the next one you haven't; it
+never suggests a whole new area and never compares you with anyone. Goals earn no XP.
+
 ## Excluding an accomplishment
 
-**Exclude** on an accomplishment takes it out of your XP, achievements, skills and report.
+**Exclude** on an accomplishment takes it out of your XP, achievements, skills, impact, goals and report.
 **Include** puts it back.
 
 ## Professional report
 
 **Profile > Professional report** puts your verified accomplishments for a period into sections:
 executive summary, key contributions, engineering quality, performance and efficiency, learning,
-technical competencies and an evidence appendix. A proof adds a key contribution, its measured times under
+technical competencies, development goals and an evidence appendix. A proof adds a key contribution, its measured times under
 performance and efficiency, and its run receipt in the appendix. Learning lists each Learn lesson or
 lab you finished and how many exercises passed. Checked fixes are counted under engineering quality,
 with each one's two measured times under performance and efficiency, labeled one run each. The report
@@ -157,16 +189,22 @@ says what was checked, never that a skill was mastered. Every line says where it
 - **Generated summary**: fixed wording filled in from verified accomplishments. Nothing is inferred.
 - **Not measured**: there is no measurement for it in the period.
 
+Development goals list your goals (a met milestone is *Verified*, one in progress is *Goal set by
+you* with what is left, and one in your own words is *Entered by you*) and up to three *Suggested next
+step* milestones from the roadmap.
+
 The report names the notebooks and warehouses your accomplishments came from, such as a notebook
 you validated or the warehouse a checked fix ran on, so read it before you share it. To leave an
 accomplishment out, **Exclude** it on Overview.
 
 XP, levels and achievements are left out unless you tick **Include KratosForge achievements**.
-**Save Markdown** saves a new file in Downloads (it never replaces one), and **Copy summary**
-copies the summary as plain text.
+**Save Markdown** and **Save PDF** save a new file in Downloads (they never replace one), and
+**Copy summary** copies the summary as plain text. The PDF is the same report on US Letter pages with
+page numbers, in standard fonts, with nothing embedded; a character those fonts don't have (such as
+Chinese text in a name) prints as ?, so use the Markdown file for that.
 
 ## Your data
 
 **Export my profile** saves the profile as JSON in Downloads. **Delete my profile data** deletes
-your recorded accomplishments, profile details, picture and report summary on this PC; Validate history and
+your recorded accomplishments, profile details, picture, goals and report summary on this PC; Validate history and
 run receipts stay. There is no leaderboard, no sharing and no manager view.

@@ -642,6 +642,11 @@ class FabricClient:
 
     # ---- workspaces: who has access
 
+    def git_connection(self, workspace_id: str) -> dict[str, Any]:
+        """The workspace's own Git connection (provider, repository, branch, folder, last synced
+        commit). A read: Workspace.ReadWrite.All covers it, and it changes nothing."""
+        return self._request("GET", f"/workspaces/{workspace_id}/git/connection").json()
+
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}").json()
 

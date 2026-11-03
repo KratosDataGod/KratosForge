@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fabric_desktop import audit, fabric_git, server
+from fabric_desktop import artifacts, audit, fabric_git, server
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.fabric_git_service import FabricGitMixin
 from fabric_desktop.git.cli import GitError
@@ -321,3 +321,165 @@ def test_overview_of_a_workspace_no_longer_connected(svc, repo):
     svc.fabric.answers[WS] = NOT_CONNECTED
     out = svc.fabric_git_overview(str(repo.root), "dev")
     assert out["alignment"]["remote"] is None and "isn't connected to Git" in out["alignment"]["notes"][0]
+
+
+# ---- which items differ (Get Status, Workspace.GitUpdate.All)
+
+H1, H2 = "1" * 40, "2" * 40
+NB, PL, LH, SM, DF = (f"{n}aaaaaaa-0000-4000-8000-00000000000{n}" for n in range(1, 6))
+
+
+def change(logical, item_type, name, ws=None, remote=None, conflict="None"):
+    out = {"itemMetadata": {"itemIdentifier": {"logicalId": logical}, "itemType": item_type, "displayName": name},
+           "conflictType": conflict}
+    if ws:
+        out["workspaceChange"] = ws
+    if remote:
+        out["remoteChange"] = remote
+    return out
+
+
+# Shape from Microsoft Learn, Core > Git > Get Status (checked 2026-11-03).
+STATUS = {"workspaceHead": H1, "remoteCommitHash": H2, "changes": [
+    change(PL, "DataPipeline", "PL_Daily_Load", remote="Modified"),
+    change(NB, "Notebook", "NB_Orders_Silver", ws="Modified", remote="Modified", conflict="Conflict"),
+    change(LH, "Lakehouse", "LH_Silver", ws="Modified"),
+    change(SM, "SemanticModel", "SM_Sales", ws="Added", remote="Added", conflict="SameChanges"),
+    change(DF, "Datamart", "DM_Old", ws="Added"),
+]}
+
+
+def test_status_rows_states_and_order():
+    out = fabric_git.status(STATUS)
+    assert (out["workspace_head"], out["remote_commit"]) == (H1, H2)
+    assert [(i["name"], i["state"]) for i in out["items"]] == [
+        ("NB_Orders_Silver", "conflict"), ("PL_Daily_Load", "incoming"), ("DM_Old", "outgoing"),
+        ("LH_Silver", "outgoing"), ("SM_Sales", "same_change")]
+    assert out["counts"]["conflict"] == 1 and out["counts"]["incoming"] == 1 and out["counts"]["outgoing"] == 2
+    assert not out["aligned"]
+
+
+def test_status_rows_carry_registry_support_and_unknown_types_are_not_supported():
+    rows = {i["name"]: i for i in fabric_git.status(STATUS)["items"]}
+    assert rows["NB_Orders_Silver"]["git_support"] == "yes" and rows["NB_Orders_Silver"]["round_trip"] == "yes"
+    assert rows["SM_Sales"]["git_support"] == "preview"
+    assert rows["DM_Old"]["git_support"] == "no"
+
+
+def test_both_sides_changed_without_a_conflict_is_still_called_out():
+    out = fabric_git.status({"workspaceHead": H1, "remoteCommitHash": H2, "changes": [
+        change(NB, "Notebook", "nb", ws="Modified", remote="Deleted")]})
+    assert out["items"][0]["state"] == "both_changed"
+
+
+def test_an_aligned_workspace():
+    out = fabric_git.status({"workspaceHead": H1, "remoteCommitHash": H1, "changes": []})
+    assert out["aligned"] and out["items"] == []
+
+
+@pytest.mark.parametrize("raw", [None, "x", {"changes": "x"}, {"changes": [1, {"itemMetadata": "x"}]},
+                                 {"changes": [{"itemMetadata": {"itemIdentifier": {"logicalId": "nope"}}}]}])
+def test_odd_answers_never_invent_rows(raw):
+    out = fabric_git.status(raw)
+    assert out["items"] == [] and out["workspace_head"] == "" and out["remote_commit"] == ""
+
+
+def test_undocumented_change_values_are_dropped():
+    out = fabric_git.status({"changes": [change(NB, "Notebook", "nb", ws="Renamed", conflict="Maybe")]})
+    row = out["items"][0]
+    assert (row["workspace_change"], row["conflict"], row["state"]) == ("", "", "unchanged")
+
+
+def test_fingerprint_changes_with_any_difference():
+    a = fabric_git.status(STATUS)["fingerprint"]
+    assert fabric_git.status(STATUS)["fingerprint"] == a
+    moved = {**STATUS, "remoteCommitHash": "3" * 40}
+    assert fabric_git.status(moved)["fingerprint"] != a
+    fewer = {**STATUS, "changes": STATUS["changes"][1:]}
+    assert fabric_git.status(fewer)["fingerprint"] != a
+
+
+class StatusFabric(FakeFabric):
+    def __init__(self, answers, status_answer):
+        super().__init__(answers)
+        self.status_answer = status_answer
+        self.status_calls: list[str] = []
+
+    def git_status(self, workspace_id):
+        self.status_calls.append(workspace_id)
+        if isinstance(self.status_answer, Exception):
+            raise self.status_answer
+        return self.status_answer
+
+
+class ScopedSvc(Svc):
+    def __init__(self, root, fabric):
+        super().__init__(root, fabric)
+        self.scopes_asked: list[list[str]] = []
+
+    def _scoped(self, scopes):
+        self.scopes_asked.append(scopes)
+        return self.fabric
+
+
+@pytest.fixture
+def ssvc(tmp_path, repo):
+    s = ScopedSvc(tmp_path / "app", StatusFabric({WS: GITHUB}, STATUS))
+    s.root.mkdir()
+    s.git_open(str(repo.root))
+    return s
+
+
+def test_status_needs_a_link_first(ssvc, repo):
+    with pytest.raises(GitError, match="Link this repository"):
+        ssvc.fabric_git_status(str(repo.root), "dev")
+    assert ssvc.fabric.status_calls == [] and ssvc.scopes_asked == []
+
+
+def test_status_asks_only_for_git_update_and_compares_the_fetched_remote(ssvc, repo):
+    from fabric_desktop.auth import GIT_STATUS_SCOPES
+
+    ssvc.fabric_git_link(str(repo.root), "dev", WS)
+    out = ssvc.fabric_git_status(str(repo.root), "dev")
+    assert ssvc.scopes_asked == [GIT_STATUS_SCOPES]
+    assert GIT_STATUS_SCOPES == ["https://api.fabric.microsoft.com/Workspace.GitUpdate.All"]
+    assert ssvc.fabric.status_calls == [WS]
+    assert out["counts"]["conflict"] == 1
+    assert out["remote_tracking"] == git(repo.root, "rev-parse", "origin/main")
+    assert out["remote_fetched_matches"] is False  # Fabric's remote commit (H2) isn't what this PC fetched
+
+
+def test_status_says_when_this_pc_fetched_the_same_remote_commit(ssvc, repo):
+    ssvc.fabric_git_link(str(repo.root), "dev", WS)
+    ssvc.fabric.status_answer = {**STATUS, "remoteCommitHash": git(repo.root, "rev-parse", "origin/main")}
+    assert ssvc.fabric_git_status(str(repo.root), "dev")["remote_fetched_matches"] is True
+
+
+def test_status_explains_a_workspace_no_longer_connected(ssvc, repo):
+    ssvc.fabric_git_link(str(repo.root), "dev", WS)
+    ssvc.fabric.status_answer = FabricError("x", "WorkspaceNotConnectedToGit", 400)
+    with pytest.raises(FabricError, match="isn't connected to Git any more"):
+        ssvc.fabric_git_status(str(repo.root), "dev")
+
+
+def test_status_is_a_listed_read():
+    assert "fabric_git_status" in server.METHODS and "fabric_git_status" in audit.READ_ONLY
+
+
+@pytest.mark.parametrize("branch", ["--output=/tmp/x", "main..evil"])
+def test_a_branch_name_that_looks_like_an_option_or_range_is_never_passed_to_git(ssvc, repo, monkeypatch, branch):
+    ssvc.fabric_git_link(str(repo.root), "dev", WS)
+    links = fabric_git.read_links(repo.root)["envs"]["dev"]
+    fabric_git.write_link(repo.root, "dev", {**links, "branch": branch})
+    seen: list[tuple] = []
+    real = Repository._try
+    monkeypatch.setattr(Repository, "_try", lambda self, *a, **k: (seen.append(a), real(self, *a, **k))[1])
+    out = ssvc.fabric_git_status(str(repo.root), "dev")
+    assert out["remote_tracking"] is None
+    assert not any(branch in " ".join(a) for a in seen)
+
+
+def test_status_rows_carry_the_registry_limits():
+    rows = {r["name"]: r for r in fabric_git.status(STATUS)["items"]}
+    assert any("never go" in limit for limit in rows["LH_Silver"]["limits"])
+    assert rows["LH_Silver"]["limits"] == list(artifacts.capability("Lakehouse").limits)

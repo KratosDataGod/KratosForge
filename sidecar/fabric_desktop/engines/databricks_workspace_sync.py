@@ -26,6 +26,7 @@ import base64
 import hashlib
 import os
 import re
+import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -137,12 +138,32 @@ def local_files(root: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _not_in_git_folder(client: Client, remote: str) -> bool:
+    """Refuse a folder that is a Git folder or inside one, and say whether the folder exists. The
+    folder and each parent below /Workspace/Users/<user> (or /Workspace/Shared) is read with
+    get-status (GETs only); a missing one is skipped, since a Git folder can't be inside it."""
+    from .databricks_sql import DatabricksError
+    parts = PurePosixPath(remote).parts                      # ("/", "Workspace", "Users", "<user>", ...)
+    top = 4 if parts[1:3] == ("Workspace", "Users") else 3   # the user's home or /Workspace/Shared
+    exists = False
+    for depth in range(len(parts), top, -1):
+        try:
+            reply = client.get("/api/2.0/workspace/get-status", {"path": str(PurePosixPath(*parts[:depth]))})
+        except DatabricksError as exc:
+            if "RESOURCE_DOES_NOT_EXIST" in str(exc) or "404" in str(exc):
+                continue
+            raise
+        exists = exists or depth == len(parts)
+        if reply.get("object_type") == "REPO":
+            raise SyncError("That folder is a Git folder or inside one: it changes through Git, so it's read only here.")
+    return exists
+
+
 def remote_files(client: Client, remote: str) -> tuple[dict[str, dict[str, Any]], bool]:
     """Notebooks and files directly in the workspace folder: {name: {type, modified_at}}, and
-    whether the folder exists. A Git folder (REPO) refuses."""
-    reply = client.get("/api/2.0/workspace/get-status", {"path": remote})
-    if reply.get("object_type") == "REPO":
-        raise SyncError("That's a Git folder: it changes through Git, so it's read only here.")
+    whether the folder exists. A Git folder (REPO), or a folder inside one, refuses."""
+    if not _not_in_git_folder(client, remote):
+        return {}, False
     out: dict[str, dict[str, Any]] = {}
     for obj in client.list("/api/2.0/workspace/list", "objects", {"path": remote}):
         if not isinstance(obj, dict) or obj.get("object_type") not in ("NOTEBOOK", "FILE"):
@@ -208,9 +229,14 @@ def compare(client: Client, pair: dict[str, Any]) -> dict[str, Any]:
         if name in here:
             continue
         target = _remote_name(name)
-        if target in there:
+        if target not in there:
+            continue
+        if there[target]["modified_at"] == (last[name] or {}).get("modified_at"):
             rows.append({"file": name, "remote": target, "here": "Deleted", "there": "Still there", "action": "delete",
                          "note": "Off unless you tick it: deleting asks again.", "losses": []})
+        else:
+            rows.append({"file": name, "remote": target, "here": "Deleted", "there": "Changed there", "action": "conflict",
+                         "note": "Deleted here but changed in Databricks since the last sync: it isn't deleted.", "losses": []})
     return {"schema": SCHEMA, "remote_exists": exists, "rows": rows, "skipped": skipped,
             "compared_at": int(time.time())}
 
@@ -308,11 +334,24 @@ def pull(client: Client, pair: dict[str, Any], files: list[str]) -> dict[str, An
             skipped.append({"file": name, "why": "Only a .py or .sql file changed in Databricks and not here is pulled."})
             continue
         reply = client.get("/api/2.0/workspace/export", {"path": f"{remote}/{row['remote']}", "format": "SOURCE"})
-        data = base64.b64decode(str(reply.get("content") or ""), validate=True)
+        encoded = str(reply.get("content") or "")
+        if len(encoded) > MAX_BYTES * 4 // 3 + 4:
+            skipped.append({"file": name, "why": "It's over 10 MB in Databricks, so it isn't pulled."})
+            continue
+        data = base64.b64decode(encoded, validate=True)
         path = root / name
-        tmp = path.with_suffix(path.suffix + ".kf-pull")
-        tmp.write_bytes(data)
-        os.replace(tmp, path)
+        if path.is_symlink() or path.resolve().parent != root:
+            skipped.append({"file": name, "why": "Not a file in this folder."})
+            continue
+        # A new file of its own (never one a link points at), swapped in whole.
+        fd, tmp = tempfile.mkstemp(dir=root, prefix=".kf-pull-")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
         state[name] = {"hash": _hash(data), "modified_at": there.get(row["remote"], {}).get("modified_at", 0)}
         done.append({"file": name, "action": "pulled"})
     return {"done": done, "skipped": skipped, "files": state}

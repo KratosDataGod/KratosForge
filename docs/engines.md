@@ -293,11 +293,12 @@ Databricks workspace. **Pair a folder** names the two folders and the Databricks
   last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
   out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
 - **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
-  pushing a delete asks again. Folders are never deleted.
+  pushing a delete asks again. If the notebook changed in Databricks since the last sync, it is a
+  conflict and isn't deleted. Folders are never deleted.
 - **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
   way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
 - **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
-- **Git folders are read only here**: a path under `/Repos`, or a Git folder, changes through Git.
+- **Git folders are read only here**: a path under `/Repos`, a Git folder or a folder inside one changes through Git, so it can't be paired or pushed to.
 - Pushes and pulls are written as you, and each one is recorded in the audit log.
 
 Comparing a conflict side by side and picking a side come later.

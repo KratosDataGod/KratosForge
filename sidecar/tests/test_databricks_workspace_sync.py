@@ -22,10 +22,11 @@ REMOTE = "/Workspace/Users/dev@contoso.com/sales-etl"
 class FakeWorkspace:
     """A workspace folder in memory: {name: {type, modified_at, content}}."""
 
-    def __init__(self, objects=None, repo=False, exists=True):
+    def __init__(self, objects=None, repo=False, exists=True, repo_at=None):
         self.objects = objects or {}
         self.calls = []
         self.repo = repo
+        self.repo_at = repo_at
         self.exists = exists
         self.clock = 1000
 
@@ -33,9 +34,11 @@ class FakeWorkspace:
         path = url[len(HOST):]
         self.calls.append((method, path, dict(params or {}), json))
         if path == "/api/2.0/workspace/get-status":
-            if not self.exists:
+            here = params["path"]
+            if here == REMOTE and not self.exists:
                 return Resp(404, {"error_code": "RESOURCE_DOES_NOT_EXIST", "message": "no such path"})
-            return Resp(body={"object_type": "REPO" if self.repo else "DIRECTORY", "path": params["path"]})
+            repo = (self.repo and here == REMOTE) or here == self.repo_at
+            return Resp(body={"object_type": "REPO" if repo else "DIRECTORY", "path": here})
         if path == "/api/2.0/workspace/list":
             return Resp(body={"objects": [{"path": f"{REMOTE}/{n}", "object_type": o["type"], "modified_at": o["modified_at"]}
                                           for n, o in self.objects.items()]})
@@ -160,6 +163,57 @@ def test_git_folders_and_odd_workspace_paths_are_refused(folder):
     for bad in ("/Repos/dev/x", "Users/x", "/Workspace/Users/a/../../Shared/x", "/Workspace/Shared/a\nb", "https://x/y"):
         with pytest.raises(sync.SyncError):
             sync.new_pair("x", "cli:dev", str(folder), bad)
+
+
+def test_a_folder_inside_a_git_folder_is_refused_and_only_read(folder):
+    ws = FakeWorkspace(repo_at="/Workspace/Users/dev@contoso.com")
+    sync.compare(client(ws), pair(folder))                 # the user's home itself isn't read
+    ws = FakeWorkspace(repo_at=REMOTE)
+    with pytest.raises(sync.SyncError, match="inside one"):
+        sync.compare(client(ws), pair(folder))
+    deep = "/Workspace/Users/dev@contoso.com/team/repo/nb"
+    ws = FakeWorkspace(repo_at="/Workspace/Users/dev@contoso.com/team/repo")
+    with pytest.raises(sync.SyncError, match="inside one"):
+        sync.remote_files(client(ws), deep)
+    with pytest.raises(sync.SyncError, match="inside one"):
+        sync.push(client(ws), pair(folder) | {"remote": deep}, ["load_orders.py"])
+    assert ws.writes() == []
+    paths = [c[2]["path"] for c in ws.calls if c[1] == "/api/2.0/workspace/get-status"]
+    assert "/Workspace/Users/dev@contoso.com" not in paths
+
+
+def test_a_file_deleted_here_but_changed_in_databricks_is_a_conflict_not_a_delete(folder):
+    ws = FakeWorkspace(exists=False)
+    p = pair(folder)
+    p["files"] = sync.push(client(ws), p, ["load_orders.py"])["files"]
+    (folder / "load_orders.py").unlink()
+    ws.objects["load_orders"]["modified_at"] += 50
+    r = rows(sync.compare(client(ws), p))["load_orders.py"]
+    assert (r["here"], r["there"], r["action"]) == ("Deleted", "Changed there", "conflict")
+    out = sync.push(client(ws), p, [], deletes=["load_orders.py"], confirm_deletes=True)
+    assert out["done"] == [] and "load_orders" in ws.objects
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_pull_never_writes_through_a_planted_link(folder, tmp_path):
+    ws = FakeWorkspace(exists=False)
+    p = pair(folder)
+    p["files"] = sync.push(client(ws), p, ["load_orders.py"])["files"]
+    ws.objects["load_orders"] |= {"modified_at": 9999, "content": "# Databricks notebook source\nprint('from dbx')\n"}
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me")
+    for planted in (folder / "load_orders.py.kf-pull", folder / ".kf-pull-x"):
+        os.symlink(victim, planted)
+    out = sync.pull(client(ws), p, ["load_orders.py"])
+    assert out["done"] == [{"file": "load_orders.py", "action": "pulled"}]
+    assert victim.read_text() == "keep me" and "from dbx" in (folder / "load_orders.py").read_text()
+    assert not [x for x in folder.iterdir() if x.name.startswith(".kf-pull-") and not x.is_symlink()]
+    # The notebook itself swapped for a link: left alone, nothing written through it.
+    (folder / "load_orders.py").unlink()
+    os.symlink(victim, folder / "load_orders.py")
+    ws.objects["load_orders"]["modified_at"] = 10000
+    sync.pull(client(ws), p | {"files": out["files"]}, ["load_orders.py"])
+    assert victim.read_text() == "keep me"
 
 
 def test_two_files_that_would_be_one_notebook_are_blocked(folder):

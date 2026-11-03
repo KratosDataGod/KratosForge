@@ -340,12 +340,12 @@ test("axe finds nothing serious on Overview, the report, Settings, Impact, Goals
   await check("overview", ".page.profile");
   await openProfile("report", "Validated notebook sales_daily_load");
   await check("report", ".page.profile");
-  await openProfile("settings", "Your data");
-  await check("settings", ".page.profile");
   await openProfile("impact", "Verified outcomes");
   await check("impact", ".page.profile");
   await openProfile("goals", "Development roadmap");
   await check("goals", ".page.profile");
+  await openProfile("settings", "Your data");
+  await check("settings", ".page.profile");
   await page().getByRole("button", { name: "Delete my profile data" }).click();
   await page().getByRole("dialog", { name: "Delete your profile data?" }).waitFor();
   await check("delete confirm", "#dialog-root .dialog");

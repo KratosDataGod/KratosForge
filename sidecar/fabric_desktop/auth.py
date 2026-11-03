@@ -56,6 +56,10 @@ ONELAKE_SCOPES = ["https://api.fabric.microsoft.com/OneLake.ReadWrite.All"]
 # out only with at least this long left (HD-034): one that has less is refreshed first.
 STORAGE_MIN_SECONDS = 30 * 60
 CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
+# Which items changed in a workspace and in its Git branch, and their conflicts (Get Status), asked
+# for the first time item status opens. Microsoft has no read-only scope for it: this one also lets
+# Update from Git run, which the app does only behind a preview, a fresh status check and a confirm.
+GIT_STATUS_SCOPES = ["https://api.fabric.microsoft.com/Workspace.GitUpdate.All"]
 # Gateway names on the Data Factory Connections tab (Preview), asked for the first time it opens.
 GATEWAY_SCOPES = ["https://api.fabric.microsoft.com/Gateway.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]

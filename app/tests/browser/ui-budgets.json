@@ -1,0 +1,15 @@
+{
+  "_about": "Budgets for ui-benchmark.cjs, held by ui-budgets.test.cjs (docs/performance.md#the-app-window). Each is about 3 times the 2026-11-03 baseline on a 4-CPU Linux build machine, so CI noise doesn't fail it and a real regression does. large_list_ms and large_list_nodes time a workspace of 5,000 items to its first screen of rows; more are drawn as you scroll. Lower a budget when a change makes the app faster; raising one needs the reason in the pull request.",
+  "startup_ms": 1200,
+  "nav_max_ms": 25,
+  "token_switch_max_ms": 25,
+  "density_switch_max_ms": 15,
+  "large_list_ms": 2100,
+  "large_list_nodes": 9000,
+  "editor_type_200_ms": 2500,
+  "editor_longest_task_ms": 500,
+  "heap_mb": 32,
+  "dom_nodes_in_page": 1500,
+  "idle_task_ms_per_10s": 60,
+  "errors": 0
+}

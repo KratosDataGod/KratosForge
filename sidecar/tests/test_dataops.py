@@ -233,6 +233,15 @@ def test_freshness_is_checked_by_the_save_gate_and_saved_from_the_app(svc):
     assert any("freshness by" in e for e in bad["errors"]) and any("freshness envs" in e for e in bad["errors"])
 
 
+@pytest.mark.parametrize("spec, said", [
+    ({"within_hours": float("nan")}, "within_hours must be a number"),
+    ({"within_hours": float("inf")}, "within_hours must be a number"),
+    ({"by": "07:00\n"}, 'by must be a time like "07:00"'),
+])
+def test_freshness_refuses_nan_infinity_and_a_time_with_more_after_it(spec, said):
+    assert any(said in e for e in freshness.problems("a", {"freshness": spec}, ("dev", "test", "prod")))
+
+
 def _teams_posts(svc, monkeypatch, url="https://example.webhook.office.com/x"):
     posts = []
     post = lambda url, title, lines: posts.append((title, lines))  # noqa: E731

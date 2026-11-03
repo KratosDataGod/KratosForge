@@ -29,6 +29,7 @@ _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the b
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
+_FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
 _EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
@@ -74,6 +75,9 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "pbi_embed_token": _EMBED,
     "pbi_embed_content": _EMBED,
+    "fabric_item_support": _FABRIC_GIT,
+    "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
+    "fabric_git_update": _FABRIC_GIT,  # the Update from Git dialog (#1766) calls it
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

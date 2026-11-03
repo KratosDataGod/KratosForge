@@ -1,0 +1,1564 @@
+{
+  "schema": "kratosforge/academy-certification@1",
+  "id": "dp-700",
+  "title": "Implementing Data Engineering Solutions Using Microsoft Fabric",
+  "vendor": "Microsoft",
+  "version": "2026-10-30",
+  "source": {
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/dp-700",
+    "read": "2026-11-03",
+    "page_updated": "2026-10-30",
+    "effective": null,
+    "effective_note": "The study guide gives no effective date for its skills list. The 19 October 2026 date in the Academy brief is unverified; this version is named for the page's own update date.",
+    "snapshot_sha256": "192a842a0189ee95fd5baf37dd7df639cf693bb56b2fcd7a238c8fcfe16878da"
+  },
+  "reviewed": "2026-11-03",
+  "notes": [
+    "The bullets illustrate how each skill is assessed; related topics may also be tested.",
+    "Most questions cover generally available features; commonly used Preview features may appear.",
+    "KratosForge readiness is an estimate from evidence on this PC, never Microsoft's score or a promise of passing."
+  ],
+  "domains": [
+    {
+      "id": "1",
+      "title": "Implement and manage an analytics solution",
+      "weight": {
+        "min": 30,
+        "max": 35
+      },
+      "skills": [
+        {
+          "id": "1.1",
+          "title": "Configure Microsoft Fabric workspace settings",
+          "objectives": [
+            {
+              "id": "1.1.1",
+              "text": "Configure Spark workspace settings",
+              "competency": "Choose and configure Spark pools, environments and Spark settings for a workspace's workloads.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E01",
+                "E02"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/workspace-admin-settings",
+                "https://learn.microsoft.com/fabric/data-engineering/spark-compute",
+                "https://learn.microsoft.com/fabric/data-engineering/environment-manage-library"
+              ],
+              "gaps": [
+                "G-04",
+                "G-08"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.1.2",
+              "text": "Configure domain workspace settings",
+              "competency": "Assign workspaces to domains and set the settings a domain can delegate.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E03"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/governance/domains"
+              ],
+              "gaps": [
+                "G-04"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.1.3",
+              "text": "Configure OneLake workspace settings",
+              "competency": "Set a workspace's OneLake settings and know what each one allows.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E04"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-07"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/onelake/onelake-file-explorer",
+                "https://learn.microsoft.com/fabric/onelake/onelake-shortcuts"
+              ],
+              "gaps": [
+                "G-04"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.1.4",
+              "text": "Configure data workflow workspace settings",
+              "competency": "Set the workspace settings for data workflows (Apache Airflow jobs) and know when they apply.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E05"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/apache-airflow-jobs-concepts"
+              ],
+              "gaps": [
+                "G-04",
+                "G-07"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "1.2",
+          "title": "Implement lifecycle management in Fabric",
+          "objectives": [
+            {
+              "id": "1.2.1",
+              "text": "Configure version control",
+              "competency": "Connect a workspace to Git, commit, branch, update and resolve conflicts in item definitions.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E06",
+                "E07"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "artifact_present",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.2.2",
+              "text": "Implement database projects",
+              "competency": "Develop a warehouse as a database project and catch breaking changes before they deploy.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E08"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [
+                "LM-23"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "artifact_present",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/development-deployment",
+                "https://learn.microsoft.com/fabric/data-warehouse/develop-warehouse-project"
+              ],
+              "gaps": [
+                "G-03"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.2.3",
+              "text": "Create and configure deployment pipelines",
+              "competency": "Create a deployment pipeline, set deployment rules, and know what deploys and what doesn't.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E09"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "1.3",
+          "title": "Configure security and governance",
+          "objectives": [
+            {
+              "id": "1.3.1",
+              "text": "Implement workspace-level access controls",
+              "competency": "Give people the least workspace role that lets them do their work.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E10"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/fundamentals/roles-workspaces",
+                "https://learn.microsoft.com/fabric/security/permission-model"
+              ],
+              "gaps": [
+                "G-04"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.3.2",
+              "text": "Implement item-level access controls",
+              "competency": "Share individual items with the permissions each audience needs.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E11"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [
+                "LM-24"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/security/permission-model"
+              ],
+              "gaps": [
+                "G-04"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.3.3",
+              "text": "Implement row-level, column-level, object-level, and file-level access controls",
+              "competency": "Restrict rows, columns, objects and OneLake folders to the people allowed to see them.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E12",
+                "E13",
+                "E14"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [
+                "LM-24"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "data_quality",
+                "fabric_check",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/row-level-security",
+                "https://learn.microsoft.com/fabric/data-warehouse/column-level-security",
+                "https://learn.microsoft.com/fabric/onelake/security/data-access-control-model"
+              ],
+              "gaps": [
+                "G-03"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.3.4",
+              "text": "Implement dynamic data masking",
+              "competency": "Apply dynamic data masking and know who sees masked and unmasked values.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E15"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/dynamic-data-masking"
+              ],
+              "gaps": [
+                "G-03"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.3.5",
+              "text": "Apply sensitivity labels to items",
+              "competency": "Apply sensitivity labels to items and know how labels flow to downstream items.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E16"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/governance/information-protection"
+              ],
+              "gaps": [
+                "G-05"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.3.6",
+              "text": "Endorse items",
+              "competency": "Promote and certify items and know who may do each.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E16"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/governance/endorsement-overview"
+              ],
+              "gaps": [
+                "G-04"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "1.4",
+          "title": "Orchestrate processes",
+          "objectives": [
+            {
+              "id": "1.4.1",
+              "text": "Choose between a pipeline and a notebook",
+              "competency": "Choose between a pipeline and a notebook for a job and justify the choice.",
+              "fabric_required": false,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E17"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-08"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "assessment"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "1.4.2",
+              "text": "Design and implement schedules and event-based triggers",
+              "competency": "Schedule pipelines and trigger them from events such as a file arriving.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E18"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/pipeline-runs"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "1.4.3",
+              "text": "Implement orchestration patterns with notebooks and pipelines, including parameters and dynamic expressions",
+              "competency": "Orchestrate notebooks and pipelines with parameters and dynamic expressions.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E19",
+                "E20"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "notebook_ran",
+                "pipeline_outcome"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/expression-language",
+                "https://learn.microsoft.com/fabric/data-engineering/notebook-utilities"
+              ],
+              "gaps": [],
+              "status": "planned"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Ingest and transform data",
+      "weight": {
+        "min": 30,
+        "max": 35
+      },
+      "skills": [
+        {
+          "id": "2.1",
+          "title": "Design and implement loading patterns",
+          "objectives": [
+            {
+              "id": "2.1.1",
+              "text": "Design and implement full and incremental data loads",
+              "competency": "Build full and incremental loads that miss nothing and are safe to run again.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E21",
+                "E22",
+                "E57"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-12",
+                "LM-21"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "delta_table",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.1.2",
+              "text": "Prepare data for loading into a dimensional model",
+              "competency": "Prepare dimensions and facts for a dimensional model, including surrogate keys and history.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E23",
+                "E24",
+                "E25"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LAB-03",
+                "LAB-05"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.1.3",
+              "text": "Design and implement a loading pattern for streaming data",
+              "competency": "Design a loading pattern for streaming data that resumes where it left off.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E26"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "fabric_check",
+                "notebook_ran"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-streaming-data"
+              ],
+              "gaps": [
+                "G-08"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "2.2",
+          "title": "Ingest and transform batch data",
+          "objectives": [
+            {
+              "id": "2.2.1",
+              "text": "Choose an appropriate data store",
+              "competency": "Choose a lakehouse, warehouse, eventhouse or SQL database for a workload.",
+              "fabric_required": false,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E27"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-06",
+                "LM-23"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "assessment"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/fundamentals/decision-guide-data-store"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.2",
+              "text": "Choose between dataflows, notebooks, and T-SQL for data transformation",
+              "competency": "Choose dataflows, notebooks or T-SQL for a transformation and justify the choice.",
+              "fabric_required": false,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E17",
+                "E28"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+                "https://learn.microsoft.com/fabric/data-factory/create-first-dataflow-gen2"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.3",
+              "text": "Create and manage shortcuts to data",
+              "competency": "Create and manage shortcuts to data in OneLake and outside it.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E29"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-24"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/onelake/onelake-shortcuts"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.4",
+              "text": "Implement mirroring",
+              "competency": "Set up mirroring and know what it replicates and how to query it.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E30"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/mirroring/overview"
+              ],
+              "gaps": [
+                "G-06"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.5",
+              "text": "Ingest data by using pipelines",
+              "competency": "Ingest data with pipeline activities, including copy settings that suit the source.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E31"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "fabric_check",
+                "pipeline_outcome"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/copy-data-activity"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.6",
+              "text": "Transform data by using PySpark, SQL, and KQL",
+              "competency": "Transform data with PySpark, SQL and KQL.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E32",
+                "E33",
+                "E34"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-08",
+                "LM-19"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "data_quality",
+                "delta_table",
+                "fabric_check",
+                "notebook_ran",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables",
+                "https://learn.microsoft.com/fabric/real-time-intelligence/kusto-query-set"
+              ],
+              "gaps": [
+                "G-01"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.7",
+              "text": "Denormalize data",
+              "competency": "Denormalize data into wide tables for reporting.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E35"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LAB-07"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.8",
+              "text": "Group and aggregate data",
+              "competency": "Group and aggregate data, including subtotals.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E36"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-04"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.2.9",
+              "text": "Handle duplicate, missing, and late-arriving data",
+              "competency": "Handle duplicate, missing and late-arriving data without losing or doubling rows.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E25",
+                "E37",
+                "E38",
+                "E39",
+                "E57",
+                "E58"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-13",
+                "LM-17",
+                "LAB-04",
+                "LAB-06"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables"
+              ],
+              "gaps": [],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "2.3",
+          "title": "Ingest and transform streaming data",
+          "objectives": [
+            {
+              "id": "2.3.1",
+              "text": "Choose an appropriate streaming engine",
+              "competency": "Choose Eventstream, Spark structured streaming or KQL for a streaming workload.",
+              "fabric_required": false,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E40"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/overview",
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-streaming-data"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "2.3.2",
+              "text": "Process data by using eventstreams",
+              "competency": "Process events with an eventstream: filter, aggregate and route them.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E41"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/overview",
+                "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor"
+              ],
+              "gaps": [
+                "G-02"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.3.3",
+              "text": "Process data by using Spark structured streaming",
+              "competency": "Process data with Spark structured streaming, including checkpoints and foreachBatch.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E26",
+                "E42"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "fabric_check",
+                "notebook_ran"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/lakehouse-streaming-data"
+              ],
+              "gaps": [
+                "G-08"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.3.4",
+              "text": "Process data by using KQL",
+              "competency": "Process streaming data with KQL.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E34"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/kusto-query-set",
+                "https://learn.microsoft.com/fabric/real-time-intelligence/eventhouse"
+              ],
+              "gaps": [
+                "G-01"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "2.3.5",
+              "text": "Create windowing functions",
+              "competency": "Aggregate events over tumbling, hopping, sliding and session windows.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E43"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [
+                "LM-15"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "fabric_check",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor"
+              ],
+              "gaps": [
+                "G-01"
+              ],
+              "status": "planned"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Monitor and optimize an analytics solution",
+      "weight": {
+        "min": 30,
+        "max": 35
+      },
+      "skills": [
+        {
+          "id": "3.1",
+          "title": "Monitor Fabric items",
+          "objectives": [
+            {
+              "id": "3.1.1",
+              "text": "Monitor data ingestion",
+              "competency": "Monitor ingestion runs and find failures and slowdowns.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E44"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "fabric_check",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/admin/monitoring-hub",
+                "https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs"
+              ],
+              "gaps": [
+                "G-09"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.1.2",
+              "text": "Monitor data transformation",
+              "competency": "Monitor transformation runs and capacity use and find what caused a problem.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E44",
+                "E47"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "fabric_check",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/admin/monitoring-hub",
+                "https://learn.microsoft.com/fabric/enterprise/metrics-app"
+              ],
+              "gaps": [
+                "G-09"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.1.3",
+              "text": "Monitor semantic model refresh",
+              "competency": "Monitor semantic model refreshes and spot problems such as Direct Lake fallback.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E45"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-09"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "fabric_check",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/admin/monitoring-hub"
+              ],
+              "gaps": [
+                "G-09"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.1.4",
+              "text": "Configure alerts",
+              "competency": "Configure alerts that fire on failures and on data conditions.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E46"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/data-activator/activator-introduction"
+              ],
+              "gaps": [
+                "G-09"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Identify and resolve errors",
+          "objectives": [
+            {
+              "id": "3.2.1",
+              "text": "Identify and resolve pipeline errors",
+              "competency": "Find and fix pipeline errors.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E48",
+                "E49",
+                "E58"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "pipeline_outcome",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "3.2.2",
+              "text": "Identify and resolve dataflow errors",
+              "competency": "Find and fix dataflow errors.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E50"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/create-first-dataflow-gen2"
+              ],
+              "gaps": [
+                "G-11"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.2.3",
+              "text": "Identify and resolve notebook errors",
+              "competency": "Find and fix notebook errors.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E51",
+                "E52"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "notebook_ran"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/spark-monitoring-overview"
+              ],
+              "gaps": [],
+              "status": "planned"
+            },
+            {
+              "id": "3.2.4",
+              "text": "Identify and resolve eventhouse errors",
+              "competency": "Find and fix eventhouse errors.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E53"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/eventhouse"
+              ],
+              "gaps": [
+                "G-01"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.2.5",
+              "text": "Identify and resolve eventstream errors",
+              "competency": "Find and fix eventstream errors.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E54"
+              ],
+              "capstones": [
+                "C2"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "config_matches",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/event-streams/overview"
+              ],
+              "gaps": [
+                "G-02"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.2.6",
+              "text": "Identify and resolve T-SQL errors",
+              "competency": "Find and fix T-SQL errors.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E55"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [
+                "LAB-09"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/troubleshoot-fabric-data-warehouse"
+              ],
+              "gaps": [
+                "G-03"
+              ],
+              "status": "planned"
+            }
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "Optimize performance",
+          "objectives": [
+            {
+              "id": "3.3.1",
+              "text": "Optimize a lakehouse table",
+              "competency": "Optimize lakehouse tables: file sizes, layout and maintenance.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E56"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-25"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.3.2",
+              "text": "Optimize a pipeline",
+              "competency": "Optimize a pipeline's run time and cost.",
+              "fabric_required": true,
+              "best_local": "simulated",
+              "exercises": [
+                "E60"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "fabric_check",
+                "pipeline_outcome"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-factory/copy-data-activity"
+              ],
+              "gaps": [
+                "G-10"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.3.3",
+              "text": "Optimize a data warehouse",
+              "competency": "Optimize a data warehouse.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E61"
+              ],
+              "capstones": [
+                "C3"
+              ],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
+              ],
+              "gaps": [
+                "G-03"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.3.4",
+              "text": "Optimize eventstreams and eventhouses",
+              "competency": "Optimize eventstreams and eventhouses.",
+              "fabric_required": true,
+              "best_local": "knowledge_only",
+              "exercises": [
+                "E62"
+              ],
+              "capstones": [],
+              "lessons": [],
+              "questions_planned": 4,
+              "validation": [
+                "assessment",
+                "fabric_check"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/real-time-intelligence/eventhouse"
+              ],
+              "gaps": [
+                "G-01",
+                "G-02"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.3.5",
+              "text": "Optimize Spark performance",
+              "competency": "Optimize Spark performance.",
+              "fabric_required": true,
+              "best_local": "local_verified",
+              "exercises": [
+                "E52",
+                "E63"
+              ],
+              "capstones": [],
+              "lessons": [
+                "LM-27"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "delta_table",
+                "fabric_check",
+                "notebook_ran"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-engineering/spark-monitoring-overview",
+                "https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order"
+              ],
+              "gaps": [
+                "G-08"
+              ],
+              "status": "planned"
+            },
+            {
+              "id": "3.3.6",
+              "text": "Optimize query performance",
+              "competency": "Optimize query performance.",
+              "fabric_required": false,
+              "best_local": "local_verified",
+              "exercises": [
+                "E59",
+                "E64"
+              ],
+              "capstones": [
+                "C1"
+              ],
+              "lessons": [
+                "LM-18",
+                "LAB-02"
+              ],
+              "questions_planned": 4,
+              "validation": [
+                "data_quality",
+                "result_matches",
+                "schema_matches"
+              ],
+              "docs": [
+                "https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance"
+              ],
+              "gaps": [],
+              "status": "planned"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "G-01",
+      "title": "No local KQL engine",
+      "why": "Nothing in the repository runs KQL",
+      "closes_with": "Fabric Eventhouse exercises (ACD-014), or embedding Microsoft's Kusto emulator if Chris approves installing it (ACD-016)",
+      "objectives": [
+        "2.2.6",
+        "2.3.4",
+        "2.3.5",
+        "3.2.4",
+        "3.3.4"
+      ]
+    },
+    {
+      "id": "G-02",
+      "title": "No Eventstream runtime",
+      "why": "Eventstream is a Fabric service",
+      "closes_with": "Topology checks locally (SIMULATED), real runs in Fabric (ACD-014)",
+      "objectives": [
+        "2.3.2",
+        "3.2.5",
+        "3.3.4"
+      ]
+    },
+    {
+      "id": "G-03",
+      "title": "T-SQL never runs here",
+      "why": "DuckDB is not the Warehouse engine (sql_dialects.py)",
+      "closes_with": "Fabric Warehouse exercises (ACD-014)",
+      "objectives": [
+        "1.2.2",
+        "1.3.3",
+        "1.3.4",
+        "3.2.6",
+        "3.3.3"
+      ]
+    },
+    {
+      "id": "G-04",
+      "title": "Workspace, tenant and domain settings, roles and endorsement",
+      "why": "Settings and permissions live in Fabric; some need admin roles",
+      "closes_with": "SIMULATED settings models locally, read-only checks in the learner's own workspace",
+      "objectives": [
+        "1.1.1",
+        "1.1.2",
+        "1.1.3",
+        "1.1.4",
+        "1.3.1",
+        "1.3.2",
+        "1.3.6"
+      ]
+    },
+    {
+      "id": "G-05",
+      "title": "Sensitivity labels",
+      "why": "Needs Microsoft Purview labels published in the tenant",
+      "closes_with": "FABRIC VERIFIED only where the learner's tenant has labels; otherwise KO",
+      "objectives": [
+        "1.3.5"
+      ]
+    },
+    {
+      "id": "G-06",
+      "title": "Mirroring",
+      "why": "Needs a source database and capacity",
+      "closes_with": "KO locally; Fabric exercise with a free-tier source is a cost decision for Chris",
+      "objectives": [
+        "2.2.4"
+      ]
+    },
+    {
+      "id": "G-07",
+      "title": "Data workflows (Apache Airflow jobs)",
+      "why": "No local Airflow job runtime in KratosForge",
+      "closes_with": "KO; Fabric exercise later",
+      "objectives": [
+        "1.1.4"
+      ]
+    },
+    {
+      "id": "G-08",
+      "title": "Spark engine and continuous streaming",
+      "why": "The local PySpark API is DuckDB: no executors, shuffles or AQE; streams run only as availableNow here",
+      "closes_with": "File layout lessons locally; Spark tuning verified in Fabric",
+      "objectives": [
+        "1.1.1",
+        "2.1.3",
+        "2.3.3",
+        "3.3.5"
+      ]
+    },
+    {
+      "id": "G-09",
+      "title": "Monitoring hub, alerts, refresh",
+      "why": "Service telemetry",
+      "closes_with": "Recorded run histories (SIMULATED), live read-only checks later",
+      "objectives": [
+        "3.1.1",
+        "3.1.2",
+        "3.1.3",
+        "3.1.4"
+      ]
+    },
+    {
+      "id": "G-10",
+      "title": "Item behavior only the service shows",
+      "why": "Workspace Git sync, deployment, triggers, shortcuts, copy throughput and V-Order happen in Fabric; locally the learner works with the files and the logic",
+      "closes_with": "Fabric exercises (ACD-014)",
+      "objectives": [
+        "1.2.1",
+        "1.2.3",
+        "1.4.2",
+        "2.2.3",
+        "2.2.5",
+        "3.3.1",
+        "3.3.2"
+      ]
+    },
+    {
+      "id": "G-11",
+      "title": "No local Power Query (M) engine",
+      "why": "orchestration/mashup.py reads dataflow definitions but nothing evaluates M",
+      "closes_with": "SIMULATED fault diagnosis locally; Fabric exercise (ACD-014)",
+      "objectives": [
+        "3.2.2"
+      ]
+    }
+  ]
+}

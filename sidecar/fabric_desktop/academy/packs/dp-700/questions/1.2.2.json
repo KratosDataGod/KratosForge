@@ -1,0 +1,133 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.2.2",
+  "questions": [
+    {
+      "id": "1.2.2-q1",
+      "type": "single",
+      "stem": "What does building a SQL database project for a warehouse produce?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A .dacpac file describing the database schema"
+        },
+        {
+          "id": "b",
+          "text": "A backup of the warehouse's data"
+        },
+        {
+          "id": "c",
+          "text": "A CSV file per table"
+        },
+        {
+          "id": "d",
+          "text": "A Power BI report"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Building a SQL project validates its object definitions and produces a .dacpac, a package of the schema that deployment tools compare with a target and apply.",
+      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.2-q2",
+      "type": "single",
+      "stem": "How does a SQL database project describe the database?",
+      "options": [
+        {
+          "id": "a",
+          "text": "As a list of ALTER scripts that must be run in order"
+        },
+        {
+          "id": "b",
+          "text": "As a single connection string"
+        },
+        {
+          "id": "c",
+          "text": "As a declarative set of object definitions, such as CREATE TABLE scripts, from which deployment works out the changes needed"
+        },
+        {
+          "id": "d",
+          "text": "As a copy of the data in each table"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A project holds the desired state of each object. Deployment compares it with the target and generates the changes, so you don't write migration scripts by hand.",
+      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.2-q3",
+      "type": "single",
+      "stem": "What happens when you publish a SQL project's built .dacpac to a target warehouse?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The .dacpac's data is copied into every table"
+        },
+        {
+          "id": "b",
+          "text": "Nothing changes until someone runs the ALTER scripts by hand"
+        },
+        {
+          "id": "c",
+          "text": "The difference between the .dacpac and the target is calculated, and only the changes needed are applied"
+        },
+        {
+          "id": "d",
+          "text": "The target warehouse is dropped and recreated from scratch"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Publishing calculates the difference between the source .dacpac and the target database and deploys the changes, so the target ends up matching the project.",
+      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.2-q4",
+      "type": "order",
+      "stem": "Put the steps of bringing an existing warehouse under a database project and deploying a change in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Edit the object definitions in the project"
+        },
+        {
+          "id": "b",
+          "text": "Create a SQL project from the existing warehouse's schema"
+        },
+        {
+          "id": "c",
+          "text": "Publish the .dacpac to the target warehouse"
+        },
+        {
+          "id": "d",
+          "text": "Build the project into a .dacpac"
+        }
+      ],
+      "answer": [
+        "b",
+        "a",
+        "d",
+        "c"
+      ],
+      "explanation": "You start the project from the current schema, change it, build to check it and produce the package, and publish the package to the target.",
+      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

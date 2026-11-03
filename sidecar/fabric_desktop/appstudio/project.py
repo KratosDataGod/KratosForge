@@ -42,6 +42,7 @@ MAX_EXPORT_BYTES = 64 * 1024 * 1024
 MAX_VERSIONS = 500
 SOURCES = {"ai", "visual", "manual", "template", "import"}
 _NAME_OK = re.compile(r"[^A-Za-z0-9 _\-]")
+_DEVICE = re.compile(r"(?i)(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])")  # Windows device names
 _VERSION_FILE = re.compile(r"^\d{4,6}\.json$")
 # Model provider keys that redact.secrets doesn't know yet: Anthropic, OpenAI and Google AI Studio.
 _MODEL_KEY = re.compile(r"\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})\b")
@@ -60,6 +61,8 @@ def folder_name(name: str) -> str:
     clean = " ".join(_NAME_OK.sub(" ", str(name or "")).split())[:80].strip()
     if not clean:
         raise ProjectError("Give the application a name with at least one letter or digit.")
+    if _DEVICE.fullmatch(clean):
+        raise ProjectError(f"{clean} is a name Windows keeps for a device. Choose another name.")
     return clean + SUFFIX
 
 
@@ -253,6 +256,13 @@ def undo(path: str | os.PathLike[str]) -> dict[str, Any]:
 
 def redo(path: str | os.PathLike[str]) -> dict[str, Any]:
     return _step(path, back=False)
+
+
+def history(path: str | os.PathLike[str], limit: int = 100) -> list[dict[str, Any]]:
+    """The newest ``limit`` history entries, newest first, without the operations themselves."""
+    folder = _dir(path)
+    keep = ("seq", "at", "kind", "source", "note", "changed", "of", "version", "kept_as")
+    return [{k: e[k] for k in keep if k in e} for e in reversed(_history(folder)[-max(1, min(int(limit), 500)):])]
 
 
 # ---------------------------------------------------------------- versions

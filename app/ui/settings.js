@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
 
@@ -580,6 +581,7 @@ function motionSettingsCard(s, locked) {
         onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),

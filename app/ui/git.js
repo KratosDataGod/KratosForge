@@ -148,6 +148,12 @@ const FABRIC_GIT_STATES = {
 };
 const FABRIC_GIT_CHANGES = { added: "Added", deleted: "Deleted", modified: "Changed", "": "No change" };
 const FABRIC_GIT_SUPPORT = { yes: "Full", preview: "Preview in Fabric", no: "Not supported by Fabric Git" };
+// The Support cell: Fabric Git's level, and "definition only" when the item's data never goes through Git.
+function fgSupportText(i) {
+  const base = FABRIC_GIT_SUPPORT[i.git_support] || "";
+  const dataStays = i.git_support !== "no" && (i.limits || []).some((l) => /never go/.test(l));
+  return dataStays ? `${base}, definition only` : base;
+}
 
 const fgShort = (sha) => (sha ? String(sha).slice(0, 7) : "");
 const fgPlural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -1216,18 +1222,19 @@ function gitFabricTab(st) {
     Object.assign(p, { key, overview: null, error: null, status: null, statusError: null });
     rpc("fabric_git_overview", { repo: st.root, env: p.env })
       .then((o) => { if (p.key === key) p.overview = o; })
-      .catch((err) => { if (p.key === key) p.error = friendlyError(err).text; })
+      .catch((err) => { if (p.key === key) p.error = err; })
       .finally(() => { if (state.view === "source" && gitPage.tab === "fabric") render(); });
   }
   const how = howItWorks("source.fabric", {
-    reads: "The workspace's own Git connection in Fabric (GET /v1/workspaces/{id}/git/connection), and this repository. Check status in Fabric also reads which items differ (GET .../git/status); the first time, Windows asks you to allow KratosForge to use Fabric Git for you.",
+    reads: "The Git connection Fabric keeps for the workspace, and this repository. Check status in Fabric also asks Fabric which items differ; the first time, Windows asks you to allow KratosForge to use Fabric Git for you.",
     changes: "Nothing in Fabric and nothing in Git. Linking writes fabric-desktop.toml in this repository (workspace ids and names, no secrets) as a change to commit.",
     results: "On this tab. Pushing to Git never updates the workspace: it changes only when someone chooses Update from Git.",
     anchor: "fabric-workspace" });
   const envPick = h("select", { class: "fg-env", "aria-label": "Environment", onchange: (e) => { p.env = e.target.value; gitFabricReload(); } },
     ["dev", "test", "prod"].map((e) => h("option", { value: e, selected: p.env === e ? true : null }, e[0].toUpperCase() + e.slice(1))));
   const wrap = (...kids) => withHowItWorks(h("div", { class: "git-platform" }, ...kids), how);
-  if (p.error) return wrap(h("div", { class: "row" }, envPick), h("div", { class: "callout git-warn" }, icon("warning", 16), p.error));
+  if (p.error) return wrap(h("div", { class: "row" }, envPick),
+    errorPanel(p.error, { label: "Couldn't read the workspace's Git connection", retry: () => gitFabricReload(true) }));
   const o = p.overview;
   if (!o) return wrap(h("div", { class: "row" }, envPick), h("p", { class: "muted-text" }, "Reading the workspace's Git connection…"));
   if (!o.linked) {
@@ -1269,9 +1276,10 @@ function gitFabricItems(p) {
   const rows = s.items.map((i) => {
     const [label, tone] = FABRIC_GIT_STATES[i.state] || [i.state, "neu"];
     return h("tr", { class: i.state === "conflict" ? "fg-conflict" : null },
-      h("td", {}, h("b", {}, i.name)), h("td", {}, i.label), h("td", {}, FABRIC_GIT_CHANGES[i.workspace_change] || ""),
+      h("td", {}, i.state === "conflict" ? h("b", {}, i.name) : i.name), h("td", {}, i.label), h("td", {}, FABRIC_GIT_CHANGES[i.workspace_change] || ""),
       h("td", {}, FABRIC_GIT_CHANGES[i.remote_change] || ""), h("td", {}, h("span", { class: `pill-s ${tone}` }, label)),
-      h("td", { class: i.git_support === "no" ? "muted-text" : null }, FABRIC_GIT_SUPPORT[i.git_support] || ""));
+      h("td", { class: i.git_support === "no" ? "muted-text" : null, title: (i.limits || []).join(" ") || null }, fgSupportText(i),
+        i.limits?.length && i.git_support !== "no" ? h("div", { class: "muted-text small" }, i.limits[0]) : null));
   });
   return h("section", { class: "card" },
     h("div", { class: "row wrap pad" }, h("h2", { class: "grow" }, s.items.length ? `Items (${s.items.length} differ)` : "Items"),

@@ -283,7 +283,7 @@ def status(raw: dict[str, Any] | None) -> dict[str, Any]:
                      "object_id": object_id if _GUID.fullmatch(object_id) else "",
                      "workspace_change": ws_change, "remote_change": remote_change, "conflict": conflict,
                      "state": _state(ws_change, remote_change, conflict),
-                     "git_support": cap.git, "round_trip": cap.round_trip})
+                     "git_support": cap.git, "round_trip": cap.round_trip, "limits": list(cap.limits)})
     order = {"conflict": 0, "both_changed": 1, "incoming": 2, "outgoing": 3, "same_change": 4, "unchanged": 5}
     rows.sort(key=lambda r: (order[r["state"]], r["name"].lower()))
     counts = {s: sum(1 for r in rows if r["state"] == s) for s in order}

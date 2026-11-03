@@ -22,6 +22,8 @@ import sys
 import tempfile
 from typing import Any
 
+from .redact import for_support, one_line
+
 _log = logging.getLogger(__name__)
 _ID = re.compile(r"[0-9a-f]{1,32}")
 
@@ -44,7 +46,7 @@ $folder = '\\{folder}\\'
 PROMPT_SECONDS = 5 * 60  # a prompt nobody answers (or one stuck on a hidden console) ends here
 
 REGISTER = _PRELUDE + """
-$me = "$env:USERDOMAIN\\$env:USERNAME"
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 # "Only allow Windows Hello sign-in for Microsoft accounts" blocks password logon for such an account,
 # so asking for a password could never work: say so instead (exit 6).
 $pl = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\PasswordLess\\Device' -ErrorAction SilentlyContinue).DevicePasswordLessBuildVersion
@@ -107,6 +109,15 @@ def _powershell(script: str, folder: str, env: dict[str, str], prompt: bool = Fa
                           check=False, timeout=PROMPT_SECONDS if prompt else 120)
 
 
+def _for_log(text: str) -> str:
+    """Task Scheduler's words for the log, which can end up in a support bundle: without secrets, emails
+    or this account's name (Windows' messages can say DOMAIN\\user)."""
+    user = os.environ.get("USERNAME", "")
+    if len(user) > 1:
+        text = re.sub(re.escape(user), "[user]", text, flags=re.IGNORECASE)
+    return one_line(for_support(text), 500)
+
+
 def _explain(res: subprocess.CompletedProcess[str]) -> str:
     if res.returncode == CANCELLED:
         return "You closed the Windows prompt; nothing changed."
@@ -115,7 +126,7 @@ def _explain(res: subprocess.CompletedProcess[str]) -> str:
                 "Sign-in options), so Windows can't keep a password for runs while you're signed out; nothing "
                 "changed. Turn that setting off, or keep this schedule to times you're signed in.")
     text = (res.stderr or res.stdout).strip()
-    _log.warning("signed-out schedules: Task Scheduler refused (exit %s): %s", res.returncode, text[:500])
+    _log.warning("signed-out schedules: Task Scheduler refused (exit %s): %s", res.returncode, _for_log(text))
     low = text.lower()
     if "0x8007052e" in low or "-2147023570" in low or "password is incorrect" in low:
         return ("Windows didn't accept that password; nothing changed. If you sign in with a Microsoft account, "

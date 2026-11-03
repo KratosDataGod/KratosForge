@@ -255,9 +255,16 @@ def test_hello_only_sign_in_is_spotted_before_asking_for_a_password():
     assert "MicrosoftAccount" in script and "exit 6" in script
 
 
-def test_refusals_keep_windows_own_words_in_the_log(monkeypatch, caplog):
-    monkeypatch.setattr(signed_out_tasks.subprocess, "run",
-                        lambda args, **kw: subprocess.CompletedProcess(args, 5, "", "hresult=-1 Access is denied."))
+def test_refusals_keep_windows_own_words_in_the_log_without_the_account(monkeypatch, caplog):
+    monkeypatch.setenv("USERNAME", "chrisq")
+    monkeypatch.setattr(signed_out_tasks.subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(
+        args, 5, "", "hresult=-1 Access is denied for KRATOSDT\\ChrisQ (chris@contoso.com)."))
     with caplog.at_level("WARNING"), pytest.raises(signed_out_tasks.PasswordNotSaved):
         signed_out_tasks.register("FabricDesktop", "abc", "<Task/>")
-    assert "hresult=-1" in caplog.text
+    assert "hresult=-1 Access is denied" in caplog.text
+    assert "chrisq" not in caplog.text.lower() and "contoso" not in caplog.text
+
+
+def test_the_account_comes_from_windows_not_environment_variables():
+    assert "WindowsIdentity]::GetCurrent().Name" in signed_out_tasks.REGISTER
+    assert "$env:USERDOMAIN" not in signed_out_tasks.REGISTER

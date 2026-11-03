@@ -254,9 +254,27 @@ KRATOSFORGE: dict[str, Any] = {
     "workflow": {"rail": ["home", "create", "workspaces", "onelake", "metadata", "platform", "optimize", "monitor"]},
 }
 BASE: dict[str, dict[str, str]] = {"light": dict(KRATOSFORGE["appearance"]["tokens"]["light"])}
-BUILT_IN: dict[str, dict[str, Any]] = {KRATOSFORGE["id"]: validate(KRATOSFORGE)}
+# Fabric-familiar (Preview): light, a teal accent of our own and Fabric's page order (workspaces and
+# OneLake before governance). Patterns only: no Microsoft names, logos or colors beyond a familiar feel.
+FABRIC: dict[str, Any] = {
+    "schema": SCHEMA, "id": "fabric", "name": "Fabric-familiar", "version": "0.1.0",
+    "description": "Light, workspace-first: Create, Workspaces and OneLake at the top, as Fabric developers expect.",
+    "targets": [{"platform": "fabric", "reviewed": "2026-11-03",
+                 "basis": "Microsoft Fabric documentation (workspaces, lakehouse explorer, task flows), November 2026"}],
+    "appearance": {"color_mode": "light", "tokens": {"light": {
+        "--accent": "#0f6c5c", "--accent-dark": "#0a4d42", "--accent-soft": "#e6f2ef", "--accent-soft-2": "#edf5f3",
+        "--canvas": "#f5f5f5", "--border": "#e1e1e1",
+    }}},
+    "workflow": {"rail": ["home", "create", "workspaces", "onelake", "monitor", "platform", "optimize", "metadata"]},
+}
+BUILT_IN: dict[str, dict[str, Any]] = {m["id"]: validate(m, BASE) for m in (KRATOSFORGE, FABRIC)}
 
 
 def built_in() -> list[dict[str, Any]]:
     """The skins that ship with the app, checked."""
     return list(BUILT_IN.values())
+
+
+def listing() -> dict[str, Any]:
+    """What Settings shows (the skins_list call): every built-in skin, KratosForge first."""
+    return {"schema": SCHEMA, "skins": built_in()}

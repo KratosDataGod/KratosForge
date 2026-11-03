@@ -177,13 +177,32 @@ def _wrap_native(work):
             return fn(*args, **kwargs)
         return wrapper
 
+    swapped = {}   # id(original) -> wrapped, so the same function reached through a submodule is wrapped too
+
     def wrap_all(module, prefixes, what):
         for name in dir(module):
-            if name.startswith(prefixes) and callable(getattr(module, name, None)):
+            fn = getattr(module, name, None)
+            if name.startswith(prefixes) and callable(fn) and not isinstance(fn, type):   # classes: _guard_init
+                wrapped = swapped.get(id(fn)) or guard(fn, what)
                 try:
-                    setattr(module, name, guard(getattr(module, name), what))
+                    setattr(module, name, wrapped)
                 except (AttributeError, TypeError):
-                    pass
+                    continue
+                swapped[id(fn)] = wrapped
+
+    def rewire(package):
+        """Every module of ``package`` (polars.io.csv.functions and the like) that holds one of the
+        original functions gets the wrapped one instead."""
+        for modname, mod in list(sys.modules.items()):
+            if mod is None or not (modname == package or modname.startswith(package + ".")):
+                continue
+            for name, value in list(vars(mod).items()):
+                if (callable(value) and not isinstance(value, type) and id(value) in swapped
+                        and value is not swapped[id(value)]):
+                    try:
+                        setattr(mod, name, swapped[id(value)])
+                    except (AttributeError, TypeError):
+                        pass
 
     def maybe(name):
         try:
@@ -204,12 +223,58 @@ def _wrap_native(work):
                     "pyarrow.json"):
         mod = maybe(modname)
         if mod is not None:
-            wrap_all(mod, ("read_", "write_", "dataset", "ParquetFile", "ParquetDataset"), "a pyarrow file")
+            wrap_all(mod, ("read_", "write_", "dataset"), "a pyarrow file")
+            for cls_name in ("ParquetFile", "ParquetDataset", "ParquetWriter"):
+                cls = getattr(mod, cls_name, None)
+                if isinstance(cls, type):
+                    try:
+                        _guard_init(cls, check, "a pyarrow file")
+                    except (AttributeError, TypeError):
+                        setattr(mod, cls_name, guard(cls, "a pyarrow file"))
     pa_fs = maybe("pyarrow.fs")
     if pa_fs is not None:
+        # A file system object can't be confined by SubTreeFileSystem (it lets ".." through), so the
+        # local one is a subclass whose path methods check every path first. pyarrow's own readers
+        # build it by name and keep working; the paths they get were checked by their wrappers.
+        # Remote and other file systems are refused.
+        _local = pa_fs.LocalFileSystem
+
+        def _checked_method(name, n_paths):
+            original = getattr(_local, name)
+
+            def method(self, *args, **kwargs):
+                for p in args[:n_paths]:
+                    if isinstance(p, (list, tuple)):
+                        for q in p:
+                            check(getattr(q, "base_dir", q), "a pyarrow file")
+                    else:
+                        check(getattr(p, "base_dir", p), "a pyarrow file")
+                return original(self, *args, **kwargs)
+            method.__name__ = name
+            return method
+
+        two = ("move", "copy_file")
+        one = ("get_file_info", "create_dir", "delete_dir", "delete_dir_contents", "delete_file",
+               "open_input_stream", "open_input_file", "open_output_stream", "open_append_stream", "normalize_path")
+        members = {n: _checked_method(n, 2 if n in two else 1) for n in one + two if hasattr(_local, n)}
+        members["delete_root_dir_contents"] = _refused("pyarrow.fs delete_root_dir_contents")
+        checked_local = type("LocalFileSystem", (_local,), members)
+
         for name in dir(pa_fs):
-            if name.endswith("FileSystem") and name not in ("LocalFileSystem", "FileSystem", "SubTreeFileSystem"):
-                setattr(pa_fs, name, _refused(name))
+            if name.endswith("FileSystem") and name not in ("FileSystem", "LocalFileSystem"):
+                setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}; read and write files by their names"))
+        pa_fs.LocalFileSystem = checked_local
+        for name in ("resolve_s3_region", "initialize_s3", "copy_files"):
+            if hasattr(pa_fs, name):
+                setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}"))
+    pa = maybe("pyarrow")
+    if pa is not None:
+        for name in ("OSFile", "memory_map", "create_memory_map", "input_stream", "output_stream"):
+            fn = getattr(pa, name, None)
+            if fn is not None:
+                wrapped = guard(fn, "a pyarrow file")
+                setattr(pa, name, wrapped)
+                swapped[id(fn)] = wrapped
     pd = maybe("pandas")
     if pd is not None:
         wrap_all(pd, ("read_parquet", "read_feather", "read_orc", "read_csv", "read_json", "read_excel"), "a pandas read")
@@ -217,6 +282,8 @@ def _wrap_native(work):
     db = maybe("duckdb")
     if db is not None:
         _lock_duckdb(db, work, guard)
+    for package in ("polars", "pyarrow", "pandas", "deltalake"):
+        rewire(package)
 
 
 def _is_frame(value):
@@ -260,8 +327,12 @@ def _lock_duckdb(db, work, guard):
         default = db.default_connection() if callable(getattr(db, "default_connection", None)) else db.default_connection
         for s in settings:
             default.execute(s)
-    except Exception:  # noqa: BLE001  # silent-ok: no default connection in this DuckDB; module-level calls use connect
-        pass
+    except Exception:  # noqa: BLE001 - fail closed: the module-level calls would use an unlocked connection
+        for name in ("sql", "query", "execute", "executemany", "read_csv", "read_json", "read_parquet",
+                     "from_csv_auto", "from_parquet", "from_query", "query_df", "table", "view", "values",
+                     "from_df", "from_arrow", "install_extension", "load_extension", "cursor"):
+            if hasattr(db, name):
+                setattr(db, name, _refused(f"duckdb.{name}; use duckdb.connect()"))
 
 
 try:

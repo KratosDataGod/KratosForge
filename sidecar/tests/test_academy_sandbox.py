@@ -136,6 +136,11 @@ def test_python_sockets_are_refused(lab: tuple[Path, Path], code: str) -> None:
     "import pyarrow.parquet as pq, pyarrow as pa; pq.write_table(pa.table({{'a': [1]}}), {outside!r})",
     "import pyarrow.fs as fs; fs.S3FileSystem()",
     "import pandas as pd; pd.DataFrame({{'a': [1]}}).to_parquet({outside!r})",
+    "import pyarrow as pa; pa.output_stream({outside!r}).write(b'x')",
+    "import pyarrow as pa; pa.OSFile({outside!r}, 'w').write(b'x')",
+    "import pyarrow as pa; pa.create_memory_map({outside!r}, 10)",
+    "import polars.io.csv.functions as f; f.read_csv('https://example.com/x.csv')",
+    "import polars as pl, polars.io.parquet.functions as f; f.read_parquet({outside!r})",
 ])
 def test_native_readers_and_writers_refuse_urls_and_outside_paths(lab: tuple[Path, Path], tmp_path: Path, code: str) -> None:
     outside = tmp_path / "native-out.parquet"
@@ -284,3 +289,27 @@ def test_a_learner_library_folder_cant_be_an_app_folder(lab: tuple[Path, Path], 
     (work / "answer.py").write_text("print(1)\n")
     with pytest.raises(ws.Refused):
         sandbox.run(work, "answer.py", root, lib_roots=[lib])
+
+
+def test_native_reads_outside_the_workspace_are_refused(lab: tuple[Path, Path], tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("s3cret")
+    for code in (f"import pyarrow.fs as fs; print(fs.LocalFileSystem().open_input_stream({str(secret)!r}).read())",
+                 f"import pyarrow as pa; print(pa.input_stream({str(secret)!r}).read())",
+                 f"import pyarrow as pa; print(pa.memory_map({str(secret)!r}).read())",
+                 f"import polars.io.csv.functions as f; print(f.read_csv({str(secret)!r}))"):
+        res = run(lab, code + "\n")
+        assert res["status"] == "error" and "s3cret" not in res["stdout"], (code, res["stderr"][-300:])
+
+
+def test_pyarrow_file_systems_are_refused_but_its_readers_work(lab: tuple[Path, Path]) -> None:
+    for code in ("import pyarrow.fs as fs; fs.LocalFileSystem().open_output_stream('../../escape.txt')",
+                 "import pyarrow.fs as fs; fs.LocalFileSystem().open_input_stream('/etc/hostname').read()",
+                 "import pyarrow.fs as fs; fs.SubTreeFileSystem('/', None)",
+                 "import pyarrow.fs as fs; fs.S3FileSystem()",
+                 "import pyarrow.fs as fs; fs.copy_files('/etc/hostname', 'x')"):
+        assert refused(run(lab, code + "\n")), code
+    res = run(lab, "import pyarrow as pa, pyarrow.parquet as pq\n"
+                   "pq.write_table(pa.table({'a': [1, 2]}), 'x.parquet')\n"
+                   "print(pq.read_table('x.parquet').num_rows)\n")
+    assert res["status"] == "ok" and res["stdout"].strip() == "2", res["stderr"]

@@ -132,7 +132,13 @@ How each Security condition is met:
    `deltalake.write_deltalake` and `DeltaTable`; pyarrow parquet, dataset, csv, feather, orc and
    json readers and writers; remote pyarrow file systems; pandas parquet, feather, orc, csv, json
    and Excel I/O; and every DuckDB connection (`allowed_directories` = the workspace, external
-   access off, locked) all refuse URLs, `storage_options` and paths outside the workspace. These
+   access off, locked) all refuse URLs, `storage_options` and paths outside the workspace. The same
+   functions reached through submodules (`polars.io.csv.functions.read_csv`) are replaced too.
+   `pyarrow.OSFile`, `memory_map`, `create_memory_map`, `input_stream` and `output_stream` check
+   their path. `pyarrow.fs.LocalFileSystem` is a subclass whose path methods check every path
+   (`SubTreeFileSystem` can't confine a file system, since it lets `..` through), and every other
+   pyarrow file system is refused. If DuckDB's default connection can't be locked, its
+   module-level functions are refused (fail closed). These
    libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
    native code through ctypes, which the hook then refuses. Learner code that deliberately
    re-imports a module or reaches its internals can get past the wrappers; that is the accepted

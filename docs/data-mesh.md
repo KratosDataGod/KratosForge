@@ -185,6 +185,24 @@ A reader that hasn't listed its columns counts as relying on every column of the
 
 **Deprecating a product.** Set `status = "deprecated"` and `deprecated_on`, then promote or publish. The first publish as deprecated, or one with a new date, sends one Teams notice (`product.deprecated`) to the projects that link to it, through the platform's Teams routes (see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)); the publish's answer lists who was told. A notice that can't be sent never stops the publish: the answer says so. From the date on, the catalog takes no new links to it, and a project that still links to it can't promote until it moves the link (before the date, its promote gets a note saying when). Runs aren't stopped: a running pipeline keeps reading until its team moves it.
 
+## Promises to readers (Preview)
+
+A product can promise its readers how fresh and how clean its data is, in its own file:
+
+```toml
+[promise]
+within_hours = 24        # a successful load at most this long ago
+by = "06:00"             # and/or: loaded today by this time (the clock of the PC or agent that checks)
+max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 1 % of the rows it read
+envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
+```
+
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing. A promise is a setting in the product's file, with no screen of its own yet: its broken promises show in Monitor > Incidents.
+
+**Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
+
+**When it's broken.** Each incident check (an agent on its timer, the app every 10 minutes, or **Check now** on Monitor > Incidents) checks every port's table against its products' promises, from the run log alone. A late load or too many rejected rows opens one **Promise broken** incident for that table, naming the products and why, and it resolves itself once a later load keeps the promise. When the table's own `[freshness]` already reports it late, the promise doesn't report the same lateness again. From there it's an incident like any other: who's affected, Teams notices and the incident's SLA.
+
 ## Follow a product (Preview)
 
 **Follow** on a product's page (**Data mesh > Products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.

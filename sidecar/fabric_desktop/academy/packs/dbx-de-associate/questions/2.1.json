@@ -72,7 +72,7 @@
       "options": [
         {
           "id": "a",
-          "text": "There is no difference"
+          "text": "Streaming reads only from message buses such as Kafka; batch reads only from files"
         },
         {
           "id": "b",
@@ -84,7 +84,7 @@
         },
         {
           "id": "d",
-          "text": "Streaming never uses Delta tables"
+          "text": "Batch runs only on SQL warehouses; streaming runs only on clusters"
         }
       ],
       "answer": [
@@ -92,7 +92,7 @@
       ],
       "explanation": "Batch reads a bounded set at a time; streaming treats the source as unbounded and processes new data as it arrives, continuously or in triggered runs.",
       "source": "https://docs.databricks.com/aws/en/ingestion/",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

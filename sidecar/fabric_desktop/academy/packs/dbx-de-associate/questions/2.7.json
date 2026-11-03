@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It isn't possible"
+          "text": "Set the mode option to PERMISSIVE"
         },
         {
           "id": "b",
@@ -91,7 +91,7 @@
       ],
       "explanation": "By default the JSON reader expects one record per line; multiLine reads records that span lines.",
       "source": "https://docs.databricks.com/aws/en/query/formats/json",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

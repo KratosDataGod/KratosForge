@@ -184,5 +184,6 @@ def markdown(rows: list[dict[str, Any]]) -> str:
 DOC = Path(__file__).resolve().parents[2] / "docs" / "spark-functions.md"
 
 if __name__ == "__main__":  # pragma: no cover - writes the docs page
-    DOC.write_text(markdown(coverage()), encoding="utf-8")
+    from .jsonfile import write_text
+    write_text(DOC, markdown(coverage()), newline="\n")  # LF, like the committed page
     print(f"Wrote {DOC}")

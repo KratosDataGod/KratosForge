@@ -122,6 +122,8 @@ def test_a_transaction_in_the_answer_is_refused():
     ex, ref = exercises.get(PACK, "E20"), dbsql_lab.reference(PACK, "E20")
     r = dbsql_lab.grade(ex, ref, "BEGIN; " + ref["solution"] + " COMMIT;")
     assert not r["passed"]
+    table_checks = [x for c, x in zip(ex["validation"], r["results"], strict=True) if c.get("table") and c.get("data") != "hidden"]
+    assert table_checks and all("wasn't run" in x["detail"] and "BEGIN" in x["detail"] for x in table_checks)
 
 
 @pytest.fixture

@@ -66,7 +66,7 @@ Notes:
 | --- | --- | --- | --- | --- | --- |
 | Sign-in and workspace discovery | Missing | Missing | Built | · | · |
 | SQL warehouses and the SQL editor | Missing | Missing | Built | Partial | · |
-| Notebooks, Spark and dbutils | Missing | Missing | · | Partial | · |
+| Notebooks, Spark and dbutils | Missing | Missing | Built | Partial | · |
 | Unity Catalog | Missing | Missing | · | · | · |
 | Jobs and Lakeflow pipelines | Missing | Missing | · | · | · |
 | Compute | Missing | Missing | · | · | · |
@@ -76,7 +76,9 @@ Notes:
 Notes:
 
 - **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet.
+- **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
 - **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.
+- **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization; against fakes, no live run yet.
 - **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.
 
 ### Snowflake

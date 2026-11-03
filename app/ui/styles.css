@@ -57,7 +57,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .breadcrumb .current:hover { background: var(--hover); }
 .breadcrumb .crumb { background: none; border: 0; padding: 2px 4px; color: var(--muted); cursor: pointer; border-radius: 4px; }
 .breadcrumb .crumb:hover { background: var(--hover); color: var(--text); }
-.search-wrap { flex: 1 1 200px; display: flex; justify-content: center; }
+.search-wrap { flex: 1 1 200px; min-width: 0; display: flex; justify-content: center; }
+/* Zoomed to 200% (Ctrl+=) the default window is about 720 px wide: the lettering and the Ctrl+K hint
+   and the Data mesh environment label give their room, so the account button and Runs on stay whole (PB-063). */
+@media (max-width: 860px) {
+  .brand .brand-name, .search kbd, .env-label > .muted-text { display: none; }  /* the picker keeps its name: aria-label "Environment" */
+  .topbar { gap: 10px; padding: 0 10px; }
+}
 .search {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px;
   min-height: 32px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 4px;
@@ -195,7 +201,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cell.selected:not(.markdown) .cell-box, .cell.markdown.selected .cell-box { box-shadow: inset 3px 0 0 var(--accent); }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: #fafafa; }
-.cell-head { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
+.cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
 .cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }
@@ -2701,3 +2707,7 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .cx-warn { color: var(--danger); }
 .cx-problems, .cx-part-error { color: var(--danger); }
 .cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: 4px; }
+/* Optimize's sync line under the band, and its details (PR-OPT-006). */
+.optimize-sync[hidden] { display: none; }
+.optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.optimize-sync-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 24px; margin-bottom: 8px; }

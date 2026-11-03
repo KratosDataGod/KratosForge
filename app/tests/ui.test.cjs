@@ -1507,6 +1507,18 @@ test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared
 });
 
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Optimize shows whether this PC's results reached the lakehouse, under the band (PR-OPT-006)", () => {
+  const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  const line = /function optimizeSyncLine\(o\) \{[\s\S]*?\n\}/.exec(opt)[0];
+  assert.match(line, /Waiting on this PC/);
+  assert.match(line, /They go with the next scan, or when you connect again/);
+  assert.match(line, /dropped/);
+  assert.match(line, /Everything from this PC is in the lakehouse/);
+  assert.doesNotMatch(line, /rpc\(/, "the line only reads optimize_status; it never sends");
+  assert.match(opt, /status\?\.allowed && status\.active \? optimizeSyncLine\(status\.outbox\)/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.optimize-sync\[hidden\] \{ display: none; \}/);
+});
+
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
@@ -1515,6 +1527,8 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   assert.match(how, /each asks first/);
   assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
   assert.match(xray, /function xrayShared\(shared\)/);
+  // PR-OPT-006: findings that couldn't reach the lakehouse wait on this PC, and the note says so, not "weren't added".
+  assert.match(xray, /if \(shared\.queued\)[\s\S]*?wait"\} on this PC\. They're added with the next scan, or when you connect to it again/);
   assert.match(how, /anyone who can read that lakehouse can read them/);
   assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
@@ -2933,7 +2947,10 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
   const rows = section.split("\n").filter((l) => l.startsWith("| **"));
-  assert.strictEqual(rows.length, appWide.length);
+  // ...and one for zoom, which WebView2 handles itself: listed in the dialog's Window group (PB-063).
+  assert.strictEqual(rows.length, appWide.length + 1);
+  assert.ok(rows.some((r) => r.startsWith("| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** |")), "the guide lists zoom");
+  assert.match(features, /registerShortcuts\("Window", \[\s*\{ keys: \["Ctrl\+=", "Ctrl\+-", "Ctrl\+0"\]/);
   assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
 });
 

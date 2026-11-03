@@ -159,6 +159,10 @@ function xrayHow() {
 // Where the scan's findings went besides this PC, when it is connected to a central lakehouse.
 function xrayShared(shared) {
   if (!shared) return null;
+  if (shared.queued) {
+    return h("p", { class: "muted-text small" },
+      `${shared.lakehouse} couldn't be reached (${shared.error}), so ${shared.queued} finding${shared.queued === 1 ? " waits" : "s wait"} on this PC. They're added with the next scan, or when you connect to it again.`);
+  }
   return h("p", { class: "muted-text small" }, shared.error
     ? `These findings weren't added to ${shared.lakehouse}: ${shared.error}`
     : `${shared.findings} lakehouse and table finding${shared.findings === 1 ? " was" : "s were"} added to ${shared.lakehouse} for Optimize > Opportunities.`);

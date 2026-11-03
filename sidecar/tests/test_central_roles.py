@@ -45,7 +45,7 @@ READS = {
     "get_policy": {"id": "table-names"}, "key_stats": {"name": "customer"}, "keys_state": {}, "list_admins": {},
     "list_assignments": {}, "list_domains": {}, "list_entra_groups": {}, "list_glossary": {}, "list_grants": {},
     "list_key_tables": {}, "list_landing_zones": {}, "list_policies": {}, "list_policy_exceptions": {},
-    "list_product_items": {"product_id": "crm/c360"}, "list_products": {}, "list_projects": {},
+    "list_product_items": {"product_id": "crm/c360"}, "list_product_status": {}, "list_products": {}, "list_projects": {},
     "list_seen_shortcuts": {}, "list_shortcut_risks": {}, "list_sources": {},
     "lookup_key": {"name": "customer", "value": "UNKNOWN"}, "owner_coverage": {}, "policies_ready": {},
     "policy_applicability": {"id": "table-names"}, "policy_history": {"id": "table-names"},
@@ -159,6 +159,8 @@ ROLE_WRITES = [
                    "lakehouse_name": "LH_Gold", "workspace_id": WS, "lakehouse_id": LH}], "env": "prod"}),
     ("save_entra_group_naming", ADMIN, lambda db: {"naming": {"prefix": "kf"}}),
     ("save_change_window", ADMIN, lambda db: {"window": {"days": ["mon"], "start": "08:00", "end": "16:00"}}),
+    ("report_product_status", PRODUCT_OWNER, lambda db: {"project": "crm", "env": "prod",
+                                                         "statuses": [{"product": "c360", "status": "amber", "why": "Late"}]}),
     ("link_entra_group", DOMAIN_OWNER, lambda db: {"domain": "sales", "role": "stewards", "env": "prod",
                                                    "group_id": GID}),
     ("unlink_entra_group", DOMAIN_OWNER, lambda db: {"domain": "sales", "role": "readers", "env": "prod"}),
@@ -295,6 +297,7 @@ NOT_AUDITED: dict[str, str] = {
     "follow_product": "a person's own notice subscription; product_followers is its record",
     "unfollow_product": "as follow_product",
     "claim_exception_warning": "one PC's claim to post an ending notice once; the notice is the record",
+    "report_product_status": "repeats on every incident check when a status changes; each row keeps checked_by and checked_at",
 }
 
 # Each change anyone signed in may make (ANYONE above) that is audited, run as: (operation, who, arguments).

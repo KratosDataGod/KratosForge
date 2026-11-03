@@ -153,6 +153,53 @@ def promises(project: Project) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+# ---------- how each product is doing now (data mesh P5) ----------
+# The team's incident check reports one line per product to the platform's catalog, so readers who can't
+# see the team's incidents still see Red, Amber or Green in the Status view of Data mesh > Products. Only the kind of
+# problem, the table and who last acted go out: incident text and notes stay with the team.
+
+STOPS_THE_LOAD = ("run_failed", "agent_offline")  # red
+SLOWS_IT = ("late", "promise")  # amber
+_STATUS_LABEL = {"run_failed": "Load failed", "agent_offline": "Agent offline", "late": "Late", "promise": "Promise broken"}
+_ACTED = {"acknowledged": "Acknowledged", "assigned": "Assigned", "note": "Note added", "reopened": "Reopened"}
+
+
+def _incident_touches(product: Product, entities: set[str], inc: dict[str, Any]) -> bool:
+    if inc.get("kind") == "agent_offline":
+        return True  # no agent loads anything in that environment
+    if inc.get("name") not in entities:
+        return False
+    if inc.get("kind") == "promise":
+        return product.name in ((inc.get("evidence") or {}).get("products") or [])
+    return True
+
+
+def product_statuses(project: Project, incidents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each published product's status from the environment's active incidents:
+    [{product, status: red|amber|green, why, latest, latest_at}]. Drafts are left out."""
+    active = [i for i in incidents if i.get("state") in ("open", "acknowledged")]
+    out = []
+    for p in sorted(project.products.values(), key=lambda x: x.name):
+        if p.status == "draft":
+            continue
+        entities = {str(x.get("entity") or "") for x in p.ports} - {""}
+        red = [i for i in active if i.get("kind") in STOPS_THE_LOAD and _incident_touches(p, entities, i)]
+        amber = [i for i in active if i.get("kind") in SLOWS_IT and _incident_touches(p, entities, i)]
+        hit = red + amber
+        reasons = []
+        for i in hit:
+            what = _STATUS_LABEL[i["kind"]]
+            reasons.append(what if i["kind"] == "agent_offline" else f"{what}: {i.get('name')}")
+        reasons = list(dict.fromkeys(reasons))
+        why = "; ".join(reasons[:2]) + (f" and {len(reasons) - 2} more" if len(reasons) > 2 else "")
+        acted = [e for i in hit for e in (i.get("events") or []) if e.get("what") in _ACTED and e.get("at")]
+        last = max(acted, key=lambda e: str(e["at"]), default=None)
+        out.append({"product": p.name, "status": "red" if red else "amber" if amber else "green", "why": why,
+                    "latest": f"{_ACTED[last['what']]} by {last.get('by') or 'someone'}" if last else "",
+                    "latest_at": str(last["at"]) if last else ""})
+    return out
+
+
 @dataclass
 class Product:
     name: str

@@ -197,6 +197,8 @@ class IncidentMixin:
         except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
             _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
         changes = log.sync(signals, evaluated=evaluated, by=f"KratosForge ({self._incident_user()})")
+        if evaluated & evaluate.WORKLOAD_KINDS:
+            self._report_product_status(env, log.active())
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
@@ -208,6 +210,27 @@ class IncidentMixin:
             out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge", post_teams)
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
+
+    def _report_product_status(self, env: str, incidents: list[dict[str, Any]]) -> None:
+        """Tell the platform's catalog how the open project's products are doing in ``env``, so their readers
+        see it in the Status view of Data mesh > Products (data mesh P5). Only when it changed since this app last told
+        it; a platform that can't take it (older, not reachable) is logged and skipped, never an error here."""
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            name = mesh_mod.project_name(project)
+            statuses = mesh_mod.product_statuses(project, incidents)
+        except Exception as exc:  # noqa: BLE001 - no project open, or it can't be read: nothing to tell
+            _log.debug("No product status to report for %s: %s", env, describe(exc))
+            return
+        sent = self.__dict__.setdefault("_product_status_sent", {})
+        if not statuses or sent.get((name, env)) == statuses:
+            return
+        try:
+            self._catalog().call("report_product_status", project=name, env=env, statuses=statuses)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again
+            _log.info("Couldn't report %s's product status in %s: %s", name, env, describe(exc))
+            return
+        sent[(name, env)] = statuses
 
     def _not_told_before(self, env: str, changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Leave out an incident opening that an older app already posted as a late or failed
@@ -257,6 +280,8 @@ class IncidentMixin:
                 for i in (items := log.active()):
                     i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
                 row["incidents"] = items
+                if checking:  # an agent evaluated it: tell readers what it found (the app's own check already did)
+                    self._report_product_status(env, items)
             except Exception as exc:  # noqa: BLE001
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])

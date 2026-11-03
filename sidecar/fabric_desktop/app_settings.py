@@ -34,6 +34,9 @@ Keys:
     ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
                      with the tag kept on page titles
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
+    ui_skin          the platform skin's id (skins.py): "kratosforge" (default) or another built-in or
+                     saved skin. A skin is appearance and page arrangement only
+    ui_color_mode    "skin" (default) follows the skin's own color mode; "light" or "dark" overrides it
     learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
                      findings, About and Dismiss; "professional" (default) adds a line on why and
                      Explain and Show example on request; "guided" opens Explain, adds the lesson
@@ -222,6 +225,12 @@ CHOICES.update({"ui_explanations": ("beside", "on_request"), "ui_preview_marks":
 DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "ui_density": "comfortable"})
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
+# Platform skins (skins.py, docs/skins.md): which skin, by id, and its color mode ("skin" follows the
+# skin's own). Appearance only: neither changes engines, connections or projects.
+CHOICES["ui_color_mode"] = ("skin", "light", "dark")
+DEFAULTS.update({"ui_skin": "kratosforge", "ui_color_mode": "skin"})
+TYPES.update({"ui_skin": str, "ui_color_mode": str})
+USER_KEYS += ("ui_skin", "ui_color_mode")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
 CHOICES["learn_mode"] = ("expert", "professional", "guided")
 DEFAULTS["learn_mode"] = "professional"
@@ -432,6 +441,8 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
+        elif key == "ui_skin" and not _skin_id(value):
+            problems.append("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key in LIMITS and not 0 <= value <= LIMITS[key]:
@@ -562,7 +573,14 @@ def _in_range(key: str, value: Any) -> bool:
         return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     if key in CHOICES:
         return value in CHOICES[key]
+    if key == "ui_skin":
+        return _skin_id(value)
     return True
+
+
+def _skin_id(value: Any) -> bool:
+    from .skins import _ID
+    return isinstance(value, str) and bool(_ID.match(value))
 
 
 def _telemetry_target(text: str) -> bool:
@@ -637,6 +655,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in CHOICES and new not in (None, "", *CHOICES[key]):
             raise ValueError(f"{key} must be one of {', '.join(CHOICES[key])}")
+        if key == "ui_skin" and new not in (None, "") and not _skin_id(new):
+            raise ValueError("ui_skin must be a skin id: lower-case letters, digits or hyphens")
         if key in SQL_RANGES:
             new = _sql_number(key, new)
         if key == "sql_temp_dir":

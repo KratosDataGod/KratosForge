@@ -76,6 +76,8 @@ A policy file that sets everything an organization usually wants:
 | `ui_explanations` | `"on_request"` or `"beside"` (default `"on_request"`) | Where each page's How this works panel and one-line explanation show: from the title bar's info button, or on the page ([Layout](user-guide.md#layout)) |
 | `ui_preview_marks` | `"tags"` or `"dots"` (default `"tags"`) | How features still in preview are marked: a Preview tag, or a small dot with the tag kept on page titles |
 | `ui_density` | `"comfortable"` or `"compact"` (default `"comfortable"`) | Spacing in tables, lists and toolbars |
+| `ui_skin` | a skin id (default `"kratosforge"`) | Which [platform skin](skins.md) the app uses. Appearance and page arrangement only: it never changes engines, connections or projects |
+| `ui_color_mode` | `"skin"`, `"light"` or `"dark"` (default `"skin"`) | `"skin"` follows the skin's own color mode |
 | `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
 | `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
 | `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level. People can untick it to keep motion under reduced motion; set it to `true` here to stop that |

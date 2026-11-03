@@ -12,6 +12,9 @@ execution adapters, not as copies of the Academy.
 A learner who finishes the DP-700 path has built, run, broken, fixed and measured real artifacts,
 and can see exactly which of them ran on this PC and which still need real Fabric experience.
 
+The second path, **Databricks Certified Data Engineer Associate**, is planned in
+[Databricks Associate path](databricks/README.md) on the same registry, format, validators and readiness.
+
 ## Status
 
 Planning (2026-11-03). Nothing in this folder is a shipped feature yet.

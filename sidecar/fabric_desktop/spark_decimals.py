@@ -197,11 +197,13 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
     if not expressions or not any(t.upper().startswith("DECIMAL") for _, t in columns):
         return unchanged  # Spark's rules only change an expression with a decimal operand
     from sqlglot import parse_one
+
+    from .sql import duckdb_sql
     try:
         statement = parse_one(f"SELECT {', '.join(expressions)} FROM {_FRAME}", read="duckdb")
         if not isinstance(statement, exp.Select) or len(statement.expressions) != len(expressions):
             return unchanged
-        before = [p.sql(dialect="duckdb") for p in statement.expressions]
+        before = [duckdb_sql(p) for p in statement.expressions]
         targets = [n for n in statement.find_all(*_ARITHMETIC, *_AGGREGATES)]
         if not targets:
             return unchanged
@@ -213,17 +215,16 @@ def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
             log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
             return unchanged
         root = _retype(statement, targets, schema)
+        if not isinstance(root, exp.Select):
+            return unchanged
+        out = unchanged.copy()
+        for i, (projection, was) in enumerate(zip(root.expressions, before, strict=True)):
+            if duckdb_sql(projection) != was:
+                named = isinstance(projection, exp.Alias)
+                out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
     except Exception as exc:
         log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
         return unchanged
-    if not isinstance(root, exp.Select):
-        return unchanged
-    from .sql import duckdb_sql
-    out = unchanged.copy()
-    for i, (projection, was) in enumerate(zip(root.expressions, before, strict=True)):
-        if projection.sql(dialect="duckdb") != was:
-            named = isinstance(projection, exp.Alias)
-            out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
     return out
 
 

@@ -223,3 +223,8 @@ def test_a_local_exercise_in_the_databricks_pack_is_accepted(dbx_exercise):
 def test_databricks_exercise_rules(dbx_exercise, change, message):
     found = dbx_exercise(change)
     assert any(message in p for p in found), found
+
+
+def test_the_estimate_note_names_each_vendor():
+    assert "isn't Microsoft's score" in readiness.note("fabric") and "isn't Databricks' score" in readiness.note("databricks")
+    assert "{" not in readiness.note()

@@ -22,7 +22,7 @@ only through the certification's ``crosswalk`` (``{old version: {old objective: 
 without one they're listed as earlier work and left out of the measures.
 
 The result is KratosForge's own estimate. It is labelled so and never presented as the vendor's score
-or as a prediction of passing (ESTIMATE_NOTE).
+or as a prediction of passing (``note()``).
 """
 
 from __future__ import annotations
@@ -36,8 +36,15 @@ from . import exercises, registry
 RETENTION_DAYS = 7
 INDEPENDENT_MAX_HINTS = 1
 ESTIMATE_LABEL = "KratosForge readiness estimate"
-ESTIMATE_NOTE = ("This is KratosForge's own estimate from the evidence on this PC. It isn't {vendors} score and it "
+_NOTE_TEMPLATE = ("This is KratosForge's own estimate from the evidence on this PC. It isn't {vendors} score and it "
                  "doesn't promise a pass.")
+
+
+def note(platform: str = registry.DEFAULT_PLATFORM) -> str:
+    """The estimate's note for a platform's certification, naming its vendor."""
+    return _NOTE_TEMPLATE.format(vendors=registry.PLATFORMS[platform]["vendors"])
+
+
 MEASURES = ("knowledge", "guided", "independent", "troubleshooting", "platform_verified", "retention")
 
 
@@ -123,7 +130,7 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
                         "practised": sum(x["state"] == "practised" for x in mine),
                         "need_platform": sum(x["needs_platform"] for x in mine)})
     return {"certification": cert["id"], "version": cert["version"], "platform": cert["platform"],
-            "platform_label": plat["label"], "label": ESTIMATE_LABEL, "note": ESTIMATE_NOTE.format(vendors=plat["vendors"]),
+            "platform_label": plat["label"], "label": ESTIMATE_LABEL, "note": note(cert["platform"]),
             "objectives": out, "domains": domains, "earlier_version_rows": earlier,
             "next": next_exercises(out, pack_id)}
 

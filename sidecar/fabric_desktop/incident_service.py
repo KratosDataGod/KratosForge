@@ -18,6 +18,7 @@ from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
+from .central.core import PlatformError
 from .redact import describe
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
@@ -213,20 +214,27 @@ class IncidentMixin:
 
     def _report_product_status(self, env: str, incidents: list[dict[str, Any]]) -> None:
         """Tell the platform's catalog how the open project's products are doing in ``env``, so their readers
-        see it in the Status view of Data mesh > Products (data mesh P5). Only when it changed since this app last told
-        it; a platform that can't take it (older, not reachable) is logged and skipped, never an error here."""
+        see it in the Status view of Data mesh > Products (data mesh P5). Only when it changed since this app
+        last told it. A platform that refuses it (older, or the person isn't one of the project's members) isn't
+        asked again this session, so no Fabric function runs for nothing; a network error is tried next check."""
         try:
             project = self._project()  # type: ignore[attr-defined]
             name = mesh_mod.project_name(project)
-            statuses = mesh_mod.product_statuses(project, incidents)
+            agents_live = any(a["state"] == "live" for a in self._incident_agents(env)["agents"])
+            statuses = mesh_mod.product_statuses(project, incidents, agents_live=agents_live)
         except Exception as exc:  # noqa: BLE001 - no project open, or it can't be read: nothing to tell
             _log.debug("No product status to report for %s: %s", env, describe(exc))
             return
         sent = self.__dict__.setdefault("_product_status_sent", {})
-        if not statuses or sent.get((name, env)) == statuses:
+        refused = self.__dict__.setdefault("_product_status_refused", set())
+        if not statuses or (name, env) in refused or sent.get((name, env)) == statuses:
             return
         try:
             self._catalog().call("report_product_status", project=name, env=env, statuses=statuses)  # type: ignore[attr-defined]
+        except (LookupError, PermissionError, ValueError, PlatformError) as exc:  # older platform, or not a member: not again
+            refused.add((name, env))
+            _log.info("The platform won't take %s's product status in %s; not asking again: %s", name, env, describe(exc))
+            return
         except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again
             _log.info("Couldn't report %s's product status in %s: %s", name, env, describe(exc))
             return

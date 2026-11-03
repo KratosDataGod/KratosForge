@@ -2,7 +2,7 @@
 // Amber or Green per product and environment; readers see it here (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -15,7 +15,7 @@ const base = { project: "crm", description: "", owner: "bo@contoso.com", access:
 const products = () => [
   { ...base, id: "crm/finance_gl", name: "finance_gl", health: { prod: { status: "green", why: "", latest: "", latest_at: "", checked_at: hoursAgo(0.1) } } },
   { ...base, id: "crm/customer_360", name: "customer_360", following: true,
-    health: { prod: { status: "amber", why: "Promise broken: silver.customers", latest: "Acknowledged by dana@contoso.com", latest_at: hoursAgo(1), checked_at: hoursAgo(0.1) } } },
+    health: { prod: { status: "amber", why: "Promise broken: silver.customers", latest: "Acknowledged by its team", latest_at: hoursAgo(1), checked_at: hoursAgo(0.1) } } },
   { ...base, id: "crm/sales_orders", name: "sales_orders", consumers: [{ consumer_project: "a" }, { consumer_project: "b" }, { consumer_project: "c" }],
     health: { prod: { status: "red", why: "Load failed: silver.orders", latest: "", latest_at: "", checked_at: hoursAgo(30) },
       test: { status: "green", why: "", latest: "", latest_at: "", checked_at: hoursAgo(1) } } },
@@ -49,10 +49,11 @@ test("Status lists Red first, then Amber, Green and not checked, each with why a
   assert.strictEqual(got[0][2], "Load failed: silver.orders, 3 readers affected");
   assert.strictEqual(got[1][1], "Amber");
   assert.strictEqual(got[1][2], "Promise broken: silver.customers");
-  assert.match(got[1][3], /^Acknowledged by dana@contoso\.com, /);
-  assert.deepStrictEqual(got[2].slice(1), ["Green", "Nothing open", "-"]);
+  assert.match(got[1][3], /^Acknowledged by its team, /);
+  assert.deepStrictEqual(got[2].slice(1), ["Green", "Nothing open", "None"]);
   assert.deepStrictEqual(got[3].slice(1, 3), ["Not checked", "Its team's app or agent hasn't checked it here"]);
   assert.strictEqual(await page().getAttribute("button.status-chip", "aria-pressed"), "true");
+  if (axeSource) assert.deepStrictEqual(await axeFindings(page(), ".product-status"), []);
 });
 
 test("another environment shows its own status", { skip }, async () => {

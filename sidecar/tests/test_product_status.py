@@ -133,14 +133,14 @@ def test_red_stops_the_load_amber_is_late_or_a_broken_promise(svc, incidents, st
     assert (s["product"], s["status"], s["why"]) == ("customers", status, why)
 
 
-def test_the_latest_update_names_who_acted_and_never_the_note(svc):
+def test_the_latest_update_says_what_the_team_did_and_never_who_or_the_note(svc):
     inc = _inc("run_failed", events=[
         {"at": "2026-11-03T07:00:00Z", "by": "KratosForge", "what": "opened", "text": "x"},
         {"at": "2026-11-03T07:41:00Z", "by": "dana@example.com", "what": "acknowledged", "text": "secret detail"},
         {"at": "2026-11-03T07:50:00Z", "by": "KratosForge", "what": "seen", "text": ""}])
     [s] = mesh.product_statuses(svc._project(), [inc])
-    assert s["latest"] == "Acknowledged by dana@example.com" and s["latest_at"] == "2026-11-03T07:41:00Z"
-    assert "secret" not in str(s)
+    assert s["latest"] == "Acknowledged by its team" and s["latest_at"] == "2026-11-03T07:41:00Z"
+    assert "secret" not in str(s) and "dana" not in str(s), "notes and people's names stay with the team"
 
 
 # --------------------------------------------------------------------------- end to end
@@ -183,3 +183,53 @@ def test_a_platform_that_cant_take_it_doesnt_stop_the_check(svc, monkeypatch):
     monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [_run("silver.customers", "failed", "r1")])
     out = svc.incidents_evaluate("dev")
     assert [c["change"] for c in out["changes"]] == ["opened"]
+
+
+def test_one_agent_offline_while_another_is_live_is_amber_not_red(svc):
+    offline = [_inc("agent_offline", name="pc-1")]
+    assert mesh.product_statuses(svc._project(), offline, agents_live=False)[0]["status"] == "red"
+    [s] = mesh.product_statuses(svc._project(), offline, agents_live=True)
+    assert (s["status"], s["why"]) == ("amber", "Agent offline")
+    assert mesh.product_statuses(svc._project(), offline + [_inc("run_failed")], agents_live=True)[0]["status"] == "red"
+
+
+def test_two_agents_one_offline_reports_amber(svc, monkeypatch):
+    name = mesh.project_name(svc._project())
+    svc._catalog().call("register_product", product=_product(project=name), ports=PORT, env="prod")
+    monkeypatch.setattr(svc, "_incident_agents", lambda env: {"readable": True, "agents": [
+        {"agent": "pc-1", "state": "offline"}, {"agent": "pc-2", "state": "live"}]})
+    svc._report_product_status("dev", [_inc("agent_offline", name="pc-1")])
+    [row] = svc._catalog().call("list_product_status")
+    assert row["status"] == "amber"
+
+
+@pytest.mark.parametrize("refusal", [LookupError("no such function"), core.PlatformError("Only crm's members"),
+                                     PermissionError("refused")])
+def test_a_refusal_isnt_asked_again_this_session_but_a_network_error_is(svc, monkeypatch, refusal):
+    calls = []
+
+    def answer(self, op, **kw):
+        if op == "report_product_status":
+            calls.append(op)
+            raise refusal
+        return real(self, op, **kw)
+
+    real = type(svc._catalog()).call
+    monkeypatch.setattr(type(svc._catalog()), "call", answer)
+    svc._report_product_status("dev", [_inc("run_failed")])
+    svc._report_product_status("dev", [_inc("late")])
+    assert len(calls) == 1
+
+    refusal_free = []
+
+    def offline(self, op, **kw):
+        if op == "report_product_status":
+            refusal_free.append(op)
+            raise ConnectionError("network is unreachable")
+        return real(self, op, **kw)
+
+    monkeypatch.setattr(type(svc._catalog()), "call", offline)
+    svc._product_status_refused.clear()
+    svc._report_product_status("dev", [_inc("run_failed")])
+    svc._report_product_status("dev", [_inc("run_failed")])
+    assert len(refusal_free) == 2, "a network error is tried again on the next check"

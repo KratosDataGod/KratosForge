@@ -156,12 +156,13 @@ def promises(project: Project) -> dict[str, list[dict[str, Any]]]:
 # ---------- how each product is doing now (data mesh P5) ----------
 # The team's incident check reports one line per product to the platform's catalog, so readers who can't
 # see the team's incidents still see Red, Amber or Green in the Status view of Data mesh > Products. Only the kind of
-# problem, the table and who last acted go out: incident text and notes stay with the team.
+# problem, the table and what the team last did go out: incident text, notes and people's names stay with the team.
 
 STOPS_THE_LOAD = ("run_failed", "agent_offline")  # red
 SLOWS_IT = ("late", "promise")  # amber
 _STATUS_LABEL = {"run_failed": "Load failed", "agent_offline": "Agent offline", "late": "Late", "promise": "Promise broken"}
-_ACTED = {"acknowledged": "Acknowledged", "assigned": "Assigned", "note": "Note added", "reopened": "Reopened"}
+_ACTED = {"acknowledged": "Acknowledged by its team", "assigned": "Assigned in its team", "note": "Its team added a note",
+          "reopened": "Reopened"}
 
 
 def _incident_touches(product: Product, entities: set[str], inc: dict[str, Any]) -> bool:
@@ -174,17 +175,21 @@ def _incident_touches(product: Product, entities: set[str], inc: dict[str, Any])
     return True
 
 
-def product_statuses(project: Project, incidents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def product_statuses(project: Project, incidents: list[dict[str, Any]], agents_live: bool = False) -> list[dict[str, Any]]:
     """Each published product's status from the environment's active incidents:
-    [{product, status: red|amber|green, why, latest, latest_at}]. Drafts are left out."""
+    [{product, status: red|amber|green, why, latest, latest_at}]. Drafts are left out. An agent offline
+    stops the loads (red) only when no other agent in the environment is live (``agents_live``): a live one
+    takes over its queued work, so then it's amber."""
     active = [i for i in incidents if i.get("state") in ("open", "acknowledged")]
     out = []
     for p in sorted(project.products.values(), key=lambda x: x.name):
         if p.status == "draft":
             continue
         entities = {str(x.get("entity") or "") for x in p.ports} - {""}
-        red = [i for i in active if i.get("kind") in STOPS_THE_LOAD and _incident_touches(p, entities, i)]
-        amber = [i for i in active if i.get("kind") in SLOWS_IT and _incident_touches(p, entities, i)]
+        stops = [k for k in STOPS_THE_LOAD if not (k == "agent_offline" and agents_live)]
+        slows = [*SLOWS_IT, *(["agent_offline"] if agents_live else [])]
+        red = [i for i in active if i.get("kind") in stops and _incident_touches(p, entities, i)]
+        amber = [i for i in active if i.get("kind") in slows and _incident_touches(p, entities, i)]
         hit = red + amber
         reasons = []
         for i in hit:
@@ -195,7 +200,7 @@ def product_statuses(project: Project, incidents: list[dict[str, Any]]) -> list[
         acted = [e for i in hit for e in (i.get("events") or []) if e.get("what") in _ACTED and e.get("at")]
         last = max(acted, key=lambda e: str(e["at"]), default=None)
         out.append({"product": p.name, "status": "red" if red else "amber" if amber else "green", "why": why,
-                    "latest": f"{_ACTED[last['what']]} by {last.get('by') or 'someone'}" if last else "",
+                    "latest": _ACTED[last["what"]] if last else "",
                     "latest_at": str(last["at"]) if last else ""})
     return out
 

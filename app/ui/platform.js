@@ -1381,7 +1381,7 @@ function productStatusView(shown, total, redraw) {
             : r ? [r.why || "", r.status === "red" && readers ? h("span", { class: "muted-text" }, `, ${readers} reader${readers === 1 ? "" : "s"} affected`) : null]
               : h("span", { class: "muted-text" }, "Its team's app or agent hasn't checked it here")),
           h("td", {}, r?.latest ? [r.latest, r.latest_at ? h("span", { class: "muted-text small" }, `, ${relTime(r.latest_at)}`) : null]
-            : h("span", { class: "muted-text" }, "-")));
+            : h("span", { class: "muted-text" }, "None")));
       })))
       : h("p", { class: "muted-text" }, total ? "Nothing matches." : "No team has published a data product yet."),
     h("p", { class: "muted-text small" }, "Red: an open incident stops the load (a failed load, or an agent offline). Amber: late, or a broken promise. ",

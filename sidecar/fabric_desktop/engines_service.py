@@ -422,24 +422,31 @@ class EnginesMixin:
         from .engines import databricks_bundles
         return databricks_bundles.targets(folder)
 
-    def databricks_bundle_validate(self, folder: str, target: str, connection: str) -> dict[str, Any]:
-        """``databricks bundle validate``: problems in the files. Changes nothing."""
-        from .engines import databricks_bundles
-        return databricks_bundles.validate(folder, target, self._bundle_profile(connection), self._bundle_runner())
+    # A bundle that runs commands on this PC (scripts hooks, artifact builds, Python code) answers
+    # needs_confirm with the commands and their digest; ``allow_commands`` is that digest once seen.
 
-    def databricks_bundle_plan(self, folder: str, target: str, connection: str) -> dict[str, Any]:
-        """What deploying ``target`` would create, update, delete or rebuild. Changes nothing."""
+    def databricks_bundle_validate(self, folder: str, target: str, connection: str,
+                                   allow_commands: str = "") -> dict[str, Any]:
+        """``databricks bundle validate``: problems in the files. Changes nothing in Databricks."""
         from .engines import databricks_bundles
-        return databricks_bundles.plan(folder, target, self._bundle_profile(connection), self._bundle_runner())
+        return databricks_bundles.validate(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                           str(allow_commands or ""))
+
+    def databricks_bundle_plan(self, folder: str, target: str, connection: str,
+                               allow_commands: str = "") -> dict[str, Any]:
+        """What deploying ``target`` would create, update, delete or rebuild. Changes nothing in Databricks."""
+        from .engines import databricks_bundles
+        return databricks_bundles.plan(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                       str(allow_commands or ""))
 
     def databricks_bundle_deploy(self, folder: str, target: str, connection: str, digest: str,
-                                 typed: str = "") -> dict[str, Any]:
+                                 typed: str = "", allow_commands: str = "") -> dict[str, Any]:
         """Deploy ``target`` as the connection's CLI profile, if the plan is still the one with
         ``digest``. A plan that deletes or rebuilds, or a production target, needs ``typed`` == target.
         Deploying runs no job or pipeline."""
         from .engines import databricks_bundles
         return databricks_bundles.deploy(folder, target, self._bundle_profile(connection), str(digest or ""),
-                                         str(typed or ""), self._bundle_runner())
+                                         str(typed or ""), self._bundle_runner(), str(allow_commands or ""))
 
     def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
                                snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",

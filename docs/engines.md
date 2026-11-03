@@ -310,8 +310,13 @@ repository, or in a folder of it you pick. It runs your own Databricks CLI as on
 the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
 `databricks auth login` first.
 
-- **Validate and Plan change nothing.** Validate lists problems and warnings in the files. Plan lists
-  what a deploy to the target would create, update, delete or rebuild.
+- **Validate and Plan change nothing in Databricks.** Validate lists problems and warnings in the
+  files. Plan lists what a deploy to the target would create, update, delete or rebuild.
+- **Commands on this PC are shown first.** A bundle can make the CLI run commands on your PC:
+  `experimental.scripts` hooks, artifact builds (a wheel builds even with no `build` line) and Python
+  resource code. Before the CLI runs, `databricks.yml` and every file it includes are read and any
+  such command is listed. Nothing runs until you allow exactly those commands, and a changed list asks
+  again. An include that matches no file or points out of the folder is refused.
 - **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
   workspace changed meanwhile), it shows the new plan instead of deploying.
 - **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or

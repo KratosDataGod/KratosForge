@@ -37,7 +37,9 @@ before(async () => {
       engine_connections: () => ({ connections: [{ key: "cli:dev", label: "dev (Databricks CLI)", source: "cli", host: HOST }] }),
       databricks_bundle_targets: () => ({ name: "sales-etl", file: `${REPO}/databricks.yml`, targets: [
         { name: "dev", mode: "development", default: true }, { name: "prod", mode: "production", default: false }] }),
-      databricks_bundle_validate: () => ({ ok: true, warnings: ["Warning: unknown field: foo"] }),
+      databricks_bundle_validate: (p) => (p.folder.endsWith("scripted") && p.allow_commands !== "c-1"
+        ? { ok: false, needs_confirm: true, local_commands: ["databricks.yml: experimental.scripts.prebuild: make wheel"], commands_digest: "c-1", error: "x" }
+        : { ok: true, warnings: ["Warning: unknown field: foo"] }),
       databricks_bundle_plan: (p) => (p.target === "prod" ? RISKY : SAFE),
       databricks_bundle_deploy: (p) => ({ ok: true, target: p.target, changed: p.target === "prod" ? 2 : 1, log: "Deployment complete!" }),
     },
@@ -59,7 +61,7 @@ test("the Bundles tab reads the targets; Validate and Plan send no deploy", { sk
   await page().locator(".dbx-bundles button", { hasText: "Plan" }).click();
   await page().locator(".dbx-plan").waitFor();
   assert.deepStrictEqual(await page().locator(".dbx-plan tbody tr").allTextContents(), ["Updatejobnightly_sales"]);
-  assert.deepStrictEqual(sent("databricks_bundle_plan"), [{ folder: REPO, target: "dev", connection: "cli:dev" }]);
+  assert.deepStrictEqual(sent("databricks_bundle_plan"), [{ folder: REPO, target: "dev", connection: "cli:dev", allow_commands: "" }]);
   assert.deepStrictEqual(sent("databricks_bundle_deploy"), []);
 });
 
@@ -69,7 +71,7 @@ test("a safe plan deploys after a plain confirm, with the plan's digest", { skip
   assert.match(await page().locator("#dialog-root .dialog").textContent(), /1 to update in Databricks, as dev\. No job or pipeline runs\./);
   await page().locator("#dialog-root button", { hasText: /^Deploy$/ }).click();
   await page().locator(".dbx-plan").waitFor({ state: "detached" });
-  assert.deepStrictEqual(sent("databricks_bundle_deploy"), [{ folder: REPO, target: "dev", connection: "cli:dev", digest: "d-safe", typed: "" }]);
+  assert.deepStrictEqual(sent("databricks_bundle_deploy"), [{ folder: REPO, target: "dev", connection: "cli:dev", allow_commands: "", digest: "d-safe", typed: "" }]);
 });
 
 test("a plan that deletes, on production, needs the target typed; Cancel sends nothing", { skip }, async () => {
@@ -89,7 +91,23 @@ test("a plan that deletes, on production, needs the target typed; Cancel sends n
   await page().locator("#dialog-root input").fill("prod");
   await page().locator("#dialog-root button", { hasText: "Deploy to prod" }).click();
   await page().locator(".dbx-plan").waitFor({ state: "detached" });
-  assert.deepStrictEqual(sent("databricks_bundle_deploy").at(-1), { folder: REPO, target: "prod", connection: "cli:dev", digest: "d-risky", typed: "prod" });
+  assert.deepStrictEqual(sent("databricks_bundle_deploy").at(-1), { folder: REPO, target: "prod", connection: "cli:dev", allow_commands: "", digest: "d-risky", typed: "prod" });
+});
+
+test("a bundle that runs commands here lists them first; Cancel runs nothing, Allow sends their digest", { skip }, async () => {
+  await page().locator('.dbx-bundles input[aria-label="Bundle folder"]').fill(`${REPO}/scripted`);
+  await page().locator(".dbx-bundles button", { hasText: "Read" }).click();
+  await page().locator(".dbx-bundles button", { hasText: "Validate" }).waitFor();
+  await page().locator(".dbx-bundles button", { hasText: "Validate" }).click();
+  await page().locator("#dialog-root .dialog").waitFor();
+  assert.match(await page().locator("#dialog-root .dialog").textContent(), /Run this bundle's commands on this PC\?.*experimental\.scripts\.prebuild: make wheel/);
+  await page().locator("#dialog-root button", { hasText: "Cancel" }).click();
+  await page().locator(".dbx-bundles button", { hasText: /^Validate$/ }).waitFor();
+  assert.deepStrictEqual(sent("databricks_bundle_validate").map((p) => p.allow_commands), ["", ""]);
+  await page().locator(".dbx-bundles button", { hasText: "Validate" }).click();
+  await page().locator("#dialog-root button", { hasText: "Allow and run" }).click();
+  await page().locator(".dbx-valid").waitFor();
+  assert.deepStrictEqual(sent("databricks_bundle_validate").map((p) => p.allow_commands), ["", "", "", "c-1"]);
 });
 
 test("the Bundles tab has no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {

@@ -5,8 +5,14 @@ Everything runs the person's own Databricks CLI (databricks_auth.find_cli: PATH'
 only) in the bundle's folder, as the CLI profile the connection names, so the CLI signs in and
 KratosForge never handles a token.
 
-- ``validate`` and ``plan`` change nothing: ``bundle validate`` checks the files, and ``bundle plan``
-  says what a deploy would create, update, delete or recreate.
+- ``validate`` and ``plan`` change nothing in Databricks: ``bundle validate`` checks the files, and
+  ``bundle plan`` says what a deploy would create, update, delete or recreate.
+- A bundle can make the CLI run commands on this PC: ``experimental.scripts`` hooks, artifact builds
+  (a wheel builds even with no ``build`` line) and Python resource code. Which ones fire on which
+  command depends on the CLI version (UNVERIFIED), so before any CLI call the bundle and every file it
+  includes is read (yaml.safe_load, never run) and any such command is listed. The CLI then runs only
+  with ``allow`` equal to the digest of that list: the person saw exactly these commands and said yes.
+  An include that matches nothing or points out of the folder refuses.
 - ``deploy`` plans again first and stops if the plan differs from the one the person saw (the
   workspace or the files changed since): they look at the new plan instead. A deploy that deletes or
   recreates anything, or goes to a production target, needs the target's name typed back. Only then
@@ -73,6 +79,72 @@ def targets(folder: str) -> dict[str, Any]:
     return {"name": _text((data.get("bundle") or {}).get("name")), "file": str(path), "targets": found}
 
 
+def _load(path: Path) -> Any:
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise BundleError(f"{path.name} can't be read: {_text(type(exc).__name__)}.") from None
+
+
+def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
+    """databricks.yml and every file its ``include:`` patterns name, as (name, parsed). An include
+    that matches nothing, or a file outside the bundle folder, refuses: the CLI would read files
+    this check didn't."""
+    main = bundle_file(folder)
+    root = main.parent.resolve()
+    first = _load(main)
+    docs = [(main.name, first)]
+    for pattern in (first.get("include") or []) if isinstance(first, dict) else []:
+        pattern = str(pattern)
+        if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
+            raise BundleError(f"The include {_text(pattern)!r} points out of the bundle folder.")
+        found = sorted(p for p in root.glob(pattern) if p.is_file())
+        if not found:
+            raise BundleError(f"The include {_text(pattern)!r} matches no file, so the bundle can't be checked.")
+        for path in found:
+            real = path.resolve()
+            if not real.is_relative_to(root):
+                raise BundleError(f"The include {_text(pattern)!r} points out of the bundle folder.")
+            docs.append((str(path.relative_to(root)), _load(real)))
+    return docs
+
+
+def _commands_in(where: str, doc: Any) -> list[str]:
+    if not isinstance(doc, dict):
+        return []
+    found: list[str] = []
+    scopes = [("", doc)] + [(f"targets.{n}.", t) for n, t in (doc.get("targets") or {}).items() if isinstance(t, dict)]
+    for prefix, scope in scopes:
+        exp: dict[str, Any] = scope["experimental"] if isinstance(scope.get("experimental"), dict) else {}
+        for hook, cmd in (exp.get("scripts") or {}).items() if isinstance(exp.get("scripts"), dict) else []:
+            found.append(f"{where}: {prefix}experimental.scripts.{_text(hook)}: {_text(cmd, 300)}")
+        for key in ("python", "pydabs"):
+            if exp.get(key):
+                found.append(f"{where}: {prefix}experimental.{key}: runs Python code from the bundle")
+        if scope.get("python"):
+            found.append(f"{where}: {prefix}python: runs Python code from the bundle")
+        for name, art in (scope.get("artifacts") or {}).items() if isinstance(scope.get("artifacts"), dict) else []:
+            art = art if isinstance(art, dict) else {}
+            build = art.get("build") or f"the CLI's default build for a {_text(art.get('type') or 'whl')} artifact"
+            found.append(f"{where}: {prefix}artifacts.{_text(name)}.build: {_text(build, 300)}")
+    return found
+
+
+def local_commands(folder: str) -> dict[str, Any]:
+    """Commands the bundle could make the CLI run on this PC, and their digest (empty when none)."""
+    found = [line for where, doc in _bundle_docs(folder) for line in _commands_in(where, doc)]
+    return {"commands": found, "digest": hashlib.sha256("\n".join(found).encode()).hexdigest()[:16] if found else ""}
+
+
+def _gate(folder: str, allow: str) -> dict[str, Any] | None:
+    """None when the CLI may run; otherwise the needs_confirm answer listing the commands."""
+    found = local_commands(folder)
+    if found["commands"] and allow != found["digest"]:
+        return {"ok": False, "needs_confirm": True, "local_commands": found["commands"], "commands_digest": found["digest"],
+                "error": "This bundle runs commands on this PC. Check them before the CLI runs."}
+    return None
+
+
 def production(folder: str, target: str) -> bool:
     """A target that is production by its mode or by its name."""
     spec = next((t for t in targets(folder)["targets"] if t["name"] == target), None)
@@ -111,9 +183,11 @@ def _check_target(folder: str, target: str) -> None:
         raise BundleError("Pick one of the targets in databricks.yml.")
 
 
-def validate(folder: str, target: str, profile: str, run: Runner = subprocess.run) -> dict[str, Any]:
-    """``bundle validate``: problems and warnings in the files. Changes nothing."""
+def validate(folder: str, target: str, profile: str, run: Runner = subprocess.run, allow: str = "") -> dict[str, Any]:
+    """``bundle validate``: problems and warnings in the files. Changes nothing in Databricks."""
     _check_target(folder, target)
+    if (held := _gate(folder, allow)) is not None:
+        return held
     done = _run(["validate", "--target", target, "--output", "json"], folder, profile, run, TIMEOUT // 10)
     if done.returncode != 0:
         return {"ok": False, "error": _tail(done.stderr or done.stdout)}
@@ -151,9 +225,11 @@ def digest(rows: list[dict[str, str]]) -> str:
     return hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def plan(folder: str, target: str, profile: str, run: Runner = subprocess.run) -> dict[str, Any]:
-    """What deploying ``target`` would change. Changes nothing."""
+def plan(folder: str, target: str, profile: str, run: Runner = subprocess.run, allow: str = "") -> dict[str, Any]:
+    """What deploying ``target`` would change. Changes nothing in Databricks."""
     _check_target(folder, target)
+    if (held := _gate(folder, allow)) is not None:
+        return held
     done = _run(["plan", "--target", target, "--output", "json"], folder, profile, run, TIMEOUT // 10)
     if done.returncode != 0:
         return {"ok": False, "error": _tail(done.stderr or done.stdout)}
@@ -173,10 +249,11 @@ def plan(folder: str, target: str, profile: str, run: Runner = subprocess.run) -
 
 
 def deploy(folder: str, target: str, profile: str, seen_digest: str, typed: str = "",
-           run: Runner = subprocess.run) -> dict[str, Any]:
+           run: Runner = subprocess.run, allow: str = "") -> dict[str, Any]:
     """Deploy ``target`` if its plan is still the one the person saw (``seen_digest``). A plan that
-    deletes or recreates, or a production target, needs ``typed`` == the target's name."""
-    now = plan(folder, target, profile, run)
+    deletes or recreates, or a production target, needs ``typed`` == the target's name. A bundle that
+    runs commands on this PC needs ``allow`` == their digest (see local_commands)."""
+    now = plan(folder, target, profile, run, allow)
     if not now.get("ok"):
         return now
     if now["digest"] != seen_digest:

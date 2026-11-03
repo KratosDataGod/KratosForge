@@ -78,3 +78,13 @@ def test_a_connection_without_a_cli_profile_is_refused(tmp_path, folder):
     with pytest.raises(ValueError, match="pick a connection that signs in with a CLI profile"):
         svc.databricks_bundle_plan(folder, "dev", "profile:P:x")
     assert svc._bundle_run.calls == []
+
+
+def test_the_rpc_holds_a_bundle_with_scripts_until_allowed(tmp_path, folder):
+    from test_databricks_bundles import SCRIPTS
+    (tmp_path / "bundle" / "databricks.yml").write_text(SCRIPTS)
+    fake = FakeCli([SAFE])
+    svc = Svc(tmp_path, fake)
+    held = svc.databricks_bundle_plan(folder, "dev", "cli:dev")
+    assert held["needs_confirm"] and fake.calls == []
+    assert svc.databricks_bundle_plan(folder, "dev", "cli:dev", allow_commands=held["commands_digest"])["ok"]

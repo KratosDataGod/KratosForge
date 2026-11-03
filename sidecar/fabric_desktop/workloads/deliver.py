@@ -1,5 +1,5 @@
 """How a notice route sends: a Teams webhook, a Power Automate flow, or email through the company
-mail server. Platform notices (platform_notify.py) and incident alerts (notify.py) share it.
+mail server. Platform notices (platform_notify.py) use it; incident alerts (notify.py) can take the same poster.
 
 A route keeps one address, sealed in settings (sealed_settings.py), and its scheme says how it sends:
 
@@ -178,6 +178,8 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
             refused = conn.send_message(msg, from_addr=mail.sender, to_addrs=to)
     except RuntimeError:
         raise
+    except smtplib.SMTPRecipientsRefused as exc:
+        raise RuntimeError(f"{mail.host} refused all {len(exc.recipients)} addresses") from None
     except smtplib.SMTPAuthenticationError as exc:
         raise RuntimeError(f"{mail.host} didn't accept the user name and password ({exc.smtp_code})") from None
     except smtplib.SMTPResponseException as exc:

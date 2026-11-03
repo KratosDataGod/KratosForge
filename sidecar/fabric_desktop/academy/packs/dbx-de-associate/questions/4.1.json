@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "4.1",
+  "questions": [
+    {
+      "id": "4.1-q1",
+      "type": "single",
+      "stem": "A cleanup task must run after its upstream tasks finish, whether they succeeded or failed. Which Run if condition fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "All succeeded"
+        },
+        {
+          "id": "b",
+          "text": "At least one failed"
+        },
+        {
+          "id": "c",
+          "text": "None failed"
+        },
+        {
+          "id": "d",
+          "text": "All done"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "All done runs the task once every dependency has finished, whatever the outcome.",
+      "source": "https://docs.databricks.com/aws/en/jobs/run-if",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.1-q2",
+      "type": "single",
+      "stem": "A notification task should run only when one or more of its upstream tasks failed. Which Run if condition fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "All done"
+        },
+        {
+          "id": "b",
+          "text": "All succeeded"
+        },
+        {
+          "id": "c",
+          "text": "At least one failed"
+        },
+        {
+          "id": "d",
+          "text": "At least one succeeded"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "At least one failed runs the task when one or more dependencies failed.",
+      "source": "https://docs.databricks.com/aws/en/jobs/run-if",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.1-q3",
+      "type": "single",
+      "stem": "A job must take one of two paths depending on whether a row count passed from an earlier task is above zero. Which task type expresses that branch?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Python wheel"
+        },
+        {
+          "id": "b",
+          "text": "If/else condition"
+        },
+        {
+          "id": "c",
+          "text": "Run Job"
+        },
+        {
+          "id": "d",
+          "text": "For each"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The If/else condition task compares two values and runs the true or the false branch.",
+      "source": "https://docs.databricks.com/aws/en/jobs/tasks/if-else",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.1-q4",
+      "type": "single",
+      "stem": "A team needs to run the same notebook once for each of 40 region codes, with up to 5 running at a time. Which task type fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Forty copies of a notebook task"
+        },
+        {
+          "id": "b",
+          "text": "For each, with the region list as inputs and concurrency set to 5"
+        },
+        {
+          "id": "c",
+          "text": "If/else condition"
+        },
+        {
+          "id": "d",
+          "text": "A continuous trigger"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A For each task loops a nested task over a list of inputs, with a setting for how many run at once.",
+      "source": "https://docs.databricks.com/aws/en/jobs/tasks/for-each",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.1-q5",
+      "type": "multiple",
+      "stem": "A task calls an API that sometimes fails for a few seconds. Which task settings help it recover on its own? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Setting the Run if condition to All failed"
+        },
+        {
+          "id": "b",
+          "text": "Removing the task's dependencies"
+        },
+        {
+          "id": "c",
+          "text": "A retry interval"
+        },
+        {
+          "id": "d",
+          "text": "A retry policy with a number of retries"
+        }
+      ],
+      "answer": [
+        "d",
+        "c"
+      ],
+      "explanation": "A task's retry policy sets how many times to retry and how long to wait between attempts.",
+      "source": "https://docs.databricks.com/aws/en/jobs/configure-task",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

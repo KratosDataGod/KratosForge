@@ -117,6 +117,9 @@ def test_failures_say_what_happened_without_the_password():
     with pytest.raises(RuntimeError) as err:
         deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)
     assert str(err.value) == "smtp.contoso.com answered 550 (5.1.1)"
+    FakeSMTP.fail = smtplib.SMTPRecipientsRefused({"a@contoso.com": (550, b"no")})
+    with pytest.raises(RuntimeError, match="refused all 1 addresses"):
+        deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)
     FakeSMTP.fail = ConnectionRefusedError("refused")
     with pytest.raises(RuntimeError, match="Couldn't reach smtp.contoso.com:587"):
         deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)
@@ -185,6 +188,8 @@ def test_the_mail_server_is_tested_before_it_is_saved_and_its_password_stays_in_
     assert shown["password_saved"] is True and "hunter2" not in str(shown)
     svc.mail_server_save("smtp.contoso.com", "kf@contoso.com", username="svc-kf")  # empty password keeps it
     assert svc.vault[deliver.PASSWORD_TARGET][1] == "hunter2"
+    with pytest.raises(ValueError, match="Enter the password"):  # another user never gets the old password
+        svc.mail_server_save("smtp.contoso.com", "kf@contoso.com", username="other")
     svc.platform_notify_save([{"name": "default", "url": "mailto:ana@contoso.com"}], test="default")
     assert svc.sent[-1][1:3] == ("hunter2", ["ana@contoso.com"])
     assert svc.platform_notify_settings()["routes"][0]["host"] == "1 person, through smtp.contoso.com"

@@ -8,7 +8,7 @@ addresses: they are never returned to the UI, recorded in the audit log, or writ
 settings.json holds them encrypted for this Windows account (sealed_settings.py).
 
 The company mail server (``mail_server`` in settings) is set once per PC and used by every email
-route, platform notices and incident alerts alike. Its password, when it needs one, is only in
+route. Its password, when it needs one, is only in
 Windows Credential Manager (credman.py), never in settings, logs, the audit log or backups.
 """
 
@@ -77,8 +77,8 @@ class PlatformNotifyMixin:
             return None
 
     def _notice_post(self) -> deliver.Post:
-        """post(address, title, lines) for any route: Teams, a flow, or email through the mail server.
-        Incident alerts take the same one (workloads/deliver.py)."""
+        """post(address, title, lines) for any route: Teams, a flow, or email through the mail server
+        (workloads/deliver.py). Incident alerts are meant to take this same one."""
         return deliver.poster(self._mail_server(), lambda url, title, lines: post_teams(url, title, lines),
                               password=lambda: credman.read(deliver.PASSWORD_TARGET))
 
@@ -160,7 +160,9 @@ class PlatformNotifyMixin:
         mail = deliver.MailServer.parse({"host": host, "port": port, "security": security, "sender": sender,
                                          "username": username})
         assert mail is not None
-        if mail.username and not password and credman.read(deliver.PASSWORD_TARGET) is None:
+        before = self._mail_server()
+        changed_user = mail.username != (before.username if before else "")
+        if mail.username and not password and (changed_user or credman.read(deliver.PASSWORD_TARGET) is None):
             raise ValueError("Enter the password for that user name, or clear the user name for a relay that needs none")
         if test_to:
             to = deliver.recipients(deliver.MAILTO + test_to)

@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2",
+  "questions": [
+    {
+      "id": "2.2-q1",
+      "type": "single",
+      "stem": "What happens when COPY INTO runs again on a folder where some files were already loaded?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The table is dropped and recreated"
+        },
+        {
+          "id": "b",
+          "text": "Files already loaded are skipped, so the command can be rerun safely"
+        },
+        {
+          "id": "c",
+          "text": "The command fails"
+        },
+        {
+          "id": "d",
+          "text": "Every file is loaded again, creating duplicates"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "COPY INTO keeps track of loaded files and skips them on later runs, which makes it idempotent.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/copy-into/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2-q2",
+      "type": "single",
+      "stem": "Which SQL command loads new CSV files from cloud storage into an existing Delta table?",
+      "options": [
+        {
+          "id": "a",
+          "text": "MERGE FILES sales USING 's3://bucket/sales/'"
+        },
+        {
+          "id": "b",
+          "text": "INSERT FILES INTO sales FROM 's3://bucket/sales/'"
+        },
+        {
+          "id": "c",
+          "text": "LOAD DATA INPATH 's3://bucket/sales/' INTO sales"
+        },
+        {
+          "id": "d",
+          "text": "COPY INTO sales FROM 's3://bucket/sales/' FILEFORMAT = CSV"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "COPY INTO with a source path and FILEFORMAT loads files into a Delta table.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/copy-into/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2-q3",
+      "type": "single",
+      "stem": "New CSV files have extra columns that the target table doesn't have yet. Which COPY INTO option lets the table schema grow to include them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "FORMAT_OPTIONS ('header' = 'false')"
+        },
+        {
+          "id": "b",
+          "text": "COPY_OPTIONS ('force' = 'true')"
+        },
+        {
+          "id": "c",
+          "text": "There's no way; COPY INTO never changes the schema"
+        },
+        {
+          "id": "d",
+          "text": "COPY_OPTIONS ('mergeSchema' = 'true')"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "With mergeSchema set to true, the target table's schema can evolve according to the incoming data.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/delta-copy-into",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2-q4",
+      "type": "single",
+      "stem": "You must reload files that COPY INTO already loaded once. Which option makes it load them again?",
+      "options": [
+        {
+          "id": "a",
+          "text": "FILEFORMAT = PARQUET"
+        },
+        {
+          "id": "b",
+          "text": "COPY_OPTIONS ('force' = 'true')"
+        },
+        {
+          "id": "c",
+          "text": "Rename the table"
+        },
+        {
+          "id": "d",
+          "text": "COPY_OPTIONS ('mergeSchema' = 'true')"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With force set to true, idempotency is disabled and files are loaded whether or not they were loaded before.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/delta-copy-into",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2-q5",
+      "type": "single",
+      "stem": "When is COPY INTO a good fit compared with Auto Loader?",
+      "options": [
+        {
+          "id": "a",
+          "text": "For continuously ingesting millions of files with schema evolution"
+        },
+        {
+          "id": "b",
+          "text": "For streaming from Kafka"
+        },
+        {
+          "id": "c",
+          "text": "For reading from Salesforce"
+        },
+        {
+          "id": "d",
+          "text": "For loading files in the thousands over time with a simple, rerunnable SQL command"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "COPY INTO suits files in the order of thousands over time. For millions of files or more, Auto Loader is the recommended choice.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

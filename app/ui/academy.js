@@ -63,7 +63,7 @@ async function renderAcademy() {
       results: "This page and Profile. Readiness is KratosForge's own estimate, not the vendor's score.",
     }))));
   // The Assessment Center (academy-assessments.js, its own PR) draws into the tab when it's there.
-  if (academyPage.tab === "assessments") return typeof renderAssessments === "function" ? renderAssessments(body) : fill(body, academyAssessments());
+  if (academyPage.tab === "assessments") return typeof renderAssessments === "function" ? renderAssessments(body, academyPage.pack) : fill(body, academyAssessments());
   const data = await academyData().catch((err) => { if (body.isConnected) fill(body, errorPanel(err, { label: "Couldn't load Academy", retry: () => render() })); return null; });
   if (!data || state.view !== "academy" || !body.isConnected) return;
   const tab = academyPage.tab;

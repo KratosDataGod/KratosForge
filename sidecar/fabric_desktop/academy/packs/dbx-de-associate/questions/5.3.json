@@ -1,0 +1,164 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "5.3",
+  "questions": [
+    {
+      "id": "5.3-q1",
+      "type": "order",
+      "stem": "Arrange the steps to ship a job with a bundle (Declarative Automation Bundles, formerly Databricks Asset Bundles).",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deploy the bundle to a target"
+        },
+        {
+          "id": "b",
+          "text": "Run the job from the bundle"
+        },
+        {
+          "id": "c",
+          "text": "Validate the bundle"
+        },
+        {
+          "id": "d",
+          "text": "Write the bundle configuration in databricks.yml"
+        }
+      ],
+      "answer": [
+        "d",
+        "c",
+        "a",
+        "b"
+      ],
+      "explanation": "Configure, validate, deploy, then run.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/work-tasks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.3-q2",
+      "type": "single",
+      "stem": "Which command checks a bundle's configuration for errors before deploying?",
+      "options": [
+        {
+          "id": "a",
+          "text": "databricks bundle validate"
+        },
+        {
+          "id": "b",
+          "text": "databricks bundle run"
+        },
+        {
+          "id": "c",
+          "text": "databricks bundle destroy"
+        },
+        {
+          "id": "d",
+          "text": "databricks jobs delete"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "bundle validate checks the configuration.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/work-tasks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.3-q3",
+      "type": "single",
+      "stem": "Which command deploys a bundle to its prod target?",
+      "options": [
+        {
+          "id": "a",
+          "text": "databricks bundle deploy -t prod"
+        },
+        {
+          "id": "b",
+          "text": "databricks bundle run -t prod --delete"
+        },
+        {
+          "id": "c",
+          "text": "databricks deploy prod"
+        },
+        {
+          "id": "d",
+          "text": "databricks bundle init prod"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "bundle deploy takes -t (or --target) with the target's name.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/cli/bundle-commands",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.3-q4",
+      "type": "single",
+      "stem": "Which file at the root of a bundle holds its main configuration?",
+      "options": [
+        {
+          "id": "a",
+          "text": "databricks.yml"
+        },
+        {
+          "id": "b",
+          "text": "pipeline.json"
+        },
+        {
+          "id": "c",
+          "text": "setup.cfg"
+        },
+        {
+          "id": "d",
+          "text": "requirements.txt"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A bundle has one configuration file named databricks.yml at the root of the project folder.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.3-q5",
+      "type": "single",
+      "stem": "What does databricks bundle destroy do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deletes the Git repository"
+        },
+        {
+          "id": "b",
+          "text": "Deletes all tables in the catalog"
+        },
+        {
+          "id": "c",
+          "text": "Removes the CLI from your machine"
+        },
+        {
+          "id": "d",
+          "text": "Removes the resources the bundle previously deployed"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "bundle destroy deletes the jobs, pipelines and artifacts the bundle deployed before.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/work-tasks",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

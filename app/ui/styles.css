@@ -2933,3 +2933,11 @@ tr.fg-conflict { background: var(--danger-soft); }
 .assess-orders ol { margin: 4px 0 0; padding-left: 20px; }
 .assess-why { background: var(--surface-2); border-left: 3px solid var(--accent); padding: 8px 12px; font-size: 13px; color: var(--text-2); margin-top: 10px; }
 @media (max-width: 760px) { .assess-exam { grid-template-columns: 1fr; } }
+.pn-send-by { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.pn-send-choice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 6px; cursor: pointer; }
+.pn-send-choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pn-send-choice small { display: block; color: var(--muted); font-size: 12px; }
+.pn-mail { display: flex; flex-direction: column; gap: 4px; }
+.pn-mail p { margin: 0; }
+.pn-two { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+.dialog > .pn-route { overflow-y: auto; min-height: 0; padding-right: 4px; }

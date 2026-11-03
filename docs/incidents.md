@@ -61,6 +61,10 @@ Wrong numbers in a report, a dashboard nobody can open, a source a team says is 
 
 **Report a problem** in the account menu is different: it reports a problem with the KratosForge app itself.
 
+## In the bell
+
+Incidents assigned to you, in any environment, are under **For you** in the bell (Activity). The ones still waiting on you (open, not acknowledged) count on the bell and come first, then by priority and SLA. Each one has **Acknowledge** (it asks first) and **Open**. The app reads them when it starts, when you open the bell and every 15 minutes while its window has focus. That's one small read of each environment's incident file, and nothing is written. An environment it couldn't read is named.
+
 ## Who's affected (Preview)
 
 For an incident about a metadata table, the incident page lists the published data products whose ports carry that table in the environment, the projects linked to them, and who to tell (owners, people who linked a project, followers). **Tell them** posts one `incident.impact` notice through the platform's Teams routes, naming only the people you confirm, and a note on the incident records who was told. Details in the [user guide](user-guide.md#whos-affected-preview).
@@ -94,6 +98,7 @@ The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and 
 | Call | What it does |
 | --- | --- |
 | `incidents_board(env, include_resolved)` | The list with each incident's priority and SLA state, and counts: open, mine, unassigned, at risk, breached |
+| `incidents_for_me()` | The bell's **For you** list: active incidents assigned to the signed-in person in every environment, waiting on you first, and the environments that couldn't be read |
 | `incident_report(env, title, text, priority, workload, name)` | Reports a problem |
 | `incident_set_priority(env, id, priority, note)` | Sets the priority; the note is required |
 | `incident_sla_policy()` | The targets in effect, where they come from, and what in the policy was ignored |

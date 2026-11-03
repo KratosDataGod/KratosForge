@@ -166,7 +166,7 @@ function errorPanel(err, { retry = null, label = "", hint = "" } = {}) {
 
 // Items: {id, status: info|ok|error|failed|running, title, text, details, at, progress, results, url, request}.
 // Kept on this PC so the history survives a restart; nothing in them is needed to work.
-const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null };
+const activity = { items: [], open: false, filter: "all", seenAt: 0, pollTimer: null, platform: null, incidents: null };
 
 (function loadActivity() {
   try {
@@ -223,13 +223,15 @@ function renderBell() {
   const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
   const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
   const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
-  const count = running + problems + notices;
+  const forYou = typeof incWaitingOnMe === "function" ? incWaitingOnMe().length : 0;  // incidents.js
+  const count = running + problems + notices + forYou;
   const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
-    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : "",
+    forYou ? `${forYou} incident${forYou === 1 ? "" : "s"} waiting on you` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);
-  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems ? " bad" : ""}` }, count)] : []));
+  bell.replaceChildren(icon("alert", 20), ...(count ? [h("span", { class: `badge${problems || forYou ? " bad" : ""}` }, count)] : []));
 }
 
 function toggleTray(open = !activity.open) {
@@ -239,7 +241,7 @@ function toggleTray(open = !activity.open) {
   renderBell();
   renderTray();
   placeFabricView();
-  if (open) loadPlatformNotices().then(() => { if (activity.open) renderTray(); });
+  if (open) Promise.all([loadPlatformNotices(), loadIncidentsForMe()]).then(() => { if (activity.open) renderTray(); });
 }
 
 function renderTray() {
@@ -249,6 +251,8 @@ function renderTray() {
   const problems = activity.items.filter((i) => PROBLEM.has(i.status));
   const platform = platformNoticesShown();
   if (activity.filter === "platform" && !platform) activity.filter = "all";
+  const forYou = typeof incidentsForMeShown === "function" && incidentsForMeShown();  // incidents.js
+  if (activity.filter === "for_you" && !forYou) activity.filter = "all";
   const shown = activity.filter === "running" ? running : activity.filter === "problems" ? problems : activity.items;
   const chip = (id, label) => h("button", { class: `chip${activity.filter === id ? " on" : ""}`, onclick: () => { activity.filter = id; renderTray(); } }, label);
   root.replaceChildren(h("aside", { class: "tray", "aria-label": "Activity" },
@@ -259,8 +263,10 @@ function renderTray() {
       }, "tool link small"),
       h("button", { class: "tool small", "aria-label": "Close", onclick: () => toggleTray(false) }, icon("dismiss", 16))),
     h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`),
+      forYou ? chip("for_you", `For you ${activity.incidents.incidents.length}`) : null,
       platform ? chip("platform", `Platform ${activity.platform.open.length}`) : null),
-    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : shown.length ? shown.map(trayItem)
+    h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : activity.filter === "for_you" ? incidentsTrayList()
+      : shown.length ? shown.map(trayItem)
       : h("p", { class: "muted-text tray-empty" }, activity.filter === "all" ? "Nothing yet. Runs, publishes and problems show up here." : "Nothing here."))));
 }
 

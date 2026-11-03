@@ -84,6 +84,7 @@ NO_UI_CALLER: dict[str, str] = {
     "fabric_git_link": _FABRIC_GIT,
     "fabric_git_unlink": _FABRIC_GIT,
     "fabric_git_overview": _FABRIC_GIT,
+    "fabric_git_status": _FABRIC_GIT,
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

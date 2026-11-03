@@ -63,6 +63,10 @@ Keys:
                      the PC (default true)
     allow_notebook_packages  IT only: false stops people installing packages into notebook
                      environments (environments.py); the engine's own packages still work
+    notebook_package_folder  IT only: a folder of approved .whl files (a full path on this PC or a
+                     network share); notebook environments install from it first (environments.py)
+    allow_pypi_packages  IT only: false stops notebook environments reaching PyPI (or the index the
+                     PC's pip uses) for a package the folder doesn't have (default true)
     allow_signed_out_schedules  IT only: false stops people setting schedules on this PC to run while
                      they're signed out of Windows (Windows keeps their password with the task); schedules
                      already set that way say so and can only be turned back to signed-in (default true)
@@ -137,7 +141,7 @@ import hashlib
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from . import jsonfile
@@ -235,6 +239,10 @@ for _subject in ("sql", "notebooks"):
     USER_KEYS += (f"learn_mode_{_subject}",)
 # A value saved, or set by policy, under a name a setting no longer has, read as its new name.
 RENAMED: dict[str, dict[str, str]] = {"learn_mode": {"focus": "expert", "learning": "guided"}}
+# Notebook environments' package source (environments.py): the IT folder of approved wheels first,
+# then PyPI only when allow_pypi_packages lets it. Policy only.
+DEFAULTS.update({"notebook_package_folder": "", "allow_pypi_packages": True})
+TYPES.update({"notebook_package_folder": str, "allow_pypi_packages": bool})
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
@@ -257,7 +265,7 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "allow_dbconnect_install": False,
                               "platform_presence": False,
                               "allow_replay_samples": False, "allow_optimize_lakehouse": False,
-                              "allow_notebook_packages": False,
+                              "allow_notebook_packages": False, "allow_pypi_packages": False,
                               "allow_signed_out_schedules": False}
 
 
@@ -395,6 +403,16 @@ def _read_engine_info() -> dict[str, Any]:
         return {}
 
 
+def package_folder_problem(folder: str) -> str | None:
+    """Why ``folder`` can't be the approved wheel folder, or None. It has to be a full path (a drive
+    or a \\\\server\\share), never a web address: pip would read a URL as an index to download from."""
+    if "://" in folder or folder.lower().startswith(("http:", "https:", "file:")):
+        return "is a web address, not a folder"
+    if not (PureWindowsPath(folder).is_absolute() or PurePosixPath(folder).is_absolute()):
+        return "isn't a full path (like D:\\wheels or \\\\server\\wheels)"
+    return None
+
+
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
     data, reason, from_copy = _policy_file()
@@ -413,6 +431,10 @@ def policy_problems() -> list[str]:
             problems.extend(_sign_in_host_problems(value))
         elif key == "engine_download_url":
             problems.extend(_engine_url_problems(value, data.get("auto_update")))
+        elif key == "notebook_package_folder" and isinstance(value, str) and value:
+            why = package_folder_problem(value)
+            if why:
+                problems.append(f"notebook_package_folder {why}, so notebook packages can't be installed until it's fixed")
         elif key == "register_link_scheme":
             if not isinstance(value, bool):
                 problems.append(f"register_link_scheme should be bool, not {type(value).__name__}, so the app keeps "

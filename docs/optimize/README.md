@@ -81,7 +81,7 @@ When a write to the central lakehouse fails for a reason that passes (no network
 
 Sharing runs normally reads which runs the lakehouse already has. With no network at all it can't, so every run not already waiting on this PC is queued; any that turn out to be in the lakehouse already are skipped when they're sent.
 
-- **Where it waits.** In `optimize\outbox.sqlite` in the app's data folder, kept for the lakehouse it was meant for. Errors are stored with secrets removed. Nothing in it is sent anywhere else.
+- **Where it waits.** In `optimize\outbox.sqlite` in the app's data folder, kept for the lakehouse it was meant for. Errors are stored with secrets removed. Nothing in it is sent anywhere else. If the file is damaged, it's moved aside (`outbox.sqlite.corrupt-<time>`) and a new one starts, so Optimize keeps working; what waited in the old file isn't sent, and running the X-ray or sharing runs again records it.
 - **When it's sent.** The next time Optimize writes to that lakehouse (a finished X-ray scan, sharing runs), and when you connect or switch to it. What waits goes first, oldest first. There's no timer: nothing is sent in the background.
 - **No duplicates.** Every row has its `record_id`, so sending something twice, or finishing a batch that was half sent, adds nothing. Queuing the same thing again doesn't add it twice either: a scan shared again replaces the waiting one, and runs already waiting aren't queued again, so repeats don't fill the limit below.
 - **What isn't kept.** A permission error, a lakehouse open read-only, or the policy switch being off isn't a passing failure: it's shown as before and nothing waits. A waiting item the lakehouse refuses as it is gets dropped, so it can't hold up the rest.

@@ -92,6 +92,17 @@ def test_the_same_thing_queued_again_waits_once(tmp_path):
     assert box.status("lh1")["dropped"] == 1  # only the cap dropped something; repeats aren't drops
 
 
+def test_a_damaged_outbox_is_set_aside_and_starts_empty(tmp_path):
+    path = tmp_path / "o.sqlite"
+    path.write_bytes(b"this is not a SQLite database, just bytes " * 200)
+    box = ob.Outbox(path)
+    assert box.set_aside is not None and box.set_aside.exists()
+    assert box.status("lh1")["pending"] == 0
+    box.add("lh1", ob.ANALYSIS, payload(), "down")  # writing goes on as usual
+    assert box.status("lh1")["pending"] == 1
+    assert ob.Outbox(path).set_aside is None  # a healthy file opens as it is
+
+
 def test_bad_items_are_refused(tmp_path):
     box = ob.Outbox(tmp_path / "o.sqlite")
     with pytest.raises(ValueError):

@@ -125,7 +125,11 @@ def _load(con: duckdb.DuckDBPyConnection, work: Path, name: str) -> bool:
     if not (path / "_delta_log").is_dir():
         return False
     con.register("kf_out", deltalake.DeltaTable(str(path)).to_pyarrow_table())
-    con.execute(f'CREATE TABLE "{name}" AS SELECT * FROM kf_out')
+    schema, _, bare = name.rpartition(".")   # table_path checked both parts are plain names
+    if schema:
+        con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+    con.execute(f'CREATE TABLE {".".join(chr(34) + p + chr(34) for p in ([schema] if schema else []) + [bare])} '
+                'AS SELECT * FROM kf_out')
     con.unregister("kf_out")
     return True
 

@@ -20,6 +20,7 @@ detail is never in them (platform_notify.message).
 
 from __future__ import annotations
 
+import logging
 import re
 import smtplib
 import ssl
@@ -31,6 +32,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..redact import one_line
+
+_log = logging.getLogger(__name__)
 
 FLOW = "flow:"
 MAILTO = "mailto:"
@@ -191,7 +194,9 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
     except (OSError, smtplib.SMTPException) as exc:
         raise RuntimeError(f"Couldn't reach {mail.host}:{mail.port} ({type(exc).__name__})") from None
     if refused:
-        raise RuntimeError(f"{mail.host} refused {len(refused)} of {len(to)} addresses")
+        # Sent to the rest: raising would have the outbox send it again to everyone who got it.
+        _log.warning("%s took the email but refused %d of %d addresses; check the route's addresses",
+                     mail.host, len(refused), len(to))
 
 
 _STATUS = re.compile(r"\b[245]\.\d{1,3}\.\d{1,3}\b")  # an enhanced status code (RFC 3463), such as 5.1.1

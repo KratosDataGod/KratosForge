@@ -61,21 +61,63 @@ Rules that make many installations safe:
 
 Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `findings` (fingerprint = rule id + artifact id + target), `recommendations` + lifecycle events, `actions`, `measurements` (measurement.py shape), `cu_usage`, `savings` (classification: verified performance / measured CU / estimated CU / potential), `local_execution`, `dependencies`, `rules`, `audit`, `config` (settings shared by everyone using the lakehouse, as events) and `schema_version`.
 
-## 4. Proposed PR sequence
+## 4. PR sequence and status
 
-| PR | Content | UI? |
+Status checked against `main` at 1aad08e (2026-11-03). Merged PRs are listed so the remaining work is clear; nothing below has been tried on a live Fabric tenant.
+
+| PR | Content | Status |
 | --- | --- | --- |
-| OPT-001a (merged, #186) | `optimize/` package: schema, local store (works offline, tests on local Delta), migrations, initialize/attach/validate against a Lakehouse path. Engine only. | No |
-| OPT-001b (built) | Optimize rail page in the Fabric page's slot (Fabric portal becomes a Workspaces tab): set-up card that doesn't block, Overview, Opportunities with the shared recommendation lifecycle, Cost and savings (Monitor's Cost panel without Fabric's Monitoring hub); Settings > Optimize lakehouses. X-ray moving into Opportunities (mockup boards 7 and 8) is the next UI PR | Yes |
-| OPT-002 (merged, #189) | Shared read/write service (`optimize/shared.py`): stable ids, bounded batches, run row written last, findings deduplicated by fingerprint, recommendation lifecycle as events, reads scoped to the person's workspaces; concurrency tests with four writers | No |
-| OPT-006 | Offline queue and sync status (SQLite queue, backoff, partial sync) | Small |
-| OPT-007 | Multiple Lakehouses: register, switch, validate, upgrade, disconnect | Settings |
-| OPT-003 | Local execution recording from the engines in section 1 | No |
-| OPT-004 | Before/after measurement and savings classification | No |
-| OPT-005 | Dashboard and reports; optional Power BI model | Yes |
-| OPT-008, 009 | Security docs, retention, overhead accounting (folded into the PRs above where they belong, plus one docs PR) | No |
+| OPT-001a | `optimize/` package: schema, local store, migrations, initialize/attach/validate | Merged (#186) |
+| OPT-001b | Optimize rail page: set-up card, Overview, Opportunities, Cost and savings, Settings > Optimize lakehouses | Merged (#200, #219, #825, #827, #1472) |
+| OPT-002 | Shared read/write service (`optimize/shared.py`): stable ids, bounded batches, run row last, findings by fingerprint, recommendation events, workspace-scoped reads | Merged (#189) |
+| Central lakehouse | `FabricDesktop_Central` with table families, a family's own schema, `central_restrict` | Merged (#228, #262) |
+| X-ray into Optimize | X-ray findings written to the central lakehouse; Optimize acts on this PC's X-ray | Merged (#343, #865, #1454) |
+| OPT-003 (part 1) | `optimize/local_runs.py` and `optimize_share_local_runs`: notebook writes to OneLake tables and scheduled notebook runs | Merged (#356), engine only, no button yet |
+| FINOPS-005 | `calibration.py`: Fabric CU avoided only from Fabric runs of the same workload, else Unknown | Merged (owned by FinOps) |
+| **OPT-006** | **Offline queue and sync status** | **Next** |
+| OPT-007 | Multiple lakehouses: the rest | Planned |
+| OPT-003 (part 2) | Local execution: the rest | Planned |
+| OPT-004 | Measurements and savings rows | Planned |
+| OPT-005 | Dashboard and reports | Planned, mockup first |
+| OPT-008 | Security and retention | Planned |
+| OPT-009 | Optimize's own overhead | Planned |
 
-Order follows the brief's sequence; OPT-001 is split in two so the engine can merge while you review the mockup.
+One PR per row, in this order. Each engine PR comes with tests on local Delta folders; each UI PR waits for a mockup Chris has reacted to.
+
+### OPT-006: Offline queue and sync status (next)
+What's wrong today: when the lakehouse can't be reached, a finished X-ray scan keeps the error with its result and its findings never reach the lakehouse (`xray_service.py`, "never fails the scan"). Shared local runs are only sent when someone asks.
+- A local SQLite outbox under the app's data folder, modelled on `jobqueue.py`: one row per pending batch, keyed by lakehouse id, with attempts, next try and the last error (secrets removed with `redact.py`).
+- A write that fails for a transient reason (`retrying.py`'s classes: network, throttling, a lost commit race) goes in the outbox instead of being dropped. A permission error, a read-only lakehouse or the policy switch being off is not queued: it's shown, as today.
+- The outbox is drained when the app starts, when a lakehouse is connected or switched to, and after each scan. Rows already carry a `record_id` and are written with insert-only MERGE, so sending twice adds nothing and a part-sent batch finishes cleanly.
+- Bounded: a cap on rows and age per lakehouse; past the cap the oldest pending batch is dropped and that is recorded and shown, never silent.
+- `optimize_status` gains `pending` (batches and rows), `last_sync`, `last_error`. One status line on Optimize > Overview; no other UI.
+- Disconnecting a lakehouse keeps its pending rows until it's connected again or the person discards them (with a confirm).
+
+### OPT-007: Multiple lakehouses, the rest
+Register, switch and disconnect are in (#186). Left: an explicit **Upgrade** for a lakehouse on an older schema (asks first; upgrades only add), **Check all** in Settings that validates each registered lakehouse read-only, and showing each one's pending outbox rows from OPT-006.
+
+### OPT-003 part 2: Local execution, the rest
+- Metadata runs from `run_log` (seconds, rows read and written).
+- CPU time and peak memory only where they were measured (`measure.RunMeter` in Prove); empty, never 0, elsewhere.
+- A **Share runs from this PC** button on Optimize (mockup first), using the existing confirm text.
+
+### OPT-004: Measurements and savings
+- `fdopt_measurements` rows from `calibration.calibrate` and from Prove's measured `fabric_job_cu`, with the classification, source, method and assumptions they already carry.
+- `fdopt_savings` rows, each with one classification: **Measured** (a measured Fabric CU baseline and a measured comparison), **Estimated** (calibrated from measured Fabric runs of the same workload), **Potential** (a recommendation not yet applied) or **Unknown** (no baseline). Figures of different classifications are never added together.
+- Before and after for an applied recommendation (for example file count and table size around an X-ray Optimize): a measured performance change, never turned into CU.
+
+### OPT-005: Dashboard and reports
+Overview totals read from the shared tables, grouped by classification, with each figure's evidence one click away. An optional Power BI model over the `fdopt_` tables is a separate decision for Chris. Mockup first.
+
+### OPT-008: Security and retention
+- `docs/optimize/security.md`: who can read what, what each table holds, what counts as identifying (table and workspace names), the read-only reporting role (ReadAll), and what's verified on a tenant versus not.
+- Retention: `retention_days` exists as a setting but nothing enforces it. Deleting shared rows is destructive, so retention will be an administrator action with a dry run that lists what would go, never automatic, and recorded in `fdopt_audit`.
+
+### OPT-009: Optimize's own overhead
+Each sync records what it cost on the PC and in OneLake: rows, commits, bytes written and seconds taken, as Measured local figures in `fdopt_measurements`. OneLake reads and writes use capacity, so the docs say that, but no CU figure is given for them until it's measured.
+
+### Savings claims
+No CU savings figure has been measured for Optimize yet, and none of these PRs claims one. A CU saving is shown only when there is a measured Fabric baseline for the same workload (Prove, side by side, measured CU import from PB-089, or the workload's own Fabric history); otherwise it shows **Unknown, no measured Fabric baseline**. Run time on this PC is never converted into CU. Before any savings figure appears in release notes or docs, a baseline run on the test workspace is recorded with its source and date, which needs Chris's go because it uses capacity.
 
 ## 5. Agreed with the other programs (2026-10-18)
 

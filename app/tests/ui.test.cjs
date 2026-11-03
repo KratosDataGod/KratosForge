@@ -774,6 +774,23 @@ test("Run as is a Preview Monitor segment that only reads who runs what", () => 
   assert.strictEqual(ctx.pill({ state: "failed" }).attrs.class, "pill-s fail");
 });
 
+// Incidents stage 2: every kind the engine opens has its "What to do", and the SLA cell names the clock that matters now.
+test("every incident kind has its guidance, and the SLA cell names the clock that matters", () => {
+  const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  const engine = fs.readFileSync(path.join(ui, "..", "..", "sidecar", "fabric_desktop", "workloads", "incidents.py"), "utf8");
+  const kinds = /^KINDS = \(([^)]*)\)/m.exec(engine)[1].match(/"([a-z_]+)"/g).map((k) => k.slice(1, -1));
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const INC_GUIDE = \{[\s\S]*?\n\};\n/)[0]}
+${src.match(/function incMinutes\([\s\S]*?\n}\n/)[0]}${src.match(/function incSlaText\([\s\S]*?\n}\n/)[0]}
+this.guide = INC_GUIDE; this.sla = incSlaText;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.guide).sort(), [...kinds].sort(), "INC_GUIDE and the engine's KINDS must match exactly");
+  assert.strictEqual(ctx.sla({ state: "breached", acknowledge: { state: "breached", over_minutes: 90 }, resolve: { state: "due", left_minutes: 300 } }).text,
+    "Acknowledge overdue 1 h 30 min");
+  assert.strictEqual(ctx.sla({ state: "at_risk", acknowledge: { state: "met" }, resolve: { state: "at_risk", left_minutes: 20 } }).text, "Resolve due in 20 min");
+  assert.strictEqual(ctx.sla({ state: "none", acknowledge: { state: "none" }, resolve: { state: "none" } }).text, "No SLA");
+  assert.strictEqual(ctx.sla({ state: "missed", acknowledge: { state: "missed" }, resolve: { state: "met" } }).text, "Missed");
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};

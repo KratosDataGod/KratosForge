@@ -29,7 +29,7 @@ import duckdb
 
 from ..learn import checks
 from ..learn import content as learn_content
-from . import registry
+from . import pylab, registry
 
 SCHEMA = "kratosforge/academy-exercise@1"
 MODES = ("guided", "challenge", "troubleshoot")
@@ -39,7 +39,8 @@ ADAPTERS = ("duckdb_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_la
 # Adapters that run the learner's artifact, so a pass can be LOCAL VERIFIED.
 EXECUTING = ("duckdb_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
 # What each adapter can check today. Adapters with nothing here aren't built yet (ACD-004, 011, 012, 014).
-ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity")}
+ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity"),
+                                             **{a: pylab.CHECKS for a in pylab.ADAPTERS}}
 LABELS = {"local_verified": "LOCAL VERIFIED", "simulated": "SIMULATED", "knowledge_only": "KNOWLEDGE ONLY",
           **{p["verified"]: p["label"] for p in registry.PLATFORMS.values()}}
 STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, **{p["verified"]: 3 for p in registry.PLATFORMS.values()}}
@@ -173,8 +174,10 @@ def self_test(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     """The reference solution must pass and every planted wrong answer must fail. ``{"solution": result,
     "wrong": {name: result}}``."""
     ex = get(pack_id, exercise_id, root)
+    if ex["adapter"] in pylab.ADAPTERS:   # each run in a learner process of its own (ACD-011)
+        return pylab.self_test(_folder(pack_id, root) / exercise_id, _grading(pack_id, exercise_id, root), ex)
     if ex["adapter"] != "duckdb_lab":
-        raise ValueError(f"{exercise_id}: only duckdb_lab exercises can be self-tested so far")
+        raise ValueError(f"{exercise_id}: only duckdb_lab, python_lab and delta_lab exercises can be self-tested so far")
     ref = reference(pack_id, exercise_id, root)
     return {"solution": grade(ref["setup"], ex["validation"], ref["solution"], ref["solution"]),
             "wrong": {name: grade(ref["setup"], ex["validation"], sql, ref["solution"]) for name, sql in ref["wrong"].items()}}
@@ -241,6 +244,8 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
     checkable = ADAPTER_CHECKS.get(ex["adapter"])
     if checkable is not None:
         out += [f"{eid}: {ex['adapter']} can't check {c.get('kind')}" for c in ex["validation"] if c.get("kind") not in checkable]
+        if ex["adapter"] in pylab.ADAPTERS:
+            out += [f"{eid}: {p}" for c in ex["validation"] for p in pylab.check_problems(c)]
         for c in ex["validation"]:
             need = {"table_shape": ("table",), "integrity": ("child", "column", "parent")}.get(c.get("kind"), ())
             if [k for k in need if not c.get(k)]:
@@ -252,7 +257,7 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
 def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -> list[str]:
     eid, out = folder.name, []
     grading = _grading(pack_id, eid, root)
-    names = [ex[k] for k in ("lesson", "setup", "starter") if ex.get(k)]
+    names = [ex[k] for k in ("lesson", "setup", "starter") if ex.get(k)] + list(ex.get("files") or [])
     for name in names:
         if not isinstance(name, str) or not _FILE.match(name) or ".." in name:
             out.append(f"{eid}: {name!r} isn't a plain file name in the exercise's folder")
@@ -274,6 +279,15 @@ def _file_problems(pack_id: str, folder: Path, ex: dict[str, Any], root: Path) -
             if m.group(2) not in [e["id"] for e in lab["exercises"]]:
                 out.append(f"{eid}: uses {ex['uses']}, which isn't a Learn exercise")
         out += [f"{eid}: with uses, {k} comes from the Learn lab" for k in ("setup", "starter") if ex.get(k)]
+        if ex.get("adapter") in pylab.ADAPTERS:
+            out.append(f"{eid}: uses reuses a Learn SQL lab, so it's only for duckdb_lab exercises")
+    elif ex.get("adapter") in pylab.ADAPTERS:
+        if not str(ex.get("starter") or "").endswith(".py"):
+            out.append(f"{eid}: a {ex['adapter']} exercise starts from a Python script (starter: answer.py)")
+        if not (grading / "solution.py").is_file():
+            out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.py")
+        if len(list(grading.glob("wrong-*.py")) if grading.is_dir() else []) < 2:
+            out.append(f"{eid}: needs at least two planted wrong answers (grading/{eid}/wrong-*.py) that validation must fail")
     elif ex.get("adapter") in EXECUTING:
         if not (grading / "solution.sql").is_file():
             out.append(f"{eid}: needs an independently runnable reference solution at grading/{eid}/solution.sql")

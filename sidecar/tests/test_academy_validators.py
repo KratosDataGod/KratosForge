@@ -343,3 +343,33 @@ def test_validators_are_deterministic(con: duckdb.DuckDBPyConnection, work: Path
     for _ in range(3):
         assert v.data_quality(con, "dim_customer", RULES) == v.data_quality(con, "dim_customer", RULES)
         assert v.delta_table(work, "tables/sales", versions_min=2) == v.delta_table(work, "tables/sales", versions_min=2)
+
+
+@pytest.mark.parametrize("rel", ["NUL", "con.txt", "out/COM1", "aux.json", "CONIN$", "lpt9.csv", "nul. "])
+def test_windows_device_names_are_refused(work: Path, rel: str) -> None:
+    with pytest.raises(ws.Refused, match="device"):
+        ws.inside(work, rel, must_exist=False)
+
+
+def test_load_table_needs_a_regular_file(work: Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("no named pipes here")
+    os.mkfifo(work / "pipe.csv")
+    with pytest.raises(ws.Refused, match="isn't a file"):
+        ws.load_table(ws.connect(work), work, "pipe.csv", "t", fmt="csv")
+
+
+@pytest.mark.parametrize("bad", [{"commitInfo": "WRITE"}, {"metaData": ["x"]}, {"add": {"path": "p.parquet", "size": "a secret 123"}},
+                                 {"add": "p.parquet"}])
+def test_malformed_log_entries_are_refused_without_echo(work: Path, bad: dict) -> None:
+    table = _delta(work)
+    _add_commit(table, bad)
+    out = v.delta_table(work, "tables/sales")
+    assert not out["passed"] and "secret" not in out["detail"]
+
+
+def test_long_operation_names_are_cut(work: Path) -> None:
+    table = _delta(work)
+    _add_commit(table, {"commitInfo": {"operation": "X" * 5000}})
+    out = v.delta_table(work, "tables/sales", operations=["MERGE"])
+    assert not out["passed"] and len(out["detail"]) < 300

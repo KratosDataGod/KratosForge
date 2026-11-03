@@ -26,6 +26,8 @@ MAX_JSON_BYTES = 4 * 1024 * 1024     # a settings document, pipeline or Delta lo
 MAX_FILES = 20_000                   # files a validator lists under one folder
 MAX_ROWS = 5_000_000                 # rows in one table a validator reads
 MEMORY_LIMIT = "1GB"
+# Windows reserved device names, with or without an extension or trailing dots and spaces (#1736).
+_DEVICE = re.compile(r"(?i)(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]|CONIN\$|CONOUT\$)(\.[^/]*)?[. ]*\Z")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 
 # Windows reparse tags with the name-surrogate bit point somewhere else: symbolic links, junctions,
@@ -65,6 +67,8 @@ def _relative_parts(rel: str) -> list[str]:
     parts = [p for p in PurePosixPath(text).parts if p not in ("", ".")]
     if not parts or any(p == ".." for p in parts):
         raise Refused(f"{rel} isn't inside the exercise folder.")
+    if any(_DEVICE.match(p) for p in parts):
+        raise Refused(f"{rel} is a Windows device name, not a file.")
     return parts
 
 
@@ -171,6 +175,8 @@ def load_table(con: duckdb.DuckDBPyConnection, workspace: Path, rel: str, name: 
             raise Refused(f"{rel} has no .{fmt} files.")
         target: Any = [str(Path(workspace) / f) for f in files]
     else:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            raise Refused(f"{rel} isn't a file.")
         target = str(path)
         if path.stat().st_size > MAX_FILE_BYTES:
             raise Refused(f"{rel} is bigger than {MAX_FILE_BYTES // (1024 * 1024)} MB; an exercise answer is smaller.")

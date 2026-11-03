@@ -356,7 +356,20 @@ def check_log(workspace: Path, rel: str) -> list[dict[str, Any]]:
     return out
 
 
+def _name(value: Any) -> str:
+    """An operation or column name from the log, short enough to show."""
+    text = str(value)
+    return text if len(text) <= 40 and text.isprintable() else text[:40].encode("ascii", "replace").decode() + "…"
+
+
 def _table_facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
+    try:
+        return _facts(commits)
+    except (AttributeError, TypeError, ValueError, KeyError):
+        raise ws.Refused("The table's Delta log has an entry the check can't read.") from None
+
+
+def _facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
     """Versions, operations, partition columns, live files and schema from the checked log, without
     opening data files."""
     live: dict[str, int] = {}
@@ -366,9 +379,9 @@ def _table_facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
     for commit in commits:
         for a in commit["actions"]:
             if "commitInfo" in a:
-                operations.append(str(a["commitInfo"].get("operation", "")).upper())
+                operations.append(_name(a["commitInfo"].get("operation", "")).upper())
             if "metaData" in a:
-                partitions = [str(p) for p in a["metaData"].get("partitionColumns") or []]
+                partitions = [_name(p) for p in a["metaData"].get("partitionColumns") or []]
                 try:
                     schema = json.loads(a["metaData"].get("schemaString") or "{}").get("fields") or []
                 except (json.JSONDecodeError, AttributeError, RecursionError):
@@ -379,6 +392,11 @@ def _table_facts(commits: list[dict[str, Any]]) -> dict[str, Any]:
                 live.pop(unquote(a["remove"]["path"]), None)
     return {"versions": [c["version"] for c in commits], "operations": operations, "partitions": partitions,
             "files": live, "schema": schema}
+
+
+def _names(values: list[str]) -> str:
+    shown = ", ".join(values[:8])
+    return shown + (f" and {len(values) - 8} more" if len(values) > 8 else "")
 
 
 def delta_table(workspace: Path, path: str, versions_min: int | None = None, versions_max: int | None = None,
@@ -401,13 +419,13 @@ def delta_table(workspace: Path, path: str, versions_min: int | None = None, ver
     done = facts["operations"]
     for op in operations or []:
         if op.upper() not in done:
-            return _no(kind, f"{path}'s history has no {op.upper()}; it has {', '.join(done) or 'no operations'}.")
+            return _no(kind, f"{path}'s history has no {op.upper()}; it has {_names(done) or 'no operations'}.")
     if operations and operations_in_order:
         it = iter(done)
         if not all(op.upper() in it for op in operations):
-            return _no(kind, f"{path}'s history is {', '.join(done)}; the exercise needs {', '.join(o.upper() for o in operations)} in that order.")
+            return _no(kind, f"{path}'s history is {_names(done)}; the exercise needs {', '.join(o.upper() for o in operations)} in that order.")
     if partition_by is not None and [p.lower() for p in facts["partitions"]] != [p.lower() for p in partition_by]:
-        return _no(kind, f"{path} is partitioned by {', '.join(facts['partitions']) or 'nothing'}; "
+        return _no(kind, f"{path} is partitioned by {_names(facts['partitions']) or 'nothing'}; "
                          f"the exercise asks for {', '.join(partition_by) or 'no partitions'}.")
     n_files = len(facts["files"])
     if files_min is not None and n_files < files_min:

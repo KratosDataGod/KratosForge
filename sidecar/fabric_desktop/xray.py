@@ -158,8 +158,12 @@ def staging_findings(lakehouses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for group in by_ws.values():
         newest, older = staging_split(group)
+        if newest is None:
+            continue
         for lh in older:
             made = staging_created(lh["lakehouse_name"])
+            if made is None:  # staging_split keeps only dated names
+                continue
             out.append({k: lh[k] for k in ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name")} | {
                 "kind": "staging", "severity": "low", "title": f"{lh['lakehouse_name']} looks left over",
                 "detail": f"Dataflow Gen2 made it on {made:%d %b %Y} to stage data, then made "

@@ -448,11 +448,12 @@ class XRayMixin:
             why.append("When it was last written isn't known, so refreshes can't show it's unused.")
         rows = []
         for flow in flows:
-            row = {"name": flow.get("displayName") or "", "item_id": flow.get("id") or "", "last_refresh": None,
+            item_id = str(flow.get("id") or "")
+            row = {"name": flow.get("displayName") or "", "item_id": item_id, "last_refresh": None,
                    "names_it": None, "ok": False}
             rows.append(row)
             try:
-                text = _definition_text(fabric.get_item_definition(workspace_id, row["item_id"]))
+                text = _definition_text(fabric.get_item_definition(workspace_id, item_id))
                 row["names_it"] = any(re.search(rf"(?<![\w-]){re.escape(word)}(?![\w-])", text, re.IGNORECASE)
                                       for word in (lakehouse_id, name))
             except Exception as exc:  # noqa: BLE001 - an unread definition might name it
@@ -462,7 +463,7 @@ class XRayMixin:
                 why.append(f"The definition of {row['name']} names it.")
                 continue
             try:
-                done = [j for j in fabric.list_job_instances(workspace_id, row["item_id"]) if j.get("status") == "Completed"]
+                done = [j for j in fabric.list_job_instances(workspace_id, item_id) if j.get("status") == "Completed"]
             except Exception as exc:  # noqa: BLE001 - no history: no proof
                 why.append(f"The refreshes of {row['name']} couldn't be read ({describe(exc)}).")
                 continue

@@ -3,16 +3,24 @@
 Academy > Assessments is where you test what you know with original practice questions. It is in
 Preview.
 
-!!! note "Not Microsoft's exam"
-    Every question was written for KratosForge. None of them are Microsoft exam questions, the screen
-    is not Microsoft's exam interface, and a result is not a Microsoft score, a scaled score or a
-    prediction of passing. It shows which objectives your answers were strong or weak on.
+!!! note "Not the vendor's exam"
+    Every question was written for KratosForge. None of them are Microsoft or Databricks exam
+    questions, the screen is not either vendor's exam interface, and a result is not the vendor's
+    score, a scaled score or a prediction of passing. It shows which objectives your answers were
+    strong or weak on.
+
+## Certifications
+
+| Certification | Questions | Each question is based on |
+| --- | --- | --- |
+| DP-700 (Microsoft Fabric) | 204, at least 4 for each of the 49 objectives | A Microsoft Learn page |
+| Databricks Certified Data Engineer Associate (draft pack) | 165, 5 for each of the 33 objectives | A Databricks documentation page |
 
 ## Three ways to start
 
 | Assessment | Questions | Time |
 | --- | --- | --- |
-| Practice exam | 50, spread evenly over every objective | 100 minutes, or untimed |
+| Practice exam | The certification's published length when it has one (Databricks: 45 in 90 minutes), otherwise 50 in 100 minutes; spread evenly over every objective | That time, or untimed |
 | Domain diagnostic | 2 for each objective in the domain you pick | Untimed |
 | Objective drill | Every question for the objectives you pick, with the answer and why after each one | Untimed |
 

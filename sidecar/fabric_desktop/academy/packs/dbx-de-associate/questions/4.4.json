@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "4.4",
+  "questions": [
+    {
+      "id": "4.4-q1",
+      "type": "single",
+      "stem": "What is the main difference between a scheduled trigger and a file arrival trigger?",
+      "options": [
+        {
+          "id": "a",
+          "text": "File arrival runs only once a day"
+        },
+        {
+          "id": "b",
+          "text": "A schedule needs Unity Catalog; file arrival does not"
+        },
+        {
+          "id": "c",
+          "text": "There is no difference"
+        },
+        {
+          "id": "d",
+          "text": "A schedule runs at set times whether or not there is new data; file arrival runs when data lands"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Time-based triggers follow the clock; data-driven triggers follow new data.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.4-q2",
+      "type": "single",
+      "stem": "A source system publishes its daily table at an unpredictable hour. Which trigger reduces wasted and late runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A schedule at midnight"
+        },
+        {
+          "id": "b",
+          "text": "A schedule every hour"
+        },
+        {
+          "id": "c",
+          "text": "Manual"
+        },
+        {
+          "id": "d",
+          "text": "Table update on that table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A table update trigger runs the job when the table is updated, rather than at a fixed time.",
+      "source": "https://docs.databricks.com/aws/en/jobs/trigger-table-update",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.4-q3",
+      "type": "single",
+      "stem": "Finance needs a report at exactly 07:00 for a meeting, even when no data changed overnight. Which trigger fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Continuous"
+        },
+        {
+          "id": "b",
+          "text": "Scheduled"
+        },
+        {
+          "id": "c",
+          "text": "Table update"
+        },
+        {
+          "id": "d",
+          "text": "File arrival"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "When the business needs a fixed time, a time-based schedule is the right trigger.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.4-q4",
+      "type": "multiple",
+      "stem": "Which statements about data-driven triggers are true? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "They avoid runs that find nothing new to process"
+        },
+        {
+          "id": "b",
+          "text": "They start runs in response to new files or table updates"
+        },
+        {
+          "id": "c",
+          "text": "They guarantee the job runs at a fixed time each day"
+        },
+        {
+          "id": "d",
+          "text": "They work on any local disk path"
+        }
+      ],
+      "answer": [
+        "b",
+        "a"
+      ],
+      "explanation": "File arrival and table update triggers react to data, which avoids empty runs, but do not keep a clock.",
+      "source": "https://docs.databricks.com/aws/en/jobs/triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "4.4-q5",
+      "type": "single",
+      "stem": "A team schedules a job every 5 minutes to check for new files, and most runs find none. What change fits better?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Switch to a file arrival trigger"
+        },
+        {
+          "id": "b",
+          "text": "Make the job continuous"
+        },
+        {
+          "id": "c",
+          "text": "Schedule it every minute"
+        },
+        {
+          "id": "d",
+          "text": "Add more retries"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A file arrival trigger replaces polling on a schedule and only runs when files land.",
+      "source": "https://docs.databricks.com/aws/en/jobs/file-arrival-triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

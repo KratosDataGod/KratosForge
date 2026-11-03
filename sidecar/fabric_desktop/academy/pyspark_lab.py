@@ -36,6 +36,7 @@ from typing import Any, Callable
 import deltalake
 import duckdb
 
+from .. import jsonfile
 from ..learn import checks
 from . import exercises, learner_pkg, registry, validators
 from . import workspace as ws
@@ -103,7 +104,7 @@ _PKG: Path | None = None
 def run_reference(work: Path, code: str) -> dict[str, Any]:
     """Run first-party code (a pack's reference solution or planted wrong answer) in a ``python -I`` process
     with an empty environment. Never for a learner's answer: that is ``run_learner``."""
-    (Path(work) / ANSWER_FILE).write_text(code, encoding="utf-8")
+    jsonfile.write_text(Path(work) / ANSWER_FILE, code)
     env = {k: v for k, v in os.environ.items() if k in ("SYSTEMROOT", "TEMP", "TMP", "PATH")}
     try:
         p = subprocess.run([sys.executable, "-I", "-c", BOOTSTRAP, str(_package_dir()), str(work)], cwd=work,
@@ -137,7 +138,7 @@ def _put(work: Path, name: str, text: str) -> None:
     path = ws.inside(work, name, must_exist=False)
     if os.path.lexists(path) and not path.is_file():
         raise ws.Refused(f"{name} isn't a plain file; reset the exercise.")
-    path.write_text(text, encoding="utf-8")
+    jsonfile.write_text(path, text)
 
 
 def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[str, Any]:

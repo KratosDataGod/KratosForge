@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.5",
+  "questions": [
+    {
+      "id": "3.5-q1",
+      "type": "single",
+      "stem": "What does spark.sql.shuffle.partitions control?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The number of notebooks in a job"
+        },
+        {
+          "id": "b",
+          "text": "The number of files in a Delta table"
+        },
+        {
+          "id": "c",
+          "text": "The number of partitions Spark uses when shuffling data for joins and aggregations"
+        },
+        {
+          "id": "d",
+          "text": "The driver's memory"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "It sets the default number of partitions after a shuffle. Adaptive query execution can coalesce them at run time.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.5-q2",
+      "type": "single",
+      "stem": "What does spark.databricks.adaptive.autoBroadcastJoinThreshold decide?",
+      "options": [
+        {
+          "id": "a",
+          "text": "How many joins a query may have"
+        },
+        {
+          "id": "b",
+          "text": "The number of executors"
+        },
+        {
+          "id": "c",
+          "text": "How long a broadcast variable lives"
+        },
+        {
+          "id": "d",
+          "text": "The size below which AQE switches a sort merge join to a broadcast hash join at run time"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "It's the size threshold for switching a sort merge join to a broadcast hash join at run time (30MB by default).",
+      "source": "https://docs.databricks.com/aws/en/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.5-q3",
+      "type": "single",
+      "stem": "Which feature adjusts shuffle partitions and join strategies while a query runs, based on real data sizes?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Adaptive query execution (AQE)"
+        },
+        {
+          "id": "b",
+          "text": "Auto Loader"
+        },
+        {
+          "id": "c",
+          "text": "Unity Catalog"
+        },
+        {
+          "id": "d",
+          "text": "Delta time travel"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "AQE re-optimizes at run time: it coalesces partitions, switches join strategies and handles skew.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.5-q4",
+      "type": "single",
+      "stem": "After a shuffle, AQE finds many tiny partitions. What can it do at run time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Convert the table to CSV"
+        },
+        {
+          "id": "b",
+          "text": "Restart the cluster"
+        },
+        {
+          "id": "c",
+          "text": "Delete the small partitions' rows"
+        },
+        {
+          "id": "d",
+          "text": "Coalesce them into fewer, larger partitions"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "AQE dynamically coalesces partitions after a shuffle, so small partitions are combined.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.5-q5",
+      "type": "multiple",
+      "stem": "Which two problems can AQE handle at run time? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A missing table"
+        },
+        {
+          "id": "b",
+          "text": "A revoked privilege"
+        },
+        {
+          "id": "c",
+          "text": "A skewed join partition"
+        },
+        {
+          "id": "d",
+          "text": "Too many small shuffle partitions"
+        },
+        {
+          "id": "e",
+          "text": "A syntax error"
+        }
+      ],
+      "answer": [
+        "d",
+        "c"
+      ],
+      "explanation": "AQE coalesces small partitions and splits skewed ones; it can't fix missing objects, syntax or permissions.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

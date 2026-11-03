@@ -16,7 +16,7 @@ KratosForge finds problems by itself: a failed run, a late table, a run waiting 
 
 Each environment keeps its incidents in one file, `incidents/incidents.json`, in its `LH_Meta` (open ones plus the last 200 resolved). Every change is a conditional write, so two agents or PCs that see the same failure at the same moment open one incident, and two people can't both take the same number. Agents and the app keep working on this file as they always have.
 
-**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. Nothing starts a copy yet: the incident screens (stage 2) will copy changes when they open and show history. Until a copy runs, they wait in the live list until the next copy, and only the latest state of an incident at that moment becomes a snapshot.
+**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central KratosForge lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. Nothing starts a copy yet: history and reports (stage 4) will. Until a copy runs, changes wait in the live list, and only the latest state of an incident at that moment becomes a snapshot.
 
 ## Priorities
 
@@ -57,7 +57,7 @@ A value that isn't a whole number of minutes is ignored and named in **Settings 
 
 ## Reporting a problem the app can't see
 
-Wrong numbers in a report, a dashboard nobody can open, a source a team says is missing: a person reports it with what's wrong, details, what it affects and how bad it is. When it names a workload, the workload's team, technical owner and criticality come with it. A reported incident never closes by itself: only a person resolves it, with a note.
+Wrong numbers in a report, a dashboard nobody can open, a source a team says is missing: a person reports it with **Report an incident** (on **Monitor > KratosForge > Operations > Incidents**, on a workload's **Incidents** card, or from the command bar) with what's wrong, details, the environment and how bad it is. When it names a workload, the workload's team, technical owner and criticality come with it. A reported incident never closes by itself: only a person resolves it, with a note.
 
 **Report a problem** in the account menu is different: it reports a problem with the KratosForge app itself.
 
@@ -78,9 +78,9 @@ KratosForge doesn't try to be a full service desk: change management, problem re
 
 | Stage | What it adds | State |
 | --- | --- | --- |
-| 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released (no screens yet) |
-| 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | This release |
-| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident** | Partly released: the list and the incident page with Who's affected; numbers, priorities and SLAs aren't shown yet |
+| 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released |
+| 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | Released (nothing starts a copy until stage 4) |
+| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident**, **Change priority** | This release |
 | 3 | Incidents and requests that need you in the bell; Teams or email delivery | Planned |
 | 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Planned |
 | 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned |

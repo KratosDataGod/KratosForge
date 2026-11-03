@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "7.2",
+  "questions": [
+    {
+      "id": "7.2-q1",
+      "type": "single",
+      "stem": "Which statement gives the analysts group read access to the table sales.gold.orders?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ALLOW READ sales.gold.orders FOR analysts"
+        },
+        {
+          "id": "b",
+          "text": "GRANT SELECT ON TABLE sales.gold.orders TO `analysts`"
+        },
+        {
+          "id": "c",
+          "text": "GRANT READ_FILES ON TABLE sales.gold.orders TO `analysts`"
+        },
+        {
+          "id": "d",
+          "text": "SET PERMISSION SELECT sales.gold.orders analysts"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Unity Catalog privileges are given with `GRANT <privilege> ON <object> TO <principal>`.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.2-q2",
+      "type": "single",
+      "stem": "Which statement removes the SELECT access that `analysts` has on sales.gold.orders?",
+      "options": [
+        {
+          "id": "a",
+          "text": "REMOVE SELECT ON TABLE sales.gold.orders FROM `analysts`"
+        },
+        {
+          "id": "b",
+          "text": "UNGRANT SELECT ON sales.gold.orders"
+        },
+        {
+          "id": "c",
+          "text": "DROP GRANT SELECT sales.gold.orders"
+        },
+        {
+          "id": "d",
+          "text": "REVOKE SELECT ON TABLE sales.gold.orders FROM `analysts`"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "REVOKE removes a privilege that GRANT gave; the page's examples use GRANT and REVOKE.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.2-q3",
+      "type": "multiple",
+      "stem": "An analyst has SELECT on sales.gold.orders but still cannot query it. Which other privileges does the analyst need? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "MODIFY on the table"
+        },
+        {
+          "id": "b",
+          "text": "USE SCHEMA on sales.gold"
+        },
+        {
+          "id": "c",
+          "text": "USE CATALOG on sales"
+        },
+        {
+          "id": "d",
+          "text": "CREATE TABLE on the schema"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "To reach a table a user needs USE CATALOG on its catalog and USE SCHEMA on its schema, as well as SELECT.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/access-control/privileges-reference",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.2-q4",
+      "type": "single",
+      "stem": "A platform team wants to stop one group from managing permissions on a schema's tables, even if someone later grants it that right. What does Unity Catalog offer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An ABAC DENY policy (Beta) on MANAGE ACCESS CONTROL"
+        },
+        {
+          "id": "b",
+          "text": "A DENY policy on SELECT"
+        },
+        {
+          "id": "c",
+          "text": "Nothing; a grant can never be overridden"
+        },
+        {
+          "id": "d",
+          "text": "REVOKE ALL ON METASTORE"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "DENY policies are a Beta ABAC feature, and they support one privilege, MANAGE ACCESS CONTROL. SELECT and MODIFY aren't supported by DENY policies.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/deny-policies",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.2-q5",
+      "type": "single",
+      "stem": "You grant SELECT on the schema sales.gold to a group. Which tables can the group read?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only one table chosen at random"
+        },
+        {
+          "id": "b",
+          "text": "Only tables created before the grant"
+        },
+        {
+          "id": "c",
+          "text": "All current and future tables in that schema, given USE CATALOG and USE SCHEMA"
+        },
+        {
+          "id": "d",
+          "text": "None until each is granted"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A grant on a schema applies to its current and future objects; USE CATALOG and USE SCHEMA are needed to reach anything inside.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/access-control/privileges-reference",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

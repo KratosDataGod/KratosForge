@@ -237,7 +237,8 @@ def test_windows_job_stops_a_child_process_even_without_the_hook(lab: tuple[Path
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n"
             "try:\n    subprocess.run([sys.executable, '-c', 'pass'])\n"
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n")
-    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30)
+    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30,
+                                   "Local\\\\KratosForgeAcademy-test-" + os.urandom(8).hex())
     try:
         out, _ = proc.communicate(timeout=60)
     finally:
@@ -257,6 +258,26 @@ def test_windows_bootstrap_wont_run_outside_a_job(lab: tuple[Path, Path]) -> Non
     res = subprocess.run([sys.executable, "-I", "-c", sandbox.BOOTSTRAP.read_text(encoding="utf-8"), json.dumps(cfg)],
                          capture_output=True, text=True, timeout=60)
     assert res.returncode == 3 and "ran" not in res.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Job Objects are Windows only")
+def test_windows_job_can_only_be_queried_by_name() -> None:
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    k.OpenJobObjectW.restype = wintypes.HANDLE
+    k.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    name = "Local\\KratosForgeAcademy-test-" + os.urandom(8).hex()
+    job = sandbox._WinJob(sandbox.MEMORY_LIMIT, sandbox.CPU_LIMIT, name)
+    try:
+        for access in (0x0010, 0x0008, 0x001F001F):   # SET_ATTRIBUTES, TERMINATE, ALL_ACCESS
+            assert not k.OpenJobObjectW(access, False, name)
+            assert ctypes.get_last_error() == 5  # type: ignore[attr-defined]  # access denied, even for the engine's own user
+        query = k.OpenJobObjectW(0x0004, False, name)
+        assert query
+        k.CloseHandle(query)
+    finally:
+        job.close()
 
 
 def test_a_linked_temp_folder_is_refused(lab: tuple[Path, Path], tmp_path: Path) -> None:

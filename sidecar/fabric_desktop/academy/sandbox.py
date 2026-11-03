@@ -219,6 +219,24 @@ class _PosixGroup:
         self.proc.wait(timeout=KILL_WAIT)
 
 
+def _query_only_attributes() -> Any:
+    """SECURITY_ATTRIBUTES whose DACL grants only JOB_OBJECT_QUERY, to the owner rights SID."""
+    import ctypes
+    from ctypes import wintypes
+
+    class SecurityAttributes(ctypes.Structure):
+        _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
+                    ("bInheritHandle", wintypes.BOOL)]
+
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+    convert = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW
+    convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    sd = ctypes.c_void_p()
+    if not convert("D:P(A;;0x0004;;;OW)", 1, ctypes.byref(sd), None):   # SDDL_REVISION_1
+        raise OSError("Windows wouldn't make the exercise job's access rules, so it wasn't run.")
+    return SecurityAttributes(ctypes.sizeof(SecurityAttributes), sd.value, False)
+
+
 class _WinJob:
     """A Job Object: one process, a memory and CPU limit, ended when closed, no breakaway."""
 
@@ -231,8 +249,15 @@ class _WinJob:
         self.ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
         self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
         self.k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
-        self.job = self.k.CreateJobObjectW(None, name)   # named, so the bootstrap can check it is in this job
-        if self.job and self.ctypes.get_last_error() == 183:  # type: ignore[attr-defined]  # ERROR_ALREADY_EXISTS: not ours
+        # Named, so the bootstrap can check it is in this job. The DACL lets others (the learner
+        # included) only query it; this handle from creation keeps full access.
+        sa = _query_only_attributes()
+        try:
+            self.job = self.k.CreateJobObjectW(ctypes.addressof(sa), name)
+            created = ctypes.get_last_error()  # type: ignore[attr-defined]
+        finally:
+            ctypes.windll.kernel32.LocalFree(ctypes.c_void_p(sa.lpSecurityDescriptor))  # type: ignore[attr-defined]
+        if self.job and created == 183:   # ERROR_ALREADY_EXISTS: not ours
             self.k.CloseHandle(self.job)
             self.job = None
         if not self.job:

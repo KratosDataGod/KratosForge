@@ -33,6 +33,7 @@ def _main() -> None:
         k.OpenJobObjectW.restype = wintypes.HANDLE
         k.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
         k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
         # The engine names its job; asking about a NULL job would accept any job, such as a CI runner's.
         name = cfg.get("job_name")
         job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
@@ -40,6 +41,7 @@ def _main() -> None:
         if not job or not k.IsProcessInJob(k.GetCurrentProcess(), job, ctypes.byref(inside_job)) or not inside_job.value:
             sys.stderr.write("academy: the learner process isn't in its job; nothing was run.\n")
             os._exit(3)
+        k.CloseHandle(job)   # the learner script gets no handle to the job
 
     _guard_imports(blocked)
     _wrap_native(work)       # imports the data libraries first: some load native code through ctypes

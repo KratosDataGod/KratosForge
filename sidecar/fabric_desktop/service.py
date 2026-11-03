@@ -332,6 +332,11 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         """``notebook`` leaves its shared session; its next cell starts a session of its own."""
         return self.sessions.leave(notebook)
 
+    def skins_list(self) -> dict[str, Any]:
+        """The platform skins Settings offers (skins.py). Appearance only: reading them changes nothing."""
+        from . import skins
+        return skins.listing()
+
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
                 "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}

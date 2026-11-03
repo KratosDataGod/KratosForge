@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.1.1",
+  "questions": [
+    {
+      "id": "3.1.1-q1",
+      "type": "single",
+      "stem": "Where can you see the runs of all pipelines, notebooks and dataflows you have access to, with their status and duration, in one place?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The workspace's Git panel"
+        },
+        {
+          "id": "b",
+          "text": "The Monitoring hub"
+        },
+        {
+          "id": "c",
+          "text": "The OneLake catalog"
+        },
+        {
+          "id": "d",
+          "text": "The capacity admin portal only"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Monitoring hub lists activities across Fabric items you can access, with filters for status, item type and time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.1-q2",
+      "type": "single",
+      "stem": "You need to see only the ingestion jobs that failed in the last 24 hours across your workspaces. What do you do in the Monitor hub's job runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set the time range to 24 hours and filter by status"
+        },
+        {
+          "id": "b",
+          "text": "Open each lakehouse's table properties"
+        },
+        {
+          "id": "c",
+          "text": "Read the Git history"
+        },
+        {
+          "id": "d",
+          "text": "Run a deployment pipeline"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The job runs list filters by time range, item type, status and workspace, and supports keyword search.",
+      "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.1-q3",
+      "type": "single",
+      "stem": "Your team wants the logs of all a workspace's items in one place that they can query with KQL. What do you turn on?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Workspace monitoring"
+        },
+        {
+          "id": "b",
+          "text": "V-Order"
+        },
+        {
+          "id": "c",
+          "text": "High concurrency"
+        },
+        {
+          "id": "d",
+          "text": "Shortcut caching"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Workspace monitoring collects logs and metrics from the workspace's items into a monitoring eventhouse that you query with KQL.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/workspace-monitoring-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.1-q4",
+      "type": "multiple",
+      "stem": "Which two places tell you whether an eventstream is receiving and sending events? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The eventstream's data insights, with incoming and outgoing event metrics"
+        },
+        {
+          "id": "b",
+          "text": "The lakehouse's SQL analytics endpoint"
+        },
+        {
+          "id": "c",
+          "text": "The deployment pipeline's compare view"
+        },
+        {
+          "id": "d",
+          "text": "The workspace's Git panel"
+        },
+        {
+          "id": "e",
+          "text": "The eventstream's runtime logs"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Eventstreams show data insights (event counts and rates) and runtime logs for their sources and destinations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

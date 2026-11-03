@@ -13,7 +13,9 @@ from __future__ import annotations
 from typing import Any
 
 from . import artifacts, fabric_git
+from .auth import GIT_STATUS_SCOPES
 from .fabric_api import FabricError
+from .git.cli import GitError
 
 
 class FabricGitMixin:
@@ -55,7 +57,7 @@ class FabricGitMixin:
         if problem and not confirm:
             return {"needs_confirm": True, "message": problem + " Link it anyway?", "connection": conn}
         link = {"workspace_id": ws, "workspace_name": workspace_name,
-                "provider": conn["provider"], "owner": conn["owner"], "project": conn["project"],
+                "provider": conn["provider"], "host": conn["host"], "owner": conn["owner"], "project": conn["project"],
                 "repository": conn["repository"], "branch": conn["branch"], "folder": conn["folder"]}
         out = fabric_git.write_link(r.root, env, link)
         return {**out, "connection": conn, "remote": remote, "status": r.status()}
@@ -84,3 +86,79 @@ class FabricGitMixin:
             if conn["connected"] else []
         return {"env": env, "linked": True, "link": link, "problem": None, "connection": conn,
                 "changed_in_fabric": moved, "alignment": fabric_git.alignment(r, conn, remote)}
+
+    def fabric_git_status(self, repo: str, env: str = "dev") -> dict[str, Any]:
+        """Which items differ between the linked workspace and its Git branch, and which conflict
+        (Fabric's Get Status, a long-running read). Asks for Workspace.GitUpdate.All the first time.
+        Changes nothing in Fabric or in Git. The answer's ``fingerprint`` is what Commit to Git and
+        Update from Git will check again before they act."""
+        r = self._repo(repo)  # type: ignore[attr-defined]
+        env = fabric_git.env_name(env)
+        links = fabric_git.read_links(r.root)
+        link = links["envs"].get(env)
+        if links["problem"]:
+            raise GitError(links["problem"], kind="invalid")
+        if not link:
+            raise GitError(f"Link this repository to a {env.title()} workspace first.", kind="invalid")
+        client = self._scoped(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
+        try:
+            raw = client.git_status(link["workspace_id"])
+        except FabricError as exc:
+            if exc.code == "WorkspaceNotConnectedToGit":
+                raise FabricError("Fabric says this workspace isn't connected to Git any more. A workspace admin "
+                                  "connects it in Fabric (Workspace settings > Git integration).", exc.code,
+                                  exc.status, exc.request_id) from None
+            raise
+        out = fabric_git.status(raw)
+        tracking = None
+        remote = fabric_git.remote_for_link(link, r.remotes())
+        branch = link.get("branch", "")
+        if remote and branch and not branch.startswith("-") and ".." not in branch:
+            tracking = (r._try("rev-parse", "--verify", "-q", "--end-of-options",
+                               f"refs/remotes/{remote}/{branch}^{{commit}}") or "").strip() or None
+        out["remote_tracking"] = tracking
+        out["remote_fetched_matches"] = bool(tracking) and tracking == out["remote_commit"]
+        return {"env": env, "link": link, **out}
+
+    def fabric_git_update(self, repo: str, env: str, fingerprint: str, policy: str = "",
+                          confirm_name: str = "", allow_override: bool = False) -> dict[str, Any]:
+        """Update the linked workspace from Git, the only Fabric write on this tab. Every call reads
+        Fabric's status again first and acts only when nothing changed since the preview the person
+        saw (``fingerprint``), every conflict has a choice (``policy``) and ``confirm_name`` is the
+        workspace's name exactly as Fabric has it now (not the name in the committed link file, which
+        anyone with push rights can edit; ``name_differs`` says when the two disagree). Replacing
+        workspace items also needs ``allow_override``: Microsoft Learn calls allowOverrideItems "User
+        consent to override incoming items" and says the update "will not start" without it when
+        incoming items are present (Core > Git > Update From Git, checked 2026-11-03), so it is sent
+        only when the caller passes it. Otherwise it returns what's missing and writes nothing:
+        ``stale`` (with the new status), ``nothing``, ``needs_choice``, ``needs_override`` or
+        ``needs_confirm`` (each with the plan). Fabric itself also refuses if the workspace moved
+        meanwhile (WorkspaceHeadMismatch)."""
+        r = self._repo(repo)  # type: ignore[attr-defined]
+        env = fabric_git.env_name(env)
+        links = fabric_git.read_links(r.root)
+        link = links["envs"].get(env)
+        if links["problem"] or not link:
+            raise GitError(links["problem"] or f"Link this repository to a {env.title()} workspace first.", kind="invalid")
+        client = self._scoped(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
+        st = fabric_git.status(client.git_status(link["workspace_id"]))
+        plan = fabric_git.update_plan(st, policy)
+        real = self.fabric.get_workspace(link["workspace_id"]) or {}  # type: ignore[attr-defined]
+        name = fabric_git._text(real.get("displayName")) or link["workspace_id"]
+        linked = link.get("workspace_name", "")
+        base = {"env": env, "plan": plan, "confirm_text": name, "workspace_id": link["workspace_id"],
+                "linked_name": linked, "name_differs": bool(linked) and linked != name,
+                "allow_override": bool(allow_override), "fingerprint": st["fingerprint"]}
+        if not fingerprint or fingerprint != st["fingerprint"]:
+            return {**base, "stale": True, "status": st, "done": False}
+        if plan["nothing"] or not st["remote_commit"]:
+            return {**base, "nothing": True, "done": False}
+        if plan["needs_policy"]:
+            return {**base, "needs_choice": True, "done": False}
+        if not allow_override:  # a conflict kept on the workspace side is still an incoming item to Fabric
+            return {**base, "needs_override": True, "done": False}
+        if confirm_name != name:
+            return {**base, "needs_confirm": True, "done": False}
+        client.git_update_from_git(link["workspace_id"], st["remote_commit"], st["workspace_head"],
+                                   fabric_git.POLICIES[policy], allow_override=bool(allow_override))
+        return {**base, "done": True}

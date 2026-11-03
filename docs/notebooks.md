@@ -203,6 +203,7 @@ An environment adds Python packages to a notebook, like a Fabric Environment ite
 - **Spark packages aren't added.** `pyspark`, `delta-spark` and `databricks-connect` are refused: `spark` here is the app's own, and Databricks Connect needs a process of its own.
 - **Changing** a running notebook's environment takes effect when you restart its kernel. Packages installed into the environment it already uses can be imported straight away.
 - Your organization can turn installs off (`allow_notebook_packages` in the policy file, [azure-setup.md](azure-setup.md)); notebooks then use the app's packages only.
+- Your organization can name a folder of approved packages (`notebook_package_folder`, Preview). Installs then come from that folder first, and from PyPI only if `allow_pypi_packages` isn't `false`. The environment dialog says where packages come from, and the install log says which source each try used.
 
 Environments are kept on this PC under the app's data folder, in `environments\`. They aren't published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
 

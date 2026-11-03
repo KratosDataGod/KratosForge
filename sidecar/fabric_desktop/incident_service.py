@@ -18,6 +18,7 @@ from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
+from .central.core import PlatformError
 from .redact import describe
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
@@ -197,6 +198,8 @@ class IncidentMixin:
         except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
             _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
         changes = log.sync(signals, evaluated=evaluated, by=f"KratosForge ({self._incident_user()})")
+        if evaluated & evaluate.WORKLOAD_KINDS:
+            self._report_product_status(env, log.active())
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
@@ -208,6 +211,40 @@ class IncidentMixin:
             out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge", post_teams)
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
+
+    def _report_product_status(self, env: str, incidents: list[dict[str, Any]]) -> None:
+        """Tell the platform's catalog how the open project's products are doing in ``env``, so their readers
+        see it in the Status view of Data mesh > Products (data mesh P5). Only when it changed since this app
+        last told it. A platform that refuses it (older, or the person isn't one of the project's members) isn't
+        asked again this session, so no Fabric function runs for nothing; a network error is tried next check."""
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            name = mesh_mod.project_name(project)
+            agents_live = any(a["state"] == "live" for a in self._incident_agents(env)["agents"])
+            statuses = mesh_mod.product_statuses(project, incidents, agents_live=agents_live)
+        except Exception as exc:  # noqa: BLE001 - no project open, or it can't be read: nothing to tell
+            _log.debug("No product status to report for %s: %s", env, describe(exc))
+            return
+        sent = self.__dict__.setdefault("_product_status_sent", {})
+        refused = self.__dict__.setdefault("_product_status_refused", set())
+        if not statuses or (name, env) in refused or sent.get((name, env)) == statuses:
+            return
+        try:
+            self._catalog().call("report_product_status", project=name, env=env, statuses=statuses)  # type: ignore[attr-defined]
+        except (LookupError, PermissionError, ValueError, PlatformError) as exc:
+            # Not asked again this session only when the platform said it never will: it's older than the Status
+            # view, or this person isn't one of the project's members. Anything else is tried next check.
+            text = str(exc)
+            if isinstance(exc, (LookupError, PermissionError)) or "report_product_status" in text \
+                    or "no operation" in text or "members or a platform admin" in text or "has no owner yet" in text:
+                refused.add((name, env))
+            _log.info("The platform won't take %s's product status in %s; %s: %s", name, env,
+                      "not asking again this session" if (name, env) in refused else "trying again next check", describe(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again
+            _log.info("Couldn't report %s's product status in %s: %s", name, env, describe(exc))
+            return
+        sent[(name, env)] = statuses
 
     def _not_told_before(self, env: str, changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Leave out an incident opening that an older app already posted as a late or failed
@@ -257,6 +294,8 @@ class IncidentMixin:
                 for i in (items := log.active()):
                     i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
                 row["incidents"] = items
+                if checking:  # an agent evaluated it: tell readers what it found (the app's own check already did)
+                    self._report_product_status(env, items)
             except Exception as exc:  # noqa: BLE001
                 state, message = model.classify_error(exc)
                 row.update(mode="unreadable", state=state, detail=message, incidents=[])

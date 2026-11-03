@@ -122,6 +122,16 @@ guidance beside that subject's findings; checks and required rules are the same 
 an organization policy can set them too.
 Guidance shows only while **Show preview features** is on.
 
+### Your team's level
+
+A governance policy can give a team a default level ([team guidance](governance.md#team-guidance)):
+for example Guided for a project's new starters. It applies only while you haven't chosen a level
+yourself, neither Learning guidance nor the subject's own, and the Best practices panel says so:
+"Guidance: Guided, your team's default from New starters." Pick a level in Settings and yours is
+used instead. Like every level it's a preference: checks and required rules don't change. It comes
+with the project's policies, so it works offline from the project's policy package too. A level fixed
+by your organization's policy file (IT) always wins over a team's.
+
 ### Beside a finding
 
 - **Explain** shows how important the rule is (Critical, Recommended, Educational or Advanced) and its

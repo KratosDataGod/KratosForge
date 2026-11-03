@@ -663,7 +663,7 @@ class LocalEngine:
                               "kind": "write delta" if write else _kind(text)})
             return steps
         if dialect == "tsql":
-            texts, notes = tsql.translate(sql, self._column_types(con))
+            texts, notes = tsql.translate(sql, self._column_types(con), self._function_names(con))
             if run is not None:
                 run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
             return self._duckdb_steps(con, texts, n)
@@ -717,6 +717,11 @@ class LocalEngine:
                              "registered folders are only read. Copy it into the project first: CREATE TABLE "
                              f"{change.table}_copy USING DELTA AS SELECT * FROM {change.name}")
         return None
+
+    def _function_names(self, con: duckdb.DuckDBPyConnection) -> set[str]:
+        """The upper-case names of the functions and macros the database has, so T-SQL can refuse others by name."""
+        rows = con.execute("SELECT DISTINCT function_name FROM duckdb_functions()").fetchall()
+        return {str(name).upper() for (name,) in rows}
 
     def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
         """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,

@@ -2,7 +2,7 @@
 
 Optimize keeps optimization results in one Microsoft Fabric lakehouse that every KratosForge installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
 
-> **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
+> **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan and what is left is in [plan.md](plan.md#4-pr-sequence-and-status).
 
 ## One lakehouse for the organization
 

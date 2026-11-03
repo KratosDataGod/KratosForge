@@ -585,3 +585,10 @@ def test_ten_thousand_workloads_filter_and_page_quickly():
     assert len(last["rows"]) == 50 and last["total"] == 10_000
     print(f"\nbuild+assess 10k: {build * 1000:.0f} ms; select: " + ", ".join(f"{t * 1000:.0f} ms" for t in timings))
     assert max(timings) < 1.0 and build < 5.0  # generous for shared CI runners; measured numbers are printed
+
+
+def test_a_copy_job_opens_its_own_fabric_page():
+    # The path Fabric uses for a copy job, checked on a tenant (2026-10-30).
+    from fabric_desktop.workloads.inventory import fabric_url
+    assert fabric_url("ws1", "cj1", "CopyJob") == \
+        "https://app.fabric.microsoft.com/groups/ws1/copyjobs/cj1?experience=fabric-developer"

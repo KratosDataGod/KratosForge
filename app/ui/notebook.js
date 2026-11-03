@@ -384,7 +384,7 @@ function renderCell(cell) {
   } else {
     box.append(h("div", { class: "editor" }, editorFor(cell).dom));
   }
-  box.append(depsStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));
+  box.append(depsStrip(cell), practiceStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));  // nbpractices.js
   node.append(gutter, box);
   return node;
 }

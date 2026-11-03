@@ -20,15 +20,25 @@ import warnings
 from typing import Any
 
 import sqlglot
-import yaml
 from sqlglot import exp
 
-from ._vendor.ossie_microsoft import (
-    OSSIE_VERSION,
-    ConversionError,
-    convert_ossie_to_semantic_model,
-    convert_semantic_model_to_ossie,
-)
+# PyYAML is needed only here and in the vendored converter. Without it (an engine installed before the converter
+# needed it, or a package removed by hand) Export to Ossie and Import from Ossie say what's missing, and the rest
+# of the engine still starts: service.py imports this module on every start.
+try:
+    import yaml
+
+    from ._vendor.ossie_microsoft import (
+        OSSIE_VERSION,
+        ConversionError,
+        convert_ossie_to_semantic_model,
+        convert_semantic_model_to_ossie,
+    )
+except ImportError as exc:  # narrow: a missing or broken package; the reason is kept in MISSING and shown
+    yaml = None  # type: ignore[assignment]
+    MISSING = {"yaml": "PyYAML"}.get((exc.name or "").partition(".")[0], exc.name or "") or str(exc)
+else:
+    MISSING = ""
 
 PLACEHOLDER_ANNOTATION = "OssieExpression"  # the converter keeps the Ossie expression here, translated or not
 _MODEL_KEPT = ("roles", "perspectives", "cultures", "expressions", "dataSources", "queryGroups", "annotations")
@@ -38,16 +48,33 @@ _LOCK = threading.Lock()
 MAX_CHARS = 20_000_000
 
 
-class _NoAliasLoader(yaml.SafeLoader):
-    """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
-    few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+def unavailable() -> str:
+    """Why Export to Ossie and Import from Ossie can't run on this engine, or "" when they can."""
+    if not MISSING:
+        return ""
+    return (f"Export to Ossie and Import from Ossie need the Python package {MISSING}, which this engine doesn't have. "
+            "Everything else works. In a build from source, run python -m pip install -e . -c constraints.txt in the "
+            "sidecar folder, then restart the app; otherwise reinstall KratosForge.")
 
-    def compose_node(self, parent: Any, index: Any) -> Any:
-        if self.check_event(yaml.AliasEvent):
-            event = self.peek_event()
-            raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
-                             "write them out in full")
-        return super().compose_node(parent, index)
+
+def require() -> None:
+    """Raise with the reason when the Ossie converter can't run on this engine."""
+    reason = unavailable()
+    if reason:
+        raise RuntimeError(reason)
+
+
+if yaml is not None:
+    class _NoAliasLoader(yaml.SafeLoader):
+        """YAML without anchors and aliases (``*name``). Ossie files don't need them, and nested aliases let a
+        few hundred bytes expand into a model of gigabytes once it is written out as JSON."""
+
+        def compose_node(self, parent: Any, index: Any) -> Any:
+            if self.check_event(yaml.AliasEvent):
+                event = self.peek_event()
+                raise ValueError(f"This file repeats parts of itself with YAML aliases (line {event.start_mark.line + 1}); "
+                                 "write them out in full")
+            return super().compose_node(parent, index)
 
 
 def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, str]]]:
@@ -67,6 +94,7 @@ def _convert(fn: Any, *args: Any, **kwargs: Any) -> tuple[Any, list[dict[str, st
 
 def parse(text: str) -> dict[str, Any]:
     """An Ossie document (YAML or JSON) as a dict, refusing what isn't one, with a plain reason."""
+    require()
     if len(text) > MAX_CHARS:
         raise ValueError(f"This file is {len(text) // 1_000_000} MB; an Ossie model is at most {MAX_CHARS // 1_000_000} MB")
     try:
@@ -93,6 +121,7 @@ def export(bim: dict[str, Any], translate_dax: bool = True) -> dict[str, Any]:
 
     ``translate_dax`` also writes single-column aggregate measures (SUM, AVERAGE, MIN, MAX, COUNTA,
     DISTINCTCOUNTNOBLANK) as portable SQL, keeping the DAX beside it."""
+    require()
     text, report = _convert(convert_semantic_model_to_ossie, bim, translate_dax=translate_dax)
     doc = yaml.safe_load(text)
     datasets = doc.get("datasets") or []

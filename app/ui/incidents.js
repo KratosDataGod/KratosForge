@@ -1,11 +1,16 @@
 // Incidents: one record per problem in each environment, kept in its LH_Meta and shared by everyone
-// who can read it (workloads/incidents.py). Agents check on a timer; this app reads the list, checks
-// only when asked, and lets a person acknowledge, assign, note and resolve. Teams messages come from
+// who can read it (workloads/incidents.py), each with a number, a priority, SLA targets and a timeline
+// (incident_desk.py). Agents check on a timer; this app reads the list, checks only when asked, and
+// lets a person report, acknowledge, assign, re-prioritize, note and resolve. Teams messages come from
 // agents, never from this page. Monitor > KratosForge > Operations > Incidents lists them; the incident page shows one.
 
 const INC_STATE_PILL = { open: "fail", acknowledged: "wrn", resolved: "pass" };
 const INC_RESOLUTION = { recovered: "Recovered", cleared: "Cleared", resolved: "Resolved" };
-const INC_FILTERS = [["active", "Active"], ["mine", "Mine"], ["resolved", "Resolved"]];
+const INC_FILTERS = [["active", "Active", "open"], ["mine", "Mine", "mine"], ["unassigned", "Unassigned", "unassigned"],
+  ["at_risk", "SLA at risk", "late"], ["resolved", "Resolved", null]];
+const INC_PRIORITY_PILL = { P1: "fail", P2: "wrn", P3: "neu", P4: "neu" };
+const INC_PRIORITIES = [["P1", "Many people blocked, no workaround"], ["P2", "A team blocked, or due soon"],
+  ["P3", "Wrong or slow, has a workaround"], ["P4", "Minor, or a question"]];  // workloads/incidents.py PRIORITY_LABELS
 const INC_EVIDENCE = { run_id: "Run", started_at: "Started", ran_on: "Ran on", job_id: "Job", host: "Host",
   heartbeat_at: "Last heartbeat", stale_after: "Due again by", version: "Version", state: "State", expected: "Promised",
   last_success: "Last good run", success_rate: "Success rate", objective: "Objective" };
@@ -39,6 +44,38 @@ function incEscalation(inc) {
   if (inc.state === "acknowledged") return h("span", { class: "muted-text" }, "Not needed: acknowledged");
   if (inc.state === "resolved") return h("span", { class: "muted-text" }, "None");
   return h("span", { class: "muted-text" }, "Not escalated");
+}
+
+function incPriority(inc) {
+  const p = inc.priority || "P3";
+  return h("span", { class: `pill-s ${INC_PRIORITY_PILL[p] || "neu"}`, title: (INC_PRIORITIES.find(([k]) => k === p) || [])[1] || "" }, p);
+}
+
+function incMinutes(n) {
+  if (n < 60) return `${Math.max(n, 0)} min`;
+  const hrs = Math.floor(n / 60), m = n % 60;
+  return m ? `${hrs} h ${m} min` : `${hrs} h`;
+}
+
+// Where an incident stands against its priority's SLA (workloads/sla.py status): the clock that matters now.
+function incSlaText(s) {
+  if (!s || s.state === "none") return { text: "No SLA", cls: "muted-text" };
+  if (s.state === "met") return { text: "Met", cls: "muted-text" };
+  if (s.state === "missed") return { text: "Missed", cls: "reason" };
+  const running = (c) => c && ["due", "at_risk", "breached"].includes(c.state);
+  const [verb, c] = running(s.acknowledge) ? ["Acknowledge", s.acknowledge] : ["Resolve", s.resolve];
+  if (!c || c.state === "none") return { text: "No SLA", cls: "muted-text" };
+  if (c.state === "breached") return { text: `${verb} overdue ${incMinutes(c.over_minutes || 0)}`, cls: "reason" };
+  return { text: `${verb} due in ${incMinutes(c.left_minutes || 0)}`, cls: c.state === "at_risk" ? "inc-at-risk" : "muted-text" };
+}
+
+function incSla(inc) {
+  const t = incSlaText(inc.sla);
+  return h("span", { class: t.cls }, t.text);
+}
+
+function incTitle(inc) {
+  return inc.number ? `${inc.number} · ${inc.title}` : inc.title;
 }
 
 function incOwner(inc) {
@@ -85,18 +122,28 @@ async function loadIncidents(box) {
   const envs = summary.envs || [];
   if (!incPage.env) incPage.env = (envs.find((e) => e.count) || envs.find((e) => e.count !== null) || envs[0] || {}).env || "dev";
   const env = incPage.env;
-  const list = await rpc("incidents_list", { env }).catch((err) => ({ env, incidents: [], error: friendlyError(err).text }));
+  const list = await rpc("incidents_board", { env }).catch((err) => ({ env, incidents: [], error: friendlyError(err).text }));
   if (!box.isConnected) return;
   const again = (changes = {}) => { Object.assign(incPage, changes); loadIncidents(box); };
   const envChip = (e) => h("button", { class: `chip${e.env === env ? " on" : ""}`, title: e.count === null ? e.observation?.detail || "" : "",
     onclick: () => again({ env: e.env }) }, `${envName(e.env)} · ${e.count === null ? e.observation?.label || "Can't read" : e.count}`);
-  const filterChip = ([id, label]) => h("button", { class: `chip${incPage.filter === id ? " on" : ""}`, onclick: () => again({ filter: id }) }, label);
+  const counts = list.counts || {};
+  const late = (counts.at_risk || 0) + (counts.breached || 0);
+  const count = (key) => key === "late" ? late : counts[key];
+  const filterChip = ([id, label, key]) => h("button", { class: `chip${incPage.filter === id ? " on" : ""}`, onclick: () => again({ filter: id }) },
+    key && count(key) !== undefined ? `${label} · ${count(key)}` : label);
+  const mine = (i) => list.user && i.owner && i.owner.toLowerCase() === list.user.toLowerCase();
   const items = (list.incidents || []).filter((i) => incPage.filter === "resolved" ? i.state === "resolved"
-    : incPage.filter === "mine" ? i.state !== "resolved" && list.user && i.owner && i.owner.toLowerCase() === list.user.toLowerCase()
-    : i.state !== "resolved").filter((i) => matches(`${i.title} ${i.text} ${i.name} ${i.owner} ${i.kind_label}`));
+    : i.state === "resolved" ? false
+    : incPage.filter === "mine" ? mine(i)
+    : incPage.filter === "unassigned" ? !i.owner
+    : incPage.filter === "at_risk" ? ["at_risk", "breached", "missed"].includes(i.sla?.state)
+    : true).filter((i) => matches(`${i.number || ""} ${i.title} ${i.text} ${i.name} ${i.owner} ${i.kind_label} ${i.priority || ""}`));
   const unreadable = list.error || (list.observation && list.observation.state !== "live");
   const empty = unreadable ? `Couldn't read ${envName(env)}'s incidents: ${list.error || list.observation.detail || list.observation.label}`
     : incPage.filter === "mine" ? (list.user ? `Nothing in ${envName(env)} is owned by ${list.user}.` : "Sign in so KratosForge knows which incidents are yours.")
+    : incPage.filter === "unassigned" ? `Every active incident in ${envName(env)} has an owner.`
+    : incPage.filter === "at_risk" ? `Nothing in ${envName(env)} is near or past its SLA.`
     : incPage.filter === "resolved" ? `Nothing in ${envName(env)} was resolved recently.`
     : state.query ? "No incidents match your search." : `No active incidents in ${envName(env)}.`;
   box.replaceChildren(
@@ -105,10 +152,11 @@ async function loadIncidents(box) {
       h("span", { class: "inc-gap" }),
       h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, INC_FILTERS.map(filterChip)),
       h("span", { class: "spacer" }),
-      btn(`Check ${envName(env)} now`, "sync", () => checkNow(env, () => again()), "tool outline")),
+      btn(`Check ${envName(env)} now`, "sync", () => checkNow(env, () => again()), "tool outline"),
+      btn("Report an incident", "add", () => reportIncident({ env }, () => again()), "tool primary")),
     incWatchers(list, env),
     items.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
-      h("thead", {}, h("tr", {}, ["State", "Problem", "Kind", "Opened", "Seen", "Owner", "Escalation", ""].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["Number", "Priority", "State", "Problem", "Kind", "Opened", "Seen", "Owner", "SLA", "Escalation", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, items.map((i) => incidentRow(i, () => again()))))) : h("p", { class: unreadable ? "reason monitor-empty" : "muted-text monitor-empty" }, empty),
     h("p", { class: "muted-text small inc-foot" }, "Open incidents and the last 200 resolved ones are kept per environment."));
 }
@@ -136,6 +184,8 @@ function incWatchers(list, env) {
 
 function incidentRow(i, reload) {
   return h("tr", { class: `click${i.state === "resolved" ? " inc-done" : ""}`, onclick: () => openIncident(i) },
+    h("td", { class: "inc-number" }, i.number || ""),
+    h("td", {}, incPriority(i)),
     h("td", {}, incStatePill(i)),
     h("td", {}, h("div", {}, h("b", {}, i.title)),
       i.text ? h("div", { class: i.state === "open" ? "reason" : "muted-text" }, i.text) : null,
@@ -144,6 +194,7 @@ function incidentRow(i, reload) {
     h("td", {}, when(i.opened_at), h("div", { class: "muted-text small" }, `by ${i.opened_by}`)),
     h("td", {}, i.occurrences > 1 ? `${i.occurrences} times` : "Once", h("div", { class: "muted-text small" }, `last ${relTime(i.last_seen_at)}`)),
     h("td", {}, incOwner(i)),
+    h("td", {}, incSla(i)),
     h("td", {}, incEscalation(i)),
     h("td", { class: "inc-actions", onclick: (e) => e.stopPropagation() },
       i.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(i, reload), "tool primary small") : null,
@@ -154,6 +205,7 @@ function incidentMenu(anchor, i, reload) {
   showMenu(anchor, [
     { label: "Assign", icon: "person", action: () => assignIncident(i, reload) },
     { label: "Add note", icon: "markdown", action: () => noteIncident(i, reload) },
+    { label: "Change priority", icon: "warning", action: () => priorityIncident(i, reload) },
     { label: "Resolve", icon: "ok", action: () => resolveIncident(i, reload) },
     i.workload && i.workload.startsWith("meta:") ? { label: "Open workload", icon: "table", action: () => openWorkload(i.workload) } : null,
   ].filter(Boolean));
@@ -226,11 +278,96 @@ function resolveIncident(i, reload) {
     async (note) => after(await rpc("incident_resolve", { env: i.env, id: i.id, note }), reload));
 }
 
+function priorityIncident(i, reload) {
+  const current = i.priority || "P3";
+  const select = h("select", {}, INC_PRIORITIES.map(([p, label]) => h("option", { value: p, selected: p === current }, `${p}: ${label}`)));
+  const why = h("input", { type: "text", placeholder: "Why it's more or less urgent" });
+  showDialog(`Change the priority of ${incTitle(i)}?`, h("div", { class: "wl-confirm" },
+    h("p", { class: "text" }, `Sets its priority for everyone in ${envName(i.env)}'s list, as ${who()}, and its SLA targets follow. `
+      + "A check never changes a priority a person set. Nothing runs and no data changes."),
+    h("label", { class: "field" }, "Priority", select),
+    h("label", { class: "field" }, "Note (required)", why)),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Change priority", null, async () => {
+    const note = why.value.trim();
+    if (!note) { why.focus(); return; }
+    const done = await attempt(async () => after(await rpc("incident_set_priority", { env: i.env, id: i.id, priority: select.value, note }), reload), "Not saved");
+    if (done) closeDialog();
+  }, "tool primary")]);
+  select.focus();
+}
+
+// Report a problem a person noticed that checks can't see (wrong numbers in a report, say).
+// prefill: { env, workload, name } from the page it was opened on.
+function reportIncident(prefill = {}, reload = null) {
+  const envs = Object.keys(ENV_LABEL);
+  const env = h("select", {}, envs.map((e) => h("option", { value: e, selected: e === (prefill.env || incPage.env || "prod") }, envName(e))));
+  const title = h("input", { type: "text", maxlength: 200, placeholder: "Sales dashboard shows yesterday's numbers" });
+  const text = h("textarea", { rows: 3, placeholder: "What you saw, when, and who it blocks" });
+  let priority = "P3";
+  const hint = h("p", { class: "muted-text small" });
+  const options = h("div", { class: "inc-priorities", role: "radiogroup", "aria-label": "How bad is it" });
+  const pick = (p) => {
+    priority = p;
+    for (const b of options.children) b.setAttribute("aria-checked", String(b.dataset.p === p));
+    const t = incPage.sla?.targets?.[p];
+    hint.textContent = t && (t.acknowledge_minutes || t.resolve_minutes)
+      ? `${p} means acknowledge within ${incMinutes(t.acknowledge_minutes || 0)} and resolve within ${incMinutes(t.resolve_minutes || 0)}, your organization's SLA.`
+      : `${p} has no SLA target.`;
+  };
+  for (const [p, label] of INC_PRIORITIES) {
+    options.append(h("button", { type: "button", class: "inc-priority", role: "radio", "data-p": p, onclick: () => pick(p) }, h("b", {}, p), h("span", {}, label)));
+  }
+  rpc("incident_sla_policy", {}).then((pol) => { incPage.sla = pol; pick(priority); }).catch(() => {});
+  pick(priority);
+  const about = prefill.workload ? h("p", { class: "muted-text small" }, `About ${prefill.name || prefill.workload}. Its owner, team and criticality come from the workload.`) : null;
+  showDialog("Report an incident", h("div", { class: "wl-confirm inc-report" },
+    h("p", { class: "text" }, "For a problem people notice that KratosForge can't see, like wrong numbers in a report. "
+      + "Failed runs, late tables and silent agents open incidents by themselves."),
+    h("label", { class: "field" }, "What's wrong (required)", title),
+    h("label", { class: "field" }, "Details", text),
+    about,
+    h("label", { class: "field" }, "Environment", env),
+    h("div", { class: "field" }, "How bad is it", options, hint),
+    h("p", { class: "muted-text small" }, "It goes into that environment's shared incident list with your name and a new number. Agents that check incidents tell Teams; this app doesn't.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Report", null, async () => {
+    if (!title.value.trim()) { title.focus(); return; }
+    const inc = await attempt(() => rpc("incident_report", { env: env.value, title: title.value.trim(), text: text.value.trim(), priority,
+      workload: prefill.workload || "", name: prefill.name || "" }), "Not reported");
+    if (!inc) return;
+    closeDialog();
+    toast(`Reported as ${inc.number || "a new incident"}.`);
+    incPage.env = inc.env || env.value;
+    if (reload) reload(); else openIncident(inc);
+  }, "tool primary")]);
+  title.focus();
+}
+
+// What to do, by kind: good practice shown on the incident page. A detected incident closes itself
+// once a check sees the problem clear; a reported one only when a person resolves it.
+const INC_GUIDE = {
+  run_failed: ["Acknowledge it so others know someone is on it.", "Open the run and read its error; \"Likely\" is a hint, the evidence is what happened.",
+    "Fix the cause (a missing file, a changed source, a permission), then run the workload again.", "It closes itself when the next run succeeds."],
+  late: ["Acknowledge it, then check whether the run that feeds the table ran, failed or is still waiting.",
+    "Tell the people who read the table if it will miss its promise.", "It closes itself once a good run lands."],
+  needs_decision: ["Open the run: it is waiting for a person to choose, such as replaying quarantined rows.", "Make the choice there; it closes itself once the run goes on."],
+  objective: ["Look at the recent runs to see what missed the objective: failures, lateness or slow runs.", "Fix the cause, or change the objective if it no longer fits. It closes itself once the objective is met again."],
+  agent_offline: ["Check the agent's machine: is it on, signed in and running the agent?", "Its requests are taken over only where take-over is turned on.", "It closes itself when the agent reports again."],
+  cant_evaluate: ["KratosForge couldn't read this environment, so it can't say whether anything failed.", "Check access to the environment's workspace and LH_Meta.", "It closes itself once a check can read it again."],
+  reported: ["Acknowledge it and say what you're doing in a note, so the reporter sees it.", "Set the priority if the reporter's guess was off; say why.",
+    "Resolve it with a note when it's fixed: reported incidents never close by themselves."],
+};
+
+function incGuide(inc) {
+  const steps = INC_GUIDE[inc.kind];
+  if (!steps || inc.state === "resolved") return null;
+  return h("section", { class: "card pad" }, h("h2", {}, "What to do"), h("ol", { class: "inc-guide" }, steps.map((t) => h("li", {}, t))));
+}
+
 // ---------- one incident ----------
 
 async function renderIncident() {
   setView(h("div", { class: "page wl-page" }, loading()));
-  const list = await attempt(() => rpc("incidents_list", { env: incPage.env_of }), "Couldn't read the incident");
+  const list = await attempt(() => rpc("incidents_board", { env: incPage.env_of }), "Couldn't read the incident");
   if (state.view !== "incident") return;
   const inc = (list?.incidents || []).find((x) => x.id === incPage.id);
   if (!inc) {
@@ -247,13 +384,14 @@ async function renderIncident() {
   setView(h("div", { class: "page wl-page" },
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
-        h("h1", {}, inc.title, " ", incStatePill(inc), inc.escalated_at ? h("span", { class: "pill-s wrn" }, "Escalated") : null,
+        h("h1", {}, incTitle(inc), " ", incStatePill(inc), " ", incPriority(inc), inc.escalated_at ? h("span", { class: "pill-s wrn" }, "Escalated") : null,
           preview("incidents", h("span", {}))),
         h("p", { class: "sub" }, [inc.kind_label, inc.criticality ? inc.criticality[0].toUpperCase() + inc.criticality.slice(1) : "",
           envName(inc.env), opened, seen].filter(Boolean).join(" · "), " ", learnMore("incidents-preview"))),
       h("div", { class: "row" },
         inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary") : null,
         inc.state !== "resolved" ? btn("Assign", "person", () => assignIncident(inc, reload), "tool outline") : null,
+        inc.state !== "resolved" ? btn("Change priority", "warning", () => priorityIncident(inc, reload), "tool outline") : null,
         btn("Add note", "markdown", () => noteIncident(inc, reload), "tool outline"),
         inc.state !== "resolved" ? btn("Resolve", "ok", () => resolveIncident(inc, reload), "tool outline") : null,
         inc.workload && inc.workload.startsWith("meta:") ? btn("Open workload", "table", () => openWorkload(inc.workload), "tool outline") : null,
@@ -261,8 +399,9 @@ async function renderIncident() {
     h("div", { class: "wl-grid inc-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What happened"), incWhatHappened(inc)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is told"), incWhoIsTold(inc, list))),
+    incGuide(inc),
     incImpactCard(inc, reload),
-    h("section", { class: "card pad" }, h("h2", {}, "History"), incHistory(inc))));
+    h("section", { class: "card pad" }, h("h2", {}, "Timeline"), incHistory(inc))));
 }
 
 // ---------- who it reaches: data products on this table and the projects that read them ----------
@@ -369,7 +508,13 @@ function incRoutes(inc, cfg) {
 function incWhoIsTold(inc, list) {
   const row = (k, v) => h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v));
   const agents = (list?.agents?.agents || []).filter((x) => x.incidents?.enabled);
-  const rows = [row("Owner", inc.owner || h("span", { class: "inc-unowned" }, "No owner")),
+  const s = inc.sla || {};
+  const clock = (c) => !c || c.state === "none" ? h("span", { class: "muted-text" }, "No target")
+    : h("span", { class: ["breached", "missed"].includes(c.state) ? "reason" : null },
+      `${when(c.due)}${{ met: " (met)", missed: " (missed)", breached: " (overdue)", at_risk: " (soon)" }[c.state] || ""}`);
+  const rows = [row("Priority", h("span", {}, incPriority(inc), inc.priority_source === "person" ? " set by a person" : " from its criticality")),
+    row("Acknowledge by", clock(s.acknowledge)), row("Resolve by", clock(s.resolve)),
+    row("Owner", inc.owner || h("span", { class: "inc-unowned" }, "No owner")),
     inc.team ? row("Team", inc.team) : null,
     row("Criticality", inc.criticality || h("span", { class: "muted-text" }, "Not set"))];
   for (const a of agents) {
@@ -385,7 +530,17 @@ function incWhoIsTold(inc, list) {
       : "No agent checks this environment's incidents, so nobody is told automatically."));
 }
 
+const INC_EVENT = { opened: "Opened", reported: "Reported", seen: "Seen again", acknowledged: "Acknowledged", assigned: "Assigned",
+  note: "Note", priority: "Priority changed", escalated: "Escalated", resolved: "Resolved", recovered: "Recovered", cleared: "Cleared", reopened: "Opened again" };
+
+// The incident's timeline (events, newest first). Records from before events existed show what they kept.
 function incHistory(inc) {
+  if ((inc.events || []).length) {
+    const events = [...inc.events].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return h("div", { class: "wl-timeline" }, events.map((e) => h("div", { class: "wl-event" },
+      h("span", { class: "muted-text small wl-when" }, when(e.at)),
+      h("div", {}, h("b", {}, INC_EVENT[e.what] || e.what), e.by ? ` by ${e.by}` : "", e.text ? `: ${e.text}` : ""))));
+  }
   const events = [{ at: inc.opened_at, text: `Opened by ${inc.opened_by}` }];
   if (inc.acknowledged_at) events.push({ at: inc.acknowledged_at, text: `Acknowledged by ${inc.acknowledged_by}` });
   for (const n of inc.notes || []) events.push({ at: n.at, text: `${n.by}: ${n.text}` });
@@ -406,10 +561,11 @@ function workloadIncidentsCard(w) {
     if (!box.isConnected) return;
     const items = (s.envs || []).flatMap((e) => e.incidents);
     const unread = (s.envs || []).filter((e) => e.count === null && e.observation?.state !== "not_set_up").map((e) => envName(e.env));
-    box.replaceChildren(h("h2", {}, "Incidents", preview("incidents", h("span", {}))),
+    const report = btn("Report an incident", "add", () => reportIncident({ workload: w.id, name: w.name || w.id }, () => render()), "tool outline small");
+    box.replaceChildren(h("div", { class: "row" }, h("h2", { class: "grow" }, "Incidents", preview("incidents", h("span", {}))), report),
       items.length ? h("div", { class: "wl-findings" }, items.map((i) => h("div", { class: "wl-finding click", onclick: () => openIncident(i) },
         incStatePill(i), h("div", { class: "grow" }, h("b", {}, i.title), h("div", { class: "muted-text small" },
-          `${envName(i.env)} · opened ${relTime(i.opened_at)}${i.escalated_at ? ` · escalated to ${i.escalated_to}` : ""}`))))) : h("p", { class: "muted-text" }, "No active incidents."),
+          `${[i.number, i.priority, envName(i.env)].filter(Boolean).join(" · ")} · opened ${relTime(i.opened_at)}${i.escalated_at ? ` · escalated to ${i.escalated_to}` : ""}`))))) : h("p", { class: "muted-text" }, "No active incidents."),
       unread.length ? h("p", { class: "muted-text small" }, `Couldn't read ${unread.join(", ")}.`) : "");
   }).catch(() => box.replaceChildren(h("h2", {}, "Incidents"), h("p", { class: "muted-text" }, "Couldn't read incidents.")));
   return box;
@@ -423,5 +579,7 @@ registerFeature({
       run: () => { incPage.filter = "active"; backToIncidents(); } },
     { label: "My incidents", icon: "person", keywords: "monitor incidents mine owner",
       run: () => { incPage.filter = "mine"; backToIncidents(); } },
+    { label: "Report an incident", icon: "add", keywords: "incident report problem broken wrong numbers ticket",
+      run: () => reportIncident() },
   ],
 });

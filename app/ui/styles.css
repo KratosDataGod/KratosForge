@@ -1394,6 +1394,13 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .inc-what { display: flex; flex-direction: column; gap: 10px; }
 .inc-likely { gap: 8px; align-items: center; flex-wrap: wrap; }
 .inc-card .wl-finding.click { cursor: pointer; }
+.inc-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.inc-guide { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.inc-at-risk { color: #8a5300; }
+.inc-priorities { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.inc-priority { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; min-height: 44px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--card, transparent); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.inc-priority[aria-checked="true"] { border: 2px solid var(--accent); padding: 7px 9px; }
 /* Agents (agents.js) */
 .ag-overlap { background: #fff8e6; border: 1px solid #f3dca5; border-radius: 6px; padding: 10px 16px; margin: 8px 0; color: #242424; }
 .ag-overlap b { color: #6b4100; }

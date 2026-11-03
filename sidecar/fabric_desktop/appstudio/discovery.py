@@ -62,7 +62,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
                 truncated = True
                 break
             counts["columns"] += 1
-            col = {"name": _name(c["name"]), "type": _name(c.get("dataType") or "string")}
+            col: dict[str, Any] = {"name": _name(c["name"]), "type": _name(c.get("dataType") or "string")}
             if c.get("isHidden"):
                 col["hidden"] = True
             if c.get("description"):
@@ -92,7 +92,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
         if t.get("description"):
             table["description"] = _text(t["description"], DESCRIPTION_LIMIT)
         tables.append(table)
-    relationships = []
+    relationships: list[dict[str, Any]] = []
     for r in model.get("relationships") or []:
         if not isinstance(r, dict):
             continue
@@ -101,7 +101,7 @@ def from_bim(bim: dict[str, Any], include_expressions: bool = False) -> dict[str
             break
         ends = [_name(r.get(k)) for k in ("fromTable", "fromColumn", "toTable", "toColumn")]
         if all(ends):
-            rel = {"from": f"{ends[0]}[{ends[1]}]", "to": f"{ends[2]}[{ends[3]}]"}
+            rel: dict[str, Any] = {"from": f"{ends[0]}[{ends[1]}]", "to": f"{ends[2]}[{ends[3]}]"}
             if r.get("isActive") is False:
                 rel["active"] = False
             relationships.append(rel)

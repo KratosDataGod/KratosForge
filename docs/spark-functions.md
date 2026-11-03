@@ -19,10 +19,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 267 |
-| Differs | 16 |
-| Refused | 7 |
-| Fails | 98 |
+| Runs | 354 |
+| Differs | 0 |
+| Refused | 31 |
+| Fails | 3 |
 | Not checked | 50 |
 | **All** | **438** |
 
@@ -30,16 +30,16 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `any` | Fails | `SELECT any(col) FROM VALUES (true), (false), (false) AS tab(col)` | Parser Error: syntax error at or near "ANY" |
+| `any` | Runs | `SELECT any(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
 | `any_value` | Runs | `SELECT any_value(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
 | `approx_count_distinct` | Runs | `SELECT approx_count_distinct(col1) FROM VALUES (1), (1), (2), (2), (3) tab(col1)` |  |
-| `approx_percentile` | Differs | `SELECT approx_percentile(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)` | [[["float:1.5", "float:1.2", "float:0.3"]]] here, [[[1, 1, 0]]] in Spark |
+| `approx_percentile` | Runs | `SELECT approx_percentile(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)` |  |
 | `array_agg` | Runs | `SELECT array_agg(col) FROM VALUES (1), (2), (1) AS tab(col)` |  |
 | `avg` | Runs | `SELECT avg(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `bit_and` | Runs | `SELECT bit_and(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bit_or` | Runs | `SELECT bit_or(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bit_xor` | Runs | `SELECT bit_xor(col) FROM VALUES (3), (5) AS tab(col)` |  |
-| `bitmap_construct_agg` | Differs | `SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)` | [["000300"]] here, [["070000"]] in Spark |
+| `bitmap_construct_agg` | Runs | `SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `bitmap_or_agg` | Fails | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` | Could not read the query: Expecting ). Line 1, Col: 67. |
 | `bool_and` | Runs | `SELECT bool_and(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
 | `bool_or` | Runs | `SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
@@ -48,20 +48,20 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `corr` | Runs | `SELECT corr(c1, c2) FROM VALUES (3, 2), (3, 3), (6, 4) as tab(c1, c2)` |  |
 | `count` | Runs | `SELECT count(*) FROM VALUES (NULL), (5), (5), (20) AS tab(col)` |  |
 | `count_if` | Runs | `SELECT count_if(col % 2 = 0) FROM VALUES (NULL), (0), (1), (2), (3) AS tab(col)` |  |
-| `count_min_sketch` | Fails | `SELECT hex(count_min_sketch(col, 0.5d, 0.5d, 1)) FROM VALUES (1), (2), (1) AS tab(col)` | Catalog Error: Scalar Function with name count_min_sketch does not exist! |
+| `count_min_sketch` | Refused | `SELECT hex(count_min_sketch(col, 0.5d, 0.5d, 1)) FROM VALUES (1), (2), (1) AS tab(col)` | count_min_sketch() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make t |
 | `covar_pop` | Runs | `SELECT covar_pop(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)` |  |
 | `covar_samp` | Runs | `SELECT covar_samp(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)` |  |
-| `every` | Fails | `SELECT every(col) FROM VALUES (true), (true), (true) AS tab(col)` | Catalog Error: Scalar Function with name every does not exist! |
+| `every` | Runs | `SELECT every(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
 | `first` | Runs | `SELECT first(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
-| `first_value` | Fails | `SELECT first_value(col) FROM VALUES (10), (5), (20) AS tab(col)` | Catalog Error: Scalar Function with name first_value does not exist! |
+| `first_value` | Runs | `SELECT first_value(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
 | `grouping` | Runs | `SELECT name, grouping(name), sum(age) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) GROUP BY cube(name)` |  |
-| `grouping_id` | Fails | `SELECT name, grouping_id(), sum(age), avg(height) FROM VALUES (2, 'Alice', 165), (5, 'Bob', 180) people(age, name, height) GROUP BY cube(name, height)` | Parser Error: syntax error at or near ")" |
-| `histogram_numeric` | Fails | `SELECT histogram_numeric(col, 5) FROM VALUES (0), (1), (2), (10) AS tab(col)` | Catalog Error: Scalar Function with name histogram_numeric does not exist! |
-| `hll_sketch_agg` | Fails | `SELECT hll_sketch_estimate(hll_sketch_agg(col, 12)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | Catalog Error: Scalar Function with name hll_sketch_estimate does not exist! |
-| `hll_union_agg` | Fails | `SELECT hll_sketch_estimate(hll_union_agg(sketch, true)) FROM (SELECT hll_sketch_agg(col) as sketch FROM VALUES (1) tab(col) UNION ALL SELECT hll_sketch_agg(col, 20) as sketch FROM VALUES (1) tab(col))` | Catalog Error: Scalar Function with name hll_sketch_agg does not exist! |
-| `kurtosis` | Differs | `SELECT kurtosis(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)` | [["float:3.73922396435"]] here, [["float:-0.701436804753"]] in Spark |
+| `grouping_id` | Runs | `SELECT name, grouping_id(), sum(age), avg(height) FROM VALUES (2, 'Alice', 165), (5, 'Bob', 180) people(age, name, height) GROUP BY cube(name, height)` |  |
+| `histogram_numeric` | Refused | `SELECT histogram_numeric(col, 5) FROM VALUES (0), (1), (2), (10) AS tab(col)` | histogram_numeric() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's bins come from its own streaming algorithm, which this PC doesn't ha |
+| `hll_sketch_agg` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col, 12)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
+| `hll_union_agg` | Refused | `SELECT hll_sketch_estimate(hll_union_agg(sketch, true)) FROM (SELECT hll_sketch_agg(col) as sketch FROM VALUES (1) tab(col) UNION ALL SELECT hll_sketch_agg(col, 20) as sketch FROM VALUES (1) tab(col))` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
+| `kurtosis` | Runs | `SELECT kurtosis(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)` |  |
 | `last` | Runs | `SELECT last(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
-| `last_value` | Fails | `SELECT last_value(col) FROM VALUES (10), (5), (20) AS tab(col)` | Catalog Error: Scalar Function with name last_value does not exist! |
+| `last_value` | Runs | `SELECT last_value(col) FROM VALUES (10), (5), (20) AS tab(col)` |  |
 | `max` | Runs | `SELECT max(col) FROM VALUES (10), (50), (20) AS tab(col)` |  |
 | `max_by` | Runs | `SELECT max_by(x, y) FROM VALUES ('a', 10), ('b', 50), ('c', 20) AS tab(x, y)` |  |
 | `mean` | Runs | `SELECT mean(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
@@ -70,7 +70,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `min_by` | Runs | `SELECT min_by(x, y) FROM VALUES ('a', 10), ('b', 50), ('c', 20) AS tab(x, y)` |  |
 | `mode` | Runs | `SELECT mode(col) FROM VALUES (0), (10), (10) AS tab(col)` |  |
 | `percentile` | Runs | `SELECT percentile(col, 0.3) FROM VALUES (0), (10) AS tab(col)` |  |
-| `percentile_approx` | Differs | `SELECT percentile_approx(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)` | [[["float:1.5", "float:1.2", "float:0.3"]]] here, [[[1, 1, 0]]] in Spark |
+| `percentile_approx` | Runs | `SELECT percentile_approx(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)` |  |
 | `regr_avgx` | Runs | `SELECT regr_avgx(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
 | `regr_avgy` | Runs | `SELECT regr_avgy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
 | `regr_count` | Runs | `SELECT regr_count(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
@@ -80,15 +80,15 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `regr_sxx` | Runs | `SELECT regr_sxx(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
 | `regr_sxy` | Runs | `SELECT regr_sxy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
 | `regr_syy` | Runs | `SELECT regr_syy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)` |  |
-| `skewness` | Differs | `SELECT skewness(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)` | [["float:1.9287524512"]] here, [["float:1.1135657469"]] in Spark |
-| `some` | Fails | `SELECT some(col) FROM VALUES (true), (false), (false) AS tab(col)` | Parser Error: syntax error at or near "SOME" |
-| `std` | Fails | `SELECT std(col) FROM VALUES (1), (2), (3) AS tab(col)` | Catalog Error: Scalar Function with name std does not exist! |
+| `skewness` | Runs | `SELECT skewness(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)` |  |
+| `some` | Runs | `SELECT some(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
+| `std` | Runs | `SELECT std(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `stddev` | Runs | `SELECT stddev(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `stddev_pop` | Runs | `SELECT stddev_pop(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `stddev_samp` | Runs | `SELECT stddev_samp(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `sum` | Runs | `SELECT sum(col) FROM VALUES (5), (10), (15) AS tab(col)` |  |
-| `try_avg` | Fails | `SELECT try_avg(col) FROM VALUES (1), (2), (3) AS tab(col)` | Catalog Error: Scalar Function with name try_avg does not exist! |
-| `try_sum` | Fails | `SELECT try_sum(col) FROM VALUES (5), (10), (15) AS tab(col)` | Catalog Error: Scalar Function with name try_sum does not exist! |
+| `try_avg` | Runs | `SELECT try_avg(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
+| `try_sum` | Runs | `SELECT try_sum(col) FROM VALUES (5), (10), (15) AS tab(col)` |  |
 | `var_pop` | Runs | `SELECT var_pop(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `var_samp` | Runs | `SELECT var_samp(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
 | `variance` | Runs | `SELECT variance(col) FROM VALUES (1), (2), (3) AS tab(col)` |  |
@@ -110,13 +110,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `array_min` | Runs | `SELECT array_min(array(1, 20, null, 3))` |  |
 | `array_position` | Runs | `SELECT array_position(array(312, 773, 708, 708), 708)` |  |
 | `array_prepend` | Runs | `SELECT array_prepend(array('b', 'd', 'c', 'a'), 'd')` |  |
-| `array_remove` | Differs | `SELECT array_remove(array(1, 2, 3, null, 3), 3)` | [[[1, 2]]] here, [[[1, 2, null]]] in Spark |
-| `array_repeat` | Fails | `SELECT array_repeat('123', 2)` | Catalog Error: Scalar Function with name array_repeat does not exist! |
+| `array_remove` | Runs | `SELECT array_remove(array(1, 2, 3, null, 3), 3)` |  |
+| `array_repeat` | Runs | `SELECT array_repeat('123', 2)` |  |
 | `array_union` | Runs | `SELECT array_union(array(1, 2, 3), array(1, 3, 5))` |  |
 | `arrays_overlap` | Runs | `SELECT arrays_overlap(array(1, 2, 3), array(3, 4, 5))` |  |
-| `arrays_zip` | Differs | `SELECT arrays_zip(array(1, 2, 3), array(2, 3, 4))` | [[[{"struct": [["$1", 1], ["$2", 2]]}, {"struct": [["$1", 2], ["$2", 3]]}, {"str here, [[[{"struct": [["0", 1], ["1", 2]]}, {"struct": [["0", 2], ["1", 3]]}, {"struct" in Spark |
+| `arrays_zip` | Runs | `SELECT arrays_zip(array(1, 2, 3), array(2, 3, 4))` |  |
 | `flatten` | Runs | `SELECT flatten(array(array(1, 2), array(3, 4)))` |  |
-| `get` | Fails | `SELECT get(array(1, 2, 3), 0)` | Catalog Error: Scalar Function with name get does not exist! |
+| `get` | Runs | `SELECT get(array(1, 2, 3), 0)` |  |
 | `sequence` | Runs | `SELECT sequence(1, 5)` |  |
 | `shuffle` | Not checked | `SELECT shuffle(array(1, 20, 3, 5))` |  |
 | `slice` | Runs | `SELECT slice(array(1, 2, 3, 4), 2, 2)` |  |
@@ -129,10 +129,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `&` | Runs | `SELECT 3 & 5` |  |
 | `^` | Runs | `SELECT 3 ^ 5` |  |
 | `bit_count` | Runs | `SELECT bit_count(0)` |  |
-| `bit_get` | Fails | `SELECT bit_get(11, 0)` | Binder Error: No function matches the given name and argument types 'get_bit(INTEGER_LITERAL, INTEGER_LITERAL)'. You might need to add explicit type casts. |
-| `getbit` | Fails | `SELECT getbit(11, 0)` | Binder Error: No function matches the given name and argument types 'get_bit(INTEGER_LITERAL, INTEGER_LITERAL)'. You might need to add explicit type casts. |
+| `bit_get` | Runs | `SELECT bit_get(11, 0)` |  |
+| `getbit` | Runs | `SELECT getbit(11, 0)` |  |
 | `shiftright` | Runs | `SELECT shiftright(4, 1)` |  |
-| `shiftrightunsigned` | Fails | `SELECT shiftrightunsigned(4, 1)` | Catalog Error: Scalar Function with name shiftrightunsigned does not exist! |
+| `shiftrightunsigned` | Runs | `SELECT shiftrightunsigned(4, 1)` |  |
 | `\|` | Runs | `SELECT 3 \| 5` |  |
 | `~` | Runs | `SELECT ~ 0` |  |
 
@@ -141,7 +141,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `array_size` | Runs | `SELECT array_size(array('b', 'd', 'c', 'a'))` |  |
-| `cardinality` | Fails | `SELECT cardinality(array('b', 'd', 'c', 'a'))` | Binder Error: Cardinality can only operate on MAPs |
+| `cardinality` | Runs | `SELECT cardinality(array('b', 'd', 'c', 'a'))` |  |
 | `concat` | Runs | `SELECT concat('Spark', 'SQL')` |  |
 | `reverse` | Runs | `SELECT reverse('Spark SQL')` |  |
 | `size` | Runs | `SELECT size(array('b', 'd', 'c', 'a'))` |  |
@@ -153,7 +153,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `coalesce` | Runs | `SELECT coalesce(NULL, 1, NULL)` |  |
 | `if` | Runs | `SELECT if(1 < 2, 'a', 'b')` |  |
 | `ifnull` | Runs | `SELECT ifnull(NULL, array('2'))` |  |
-| `nanvl` | Fails | `SELECT nanvl(cast('NaN' as double), 123)` | Catalog Error: Scalar Function with name nanvl does not exist! |
+| `nanvl` | Runs | `SELECT nanvl(cast('NaN' as double), 123)` |  |
 | `nullif` | Runs | `SELECT nullif(2, 2)` |  |
 | `nvl` | Runs | `SELECT nvl(NULL, array('2'))` |  |
 | `nvl2` | Runs | `SELECT nvl2(NULL, 2, 1)` |  |
@@ -181,9 +181,9 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `from_csv` | Fails | `SELECT from_csv('1, 0.8', 'a INT, b DOUBLE')` | Catalog Error: Scalar Function with name from_csv does not exist! |
-| `schema_of_csv` | Fails | `SELECT schema_of_csv('1,abc')` | Catalog Error: Scalar Function with name schema_of_csv does not exist! |
-| `to_csv` | Fails | `SELECT to_csv(named_struct('a', 1, 'b', 2))` | Catalog Error: Scalar Function with name to_csv does not exist! |
+| `from_csv` | Runs | `SELECT from_csv('1, 0.8', 'a INT, b DOUBLE')` |  |
+| `schema_of_csv` | Refused | `SELECT schema_of_csv('1,abc')` | schema_of_csv() can't run on this PC the way it runs in Fabric, so nothing ran: this PC doesn't infer a CSV schema from one line the way Spark does. Run the cel |
+| `to_csv` | Runs | `SELECT to_csv(named_struct('a', 1, 'b', 2))` |  |
 
 ## Date and time
 
@@ -198,10 +198,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `date_add` | Runs | `SELECT date_add('2016-07-30', 1)` |  |
 | `date_diff` | Runs | `SELECT date_diff('2009-07-31', '2009-07-30')` |  |
 | `date_format` | Runs | `SELECT date_format('2016-04-08', 'y')` |  |
-| `date_from_unix_date` | Differs | `SELECT date_from_unix_date(1)` | [["timestamp:1970-01-02T00:00:00"]] here, [["date:1970-01-02"]] in Spark |
+| `date_from_unix_date` | Runs | `SELECT date_from_unix_date(1)` |  |
 | `date_part` | Runs | `SELECT date_part('YEAR', TIMESTAMP '2019-08-12 01:00:00.123456')` |  |
 | `date_sub` | Runs | `SELECT date_sub('2016-07-30', 1)` |  |
-| `date_trunc` | Fails | `SELECT date_trunc('YEAR', '2015-03-05T09:32:05.359')` | Binder Error: Could not choose a best candidate function for the function call "date_trunc(STRING_LITERAL, STRING_LITERAL)". In order to select one, please add  |
+| `date_trunc` | Runs | `SELECT date_trunc('YEAR', '2015-03-05T09:32:05.359')` |  |
 | `dateadd` | Runs | `SELECT dateadd('2016-07-30', 1)` |  |
 | `datediff` | Runs | `SELECT datediff('2009-07-31', '2009-07-30')` |  |
 | `datepart` | Runs | `SELECT datepart('YEAR', TIMESTAMP '2019-08-12 01:00:00.123456')` |  |
@@ -211,45 +211,45 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `dayofyear` | Runs | `SELECT dayofyear('2016-04-09')` |  |
 | `extract` | Refused | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: EXTRACT from TIMESTAMPTZ / TIMESTAMPLTZ may produce different results due to  |
 | `from_unixtime` | Runs | `SELECT from_unixtime(0, 'yyyy-MM-dd HH:mm:ss')` |  |
-| `from_utc_timestamp` | Differs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` | [["timestamp:2016-08-30T15:00:00"]] here, [["timestamp:2016-08-31T09:00:00"]] in Spark |
-| `hour` | Fails | `SELECT hour('2009-07-30 12:58:59')` | Binder Error: Could not choose a best candidate function for the function call "hour(STRING_LITERAL)". In order to select one, please add explicit type casts. |
+| `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
+| `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
 | `last_day` | Runs | `SELECT last_day('2009-01-12')` |  |
 | `localtimestamp` | Not checked | `SELECT localtimestamp()` |  |
 | `make_date` | Runs | `SELECT make_date(2013, 7, 15)` |  |
-| `make_dt_interval` | Fails | `SELECT make_dt_interval(1, 12, 30, 01.001001)` | Catalog Error: Scalar Function with name make_dt_interval does not exist! |
+| `make_dt_interval` | Runs | `SELECT make_dt_interval(1, 12, 30, 01.001001)` |  |
 | `make_interval` | Not checked | `SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)` |  |
 | `make_timestamp` | Runs | `SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)` |  |
-| `make_timestamp_ltz` | Fails | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` | Catalog Error: Scalar Function with name make_timestamp_ltz does not exist! |
-| `make_timestamp_ntz` | Fails | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` | Catalog Error: Scalar Function with name make_timestamp_ntz does not exist! |
-| `make_ym_interval` | Fails | `SELECT make_ym_interval(1, 2)` | Catalog Error: Scalar Function with name make_ym_interval does not exist! |
-| `minute` | Fails | `SELECT minute('2009-07-30 12:58:59')` | Binder Error: Could not choose a best candidate function for the function call "minute(STRING_LITERAL)". In order to select one, please add explicit type casts. |
+| `make_timestamp_ltz` | Runs | `SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)` |  |
+| `make_timestamp_ntz` | Runs | `SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)` |  |
+| `make_ym_interval` | Refused | `SELECT make_ym_interval(1, 2)` | make_ym_interval() can't run on this PC the way it runs in Fabric, so nothing ran: this PC has no year-month interval type. Run the cell in Fabric. |
+| `minute` | Runs | `SELECT minute('2009-07-30 12:58:59')` |  |
 | `month` | Runs | `SELECT month('2016-07-30')` |  |
 | `months_between` | Runs | `SELECT months_between('1997-02-28 10:30:00', '1996-10-30')` |  |
 | `next_day` | Runs | `SELECT next_day('2015-01-14', 'TU')` |  |
 | `now` | Not checked | `SELECT now()` |  |
-| `quarter` | Fails | `SELECT quarter('2016-08-31')` | Binder Error: Could not choose a best candidate function for the function call "quarter(STRING_LITERAL)". In order to select one, please add explicit type casts |
-| `second` | Fails | `SELECT second('2009-07-30 12:58:59')` | Binder Error: Could not choose a best candidate function for the function call "second(STRING_LITERAL)". In order to select one, please add explicit type casts. |
-| `session_window` | Fails | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | Catalog Error: Scalar Function with name session_window does not exist! |
-| `timestamp_micros` | Fails | `SELECT timestamp_micros(1230219000123123)` | Catalog Error: Scalar Function with name timestamp_micros does not exist! |
-| `timestamp_millis` | Fails | `SELECT timestamp_millis(1230219000123)` | Catalog Error: Scalar Function with name timestamp_millis does not exist! |
-| `timestamp_seconds` | Fails | `SELECT timestamp_seconds(1230219000)` | Catalog Error: Scalar Function with name timestamp_seconds does not exist! |
+| `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
+| `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
+| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabri |
+| `timestamp_micros` | Runs | `SELECT timestamp_micros(1230219000123123)` |  |
+| `timestamp_millis` | Runs | `SELECT timestamp_millis(1230219000123)` |  |
+| `timestamp_seconds` | Runs | `SELECT timestamp_seconds(1230219000)` |  |
 | `to_date` | Runs | `SELECT to_date('2009-07-30 04:17:52')` |  |
 | `to_timestamp` | Runs | `SELECT to_timestamp('2016-12-31 00:12:00')` |  |
-| `to_timestamp_ltz` | Fails | `SELECT to_timestamp_ltz('2016-12-31 00:12:00')` | Catalog Error: Scalar Function with name to_timestamp_ltz does not exist! |
-| `to_timestamp_ntz` | Fails | `SELECT to_timestamp_ntz('2016-12-31 00:12:00')` | Catalog Error: Scalar Function with name to_timestamp_ntz does not exist! |
+| `to_timestamp_ltz` | Runs | `SELECT to_timestamp_ltz('2016-12-31 00:12:00')` |  |
+| `to_timestamp_ntz` | Runs | `SELECT to_timestamp_ntz('2016-12-31 00:12:00')` |  |
 | `to_unix_timestamp` | Refused | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` | unix_timestamp can't read part of its format (yyyy-MM-dd) on this PC. Use pattern letters such as yyyy, MM, dd, HH, mm, ss and SSS. |
 | `to_utc_timestamp` | Runs | `SELECT to_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
-| `trunc` | Fails | `SELECT trunc('2019-08-04', 'week')` | Binder Error: Could not choose a best candidate function for the function call "date_trunc(STRING_LITERAL, STRING_LITERAL)". In order to select one, please add  |
-| `try_to_timestamp` | Fails | `SELECT try_to_timestamp('2016-12-31 00:12:00')` | Catalog Error: Scalar Function with name try_to_timestamp does not exist! |
+| `trunc` | Runs | `SELECT trunc('2019-08-04', 'week')` |  |
+| `try_to_timestamp` | Runs | `SELECT try_to_timestamp('2016-12-31 00:12:00')` |  |
 | `unix_date` | Runs | `SELECT unix_date(DATE("1970-01-02"))` |  |
 | `unix_micros` | Runs | `SELECT unix_micros(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_millis` | Runs | `SELECT unix_millis(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_seconds` | Runs | `SELECT unix_seconds(TIMESTAMP('1970-01-01 00:00:01Z'))` |  |
 | `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
-| `weekday` | Fails | `SELECT weekday('2009-07-30')` | Binder Error: Could not choose a best candidate function for the function call "weekday(STRING_LITERAL)". In order to select one, please add explicit type casts |
+| `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
 | `window` | Fails | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` | Parser Error: syntax error at or near "(" |
-| `window_time` | Fails | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` | Parser Error: syntax error at or near "(" |
+| `window_time` | Refused | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` | window_time() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabric. |
 | `year` | Runs | `SELECT year('2016-07-30')` |  |
 
 ## Generator
@@ -257,18 +257,18 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `explode` | Runs | `SELECT explode(array(10, 20))` |  |
-| `explode_outer` | Fails | `SELECT explode_outer(array(10, 20))` | Catalog Error: Scalar Function with name explode_outer does not exist! |
-| `inline` | Fails | `SELECT inline(array(struct(1, 'a'), struct(2, 'b')))` | Catalog Error: Scalar Function with name inline does not exist! |
-| `inline_outer` | Fails | `SELECT inline_outer(array(struct(1, 'a'), struct(2, 'b')))` | Catalog Error: Scalar Function with name inline_outer does not exist! |
+| `explode_outer` | Runs | `SELECT explode_outer(array(10, 20))` |  |
+| `inline` | Runs | `SELECT inline(array(struct(1, 'a'), struct(2, 'b')))` |  |
+| `inline_outer` | Runs | `SELECT inline_outer(array(struct(1, 'a'), struct(2, 'b')))` |  |
 | `posexplode` | Runs | `SELECT posexplode(array(10,20))` |  |
-| `posexplode_outer` | Fails | `SELECT posexplode_outer(array(10,20))` | Catalog Error: Scalar Function with name posexplode_outer does not exist! |
-| `stack` | Fails | `SELECT stack(2, 1, 2, 3)` | Catalog Error: Scalar Function with name stack does not exist! |
+| `posexplode_outer` | Runs | `SELECT posexplode_outer(array(10,20))` |  |
+| `stack` | Runs | `SELECT stack(2, 1, 2, 3)` |  |
 
 ## Hash
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `crc32` | Fails | `SELECT crc32('Spark')` | Catalog Error: Scalar Function with name crc32 does not exist! |
+| `crc32` | Runs | `SELECT crc32('Spark')` |  |
 | `hash` | Refused | `SELECT hash('Spark', array(123), 2)` | hash() can't run on this PC the way it runs in Fabric, so nothing ran: Spark's hash gives a different number from the hash this PC has. Run it in Fabric, or use |
 | `md5` | Runs | `SELECT md5('Spark')` |  |
 | `sha` | Runs | `SELECT sha('Spark')` |  |
@@ -284,8 +284,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `get_json_object` | Runs | `SELECT get_json_object('{"a":"b"}', '$.a')` |  |
 | `json_array_length` | Runs | `SELECT json_array_length('[1,2,3,4]')` |  |
 | `json_object_keys` | Runs | `SELECT json_object_keys('{}')` |  |
-| `json_tuple` | Fails | `SELECT json_tuple('{"a":1, "b":2}', 'a', 'b')` | Catalog Error: Scalar Function with name json_tuple does not exist! |
-| `schema_of_json` | Differs | `SELECT schema_of_json('[{"col":0}]')` | [["ARRAY<STRUCT<`col`: BIGINT>>"]] here, [["ARRAY<STRUCT<col: BIGINT>>"]] in Spark |
+| `json_tuple` | Runs | `SELECT json_tuple('{"a":1, "b":2}', 'a', 'b')` |  |
+| `schema_of_json` | Runs | `SELECT schema_of_json('[{"col":0}]')` |  |
 | `to_json` | Runs | `SELECT to_json(named_struct('a', 1, 'b', 2))` |  |
 
 ## Lambda
@@ -298,12 +298,12 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `filter` | Runs | `SELECT filter(array(1, 2, 3), x -> x % 2 == 1)` |  |
 | `forall` | Runs | `SELECT forall(array(1, 2, 3), x -> x % 2 == 0)` |  |
 | `map_filter` | Runs | `SELECT map_filter(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v)` |  |
-| `map_zip_with` | Fails | `SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2))` | Catalog Error: Scalar Function with name map_zip_with does not exist! |
+| `map_zip_with` | Runs | `SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2))` |  |
 | `reduce` | Runs | `SELECT reduce(array(1, 2, 3), 0, (acc, x) -> acc + x)` |  |
 | `transform` | Runs | `SELECT transform(array(1, 2, 3), x -> x + 1)` |  |
 | `transform_keys` | Runs | `SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1)` |  |
 | `transform_values` | Runs | `SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1)` |  |
-| `zip_with` | Differs | `SELECT zip_with(array(1, 2, 3), array('a', 'b', 'c'), (x, y) -> (y, x))` | [[[["a", 1], ["b", 2], ["c", 3]]]] here, [[[{"struct": [["y", "a"], ["x", 1]]}, {"struct": [["y", "b"], ["x", 2]]}, {"str in Spark |
+| `zip_with` | Runs | `SELECT zip_with(array(1, 2, 3), array('a', 'b', 'c'), (x, y) -> (y, x))` |  |
 
 ## Map
 
@@ -339,7 +339,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `atan2` | Runs | `SELECT atan2(0, 0)` |  |
 | `atanh` | Runs | `SELECT atanh(0)` |  |
 | `bin` | Runs | `SELECT bin(13)` |  |
-| `bround` | Differs | `SELECT bround(2.5, 0)` | [["float:2"]] here, [["decimal:2"]] in Spark |
+| `bround` | Runs | `SELECT bround(2.5, 0)` |  |
 | `cbrt` | Runs | `SELECT cbrt(27.0)` |  |
 | `ceil` | Runs | `SELECT ceil(-0.1)` |  |
 | `ceiling` | Runs | `SELECT ceiling(-0.1)` |  |
@@ -347,59 +347,59 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `cos` | Runs | `SELECT cos(0)` |  |
 | `cosh` | Runs | `SELECT cosh(0)` |  |
 | `cot` | Runs | `SELECT cot(1)` |  |
-| `csc` | Fails | `SELECT csc(1)` | Catalog Error: Scalar Function with name csc does not exist! |
+| `csc` | Runs | `SELECT csc(1)` |  |
 | `degrees` | Runs | `SELECT degrees(3.141592653589793)` |  |
 | `div` | Runs | `SELECT 3 div 2` |  |
-| `e` | Fails | `SELECT e()` | Catalog Error: Scalar Function with name e does not exist! |
+| `e` | Runs | `SELECT e()` |  |
 | `exp` | Runs | `SELECT exp(0)` |  |
-| `expm1` | Fails | `SELECT expm1(0)` | Catalog Error: Scalar Function with name expm1 does not exist! |
+| `expm1` | Runs | `SELECT expm1(0)` |  |
 | `factorial` | Runs | `SELECT factorial(5)` |  |
 | `floor` | Runs | `SELECT floor(-0.1)` |  |
 | `greatest` | Runs | `SELECT greatest(10, 9, 2, 4, 3)` |  |
 | `hex` | Runs | `SELECT hex(17)` |  |
-| `hypot` | Fails | `SELECT hypot(3, 4)` | Catalog Error: Scalar Function with name hypot does not exist! |
+| `hypot` | Runs | `SELECT hypot(3, 4)` |  |
 | `least` | Runs | `SELECT least(10, 9, 2, 4, 3)` |  |
 | `ln` | Runs | `SELECT ln(1)` |  |
 | `log` | Runs | `SELECT log(10, 100)` |  |
 | `log10` | Runs | `SELECT log10(10)` |  |
-| `log1p` | Fails | `SELECT log1p(0)` | Catalog Error: Scalar Function with name log1p does not exist! |
+| `log1p` | Runs | `SELECT log1p(0)` |  |
 | `log2` | Runs | `SELECT log2(2)` |  |
 | `mod` | Runs | `SELECT 2 % 1.8` |  |
-| `negative` | Fails | `SELECT negative(1)` | Catalog Error: Scalar Function with name negative does not exist! |
+| `negative` | Runs | `SELECT negative(1)` |  |
 | `pi` | Runs | `SELECT pi()` |  |
 | `pmod` | Runs | `SELECT pmod(10, 3)` |  |
-| `positive` | Fails | `SELECT positive(1)` | Catalog Error: Scalar Function with name positive does not exist! |
+| `positive` | Runs | `SELECT positive(1)` |  |
 | `pow` | Runs | `SELECT pow(2, 3)` |  |
 | `power` | Runs | `SELECT power(2, 3)` |  |
 | `radians` | Runs | `SELECT radians(180)` |  |
 | `rand` | Not checked | `SELECT rand()` |  |
 | `randn` | Not checked | `SELECT randn()` |  |
 | `random` | Not checked | `SELECT random()` |  |
-| `rint` | Fails | `SELECT rint(12.3456)` | Catalog Error: Scalar Function with name rint does not exist! |
+| `rint` | Runs | `SELECT rint(12.3456)` |  |
 | `round` | Runs | `SELECT round(2.5, 0)` |  |
-| `sec` | Fails | `SELECT sec(0)` | Catalog Error: Scalar Function with name sec does not exist! |
+| `sec` | Runs | `SELECT sec(0)` |  |
 | `shiftleft` | Runs | `SELECT shiftleft(2, 1)` |  |
-| `sign` | Differs | `SELECT sign(40)` | [[1]] here, [["float:1"]] in Spark |
-| `signum` | Differs | `SELECT signum(40)` | [[1]] here, [["float:1"]] in Spark |
+| `sign` | Runs | `SELECT sign(40)` |  |
+| `signum` | Runs | `SELECT signum(40)` |  |
 | `sin` | Runs | `SELECT sin(0)` |  |
 | `sinh` | Runs | `SELECT sinh(0)` |  |
 | `sqrt` | Runs | `SELECT sqrt(4)` |  |
 | `tan` | Runs | `SELECT tan(0)` |  |
 | `tanh` | Runs | `SELECT tanh(0)` |  |
-| `try_add` | Fails | `SELECT try_add(1, 2)` | Catalog Error: Scalar Function with name safe_add does not exist! |
+| `try_add` | Runs | `SELECT try_add(1, 2)` |  |
 | `try_divide` | Runs | `SELECT try_divide(3, 2)` |  |
-| `try_multiply` | Fails | `SELECT try_multiply(2, 3)` | Catalog Error: Scalar Function with name safe_multiply does not exist! |
-| `try_subtract` | Fails | `SELECT try_subtract(2, 1)` | Catalog Error: Scalar Function with name safe_subtract does not exist! |
+| `try_multiply` | Runs | `SELECT try_multiply(2, 3)` |  |
+| `try_subtract` | Runs | `SELECT try_subtract(2, 1)` |  |
 | `unhex` | Runs | `SELECT decode(unhex('537061726B2053514C'), 'UTF-8')` |  |
-| `width_bucket` | Fails | `SELECT width_bucket(5.3, 0.2, 10.6, 5)` | Catalog Error: Scalar Function with name width_bucket does not exist! |
+| `width_bucket` | Runs | `SELECT width_bucket(5.3, 0.2, 10.6, 5)` |  |
 
 ## Miscellaneous
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `aes_decrypt` | Fails | `SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')` | Catalog Error: Scalar Function with name aes_decrypt does not exist! |
+| `aes_decrypt` | Refused | `SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')` | aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
 | `aes_encrypt` | Not checked | `SELECT hex(aes_encrypt('Spark', '0000111122223333'))` |  |
-| `assert_true` | Fails | `SELECT assert_true(0 < 1)` | Catalog Error: Scalar Function with name assert_true does not exist! |
+| `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
 | `bitmap_count` | Fails | `SELECT bitmap_count(X '1010')` | Could not read the query: Expecting ). Line 1, Col: 28. |
@@ -408,8 +408,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `current_schema` | Not checked | `SELECT current_schema()` |  |
 | `current_user` | Not checked | `SELECT current_user()` |  |
 | `equal_null` | Runs | `SELECT equal_null(3, 3)` |  |
-| `hll_sketch_estimate` | Fails | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | Catalog Error: Scalar Function with name hll_sketch_estimate does not exist! |
-| `hll_union` | Fails | `SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)` | Catalog Error: Scalar Function with name hll_sketch_estimate does not exist! |
+| `hll_sketch_estimate` | Refused | `SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
+| `hll_union` | Refused | `SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)` | hll_sketch_agg() can't run on this PC the way it runs in Fabric, so nothing ran: it builds a DataSketches or count-min sketch whose bytes this PC can't make the |
 | `input_file_block_length` | Not checked | `SELECT input_file_block_length()` |  |
 | `input_file_block_start` | Not checked | `SELECT input_file_block_start()` |  |
 | `input_file_name` | Not checked | `SELECT input_file_name()` |  |
@@ -418,8 +418,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `raise_error` | Not checked | `SELECT raise_error('custom error message')` |  |
 | `reflect` | Not checked | `SELECT reflect('java.util.UUID', 'randomUUID')` |  |
 | `spark_partition_id` | Not checked | `SELECT spark_partition_id()` |  |
-| `try_aes_decrypt` | Fails | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | Catalog Error: Scalar Function with name try_aes_decrypt does not exist! |
-| `typeof` | Differs | `SELECT typeof(1)` | [["INTEGER"]] here, [["int"]] in Spark |
+| `try_aes_decrypt` | Refused | `SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')` | try_aes_decrypt() can't run on this PC the way it runs in Fabric, so nothing ran: AES isn't available in the engine on this PC. Run the cell in Fabric. |
+| `typeof` | Runs | `SELECT typeof(1)` |  |
 | `user` | Not checked | `SELECT user()` |  |
 | `uuid` | Not checked | `SELECT uuid()` |  |
 | `version` | Not checked | `SELECT version()` |  |
@@ -452,8 +452,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `ilike` | Runs | `SELECT ilike('Spark', '_Park')` |  |
 | `in` | Runs | `SELECT 1 in(1, 2, 3)` |  |
 | `isnan` | Runs | `SELECT isnan(cast('NaN' as double))` |  |
-| `isnotnull` | Fails | `SELECT isnotnull(1)` | Catalog Error: Scalar Function with name isnotnull does not exist! |
-| `isnull` | Fails | `SELECT isnull(1)` | Catalog Error: Scalar Function with name isnull does not exist! |
+| `isnotnull` | Runs | `SELECT isnotnull(1)` |  |
+| `isnull` | Runs | `SELECT isnull(1)` |  |
 | `like` | Runs | `SELECT like('Spark', '_park')` |  |
 | `not` | Runs | `SELECT not true` |  |
 | `or` | Runs | `SELECT true or false` |  |
@@ -468,7 +468,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `ascii` | Runs | `SELECT ascii('222')` |  |
 | `base64` | Runs | `SELECT base64('Spark SQL')` |  |
 | `bit_length` | Runs | `SELECT bit_length('Spark SQL')` |  |
-| `btrim` | Fails | `SELECT btrim(' SparkSQL ')` | Catalog Error: Scalar Function with name btrim does not exist! |
+| `btrim` | Runs | `SELECT btrim(' SparkSQL ')` |  |
 | `char` | Runs | `SELECT char(65)` |  |
 | `char_length` | Runs | `SELECT char_length('Spark SQL ')` |  |
 | `character_length` | Runs | `SELECT character_length('Spark SQL ')` |  |
@@ -476,12 +476,12 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `concat_ws` | Runs | `SELECT concat_ws(' ', 'Spark', 'SQL')` |  |
 | `contains` | Runs | `SELECT contains('Spark SQL', 'Spark')` |  |
 | `decode` | Runs | `SELECT decode(encode('abc', 'utf-8'), 'utf-8')` |  |
-| `elt` | Fails | `SELECT elt(1, 'scala', 'java')` | Catalog Error: Scalar Function with name elt does not exist! |
+| `elt` | Runs | `SELECT elt(1, 'scala', 'java')` |  |
 | `encode` | Runs | `SELECT encode('abc', 'utf-8')` |  |
 | `endswith` | Runs | `SELECT endswith('Spark SQL', 'SQL')` |  |
-| `find_in_set` | Fails | `SELECT find_in_set('ab','abc,b,ab,c,def')` | Catalog Error: Scalar Function with name find_in_set does not exist! |
+| `find_in_set` | Runs | `SELECT find_in_set('ab','abc,b,ab,c,def')` |  |
 | `format_number` | Runs | `SELECT format_number(12332.123456, 4)` |  |
-| `format_string` | Differs | `SELECT format_string("Hello World %d %s", 100, "days")` | [["Hello World %d %s"]] here, [["Hello World 100 days"]] in Spark |
+| `format_string` | Runs | `SELECT format_string("Hello World %d %s", 100, "days")` |  |
 | `initcap` | Runs | `SELECT initcap('sPark sql')` |  |
 | `instr` | Runs | `SELECT instr('SparkSQL', 'SQL')` |  |
 | `lcase` | Runs | `SELECT lcase('SparkSql')` |  |
@@ -493,10 +493,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `lower` | Runs | `SELECT lower('SparkSql')` |  |
 | `lpad` | Runs | `SELECT lpad('hi', 5, '??')` |  |
 | `ltrim` | Runs | `SELECT ltrim(' SparkSQL ')` |  |
-| `luhn_check` | Fails | `SELECT luhn_check('8112189876')` | Catalog Error: Scalar Function with name luhn_check does not exist! |
-| `mask` | Fails | `SELECT mask('abcd-EFGH-8765-4321')` | Catalog Error: Scalar Function with name mask does not exist! |
-| `octet_length` | Fails | `SELECT octet_length('Spark SQL')` | Binder Error: Could not choose a best candidate function for the function call "octet_length(STRING_LITERAL)". In order to select one, please add explicit type  |
-| `overlay` | Fails | `SELECT overlay('Spark SQL' PLACING '_' FROM 6)` | Catalog Error: Scalar Function with name overlay does not exist! |
+| `luhn_check` | Runs | `SELECT luhn_check('8112189876')` |  |
+| `mask` | Runs | `SELECT mask('abcd-EFGH-8765-4321')` |  |
+| `octet_length` | Runs | `SELECT octet_length('Spark SQL')` |  |
+| `overlay` | Runs | `SELECT overlay('Spark SQL' PLACING '_' FROM 6)` |  |
 | `position` | Runs | `SELECT position('bar', 'foobarbar')` |  |
 | `printf` | Runs | `SELECT printf("Hello World %d %s", 100, "days")` |  |
 | `regexp_count` | Runs | `SELECT regexp_count('Steven Jones and Stephen Smith are the best players', 'Ste(v\|ph)en')` |  |
@@ -504,13 +504,13 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `regexp_extract_all` | Runs | `SELECT regexp_extract_all('100-200, 300-400', '(\\d+)-(\\d+)', 1)` |  |
 | `regexp_instr` | Runs | `SELECT regexp_instr('user@spark.apache.org', '@[^.]*')` |  |
 | `regexp_replace` | Runs | `SELECT regexp_replace('100-200', '(\\d+)', 'num')` |  |
-| `regexp_substr` | Fails | `SELECT regexp_substr('Steven Jones and Stephen Smith are the best players', 'Ste(v\|ph)en')` | Catalog Error: Scalar Function with name regexp_substr does not exist! |
+| `regexp_substr` | Runs | `SELECT regexp_substr('Steven Jones and Stephen Smith are the best players', 'Ste(v\|ph)en')` |  |
 | `repeat` | Runs | `SELECT repeat('123', 2)` |  |
 | `replace` | Runs | `SELECT replace('ABCabc', 'abc', 'DEF')` |  |
 | `right` | Runs | `SELECT right('Spark SQL', 3)` |  |
 | `rpad` | Runs | `SELECT rpad('hi', 5, '??')` |  |
 | `rtrim` | Runs | `SELECT rtrim(' SparkSQL ')` |  |
-| `sentences` | Fails | `SELECT sentences('Hi there! Good morning.')` | Catalog Error: Scalar Function with name sentences does not exist! |
+| `sentences` | Refused | `SELECT sentences('Hi there! Good morning.')` | sentences() can't run on this PC the way it runs in Fabric, so nothing ran: it splits text by Java's locale rules, which this PC doesn't have. Run the cell in F |
 | `soundex` | Runs | `SELECT soundex('Miller')` |  |
 | `space` | Runs | `SELECT concat(space(2), '1')` |  |
 | `split` | Runs | `SELECT split('oneAtwoBthreeC', '[ABC]')` |  |
@@ -518,15 +518,15 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `startswith` | Runs | `SELECT startswith('Spark SQL', 'Spark')` |  |
 | `substr` | Runs | `SELECT substr('Spark SQL', 5)` |  |
 | `substring` | Runs | `SELECT substring('Spark SQL', 5)` |  |
-| `substring_index` | Fails | `SELECT substring_index('www.apache.org', '.', 2)` | Catalog Error: Scalar Function with name substring_index does not exist! |
+| `substring_index` | Runs | `SELECT substring_index('www.apache.org', '.', 2)` |  |
 | `to_binary` | Runs | `SELECT to_binary('abc', 'utf-8')` |  |
 | `to_char` | Refused | `SELECT to_char(454, '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Argument 'format' is not supported for expression 'ToChar' when targeting KfD |
 | `to_number` | Refused | `SELECT to_number('454', '999')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: Unsupported TO_NUMBER function Run it in Fabric, or rewrite that part. |
-| `to_varchar` | Fails | `SELECT to_varchar(454, '999')` | Catalog Error: Scalar Function with name to_varchar does not exist! |
+| `to_varchar` | Refused | `SELECT to_varchar(454, '999')` | to_varchar() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabric,  |
 | `translate` | Runs | `SELECT translate('AaBbCc', 'abc', '123')` |  |
 | `trim` | Runs | `SELECT trim(' SparkSQL ')` |  |
-| `try_to_binary` | Fails | `SELECT try_to_binary('abc', 'utf-8')` | Catalog Error: Scalar Function with name try_to_binary does not exist! |
-| `try_to_number` | Fails | `SELECT try_to_number('454', '999')` | Catalog Error: Scalar Function with name try_to_number does not exist! |
+| `try_to_binary` | Runs | `SELECT try_to_binary('abc', 'utf-8')` |  |
+| `try_to_number` | Refused | `SELECT try_to_number('454', '999')` | try_to_number() can't run on this PC the way it runs in Fabric, so nothing ran: number format patterns ('999', '$99.99') aren't read here. Run the cell in Fabri |
 | `ucase` | Runs | `SELECT ucase('SparkSql')` |  |
 | `unbase64` | Runs | `SELECT unbase64('U3BhcmsgU1FM')` |  |
 | `upper` | Runs | `SELECT upper('SparkSql')` |  |
@@ -551,25 +551,25 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
 | `cume_dist` | Runs | `SELECT a, b, cume_dist() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
-| `dense_rank` | Fails | `SELECT a, b, dense_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` | Binder Error: RANK_DENSE needs 0 parameters, got 1 |
+| `dense_rank` | Runs | `SELECT a, b, dense_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 | `lag` | Runs | `SELECT a, b, lag(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 | `lead` | Runs | `SELECT a, b, lead(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 | `nth_value` | Runs | `SELECT a, b, nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 | `ntile` | Runs | `SELECT a, b, ntile(2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
-| `percent_rank` | Fails | `SELECT a, b, percent_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` | Binder Error: PERCENT_RANK needs 0 parameters, got 1 |
-| `rank` | Fails | `SELECT a, b, rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` | Binder Error: RANK needs 0 parameters, got 1 |
+| `percent_rank` | Runs | `SELECT a, b, percent_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
+| `rank` | Runs | `SELECT a, b, rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 | `row_number` | Runs | `SELECT a, b, row_number() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)` |  |
 
 ## XML
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `xpath` | Fails | `SELECT xpath('<a><b>b1</b><b>b2</b><b>b3</b><c>c1</c><c>c2</c></a>','a/b/text()')` | Catalog Error: Scalar Function with name xpath does not exist! |
-| `xpath_boolean` | Fails | `SELECT xpath_boolean('<a><b>1</b></a>','a/b')` | Catalog Error: Scalar Function with name xpath_boolean does not exist! |
-| `xpath_double` | Fails | `SELECT xpath_double('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_double does not exist! |
-| `xpath_float` | Fails | `SELECT xpath_float('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_float does not exist! |
-| `xpath_int` | Fails | `SELECT xpath_int('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_int does not exist! |
-| `xpath_long` | Fails | `SELECT xpath_long('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_long does not exist! |
-| `xpath_number` | Fails | `SELECT xpath_number('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_number does not exist! |
-| `xpath_short` | Fails | `SELECT xpath_short('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | Catalog Error: Scalar Function with name xpath_short does not exist! |
-| `xpath_string` | Fails | `SELECT xpath_string('<a><b>b</b><c>cc</c></a>','a/c')` | Catalog Error: Scalar Function with name xpath_string does not exist! |
+| `xpath` | Refused | `SELECT xpath('<a><b>b1</b><b>b2</b><b>b3</b><c>c1</c><c>c2</c></a>','a/b/text()')` | xpath() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_boolean` | Refused | `SELECT xpath_boolean('<a><b>1</b></a>','a/b')` | xpath_boolean() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_double` | Refused | `SELECT xpath_double('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_double() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_float` | Refused | `SELECT xpath_float('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_float() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_int` | Refused | `SELECT xpath_int('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_int() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_long` | Refused | `SELECT xpath_long('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_long() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_number` | Refused | `SELECT xpath_number('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_number() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_short` | Refused | `SELECT xpath_short('<a><b>1</b><b>2</b></a>', 'sum(a/b)')` | xpath_short() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |
+| `xpath_string` | Refused | `SELECT xpath_string('<a><b>b</b><c>cc</c></a>','a/c')` | xpath_string() can't run on this PC the way it runs in Fabric, so nothing ran: XPath isn't available in the engine on this PC. Run the cell in Fabric. |

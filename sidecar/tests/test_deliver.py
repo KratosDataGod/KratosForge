@@ -221,3 +221,9 @@ def test_every_kind_gets_text_without_secrets_on_one_line():
     post("https://contoso.webhook.office.com/x", "New\nincident password=hunter2", ["a\r\nb"] * 300)
     title, lines = got[0]
     assert "\n" not in title and "hunter2" not in title and len(lines) == deliver.MAX_LINES and lines[0] == "a b"
+
+
+def test_some_addresses_refused_still_counts_as_sent_so_nobody_gets_it_twice(monkeypatch, caplog):
+    monkeypatch.setattr(FakeSMTP, "send_message", lambda self, msg, from_addr=None, to_addrs=None: {"bad@contoso.com": (550, b"no")})
+    deliver.send_email(MAIL, "pw", ["a@contoso.com", "bad@contoso.com", "c@contoso.com"], "t", [], smtp=Lib)
+    assert "refused 1 of 3 addresses" in caplog.text and "bad@contoso.com" not in caplog.text

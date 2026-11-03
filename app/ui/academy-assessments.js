@@ -153,7 +153,9 @@ function assessDrawClock() {
 // Called by the Academy page's Assessments tab, and again by render() after an exam.
 async function renderAssessments(container, pack) {
   assess.container = container;
-  if (pack && pack !== assess.pack) {   // another certification: start from its home
+  if (pack && pack !== assess.pack) {   // another certification: stop any running clock, start from its home
+    assessStopClock();
+    if (assess.view?.running) rpc("academy_exam_pause", { session_id: assess.view.id }).catch(() => {});
     assess.pack = pack;
     assess.mode = "home"; assess.view = null; assess.result = null; assess.answers = null;
   }

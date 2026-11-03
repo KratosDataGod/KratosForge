@@ -65,13 +65,15 @@ DOCS_NAMES = {"fabric": "Microsoft Learn", "databricks": "Databricks documentati
 RESULT_LABEL = "KratosForge practice result"
 
 
-def notice_for(vendor: str) -> str:
-    """The words every exam screen and result carries: original questions, not the vendor's exam or score."""
+def notice_for(vendor: str, vendors: str | None = None) -> str:
+    """The words every exam screen and result carries: original questions, not the vendor's exam or score.
+    ``vendors`` is the possessive (registry PLATFORMS ``vendors``: "Databricks'"); "<vendor>'s" when None."""
+    poss = vendors or f"{vendor}'s"
     return (f"Original practice questions written for KratosForge. They are not {vendor} exam questions, this is "
-            f"not {vendor}'s exam interface, and the result is not a {vendor} score or a prediction of passing.")
+            f"not {poss} exam interface, and the result is not a {vendor} score or a prediction of passing.")
 
 
-NOTICE = notice_for("Microsoft")
+NOTICE = notice_for("Microsoft", "Microsoft's")
 
 _OBJECTIVE = re.compile(r"^\d{1,2}\.\d{1,2}(?:\.\d{1,2})?$")
 _QID = re.compile(r"^(\d{1,2}\.\d{1,2}(?:\.\d{1,2})?)-q(\d{1,2})$")
@@ -115,7 +117,8 @@ def source_hosts(pack: str, packs: Path = PACKS) -> tuple[str, ...]:
 
 def notice(pack: str, packs: Path = PACKS) -> str:
     """``notice_for`` the pack's vendor."""
-    return notice_for(registry.PLATFORMS[_platform_name(_pack_root(pack, packs))]["vendor"])
+    plat = registry.PLATFORMS[_platform_name(_pack_root(pack, packs))]
+    return notice_for(plat["vendor"], plat.get("vendors"))
 
 
 def load_bank(pack: str, packs: Path = PACKS, include_drafts: bool = False) -> dict[str, Any]:
@@ -131,8 +134,9 @@ def load_bank(pack: str, packs: Path = PACKS, include_drafts: bool = False) -> d
             if status == "retired" or (status == "draft" and not include_drafts):
                 continue
             questions[q["id"]] = {**q, "objective": doc.get("objective")}
-    vendor = registry.PLATFORMS[_platform_name(root)]["vendor"]
-    return {"pack": pack, "questions": questions, "cases": dict(cases), "notice": notice_for(vendor)}
+    plat = registry.PLATFORMS[_platform_name(root)]
+    return {"pack": pack, "questions": questions, "cases": dict(cases),
+            "notice": notice_for(plat["vendor"], plat.get("vendors"))}
 
 
 def _text_problems(where: str, text: Any) -> list[str]:

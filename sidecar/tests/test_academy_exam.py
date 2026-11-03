@@ -413,6 +413,7 @@ def test_databricks_questions_cite_databricks_docs_and_its_notice_names_databric
     assert exam.source_hosts(DBX) == ("docs.databricks.com", "www.databricks.com")
     assert all(q["source"].startswith("https://docs.databricks.com/") for q in bank["questions"].values())
     assert "not Databricks exam questions" in bank["notice"] and "Microsoft" not in bank["notice"]
+    assert "not Databricks' exam interface" in bank["notice"]
     assert exam.notice("dp-700") == exam.NOTICE == exam.load_bank("dp-700")["notice"]
 
 

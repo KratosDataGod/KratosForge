@@ -31,8 +31,9 @@ def _practice(cert: dict[str, Any], available: int) -> tuple[int, int]:
     """A practice exam's questions and minutes: the certification's published ``exam`` (scored questions,
     minutes) when it has one, else PRACTICE_COUNT and PRACTICE_MINUTES; never more questions than the bank has."""
     ex = cert.get("exam") or {}
-    count = ex.get("scored_questions") if isinstance(ex.get("scored_questions"), int) else PRACTICE_COUNT
-    minutes = ex.get("minutes") if isinstance(ex.get("minutes"), int) else PRACTICE_MINUTES
+    scored, mins = ex.get("scored_questions"), ex.get("minutes")
+    count: int = scored if isinstance(scored, int) else PRACTICE_COUNT
+    minutes: int = mins if isinstance(mins, int) else PRACTICE_MINUTES
     return min(count, available), minutes
 
 

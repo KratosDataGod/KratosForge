@@ -299,7 +299,9 @@ def test_export_writes_the_listed_shortcuts_to_a_new_csv_in_downloads(svc, tmp_p
     ids = [r["id"] for r in rows if r["name"] == "events"]
     out = svc.shortcut_export([LH], ids)
     assert out["rows"] == 1 and out["path"].endswith("KratosForge shortcuts.csv")
-    text = (tmp_path / "Downloads" / "KratosForge shortcuts.csv").read_text(encoding="utf-8-sig").splitlines()
+    raw = (tmp_path / "Downloads" / "KratosForge shortcuts.csv").read_bytes()
+    assert b"\r\r\n" not in raw and raw.count(b"\r\n") == 2  # one CRLF a row, on Windows too
+    text = raw.decode("utf-8-sig").splitlines()
     assert text[0].startswith("Shortcut,Path,Workspace,Lakehouse,Environment,Points at,Target")
     assert len(text) == 2 and text[1].startswith("events,Files/raw,Sales Dev,LH_Silver,Dev,")
     again = svc.shortcut_export([LH])  # never replaces a file; None means every shortcut

@@ -162,7 +162,8 @@ class ShortcutMixin:
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
-        path.write_text(center.to_csv(rows), encoding="utf-8-sig")  # the mark tells Excel it's UTF-8
+        # The mark tells Excel it's UTF-8; newline="" keeps the CSV's own \r\n (Windows would make it \r\r\n)
+        path.write_text(center.to_csv(rows), encoding="utf-8-sig", newline="")
         return {"path": str(path), "rows": len(rows)}
 
     # ---- health

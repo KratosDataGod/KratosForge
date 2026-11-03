@@ -1,0 +1,167 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3.1",
+  "questions": [
+    {
+      "id": "2.3.1-q1",
+      "type": "single",
+      "stem": "A team needs to capture events from several sources, filter and route them to different stores, with no code. Which Fabric engine fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Spark structured streaming"
+        },
+        {
+          "id": "b",
+          "text": "Eventstream"
+        },
+        {
+          "id": "c",
+          "text": "Dataflow Gen2"
+        },
+        {
+          "id": "d",
+          "text": "A warehouse"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Eventstreams are the no-code way to capture, transform and route events in Real-Time Intelligence.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.1-q2",
+      "type": "single",
+      "stem": "A team already has PySpark code with complex stateful logic and wants to run it on a stream that writes to Delta tables. Which engine fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL materialized view"
+        },
+        {
+          "id": "b",
+          "text": "Spark structured streaming"
+        },
+        {
+          "id": "c",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "d",
+          "text": "Eventstream"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Spark structured streaming runs code-first stream processing in notebooks or Spark job definitions and writes to Delta tables, so existing PySpark logic carries over.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.1-q3",
+      "type": "single",
+      "stem": "Streaming events must be stored and queried interactively within seconds using KQL. Where should they land?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse"
+        },
+        {
+          "id": "b",
+          "text": "A warehouse"
+        },
+        {
+          "id": "c",
+          "text": "A semantic model"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse Files folder"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Eventhouses are built for ingesting and querying high-volume event data with KQL in near real time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.1-q4",
+      "type": "multiple",
+      "stem": "Which two are things an eventstream does? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run any Python library on each event"
+        },
+        {
+          "id": "b",
+          "text": "Route one stream to more than one destination"
+        },
+        {
+          "id": "c",
+          "text": "Ingest events from Azure Event Hubs"
+        },
+        {
+          "id": "d",
+          "text": "Deploy items between workspaces"
+        },
+        {
+          "id": "e",
+          "text": "Train a machine learning model"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "Eventstreams connect to sources such as Event Hubs and send events to one or more destinations, with no-code processing in between. Custom Python and model training belong in notebooks.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.1-q5",
+      "type": "multiple",
+      "stem": "Which two needs point to an eventhouse with KQL rather than a lakehouse with Spark? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Time-series analysis such as series_decompose and anomaly detection"
+        },
+        {
+          "id": "b",
+          "text": "Large batch transformations written in PySpark"
+        },
+        {
+          "id": "c",
+          "text": "Ad hoc queries over billions of recent log rows in seconds"
+        },
+        {
+          "id": "d",
+          "text": "Training a machine learning model on a year of history in a notebook"
+        }
+      ],
+      "answer": [
+        "c",
+        "a"
+      ],
+      "explanation": "An eventhouse is built for fast queries and time-series analysis on high-volume event data. Large batch transformations and model training in notebooks are Spark's strengths.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/eventhouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

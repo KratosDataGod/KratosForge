@@ -14,18 +14,21 @@ def answer(query: str, dialect: str = "databricks"):
     return duckdb.connect().execute(sql.duckdb_sql(statements[-1])).fetchone()[0]
 
 
-@pytest.mark.parametrize("dialect", ["databricks", "spark"])
-def test_the_docs_example(dialect):
-    assert answer("""SELECT schema_of_json('[{"col":0}]')""", dialect) == "ARRAY<STRUCT<`col`: BIGINT>>"
+@pytest.mark.parametrize("dialect, want", [
+    ("databricks", "ARRAY<STRUCT<`col`: BIGINT>>"),  # as Databricks documents it: every name in backticks
+    ("spark", "ARRAY<STRUCT<col: BIGINT>>"),          # Apache Spark 3.5 (Fabric): only names that need them
+])
+def test_the_docs_example(dialect, want):
+    assert answer("""SELECT schema_of_json('[{"col":0}]')""", dialect) == want
 
 
 @pytest.mark.parametrize("text, want", [
     # fields sorted by name; null and "" are STRING; an empty object field is dropped; [] is ARRAY<STRING>
     ('{"b":[1,2.5],"a":{"x":null,"y":"s"},"c":[],"d":{},"e":[1,"x"],"f":true,"g":""}',
-     "STRUCT<`a`: STRUCT<`x`: STRING, `y`: STRING>, `b`: ARRAY<DOUBLE>, `c`: ARRAY<STRING>, `e`: ARRAY<STRING>, "
-     "`f`: BOOLEAN, `g`: STRING>"),
-    ('[{"a":1},{"b":2.0,"a":1.5}]', "ARRAY<STRUCT<`a`: DOUBLE, `b`: DOUBLE>>"),   # array elements merge
-    ('[{"a":{"x":1}},{"a":{"y":"s"}}]', "ARRAY<STRUCT<`a`: STRUCT<`x`: BIGINT, `y`: STRING>>>"),
+     "STRUCT<a: STRUCT<x: STRING, y: STRING>, b: ARRAY<DOUBLE>, c: ARRAY<STRING>, e: ARRAY<STRING>, "
+     "f: BOOLEAN, g: STRING>"),
+    ('[{"a":1},{"b":2.0,"a":1.5}]', "ARRAY<STRUCT<a: DOUBLE, b: DOUBLE>>"),   # array elements merge
+    ('[{"a":{"x":1}},{"a":{"y":"s"}}]', "ARRAY<STRUCT<a: STRUCT<x: BIGINT, y: STRING>>>"),
     ("[[1],[2.5,null]]", "ARRAY<ARRAY<DOUBLE>>"),
     ("[1, [2]]", "ARRAY<STRING>"),
     ("1", "BIGINT"),
@@ -39,6 +42,10 @@ def test_the_docs_example(dialect):
 ])
 def test_inference_follows_sparks_rules(text, want):
     assert sql.schema_of_json(text) == want
+
+
+def test_databricks_quotes_every_name():
+    assert sql.schema_of_json('{"a":{"x":1},"b c":2}', quote_all=True) == "STRUCT<`a`: STRUCT<`x`: BIGINT>, `b c`: BIGINT>"
 
 
 def test_from_json_reads_the_schema_it_gives():

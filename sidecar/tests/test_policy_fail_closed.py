@@ -294,7 +294,7 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
 
 
-GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages")
+GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages", "allow_pypi_packages")
 
 
 def test_a_file_that_cant_be_read_turns_off_every_gate(files):

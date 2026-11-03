@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.3.3",
+  "questions": [
+    {
+      "id": "1.3.3-q1",
+      "type": "single",
+      "stem": "Sales representatives must see only their own region's rows in a warehouse table. What do you build?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dynamic data masking on the Region column"
+        },
+        {
+          "id": "b",
+          "text": "A view per region, shared by email"
+        },
+        {
+          "id": "c",
+          "text": "A deployment rule"
+        },
+        {
+          "id": "d",
+          "text": "A security policy that applies an inline table-valued function as a filter predicate"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Row-level security uses a predicate function and a security policy, so every query on the table returns only the rows the predicate allows for the user.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.3-q2",
+      "type": "single",
+      "stem": "Analysts may query a Patients table but must never read its Diagnosis column. Which T-SQL statement implements column-level security?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CREATE SECURITY POLICY ON dbo.Patients"
+        },
+        {
+          "id": "b",
+          "text": "GRANT UNMASK TO Analysts"
+        },
+        {
+          "id": "c",
+          "text": "ALTER TABLE dbo.Patients DROP COLUMN Diagnosis"
+        },
+        {
+          "id": "d",
+          "text": "GRANT SELECT ON dbo.Patients (PatientID, Name, City) TO Analysts"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Granting SELECT on a list of columns lets the role read those columns only. A query that touches Diagnosis fails for them.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/column-level-security",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.3-q3",
+      "type": "single",
+      "stem": "A reporting role must never read the dbo.StagingOrders table. Which statement implements object-level security?",
+      "options": [
+        {
+          "id": "a",
+          "text": "DENY SELECT ON dbo.StagingOrders TO ReportingRole"
+        },
+        {
+          "id": "b",
+          "text": "CREATE SECURITY POLICY ReportingRole"
+        },
+        {
+          "id": "c",
+          "text": "ALTER TABLE dbo.StagingOrders DROP COLUMN ReportingRole"
+        },
+        {
+          "id": "d",
+          "text": "GRANT SELECT ON dbo.StagingOrders TO ReportingRole"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Object-level security controls access to whole objects such as tables and views with GRANT, REVOKE and DENY.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/sql-granular-permissions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.3.3-q4",
+      "type": "single",
+      "stem": "Users may read some folders in a lakehouse's Files section but not others. What controls access at folder level?",
+      "options": [
+        {
+          "id": "a",
+          "text": "OneLake security roles that grant access to specific folders and tables"
+        },
+        {
+          "id": "b",
+          "text": "Dynamic data masking"
+        },
+        {
+          "id": "c",
+          "text": "Deployment rules"
+        },
+        {
+          "id": "d",
+          "text": "Sensitivity labels"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "OneLake security lets you define roles over specific tables and folders, so access to data is granted below the item level.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/security/data-access-control-model",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

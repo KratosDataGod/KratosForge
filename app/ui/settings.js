@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
 
@@ -121,6 +122,7 @@ function redactReport(text, level = "support") {
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bdose[0-9a-f]{32}\b/g, "[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
@@ -136,7 +138,7 @@ function redactReport(text, level = "support") {
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
-    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+/gi, "$1[site]")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
     .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
@@ -579,6 +581,7 @@ function motionSettingsCard(s, locked) {
         onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),
@@ -797,6 +800,8 @@ async function renderSettings() {
       policyRecordRows(s.policy_record),
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allow_signed_out_schedules?.value === false ? [h("dt", {}, "Schedules on this PC"),
+        h("dd", {}, "Only while you're signed in to Windows: your organization turned off runs while signed out")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
@@ -866,7 +871,7 @@ function advancedSection(s, locked, limitRow) {
       "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
       [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
     s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared. A new process already uses about 0.8 GB on Windows before any cell runs.",
       [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
     s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
       "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",

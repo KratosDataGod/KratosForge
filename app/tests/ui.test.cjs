@@ -363,7 +363,8 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES,
+    fabricGitBoxes, fabricGitSummary, fgSupportText, FABRIC_GIT_STATES });`, ctx);
   return ctx;
 }
 
@@ -379,6 +380,40 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(null), "");
   assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
   assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
+});
+
+test("the Fabric workspace tab lines up this PC, the remote and the workspace in words", () => {
+  const { fabricGitBoxes } = gitHelpers();
+  const a = { local: { branch: "feature/x", commit: "4be19a2aaaa", ahead_of_remote: 2, behind_remote: 0, uncommitted: 3 },
+    remote: { name: "origin", branch: "main", commit: "91c07deaaaa", ahead_of_workspace: 1, behind_workspace: 0 },
+    workspace: { commit: "7d2e410aaaa", last_sync: "2026-11-03T09:00:00Z", known_here: true, folder: "/fabric" }, notes: [] };
+  const [l, r, w] = fabricGitBoxes(a);
+  assert.deepStrictEqual([l.title, l.commit, l.line], ["feature/x", "4be19a2", "2 commits not pushed · 3 files not committed"]);
+  assert.deepStrictEqual([r.title, r.line], ["origin/main", "1 commit the workspace doesn't have"]);
+  assert.deepStrictEqual([w.title, w.line], ["Synced to 7d2e410", "Folder /fabric · last sync 2026-11-03T09:00:00Z"]);
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { ...a.remote, ahead_of_workspace: 0 } })[1].line, "Same commit as the workspace");
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { name: "origin", branch: "main", commit: null } })[1].line, "Not fetched on this PC yet");
+  assert.strictEqual(fabricGitBoxes({ local: { branch: "main", commit: "a" }, remote: null, workspace: null, notes: [] }).length, 1,
+    "a workspace not connected to Git shows only this PC");
+  assert.strictEqual(fabricGitBoxes(null).length, 0);
+});
+
+test("the Fabric items heading says what differs, conflicts first", () => {
+  const { fabricGitSummary, FABRIC_GIT_STATES } = gitHelpers();
+  assert.strictEqual(fabricGitSummary({ aligned: true, counts: {} }), "The workspace and Git match: nothing to update or commit.");
+  assert.strictEqual(fabricGitSummary({ aligned: false, counts: { conflict: 1, incoming: 2, outgoing: 1 } }),
+    "1 conflict · 2 newer in Git · 1 newer in the workspace");
+  for (const s of ["conflict", "both_changed", "incoming", "outgoing", "same_change", "unchanged"]) assert.ok(FABRIC_GIT_STATES[s], s);
+  assert.strictEqual(FABRIC_GIT_STATES.conflict[1], "fail");
+});
+
+test("Fabric workspace support says definition only when the item's data never goes through Git", () => {
+  const { fgSupportText } = gitHelpers();
+  const stays = ["Tables and files never go through Git or deployment pipelines; only the definition does"];
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: stays }), "Full, definition only");
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: [] }), "Full");
+  assert.strictEqual(fgSupportText({ git_support: "preview", limits: ["Preview in Fabric Git"] }), "Preview in Fabric");
+  assert.strictEqual(fgSupportText({ git_support: "no", limits: stays }), "Not supported by Fabric Git");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {
@@ -1507,6 +1542,18 @@ test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared
 });
 
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Optimize shows whether this PC's results reached the lakehouse, under the band (PR-OPT-006)", () => {
+  const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  const line = /function optimizeSyncLine\(o\) \{[\s\S]*?\n\}/.exec(opt)[0];
+  assert.match(line, /Waiting on this PC/);
+  assert.match(line, /They go with the next scan, or when you connect again/);
+  assert.match(line, /dropped/);
+  assert.match(line, /Everything from this PC is in the lakehouse/);
+  assert.doesNotMatch(line, /rpc\(/, "the line only reads optimize_status; it never sends");
+  assert.match(opt, /status\?\.allowed && status\.active \? optimizeSyncLine\(status\.outbox\)/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.optimize-sync\[hidden\] \{ display: none; \}/);
+});
+
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
@@ -1515,6 +1562,8 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   assert.match(how, /each asks first/);
   assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
   assert.match(xray, /function xrayShared\(shared\)/);
+  // PR-OPT-006: findings that couldn't reach the lakehouse wait on this PC, and the note says so, not "weren't added".
+  assert.match(xray, /if \(shared\.queued\)[\s\S]*?wait"\} on this PC\. They're added with the next scan, or when you connect to it again/);
   assert.match(how, /anyone who can read that lakehouse can read them/);
   assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
@@ -2403,7 +2452,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
 test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
-  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n(?:\s+.*skinChooser\(locked\).*\n)?\s+h\("h3", \{\}, "Layout"\)[\s\S]*Object\.keys\(LAYOUT_CHOICES\)\.map\(choice\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
   assert.match(card, /type: "radio", name: "motion_level"/);
   assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
   assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
@@ -2933,7 +2982,10 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
   const rows = section.split("\n").filter((l) => l.startsWith("| **"));
-  assert.strictEqual(rows.length, appWide.length);
+  // ...and one for zoom, which WebView2 handles itself: listed in the dialog's Window group (PB-063).
+  assert.strictEqual(rows.length, appWide.length + 1);
+  assert.ok(rows.some((r) => r.startsWith("| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** |")), "the guide lists zoom");
+  assert.match(features, /registerShortcuts\("Window", \[\s*\{ keys: \["Ctrl\+=", "Ctrl\+-", "Ctrl\+0"\]/);
   assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
 });
 
@@ -3669,7 +3721,8 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove",
+    "profile_report_pdf", "profile_goal_add", "profile_goal_remove", "profile_goal_done"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -5518,7 +5571,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
-    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"],
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"], skins: ["Choosing a skin"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5534,7 +5587,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
-      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
+      "Promises to readers"],
     trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
@@ -5767,4 +5821,15 @@ test("a developer Python missing a package says the command that installs it", (
   assert.ok(app.includes(re.source));
   assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
   assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
+});
+
+// Platform skins (docs/skins.md): every color is meant to come from a token on :root, so a skin or dark
+// mode changes it in one place. Colors still written into rules may only go down; lower LITERAL_COLORS
+// when a change moves more of them onto tokens.
+test("styles.css writes no more colors outside its tokens than it did", () => {
+  const LITERAL_COLORS = 157;
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
+  const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
+  assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
 });

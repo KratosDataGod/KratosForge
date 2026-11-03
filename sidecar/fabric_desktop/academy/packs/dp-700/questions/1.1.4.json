@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.1.4",
+  "questions": [
+    {
+      "id": "1.1.4-q1",
+      "type": "single",
+      "stem": "What does an Apache Airflow job in Fabric give a team?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A KQL database for event data"
+        },
+        {
+          "id": "b",
+          "text": "A managed Apache Airflow environment for authoring and running DAGs written in Python"
+        },
+        {
+          "id": "c",
+          "text": "A low-code Power Query editor"
+        },
+        {
+          "id": "d",
+          "text": "A deployment pipeline with Airflow branding"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "An Apache Airflow job hosts Airflow for you, so the team writes DAGs in Python and runs them without managing the Airflow infrastructure.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.4-q2",
+      "type": "single",
+      "stem": "Airflow DAGs in a workspace are scheduled to run through the night. Which pool choice keeps them running on time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A custom pool, which can stay on"
+        },
+        {
+          "id": "b",
+          "text": "The starter pool, which shuts down after a period with no activity"
+        },
+        {
+          "id": "c",
+          "text": "No pool; Airflow jobs don't use compute"
+        },
+        {
+          "id": "d",
+          "text": "A Spark starter pool"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The starter pool suits development and stops when idle. Scheduled production DAGs need a custom pool that stays available.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.4-q3",
+      "type": "single",
+      "stem": "In which language do you write the DAGs an Apache Airflow job runs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "T-SQL"
+        },
+        {
+          "id": "b",
+          "text": "KQL"
+        },
+        {
+          "id": "c",
+          "text": "Python"
+        },
+        {
+          "id": "d",
+          "text": "Power Query M"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Airflow DAGs are Python files that define tasks and their dependencies.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-concepts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.4-q4",
+      "type": "multiple",
+      "stem": "Which two are configured in a workspace's data workflow (Apache Airflow) settings? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The capacity SKU"
+        },
+        {
+          "id": "b",
+          "text": "The sensitivity label of every item"
+        },
+        {
+          "id": "c",
+          "text": "The workspace's Git provider"
+        },
+        {
+          "id": "d",
+          "text": "The custom pool's compute size"
+        },
+        {
+          "id": "e",
+          "text": "Whether jobs use the starter pool or a custom pool"
+        }
+      ],
+      "answer": [
+        "e",
+        "d"
+      ],
+      "explanation": "The data workflow settings choose the pool and, for a custom pool, its size and scaling. Git, labels and capacity are set elsewhere.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/apache-airflow-jobs-workspace-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -61,8 +61,8 @@ test("Manage connections and the item links open Fabric; Refresh asks for a new 
   await page().locator(".df-conn-head button", { hasText: "Manage connections in Fabric" }).click();
   assert.match(await page().evaluate(() => window.openedUrl), /app\.fabric\.microsoft\.com\/groups\/me\/gateways/);
   await page().locator(".df-conn-table button", { hasText: "cj_erp_customers" }).click();
-  // No confirmed address for a copy job page yet, so its workspace opens.
-  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${DEV}/list`));
+  // A copy job opens its own Fabric page (address checked on a tenant).
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${DEV}/copyjobs/[^/?]+\\?experience=fabric-developer$`));
   await page().locator(".df-conn-head button", { hasText: "Refresh" }).click();
   for (let i = 0; i < 100 && !app.calls.some((c) => c.method === "fabric_connections" && c.params?.refresh === true); i++) await page().waitForTimeout(50);
   assert.ok(app.calls.some((c) => c.method === "fabric_connections" && c.params?.refresh === true));

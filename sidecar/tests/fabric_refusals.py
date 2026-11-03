@@ -17,6 +17,12 @@ from fabric_desktop.fabric_api import FabricError
 # Live run 2, Run B (2026-10-30): creating a User Data Function whose definition lists no functions.
 UDF_NO_FUNCTIONS = "NullOrEmptyArgument: Invalid Argument: Functions. Functions is null or empty"
 
+# Live run 3 (2026-11-03): a binding in resources/functions.json with no item type.
+UDF_ARTIFACT_TYPES = ("Lakehouse", "LakeWarehouse", "MountedWarehouse", "DataWarehouse", "AzureSql", "SqlDbNative",
+                      "MountedRelationalDatabase", "Warehouse", "Variables", "EventDefinition")
+UDF_NO_ARTIFACT_TYPE = ("UnsupportedArgument: Unsupported Argument: artifactType. Value: is unsupported. Supported "
+                        "values are: " + ", ".join(UDF_ARTIFACT_TYPES))
+
 # Live run 2 (2026-10-30, #1079): Windows sign-in with Microsoft's Fabric CLI client gets no token
 # for Azure SQL or Kusto. WAM says only Status_IncorrectConfiguration; Entra's reason is AADSTS65002.
 WAM_REFUSED = ("Windows sign-in (WAM) failed: Status_IncorrectConfiguration (3399614466). AADSTS65002: Consent "
@@ -41,6 +47,16 @@ def check_item(item_type: str, parts: Any) -> None:
         functions = (json.loads(text) if text else {}).get("functions")
         if not functions:
             raise FabricError(f"POST failed with 400: {UDF_NO_FUNCTIONS}", "NullOrEmptyArgument", 400)
+        # Live run 4 (2026-11-03): the same refusal with every binding's itemType set, from a data source
+        # whose sourceType isn't one of Fabric's names ("SqlDatabase").
+        for source in (json.loads(text) if text else {}).get("connectedDataSources") or []:
+            if source.get("sourceType") not in UDF_ARTIFACT_TYPES:
+                raise FabricError(f"POST failed with 400: {UDF_NO_ARTIFACT_TYPE}", "UnsupportedArgument", 400)
+        meta = _text(parts, "resources/functions.json")
+        for function in (json.loads(meta) if meta else {}).get("functionsMetadata") or []:
+            for binding in function.get("bindings") or []:
+                if "itemType" in binding and binding["itemType"] not in UDF_ARTIFACT_TYPES:
+                    raise FabricError(f"POST failed with 400: {UDF_NO_ARTIFACT_TYPE}", "UnsupportedArgument", 400)
 
 
 def check_token(resource: str, microsofts_client: bool = True) -> None:

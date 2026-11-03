@@ -39,6 +39,7 @@ import requests
 from .. import governance_checks as gc
 from ..filenames import file_stem
 from ..jsonfile import read_json, write_json
+from ..learn.team import GUIDANCE_RULE, team_level
 from ..meta import mesh
 from ..redact import describe
 from . import core
@@ -191,7 +192,8 @@ class ChecksMixin:
         try:
             resolved = self.governance_resolve()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the panel still checks with the rules as built
-            return {"settings": {}, "policies": [], "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
+            return {"settings": {}, "policies": [], "guidance": None,
+                    "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
         out: dict[str, dict[str, Any]] = {}
         names: list[str] = []
         for pol in resolved.get("policies") or []:
@@ -210,7 +212,11 @@ class ChecksMixin:
                     out[rid] = {"enabled": was["enabled"], "severity": worse}
             if named:
                 names.append(str(pol.get("name") or pol.get("id") or ""))
-        return {"settings": out, "policies": names, "note": ""}
+        # A team's default guidance level (GD-09, learn/team.py): a preference, never a rule setting.
+        team = team_level(resolved.get("policies") or [], kind,
+                          lambda pol: GUIDANCE_RULE in gc.rule_ids(pol.get("rule")))
+        guidance = {"level": team["level"], "policy": team["policy"]} if team["level"] else None
+        return {"settings": out, "policies": names, "guidance": guidance, "note": " ".join(team["problems"])}
 
     # ---- Check now
 
@@ -462,6 +468,8 @@ class ChecksMixin:
             entry |= {"rules": ids, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
                       "exception": pol.get("exception")}
             for rid in ids:
+                if rid == GUIDANCE_RULE:  # a team's guidance level (GD-09): nothing to check
+                    continue
                 found = gc.find_rule(rid)
                 if found is None:
                     entry["missing"].append(rid)
@@ -482,14 +490,17 @@ class ChecksMixin:
             if note:
                 for f in entry["findings"] + entry["unknown"]:
                     f["excepted"] = note
-            entry["status"] = ("not_checked" if not ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
+            checked_ids = [rid for rid in ids if rid != GUIDANCE_RULE]
+            entry["status"] = ("not_checked" if not checked_ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
                                else "excepted" if note and entry["findings"]
                                else "findings" if entry["findings"]
                                else "unknown" if entry["unknown"]
                                else "not_run" if entry["not_run"] and not entry["checked"]
                                else "not_checked" if (entry.get("no_items") or entry.get("off")) and not entry["checked"]
                                else "pass")
-            if not ids:
+            if ids and not checked_ids:
+                entry["note"] = "It sets the team's learning guidance level, a preference with nothing to check."
+            elif not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
             elif entry["missing"]:
                 entry["note"] = f"No checker on this PC has the rule {', '.join(entry['missing'])}."

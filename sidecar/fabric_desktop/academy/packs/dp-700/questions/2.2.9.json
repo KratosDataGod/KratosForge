@@ -1,0 +1,137 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.9",
+  "questions": [
+    {
+      "id": "2.2.9-q1",
+      "type": "single",
+      "stem": "A staging table can hold several versions of the same OrderID. You need the latest version of each order, by IngestedAt. Which approach is correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Number rows with ROW_NUMBER() OVER (PARTITION BY OrderID ORDER BY IngestedAt DESC) and keep row 1"
+        },
+        {
+          "id": "b",
+          "text": "Keep the rows whose IngestedAt is the overall maximum in the table"
+        },
+        {
+          "id": "c",
+          "text": "SELECT DISTINCT * FROM staging"
+        },
+        {
+          "id": "d",
+          "text": "GROUP BY OrderID and take MAX of every column"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "ROW_NUMBER partitioned by the key and ordered by recency picks exactly one, newest, row per order. DISTINCT removes only rows identical in every column, MAX of each column can mix values from different versions, and the overall maximum keeps only the last batch.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/row-number-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.9-q2",
+      "type": "single",
+      "stem": "At Larkspur, orders arrive for customers the Customer dimension doesn't have yet. What should the load do so these orders aren't lost and reports stay correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Load the orders with a NULL customer key forever"
+        },
+        {
+          "id": "b",
+          "text": "Stop the pipeline with an error"
+        },
+        {
+          "id": "c",
+          "text": "Insert an inferred member: a Customer row with the business key and placeholder attributes, and update it when the CRM data arrives"
+        },
+        {
+          "id": "d",
+          "text": "Drop the orders until the customer arrives"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "An inferred member gives the fact row a real surrogate key now. When the customer's details arrive, the same row is updated, so the facts already loaded need no change.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "case": "larkspur-orders",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.9-q3",
+      "type": "single",
+      "stem": "In PySpark, how do you replace NULL values in the country column with \"Unknown\"?",
+      "options": [
+        {
+          "id": "a",
+          "text": "df.where(\"country = 'Unknown'\")"
+        },
+        {
+          "id": "b",
+          "text": "df.replace(None, \"country\")"
+        },
+        {
+          "id": "c",
+          "text": "df.dropna(\"country\")"
+        },
+        {
+          "id": "d",
+          "text": "df.fillna({\"country\": \"Unknown\"})"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "fillna (also na.fill) replaces NULLs, and a dictionary limits it to the named columns. dropna removes rows instead.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.9-q4",
+      "type": "multiple",
+      "stem": "At Larkspur, a retried run sometimes lands the same batch twice. Which two changes make the silver load safe to repeat? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "MERGE the batch into the silver table on OrderID, updating matches and inserting the rest"
+        },
+        {
+          "id": "b",
+          "text": "Keep appending, and add more retries"
+        },
+        {
+          "id": "c",
+          "text": "Turn off the pipeline's retry setting and accept failed nights"
+        },
+        {
+          "id": "d",
+          "text": "Append, then rely on reports to use DISTINCT"
+        },
+        {
+          "id": "e",
+          "text": "Overwrite only the batch's own slice of the table (for example with replaceWhere on its load date) instead of appending"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "A MERGE on the business key and a replace of the batch's own slice both give the same table however often the batch runs. More retries make duplicates more likely, and pushing DISTINCT onto every report leaves the table wrong.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-and-delta-tables",
+      "case": "larkspur-orders",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

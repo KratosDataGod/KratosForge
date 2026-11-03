@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.2",
+  "questions": [
+    {
+      "id": "2.2.2-q1",
+      "type": "single",
+      "stem": "Business analysts who know Power Query need to clean data from a SaaS application each day, with no code to maintain. Which tool fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "A KQL queryset"
+        },
+        {
+          "id": "c",
+          "text": "A T-SQL stored procedure"
+        },
+        {
+          "id": "d",
+          "text": "A Spark notebook"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Dataflow Gen2 gives a low-code Power Query experience with a large set of connectors, which suits analysts. Notebooks and stored procedures need code.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.2-q2",
+      "type": "single",
+      "stem": "A transformation must process several terabytes of semi-structured files and call Python libraries for parsing. Which tool fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A T-SQL view"
+        },
+        {
+          "id": "b",
+          "text": "Dataflow Gen2"
+        },
+        {
+          "id": "c",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "d",
+          "text": "A Spark notebook"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Spark notebooks scale out over large data and can use any Python library, which suits big, complex transformations written by data engineers.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.2-q3",
+      "type": "single",
+      "stem": "A team keeps its curated data in a warehouse and already writes its business rules in T-SQL. Where should the transformations from staging to curated tables run?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In a KQL update policy"
+        },
+        {
+          "id": "b",
+          "text": "In a Spark notebook that rewrites the warehouse files directly"
+        },
+        {
+          "id": "c",
+          "text": "In stored procedures in the warehouse"
+        },
+        {
+          "id": "d",
+          "text": "In a Dataflow Gen2 that exports to CSV"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "When data lives in the warehouse and the team works in T-SQL, stored procedures there keep the work in one engine and one language. Warehouse tables are written through T-SQL, not by rewriting their files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.2-q4",
+      "type": "multiple",
+      "stem": "Which two are reasons to choose a notebook over Dataflow Gen2 for a transformation? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The team wants to write Power Query M"
+        },
+        {
+          "id": "b",
+          "text": "The data volume needs distributed processing"
+        },
+        {
+          "id": "c",
+          "text": "The logic needs custom Python libraries"
+        },
+        {
+          "id": "d",
+          "text": "The source is one small spreadsheet"
+        },
+        {
+          "id": "e",
+          "text": "The authors want a no-code visual editor"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Notebooks win on scale and on access to code libraries. A visual no-code editor, Power Query M and small simple sources all point to Dataflow Gen2.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-pipeline-dataflow-spark",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

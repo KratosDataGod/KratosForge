@@ -21,21 +21,23 @@ function registerFeature(f) {
 }
 
 function railFeatures(bottom = false) {
-  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
+  const list = features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
     .sort((a, b) => a.rail.order - b.rail.order);
+  return typeof skinRailSort === "function" ? skinRailSort(list) : list;  // skins.js: the skin's order, when it gives one
 }
 
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
   return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
-    icon(f.rail.icon, 22), f.rail.label);
+    icon(f.rail.icon, 22), typeof skinRailLabel === "function" ? skinRailLabel(f) : f.rail.label);
 }
 
 // ---------- preview ----------
 
 // Features not yet tried on a live Fabric tenant. Each loses its tag once it has been.
 const PREVIEW_FEATURES = {
+  skins: "Skins",
   fabricRun: "Run in Fabric",
   schedules: "Schedules",
   sideBySide: "Side by side",
@@ -112,6 +114,7 @@ const PREVIEW_FEATURES = {
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",
+  appStudio: "App Studio",
 };
 
 function previewShown() {
@@ -204,6 +207,7 @@ function applyAppearance() {
   body.classList.toggle("explain-on-request", layoutChoice("ui_explanations") === "on_request");
   body.classList.toggle("preview-dots", layoutChoice("ui_preview_marks") === "dots");
   body.classList.toggle("density-compact", layoutChoice("ui_density") === "compact");
+  if (typeof applySkin === "function") applySkin();  // skins.js
   syncHowToggle();
 }
 
@@ -379,6 +383,12 @@ function shortcutsDialog() {
     h("p", { class: "text" }, learnMore("keyboard-shortcuts", "Keyboard shortcuts in the user guide")));
   showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
 }
+
+// Zoom is WebView2's own (tauri.conf.json zoomHotkeysEnabled), so these keys aren't in the app-wide table
+// that app.js reads: listed here for people to find (PB-063).
+registerShortcuts("Window", [
+  { keys: ["Ctrl+=", "Ctrl+-", "Ctrl+0"], label: "Make everything bigger or smaller, or back to 100% (Ctrl+mouse wheel too). Every page still fits at 200%" },
+]);
 
 // ---------- command bar (Ctrl+K) ----------
 

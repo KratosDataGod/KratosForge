@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.4",
+  "questions": [
+    {
+      "id": "3.2.4-q1",
+      "type": "single",
+      "stem": "Some data sent to a KQL database never appears in the table. Which command shows why ingestion failed?",
+      "options": [
+        {
+          "id": "a",
+          "text": ".drop table"
+        },
+        {
+          "id": "b",
+          "text": ".show ingestion failures"
+        },
+        {
+          "id": "c",
+          "text": ".show version"
+        },
+        {
+          "id": "d",
+          "text": ".show tables"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": ".show ingestion failures lists failed ingestion operations with their error details.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/ingestion-failures",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.4-q2",
+      "type": "single",
+      "stem": "A KQL query fails because its result is too large. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run the same query again"
+        },
+        {
+          "id": "b",
+          "text": "Add a sensitivity label"
+        },
+        {
+          "id": "c",
+          "text": "Return less: aggregate, filter or use take, instead of returning millions of raw rows"
+        },
+        {
+          "id": "d",
+          "text": "Switch to a warehouse"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Query results are limited in rows and size by default. Queries for people should summarize or filter, which is also faster.",
+      "source": "https://learn.microsoft.com/en-us/kusto/concepts/query-limits",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.4-q3",
+      "type": "single",
+      "stem": "Data ingests into an eventhouse table but a column is always empty, because the source field name changed. What do you fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The ingestion mapping, so the column maps to the new field name"
+        },
+        {
+          "id": "b",
+          "text": "The workspace role"
+        },
+        {
+          "id": "c",
+          "text": "The caching policy"
+        },
+        {
+          "id": "d",
+          "text": "The table's retention policy"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Ingestion mappings map source fields to table columns. When a field is renamed, update the mapping.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/mappings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.4-q4",
+      "type": "single",
+      "stem": "Rows arrive in a raw table but not in the target table an update policy should fill. Where do you look?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The semantic model settings"
+        },
+        {
+          "id": "b",
+          "text": "The capacity metrics only"
+        },
+        {
+          "id": "c",
+          "text": "The ingestion failures, where update policy errors are reported, and the policy's query"
+        },
+        {
+          "id": "d",
+          "text": "The Git panel"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "An update policy's failures appear as ingestion failures. Its query may fail on new data, such as an unexpected type.",
+      "source": "https://learn.microsoft.com/en-us/kusto/management/update-policy",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

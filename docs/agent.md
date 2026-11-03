@@ -167,7 +167,7 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
-fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent requeue job-20261025-020000-ab12cd34ef56  # run a dead or failed job again, attempts reset
 fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 
@@ -390,7 +390,7 @@ shared = true
 
 ### Taking over from a lost agent (Preview)
 
-With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences.
+With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences. In OneLake this is judged on OneLake's clock: the record counts as stale once OneLake last saw it written longer ago than its `stale_after` less its `heartbeat_at`, so a PC whose clock is minutes off neither takes over from a live agent nor waits on a lost one.
 
 - **One agent takes it.** The takeover replaces the request's status file only if it hasn't changed since it was read (`If-Match`), so when several agents try at once, one wins. The status then names the new agent, `taken_over_from`, `taken_over_at`, and `agents`, every agent that has held it.
 - **The whole request runs again.** Tables the lost agent finished are run again. A request whose `deadline` has passed ends `expired` instead of starting again. Before it writes each table, the new agent takes that table's write lease, so it waits for a lease the lost agent still holds to run out.

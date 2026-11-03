@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.2.1",
+  "questions": [
+    {
+      "id": "1.2.1-q1",
+      "type": "multiple",
+      "stem": "Which two of these are Git providers that Fabric Git integration supports? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Subversion"
+        },
+        {
+          "id": "b",
+          "text": "Azure DevOps"
+        },
+        {
+          "id": "c",
+          "text": "GitHub"
+        },
+        {
+          "id": "d",
+          "text": "Team Foundation Version Control"
+        },
+        {
+          "id": "e",
+          "text": "Mercurial"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Fabric Git integration works with Azure DevOps, GitHub and GitHub Enterprise (cloud-based).",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/intro-to-git-integration",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.1-q2",
+      "type": "single",
+      "stem": "How many Git branches can one Fabric workspace be connected to at a time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "One branch, and one folder in it"
+        },
+        {
+          "id": "b",
+          "text": "None; Git connects to items, not workspaces"
+        },
+        {
+          "id": "c",
+          "text": "Every branch in the repository"
+        },
+        {
+          "id": "d",
+          "text": "Up to three branches"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A workspace connects to one branch and one folder at a time. Developers who need another branch use another workspace.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-get-started",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.1-q3",
+      "type": "single",
+      "stem": "A teammate committed changes to the branch your workspace is connected to. How do you bring them into the workspace?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the workspace's items and recreate them"
+        },
+        {
+          "id": "b",
+          "text": "Run a deployment pipeline"
+        },
+        {
+          "id": "c",
+          "text": "Commit your workspace again"
+        },
+        {
+          "id": "d",
+          "text": "Use Update in the workspace's source control panel"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Commit sends workspace changes to Git; Update brings changes from the branch into the workspace.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/git-get-started",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2.1-q4",
+      "type": "single",
+      "stem": "Several developers work on features at once. In the development process Fabric documents, how do they avoid affecting each other and the shared Dev workspace?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Each developer copies items by hand into a personal workspace with no Git connection"
+        },
+        {
+          "id": "b",
+          "text": "Everyone edits the shared workspace and undoes mistakes later"
+        },
+        {
+          "id": "c",
+          "text": "Each developer works in their own workspace connected to their own separate branch"
+        },
+        {
+          "id": "d",
+          "text": "The shared workspace is disconnected from Git while anyone works"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Because a workspace connects to a single branch, each developer gets their own workspace on their own branch and merges through pull requests into the shared branch.",
+      "source": "https://learn.microsoft.com/en-us/fabric/cicd/git-integration/manage-branches",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

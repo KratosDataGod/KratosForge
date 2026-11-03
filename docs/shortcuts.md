@@ -18,6 +18,8 @@ The tab has five views, picked with the buttons under the title.
 
 **New shortcut** makes one in any lakehouse you can write to. **Refresh** reads every lakehouse again. **Check all now** checks every shortcut's health.
 
+**Export CSV** on **All shortcuts** saves the shortcuts the list shows, with its search and filters, as a new CSV in your Downloads folder: name, place, environment, what it points at, data product, health, what's worth a look, the managed tables that read it and its last change. It never replaces a file. Who can read each shortcut and connection details aren't in the file. A cell that starts with `=`, `+`, `-` or `@` gets a leading `'` so Excel shows it as text instead of running it.
+
 ## One shortcut's panel
 
 Select a shortcut to see:
@@ -148,6 +150,7 @@ Shortcut requests are the [platform's requests](platform.md#requests), next to k
 
 - A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
 - **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.
+- **Approve** also makes the same shortcut in the other environments (Preview). Before anything is made, the dialog lists each one: Dev, Test and Prod each get it in their own lakehouse of the same name, pointing at their own environment's match of the target, so Dev reads Dev and Prod reads Prod. A matching workspace is the metadata project's own workspace for that environment, or else the one workspace whose name differs only by its environment word (*Sales Dev*, *Sales Test*, *Sales Prod*). A target in a workspace that belongs to no environment (a shared one) is read from every environment. An environment is skipped, and the dialog says why, when there's no match or more than one, when its target has no match, when the request points across environments, or for a storage shortcut (ADLS, S3 and the like read with their connection, so they are made only where asked). Each one is made as the person approving, under the shortcut rules, and recorded in **Changes** as that environment's copy of the request. One that can't be made doesn't stop the approval: the result says which and why.
 - If an approval stopped after Fabric made the shortcut (a timeout, or the platform couldn't be reached), approving again finds it. If it points exactly where the request asks, the request is approved and the shortcut is recorded once. If a shortcut there points anywhere else, the request stays waiting and the error names its target.
 - The person who sent it can withdraw it while it waits.
 
@@ -164,6 +167,6 @@ Nothing new. The command center uses what the Shortcuts and Access tabs already 
 ## What isn't there yet
 
 - The desktop app checks only when the page opens or when you ask; the scheduled check runs in the [agent](agent.md#shortcut-health), and its results aren't saved to the platform or shown on Health.
-- An approved request makes the shortcut in one lakehouse, not in each environment.
+- An approved request makes its other environments' shortcuts only where it finds a match it can be sure of. It doesn't make the matching lakehouse or target when one is missing.
 - Only a crossed environment can be accepted, not a duplicate. Finding a lakehouse that moved compares names only, and looks at five lakehouses with that name at most.
 - Not tried on a live Fabric tenant yet. In particular, the error codes OneLake returns for a broken target or a refused connection haven't been seen on a real tenant, so a broken shortcut may show the wrong cause.

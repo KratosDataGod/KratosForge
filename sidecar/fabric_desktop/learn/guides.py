@@ -2,8 +2,9 @@
 guide, shipped inside the app so it works offline and sends nothing anywhere.
 
 The guides are the docs (docs/notebook-best-practices.md, docs/sql-best-practices.md): one section
-per rule, ``### NB003``, with ``Why:``, an optional example fenced in code with ``# Before`` and
-``# After`` (``--`` in SQL), and ``When it's fine:``, ``Safe to leave:`` or ``Do this instead:``.
+per rule, ``### NB003``, with a title line ``**Title** · Severity · Area · Importance``, ``Why:``, an
+optional example fenced in code with ``# Before`` and ``# After`` (``--`` in SQL), ``When it's fine:``,
+``Safe to leave:`` or ``Do this instead:``, and ``Principle:``, ``Impact:`` and ``How to check:`` (GD-03).
 ``rule_guides.json`` is those sections, read into fields. The docs stay the one place they're
 written: CI fails while the JSON differs from them (tests/test_learn_guides.py), and
 
@@ -25,12 +26,14 @@ DOCS = ("notebook-best-practices.md", "sql-best-practices.md")
 
 _RULE = re.compile(r"^(NB|SQ)\d{3}$")
 _FIELDS = {"Why:": "why", "When it's fine:": "fine", "Safe to leave:": "fine", "Do this instead:": "instead",
-           "Source:": None}
+           "Principle:": "principle", "Impact:": "impact", "How to check:": "check", "Source:": None}
+IMPORTANCE = ("Critical", "Recommended", "Educational", "Advanced")
 _MARK = re.compile(r"^\s*(#|--)\s*(Before|After)\b:?\s*(.*)$")  # "# After: copy it once" keeps its note
 
 
 def parse(markdown: str) -> dict[str, dict[str, Any]]:
-    """{rule id: {why, fine, instead, language, before, after}} from one best-practices page."""
+    """{rule id: {importance, area, why, fine, instead, principle, impact, check, language, before, after}}
+    from one best-practices page."""
     out: dict[str, dict[str, Any]] = {}
     for section in re.split(r"^### ", markdown, flags=re.M)[1:]:
         head, _, body = section.partition("\n")
@@ -42,7 +45,8 @@ def parse(markdown: str) -> dict[str, dict[str, Any]]:
 
 
 def _section(body: str) -> dict[str, Any]:
-    guide: dict[str, Any] = {"why": "", "fine": "", "instead": "", "language": "", "before": "", "after": ""}
+    guide: dict[str, Any] = {"importance": "", "area": "", "why": "", "fine": "", "instead": "", "principle": "",
+                             "impact": "", "check": "", "language": "", "before": "", "after": ""}
     field: str | None = None
     fence: list[str] | None = None
     for line in body.splitlines():
@@ -57,6 +61,11 @@ def _section(body: str) -> dict[str, Any]:
             fence.append(line)
             continue
         text = line.strip()
+        if text.startswith("**") and not guide["area"]:  # **Title** · Severity · Area · Importance
+            tags = [s.strip() for s in text.rsplit("**", 1)[-1].split("·") if s.strip()]
+            guide["area"] = tags[1] if len(tags) > 1 else ""
+            guide["importance"] = tags[2] if len(tags) > 2 and tags[2] in IMPORTANCE else ""
+            continue
         if not text or text.startswith("**"):
             continue
         label = next((k for k in _FIELDS if text.startswith(k)), None)
@@ -64,7 +73,7 @@ def _section(body: str) -> dict[str, Any]:
             field, text = _FIELDS[label], text[len(label):].strip()
         if field:
             guide[field] = f"{guide[field]} {text}".strip()
-    for key in ("why", "fine", "instead"):  # "Why: the engine..." reads as "The engine..." on its own
+    for key in ("why", "fine", "instead", "principle", "impact", "check"):  # "Why: the engine..." reads as "The engine..." on its own
         guide[key] = guide[key][:1].upper() + guide[key][1:]
     return guide
 

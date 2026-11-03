@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import email.utils
 import math
+import random
 import re
 import time
 from typing import Any, Callable, Mapping, TypeVar
@@ -99,6 +100,55 @@ def send_with_retry(send: Callable[[], Any], method: str, sleep: Callable[[float
         close = getattr(resp, "close", None)
         if callable(close):
             close()  # a streamed response holds its connection until closed
+    raise AssertionError("unreachable")
+
+
+# The statuses a remote engine call (Databricks SQL, Fabric Spark over Livy) tries again: throttled,
+# or a gateway that briefly lost the service. A 500 is a real error there and is reported at once.
+REMOTE_RETRY_STATUS = frozenset({429, 502, 503, 504})
+REMOTE_ATTEMPTS = 4
+REMOTE_WAIT_CAP = 30.0      # all waits for one call together, so a cell never hangs on a throttled API
+_NAP = 0.25                 # waits are slept in slices this long, so a Cancel lands between them
+
+
+def send_remote(send: Callable[[], Any], repeatable: bool, sleep: Callable[[float], None] = time.sleep,
+                stopped: Callable[[], bool] = lambda: False, attempts: int = REMOTE_ATTEMPTS,
+                base_wait: float = 1.0, total_cap: float = REMOTE_WAIT_CAP,
+                jitter: Callable[[], float] = random.random) -> tuple[Any, int]:
+    """Send one remote engine request, trying again while the answer says "try again": 429 always
+    (the platform turned the request away unread), 502/503/504 only when ``repeatable`` (a read, or a
+    cancel, which is harmless twice; a submit that got a 5xx may have started, so it is never resent).
+    Each wait is the server's ``Retry-After`` (capped) or exponential backoff with jitter, and all waits
+    together stay under ``total_cap``. When ``stopped()`` turns true (the person pressed Cancel), the
+    last answer is returned at once. A dropped connection or timeout is tried again the same way when
+    ``repeatable``, and raised once the tries run out. Returns that answer and how many times it was sent."""
+    import requests
+
+    waited = 0.0
+    for attempt in range(1, attempts + 1):
+        backoff = base_wait * (2 ** (attempt - 1)) * (0.5 + jitter() / 2)
+        try:
+            resp = send()
+        except (requests.ConnectionError, requests.Timeout, ConnectionError, TimeoutError):
+            if not repeatable or attempt == attempts or total_cap - waited < max(backoff, RETRY_AFTER_FLOOR) \
+                    or stopped():
+                raise
+            resp, wait = None, max(backoff, RETRY_AFTER_FLOOR)
+        else:
+            status = resp.status_code
+            if attempt == attempts or not (status == 429 or (repeatable and status in REMOTE_RETRY_STATUS)):
+                return resp, attempt
+            wait = min(retry_after(getattr(resp, "headers", None), backoff), total_cap - waited)
+            if wait < RETRY_AFTER_FLOOR:
+                return resp, attempt
+        waited += wait
+        while wait > 0 and not stopped():
+            sleep(min(_NAP, wait))
+            wait -= _NAP
+        if stopped():
+            if resp is None:
+                raise ConnectionError("cancelled while the connection was down")
+            return resp, attempt
     raise AssertionError("unreachable")
 
 

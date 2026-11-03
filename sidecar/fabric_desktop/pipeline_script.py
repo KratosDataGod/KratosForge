@@ -207,5 +207,5 @@ class LocalScripts:
             page = runs.page(run_id, len(rows), SCRIPT_ROWS - len(rows))
             if not page["rows"]:
                 break
-            rows.extend(dict(zip(names, r)) for r in page["rows"][:SCRIPT_ROWS - len(rows)])
+            rows.extend(dict(zip(names, r, strict=True)) for r in page["rows"][:SCRIPT_ROWS - len(rows)])
         return rows, state["rows"] > len(rows)

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import builtins
 import datetime as dt
 import json
 import os
@@ -39,7 +40,7 @@ from urllib.parse import unquote, urlsplit
 import requests
 
 from . import http_session, lakehouse
-from .onelake import FileStore
+from .onelake import FileStore, error_code
 from .retrying import send_with_retry
 
 
@@ -75,7 +76,7 @@ class Host:
     """What the utilities need from the app: tokens, the notebook store and the kernel."""
 
     def __init__(self, token: Callable[[str], str] | None = None,
-                 run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
+                 run_notebook: Callable[..., Any] | None = None,  # (path, timeout_s, args, *, cell_timeout=None)
                  notebook_name: Callable[[], str] | None = None,
                  variables: Callable[[str], dict[str, Any] | None] | None = None,
                  display: Callable[..., None] | None = None,
@@ -411,6 +412,28 @@ def vault_url(akv: str) -> str:
                      "Your Key Vault token is only sent there.")
 
 
+def keyvault_error(resp: Any, vault: str, what: str, secret: str = "") -> requests.HTTPError:
+    """A Key Vault refusal other than 401/403 as one line: the vault, what wasn't done, the status
+    and Key Vault's error code. Never the URL, the response body or a secret's value. Still a
+    requests.HTTPError, with the response."""
+    code = ""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        code = error_code(body["error"].get("code"))
+    status = resp.status_code
+    if status == 404 and secret:
+        text = (f"Key Vault {vault} has no secret named {secret!r}, or it is disabled or deleted. "
+                "Check the name (it's case-insensitive, letters, digits and dashes).")
+    elif status == 429:
+        text = f"Key Vault {vault} is throttling requests, so it couldn't {what}. Try again in a minute."
+    else:
+        text = f"Key Vault {vault} couldn't {what} ({status}{': ' + code if code else ''})."
+    return requests.HTTPError(text, response=resp)
+
+
 def on_vault(url: str, vault: str) -> bool:
     """Whether ``url`` is on the Key Vault ``vault`` (from vault_url), as Key Vault's own next-page
     links write it: https, that host, on the default port (which they spell :443)."""
@@ -443,7 +466,8 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         if resp.status_code in (401, 403):
             raise PermissionError(f"Key Vault {vault} refused access to {secret!r} for your account. "
                                   f"You need the Key Vault Secrets User role on it.")
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise keyvault_error(resp, vault, f"read {secret!r}", secret)
         return resp.json()["value"]
 
     def isValidToken(token: str) -> bool:  # noqa: N802
@@ -505,7 +529,7 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
 
 
 def _make_notebook(host: Host) -> types.SimpleNamespace:
-    def run(path: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None,
+    def run(path: str, timeout_seconds: float = 90, arguments: dict[str, Any] | None = None,
             workspace: str = "", *, cell_timeout: float | None = None, **_kw: Any) -> str | None:
         """Fabric's notebook.run: the exit value comes back as a string, as in Fabric; the run
         stops with a TimeoutError after ``timeout_seconds`` (0: no limit), and each cell after
@@ -587,7 +611,7 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
         """A Fabric notebook item, read as you (not a notebook on this PC)."""
         return Item(find(name, workspaceId))
 
-    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+    def list(workspaceId: str = "", maxResults: int = 1000) -> builtins.list[Item]:  # noqa: A001, N803
         return [Item(n) for n in _limit(_client(host).list_notebooks(_workspace(workspaceId)), maxResults)]
 
     def getDefinition(name: str, workspaceId: str = "", format: str = "ipynb") -> str:  # noqa: N802, N803, A002
@@ -661,7 +685,7 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
             self.refresh()
             return super().__ne__(other)
 
-        __hash__ = None  # type: ignore[assignment] - a dict, so unhashable
+        __hash__ = None  # type: ignore[assignment]  # a dict, so unhashable
 
         def pop(self, key: str, *default: Any) -> Any:
             self.refresh()
@@ -759,10 +783,10 @@ def _make_lakehouse(host: Host) -> types.SimpleNamespace:
         item = get(name, workspaceId)
         return Item(client().get_lakehouse(item["workspaceId"], item["id"]))
 
-    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+    def list(workspaceId: str = "", maxResults: int = 1000) -> builtins.list[Item]:  # noqa: A001, N803
         return [Item(x) for x in _limit(client().list_lakehouses(workspace(workspaceId)), maxResults)]
 
-    def listTables(lakehouse: str = "", workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: N802, N803
+    def listTables(lakehouse: str = "", workspaceId: str = "", maxResults: int = 1000) -> builtins.list[Item]:  # noqa: N802, N803
         item = get(lakehouse, workspaceId)
         return [Item(t) for t in _limit(client().list_tables(item["workspaceId"], item["id"]), maxResults)]
 
@@ -918,16 +942,15 @@ FABRIC_ONLY = {
 
 def build(host: Host) -> types.ModuleType:
     mod = types.ModuleType("notebookutils", __doc__)
-    mod.fs = _make_fs()
-    mod.credentials = _make_credentials(host)
-    mod.notebook = _make_notebook(host)
-    mod.runtime = _make_runtime(host)
-    mod.lakehouse = _make_lakehouse(host)
-    mod.udf = _make_udf(host)
-    mod.variableLibrary = _make_variable_library(host)
-    mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, udf, "
-                                 "variableLibrary, nbResPath")
+    def help(*_a: Any) -> None:  # noqa: A001
+        print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, udf, variableLibrary, nbResPath")
+
+    vars(mod).update(
+        fs=_make_fs(), credentials=_make_credentials(host), notebook=_make_notebook(host),
+        runtime=_make_runtime(host), lakehouse=_make_lakehouse(host), udf=_make_udf(host),
+        variableLibrary=_make_variable_library(host),
+        mssparkutils=mod,  # ``from notebookutils import mssparkutils`` still works
+        help=help)
 
     def attribute(name: str) -> Any:
         # nbResPath follows the notebook that is running, so it is looked up on each use.

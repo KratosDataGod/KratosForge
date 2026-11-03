@@ -16,6 +16,7 @@ from typing import Any
 
 from .cli import GitError
 from .repo import Repository, _folder, init
+from .. import jsonfile
 
 MARKER = "fabric-desktop.repo.toml"
 
@@ -246,7 +247,7 @@ def _replace_in(root: Path, name: str, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as out:
             out.write(text)
-        os.replace(tmp, root / name)
+        jsonfile.replace(tmp, root / name)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

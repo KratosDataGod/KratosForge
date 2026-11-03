@@ -3,6 +3,7 @@
 import json
 import threading
 import types
+from contextlib import closing
 
 import polars as pl
 import pytest
@@ -72,7 +73,8 @@ def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
     inserts = [p for sql, p in conn.statements if "IDENTITY_INSERT" in sql]
     assert out == {"imported": 2500, "already_there": 0}
     assert sum(len(p) for p in inserts) == 2500 * 3 and len(inserts) == 5
-    assert "RESEED, 2500" in conn.statements[-1][0]
+    keys_sql = [sql for sql, _ in conn.statements if "[audit]" not in sql]  # the import's audit row comes last (#1194)
+    assert "RESEED, 2500" in keys_sql[-1]
 
 
 def test_keys_are_issued_in_batches(platform):
@@ -281,6 +283,22 @@ def test_function_app_has_a_function_per_operation_and_compiles():
         assert f"def {op}(" in source
     parts = udf.definition("ws", "sql")
     assert "function_app.py" in json.dumps(parts)
+
+
+def test_the_definition_lists_every_function_or_fabric_refuses_it():
+    # Fabric answers "Functions is null or empty" to a definition that lists none (live run 2026-10-30)
+    parts = udf.definition("ws", "sql")
+    listed = [f["name"] for f in json.loads(parts["definition.json"])["functions"]]
+    described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
+    assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
+    assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    key_table = next(f for f in described if f["name"] == "ensure_key_table")
+    assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
+        ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]
+    assert key_table["bindings"][1]["alias"] == udf.ALIAS
+    assert key_table["fabricProperties"]["fabricFunctionParameters"] == [
+        {"dataType": "str", "name": n} for n in ("name", "business_key", "description", "domain_id")]
+    assert key_table["fabricProperties"]["fabricFunctionReturnType"] == "bool"
 
 
 # --------------------------------------------------------------------------- the mesh in a project
@@ -664,6 +682,17 @@ def test_requests_for_key_tables_sources_and_access(platform):
     with pytest.raises(core.PlatformError, match="owner or a platform admin"):
         ana.call("revoke_grant", product_id="crm/c360", project="ledger")
     assert bo.call("revoke_grant", product_id="crm/c360", project="ledger") == []
+    # The revoke row keeps what gave the access, since the grant row is gone (#1352).
+    revoked = next(e for e in bo.call("audit", limit=50) if e["action"] == "revoke access")
+    detail = json.loads(revoked["detail"])
+    assert detail.pop("granted_at") and detail == {"project": "ledger", "request": acc["id"], "granted_by": "bo@example.com"}
+    # Taking it away again finds nothing to take: it says so and the audit trail gains no second revoke (#1237).
+    revokes = len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"])
+    with pytest.raises(core.PlatformError, match="ledger has no access to crm/c360 to take away"):
+        bo.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert len([e for e in bo.call("audit", limit=500) if e["action"] == "revoke access"]) == revokes == 1
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):  # the role check comes first
+        ana.call("revoke_grant", product_id="crm/c360", project="nowhere")
 
     # Declined and withdrawn requests stay in the list with who and when.
     nope = ana.call("request", kind="key_table", target="vendor")
@@ -896,7 +925,7 @@ def test_a_platform_made_before_source_ids_gets_them_keeping_its_sources(tmp_pat
     import sqlite3
     path = tmp_path / "old.sqlite"
     LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # the source table as schema 4 made it
+    with closing(sqlite3.connect(path)) as conn, conn:  # the source table as schema 4 made it
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -971,7 +1000,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     import sqlite3
     path = tmp_path / "old.sqlite"
     platform = LocalPlatform(path, lambda: "chris@example.com")
-    with sqlite3.connect(path) as conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
+    with closing(sqlite3.connect(path)) as conn, conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
         conn.execute('DROP TABLE "catalog__source"')
         conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
                      'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
@@ -980,7 +1009,7 @@ def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path
     with platform._db() as db:
         got = {s["name"]: s for s in core.list_sources(db)}
     assert (got["crm"]["source_id"], got["crm"]["code"], got["sap"]["source_id"], got["sap"]["active"]) == (1, "CRM", 2, True)
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
     assert not cols & set(core._SOURCE_ADDED), "a read added columns"
 
@@ -1456,3 +1485,59 @@ def test_a_change_logged_from_the_app_follows_the_same_rule(platform):
     assert x["health"] == "not_checked" and platform.call("list_shortcut_risks") == [] and x["checked_at"] != when
     bo.call("log_shortcut_change", kind="removed", shortcut=_sc("lh1", "x", b), before={"target": b})
     assert platform.call("list_seen_shortcuts") == []
+
+
+# --------------------------------------------------------------------------- setup against Fabric's refusals
+
+class _RefusingFabric:
+    """A Fabric that refuses what the live runs saw it refuse (tests/fabric_refusals.py)."""
+
+    def __init__(self):
+        self.items = []
+
+    def list_workspaces(self):
+        return []
+
+    def create_workspace(self, name, capacity_id, description):
+        return {"id": "ws-p", "displayName": name}
+
+    def find_lakehouse(self, ws, name):
+        return None
+
+    def create_lakehouse(self, ws, name, description=""):
+        return {"id": f"lh-{name}"}
+
+    def save_item(self, ws, item_type, name, parts=None, description=""):
+        from tests.fabric_refusals import check_item
+        check_item(item_type, parts)
+        self.items.append((item_type, name))
+        return {"id": f"{item_type}-id", "created": True}
+
+    def save_variable_library(self, ws, name, parts, description=""):
+        return {"id": "vl-id", "created": True}
+
+
+def test_platform_setup_makes_every_item_fabric_accepts(monkeypatch):
+    from fabric_desktop.central import setup as setup_mod
+
+    class Client:
+        def __init__(self, token, ws, fn):
+            pass
+
+        def call(self, op, **kw):
+            return {"created": ["catalog"]} if op == "ensure_schema" else {}
+
+    monkeypatch.setattr(setup_mod, "FabricPlatform", Client)
+    fabric = _RefusingFabric()
+    out = setup_mod.setup(fabric, lambda: "tok", "dev")
+    assert out["ready"], out["steps"]
+    assert ("UserDataFunction", udf.ITEM) in fabric.items
+
+
+def test_the_refusing_fake_refuses_a_udf_with_no_functions():
+    from fabric_desktop.fabric_api import FabricError
+    from tests.fabric_refusals import UDF_NO_FUNCTIONS, check_item
+    empty = {"definition.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": []})}
+    with pytest.raises(FabricError, match="Functions is null or empty") as err:
+        check_item("UserDataFunction", empty)
+    assert err.value.code == "NullOrEmptyArgument" and UDF_NO_FUNCTIONS in str(err.value)

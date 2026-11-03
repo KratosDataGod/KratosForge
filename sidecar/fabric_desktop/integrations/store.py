@@ -9,6 +9,8 @@ Several processes use this file at once: the app's engine (the Settings page, ap
                 without asking (auto), optional workspace list, HTTP token hash, revoked time
     approvals   one row per request that needs the person's yes: what, by whom, on what, the
                 hash of the exact arguments, and what happened to it
+    approval_uses  when each approval was used, so Recent activity can show an approved call
+                that left no audit line (the process was killed as it started)
 
 HTTP tokens are stored only as SHA-256 hashes. No Fabric or Entra token is ever stored here.
 """
@@ -19,11 +21,12 @@ import hashlib
 import json
 import secrets
 import sqlite3
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
+
+from .. import sqlitefile
 
 _SCHEMA = """
 create table if not exists settings (key text primary key, value text not null);
@@ -38,11 +41,13 @@ create table if not exists approvals (
     args_hash text not null, state text not null, created_at real not null, decided_at real,
     expires_at real not null, note text not null default '');
 create index if not exists approvals_state on approvals (state, created_at);
+create table if not exists approval_uses (approval_id text primary key, client_id text not null, used_at real not null);
 """
 
 PENDING_SECONDS = 300      # a request nobody answers is dropped after 5 minutes
 APPROVED_SECONDS = 600     # an approval must be used within 10 minutes
 MAX_ARGUMENT_TEXT = 20_000
+USES_SECONDS = 90 * 86400  # approval_uses rows are kept 90 days
 
 DEFAULT_SETTINGS: dict[str, Any] = {"enabled": False, "http_enabled": False, "http_port": 47615,
                                     "extensions": {}}  # extension id -> on (extensions.py)
@@ -67,37 +72,53 @@ class IntegrationStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
-        self._local = threading.local()
-        self._db().executescript(_SCHEMA)
+        # A file SQLite can't read is moved aside and the store starts empty: integrations are off,
+        # and connected tools and approvals are gone, so every tool asks to connect again. That is
+        # the safe way to fail (nothing gets more access), and nothing in it is the person's data.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="integrations start off and empty, so connected AI tools have to connect again")
+
+    def _first_open(self) -> None:
+        with self._db() as db:
+            sqlitefile.check(db)
+            db.execute("pragma journal_mode=wal")  # kept in the file, so later connections use it too
+            db.executescript(_SCHEMA)
 
     @classmethod
     def at(cls, root: Path) -> "IntegrationStore":
         return cls(Path(root) / "integrations" / "integrations.sqlite")
 
-    def _db(self) -> sqlite3.Connection:
-        db = getattr(self._local, "db", None)
-        if db is None:
-            db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-            db.row_factory = sqlite3.Row
-            db.execute("pragma journal_mode=wal")
-            self._local.db = db
-        return db
+    @contextmanager
+    def _db(self) -> Iterator[sqlite3.Connection]:
+        """A connection for one read or change, closed after it. One kept per thread was never closed:
+        each MCP call runs on a new worker thread, and on Windows an open handle keeps the file locked."""
+        with sqlitefile.connect(self.path) as db:
+            yield db
+
+    def _rows(self, sql: str, args: Any = ()) -> list[sqlite3.Row]:
+        with self._db() as db:
+            return db.execute(sql, args).fetchall()
+
+    def _one(self, sql: str, args: Any = ()) -> sqlite3.Row | None:
+        rows = self._rows(sql, args)
+        return rows[0] if rows else None
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        db = self._db()
-        db.execute("begin immediate")
-        try:
-            yield db
-        except BaseException:
-            db.execute("rollback")
-            raise
-        db.execute("commit")
+        with self._db() as db:
+            db.execute("begin immediate")
+            try:
+                yield db
+            except BaseException:
+                db.execute("rollback")
+                raise
+            db.execute("commit")
 
     # ---- settings
 
     def settings(self) -> dict[str, Any]:
-        rows = {r["key"]: json.loads(r["value"]) for r in self._db().execute("select key, value from settings")}
+        rows = {r["key"]: json.loads(r["value"]) for r in self._rows("select key, value from settings")}
         return {k: rows.get(k, v) for k, v in DEFAULT_SETTINGS.items()}
 
     def set_setting(self, key: str, value: Any) -> dict[str, Any]:
@@ -122,14 +143,13 @@ class IntegrationStore:
 
     def clients(self, include_revoked: bool = False) -> list[dict[str, Any]]:
         sql = "select * from clients" + ("" if include_revoked else " where revoked_at is null") + " order by created_at"
-        return [self._client(r) for r in self._db().execute(sql)]  # type: ignore[misc]
+        return [self._client(r) for r in self._rows(sql)]  # type: ignore[misc]
 
     def client(self, client_id: str) -> dict[str, Any] | None:
-        return self._client(self._db().execute("select * from clients where id = ?", (client_id,)).fetchone())
+        return self._client(self._one("select * from clients where id = ?", (client_id,)))
 
     def client_by_token(self, token: str) -> dict[str, Any] | None:
-        row = self._db().execute("select * from clients where token_hash = ? and revoked_at is null",
-                                 (token_hash(token),)).fetchone()
+        row = self._one("select * from clients where token_hash = ? and revoked_at is null", (token_hash(token),))
         return self._client(row)
 
     def add_client(self, name: str, kind: str = "other", transport: str = "stdio", grants: list[str] | None = None,
@@ -225,14 +245,14 @@ class IntegrationStore:
     def approval(self, approval_id: str) -> dict[str, Any] | None:
         with self._tx() as db:
             self._expire(db)
-        return self._approval(self._db().execute("select * from approvals where id = ?", (approval_id,)).fetchone())
+        return self._approval(self._one("select * from approvals where id = ?", (approval_id,)))
 
     def approvals(self, state: str = "pending", limit: int = 50) -> list[dict[str, Any]]:
         with self._tx() as db:
             self._expire(db)
         sql = "select * from approvals" + (" where state = ?" if state else "") + " order by created_at desc limit ?"
         args: tuple[Any, ...] = (state, limit) if state else (limit,)
-        return [self._approval(r) for r in self._db().execute(sql, args)]  # type: ignore[misc]
+        return [self._approval(r) for r in self._rows(sql, args)]  # type: ignore[misc]
 
     def decide(self, approval_id: str, approve: bool, note: str = "") -> dict[str, Any]:
         """The person's answer. Only the app's own engine calls this; no external interface can."""
@@ -254,5 +274,16 @@ class IntegrationStore:
             self._expire(db)
             changed = db.execute("update approvals set state = 'used' where id = ? and client_id = ? and args_hash = ? "
                                  "and state = 'approved'", (approval_id, client_id, digest)).rowcount
+            if changed == 1:
+                db.execute("insert or replace into approval_uses (approval_id, client_id, used_at) values (?,?,?)",
+                           (approval_id, client_id, self.clock()))
+                db.execute("delete from approval_uses where used_at < ?", (self.clock() - USES_SECONDS,))
         return changed == 1
+
+    def approval_uses(self, since: float, client_id: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        """Approvals used since ``since``, newest first, with what they were for."""
+        sql = ("select u.used_at, a.* from approval_uses u join approvals a on a.id = u.approval_id where u.used_at >= ?"
+               + (" and u.client_id = ?" if client_id else "") + " order by u.used_at desc limit ?")
+        rows = self._rows(sql, [since, *([client_id] if client_id else []), limit])
+        return [{**(self._approval(r) or {}), "used_at": r["used_at"]} for r in rows]
 

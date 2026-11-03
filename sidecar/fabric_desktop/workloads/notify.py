@@ -19,12 +19,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, ContextManager, Iterator
 
-from .. import redact
+from .. import redact, sqlitefile
 from .evaluate import describe
 
 DIGEST_OVER = 5
 KEEP_TRYING = 3 * 86400  # an alert older than this is dropped from the outbox, not sent
 DEFAULT_ROUTE = "default"
+LINE_MAX = 500  # characters in one title or line of a Teams message
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,15 @@ class Outbox:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time):
         self.path, self.clock = Path(path), clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # A file SQLite can't read is moved aside and the outbox starts empty: messages still waiting
+        # in it are kept in the moved file but not sent, and new ones are sent as usual.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="messages still waiting in it aren't sent; new ones are sent as usual")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.execute("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, "
                        "lines TEXT, attempts INTEGER DEFAULT 0, error TEXT)")
             cols = {r[1] for r in db.execute("PRAGMA table_info(outbox)")}
@@ -158,7 +167,14 @@ class Outbox:
 
 
 def messages(changes: list[dict[str, Any]], source: str, digest_over: int = DIGEST_OVER) -> list[tuple[str, list[str]]]:
-    """(title, lines) for each Teams message these changes need."""
+    """(title, lines) for each Teams message these changes need, each one line with anything
+    credential-shaped removed (a run's message is the error as it came), so neither the channel
+    nor the outbox ever holds a secret."""
+    return [(redact.one_line(title, LINE_MAX), [redact.one_line(line, LINE_MAX) for line in lines])
+            for title, lines in _messages(changes, source, digest_over)]
+
+
+def _messages(changes: list[dict[str, Any]], source: str, digest_over: int) -> list[tuple[str, list[str]]]:
     if not changes:
         return []
     opened = [c for c in changes if c["change"] in ("opened", "reopened")]

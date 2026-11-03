@@ -4,7 +4,9 @@ The engine listens on 127.0.0.1, on a port of its own choosing, while the person
 "VS Code can run notebooks" on in Settings > Integrations. It writes ``<port> <hello>`` to
 ``editor-port`` in this Windows user's data folder; ``hello`` is random each time.
 
-Every request passes the same checks before anything else: it comes from 127.0.0.1, its ``Host``
+Every request passes the same checks before anything else: it comes from 127.0.0.1, from a program
+running as the Windows account KratosForge runs as (integrations/peer.py, as the local API checks:
+on a shared PC everyone has 127.0.0.1), its ``Host``
 names this port on a loopback name, it has no browser ``Origin`` (so a web page can't call it,
 and DNS rebinding can't either), and its body is at most 1 MiB of JSON. Asking to pair needs
 ``X-KratosForge-Hello`` (only programs that can read this user's data folder have it); everything
@@ -38,7 +40,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import __version__
+from . import __version__, jsonfile
+from .integrations import peer
 from .redact import secrets as redact_secrets
 
 MAX_BODY_BYTES = 1024 * 1024
@@ -80,7 +83,7 @@ class Channel:
         self._thread = threading.Thread(target=server.serve_forever, daemon=True, name="editor-channel")
         self._thread.start()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        (self.data_dir / PORT_FILE).write_text(f"{self.port} {self.hello}", encoding="utf-8")
+        jsonfile.write_text(self.data_dir / PORT_FILE, f"{self.port} {self.hello}")
         return self.port  # type: ignore[return-value]
 
     def stop(self) -> None:
@@ -215,6 +218,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.client_address[0] != "127.0.0.1":
             raise Refused(403, "refused", "Only programs on this PC can use the editor channel.")
         port = self.owner.port
+        if peer.checked() and not peer.same_user(int(self.client_address[1]), int(port or 0)):
+            raise Refused(403, "refused", "Only programs running as the Windows account KratosForge runs as can use "
+                          "the editor channel. Start VS Code signed in to Windows as the same person as KratosForge.")
         if self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}"):
             raise Refused(403, "refused", "The Host header must name this PC's loopback address and port.")
         if self.headers.get("Origin") is not None:

@@ -13,7 +13,7 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import app_settings, maintenance, risk, xray
+from . import app_settings, jsonfile, maintenance, risk, xray
 from .auth import FABRIC_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
@@ -158,7 +158,7 @@ class XRayMixin:
             result["counts"] = xray.counts(result["findings"])
             result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
-            self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
+            jsonfile.write_text(self._xray_file, json.dumps(result, default=str))
             state: dict[str, Any] = {"running": False}
         except Exception as exc:
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -268,10 +268,25 @@ class XRayMixin:
         return out
 
     def xray_optimize(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
-                      lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
-        """Fabric's table maintenance (OPTIMIZE with V-Order, then VACUUM) on one table."""
+                      lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "",
+                      risk_id: str = "") -> dict[str, Any]:
+        """Fabric's table maintenance (OPTIMIZE with V-Order, then VACUUM) on one table.
+
+        The risk check is run again first (FINOPS-004): blocked is refused, and going ahead past
+        warnings needs ``risk_id``, the id of the assessment the person saw, and is recorded the way
+        risk_acknowledge records it, before the job is submitted. A pass or an unknown result records nothing."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        current = self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, False)
+        if current["result"] == risk.BLOCKED:
+            raise PermissionError("A blocked run can't be started: " + current["summary"])
+        if current["result"] == risk.WARNING:
+            if not risk_id:
+                raise ValueError("Check the risks first: this run has warnings to accept.")
+            if current["id"] != risk_id:
+                raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
+            # Written before the job is submitted, so a failed write starts nothing (fails closed).
+            self._risk_ack_write(self._risk_ack_record(current, risk_id))  # type: ignore[attr-defined]
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
@@ -286,6 +301,13 @@ class XRayMixin:
         Fabric: the policy, the sign-in and the workspace's capacity. Read only."""
         uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
         days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        return {"keep_days": days, "why": why,
+                "risk": self._xray_optimize_risk(workspace_id, lakehouse_id, table, schema, lakehouse_name,
+                                                 workspace_name, refresh)}
+
+    def _xray_optimize_risk(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None,
+                            lakehouse_name: str, workspace_name: str, refresh: bool) -> dict[str, Any]:
+        """The risk check for starting Optimize on one table in Fabric; a failure in it is an unknown result."""
         label = f"{schema}.{table}" if schema else table
         reads: list[str] = []
         facts: dict[str, Any] = {
@@ -302,7 +324,7 @@ class XRayMixin:
         except Exception as exc:  # noqa: BLE001 - the check is advice; the confirm still shows
             assessed = {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
                         "needs_acknowledgement": False, "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
-        return {"keep_days": days, "why": why, "risk": assessed}
+        return assessed
 
     def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                             lakehouse_name: str = "") -> dict[str, Any]:
@@ -355,7 +377,8 @@ class XRayMixin:
             try:
                 uri, dt_ = self._source_table(workspace_id, lakehouse_id, t["schema"], t["table"])
                 cols = list(_table_schema(dt_))
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - the table is left out of the adoption, with the reason
+                _log.warning("Couldn't read %s.%s as a Delta table: %s", t["schema"], t["table"], describe(exc))
                 out.append({"schema": t["schema"], "table": t["table"], "ok": False, "why": "Not a Delta table"})
                 continue
             name = f"{layer}.{_entity_name(t['table'])}"
@@ -392,7 +415,7 @@ class XRayMixin:
             where = f"{t['schema']}.{t['table']}" if t.get("schema") else t["table"]
             label = f"{workspace_name} / {lakehouse_name} / {where}".strip(" /")
             text = adopted_entity_text(name, owner, uri, label, dict(schema), keys)
-            (project.entities_dir / f"{name}.toml").write_text(text, encoding="utf-8")
+            jsonfile.write_text(project.entities_dir / f"{name}.toml", text)
             written.append(name)
         return {"adopted": written, "problems": problems, "layer": layer}
 

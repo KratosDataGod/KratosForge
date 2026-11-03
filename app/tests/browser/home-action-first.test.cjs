@@ -27,7 +27,7 @@ const order = (p) => p.evaluate(() => [...document.querySelector(".page.home").c
 
 test("Start something and Recent notebooks come first, with Continue opening the notebook changed last", { skip }, async () => {
   const p = await home();
-  assert.deepStrictEqual((await order(p)).slice(0, 3), ["start", "recent", "ready"]);
+  assert.deepStrictEqual((await order(p)).slice(0, 4), ["start", "get-started", "recent", "ready"]);
   const cont = p.locator(".home-start button.primary");
   assert.strictEqual(await cont.count(), 1);
   assert.strictEqual((await cont.textContent()).trim(), "Continue: Customers");
@@ -45,14 +45,14 @@ test("signed out, Home asks to sign in once and says Fabric wasn't checked", { s
   const p = await home();
   assert.ok(!(await order(p)).includes("callout"));  // Ready to work already asks
   assert.strictEqual(await p.locator('.page.home button:text-is("Sign in")').count(), 1);
-  assert.doesNotMatch(await p.textContent(".get-started"), /Sign in with your work account/);
+  assert.doesNotMatch(await p.textContent(".get-started"), /Sign in/);
   assert.match(await p.textContent(".page.home > .sub"), /^Sign in so KratosForge can check Fabric\. Notebooks run on this PC either way\.$/);
 });
 
-test("with Ready to work hidden, the sign-in callout and the Get started step come back", { skip }, async () => {
+test("with Ready to work hidden, the sign-in callout asks instead, and only it", { skip }, async () => {
   const p = await home({ "fd.ready.hidden": "1" });
-  assert.deepStrictEqual((await order(p)).slice(0, 3), ["start", "recent", "callout"]);
-  assert.match(await p.textContent(".get-started"), /Sign in with your work account/);
+  assert.deepStrictEqual((await order(p)).slice(0, 4), ["start", "get-started", "recent", "callout"]);
+  assert.strictEqual(await p.locator('.page.home button:text-is("Sign in")').count(), 1);
 });
 
 test("with no notebooks there is no Continue, and New notebook is still there", { skip }, async () => {

@@ -95,7 +95,7 @@ def parity_problems(source: str, operations: dict) -> dict[str, list[str]]:
         if a.posonlyargs or a.vararg or a.kwonlyargs or a.kwarg:
             found.append("takes positional-only, *args, keyword-only or **kwargs parameters")
         names = [x.arg for x in a.args]
-        w_defaults = dict(zip(names[len(names) - len(a.defaults):], a.defaults))
+        w_defaults = dict(zip(names[len(names) - len(a.defaults):], a.defaults, strict=True))
 
         sig = inspect.signature(impl).parameters
         op_names = list(sig)

@@ -10,7 +10,7 @@ Text you can paste into your AI tool's instruction file so it uses KratosForge w
 | VS Code with GitHub Copilot | `.github/copilot-instructions.md` |
 | Anything else | Your tool's custom or system instructions |
 
-None of these tools has been tried with KratosForge yet ([compatibility](../product/ai-integration-compatibility.md)).
+Only Claude Code has been partly tried with KratosForge so far, and not these instruction files ([compatibility](../product/ai-integration-compatibility.md)).
 
 ## The instructions
 

@@ -166,6 +166,8 @@ def test_paths_into_the_lakehouse_are_tables_files_or_refused():
     assert ps.lakehouse_path(f"{SANDBOX}/orders") == ("sandbox", None)
     assert ps.lakehouse_path("abfss://other@onelake.dfs.fabric.microsoft.com/lh2/Tables/x") == ("onelake", None)
     assert ps.lakehouse_path("/tmp/scratch") is None
+    assert ps.lakehouse_path("file:/lakehouse/default/Files/raw/rates.csv") == ("files", "Files/raw/rates.csv")
+    assert ps.lakehouse_path("file:///lakehouse/default/Tables/dbo/orders") == ("table", "dbo", "orders")
     with pytest.raises(ProofRefused, match="isn't a table's folder"):
         ps.lakehouse_path("Tables/dbo/orders/part-0.parquet")
     assert ps.rewrite(f"SELECT * FROM delta.`{ROOT}/Tables/dbo/orders`") == \
@@ -188,7 +190,7 @@ def test_the_check_takes_spark_notebooks_and_stops_what_their_fabric_side_refuse
                          ("df.writeTo('dbo.t').append()", "writeTo"),
                          ("spark.readStream.table('dbo.t')", "stream"),
                          ("spark.sql('DROP TABLE dbo.t')", "drops"),
-                         ("%%sql\nTRUNCATE TABLE dbo.t", "drops"),
+                         ("%%sql\nTRUNCATE TABLE dbo.t", "TRUNCATE TABLE"),  # Runs on's reason comes first (#1286)
                          ("DeltaTable.createOrReplace(spark).tableName('t').execute()", "DeltaTable.create")]:
         out = proof.check([{"type": "code", "source": "df = spark.table('dbo.t')"}, {"type": "code", "source": source}], lh)
         assert not out["ok"] and says in out["blockers"][0]["text"], source
@@ -302,3 +304,52 @@ def test_on_a_real_spark_the_ways_around_the_proof_are_refused(tmp_path):
     out = json.loads(line[7:])
     assert out.pop("_shared_version") == 0 and out.pop("_files") is False
     assert out == {name: "refused" for name in out}, out
+
+
+PINNED_READS = '''
+import json, sys, types
+from pathlib import Path
+import pyspark
+from delta import configure_spark_with_delta_pip
+root = Path(sys.argv[1])
+b = (pyspark.sql.SparkSession.builder.master("local[1]").config("spark.ui.enabled", "false")
+     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+spark = configure_spark_with_delta_pip(b).getOrCreate()
+shared = str(root / "Tables/dbo/orders")
+spark.range(3).write.format("delta").save(shared)
+spark.range(2).write.format("delta").mode("append").save(shared)  # version 1: 5 rows; the proof pins version 0
+(root / "Files/raw").mkdir(parents=True)
+(root / "Files/raw/rates.csv").write_text("region,rate\\neast,1.5\\n")
+mods = {}
+for name in ("proof_runtime", "proof_spark"):
+    mods[name] = types.ModuleType(name)
+    exec(compile(Path(sys.argv[2], name + ".py").read_text(), name, "exec"), mods[name].__dict__)
+rt = mods["proof_runtime"].ProofRuntime({"id": "p1", "pins": {"dbo.orders": 0}}, "fabric").bind(str(root), None, str(root))
+mods["proof_spark"].bind(rt, spark, "LH", True)
+out = {
+    "option_path": spark.read.format("delta").option("path", shared).load().count(),
+    "options_path": spark.read.format("delta").options(path=shared).load().count(),
+    "file_scheme": spark.read.format("delta").load("file:" + shared).count(),
+    "by_name": spark.read.table("dbo.orders").count(),
+}
+spark.read.format("csv").option("header", "true").option("path", str(root / "Files/raw/rates.csv")).load().count()
+out["files"] = sorted(rt.log["files"])
+print("RESULT " + json.dumps(out))
+'''
+
+
+@pytest.mark.skipif(not os.environ.get("FD_SPARK_PYTHON"), reason="set FD_SPARK_PYTHON to a Python with pyspark and delta-spark")
+def test_on_a_real_spark_a_path_given_as_an_option_or_a_file_url_reads_the_pinned_version(tmp_path):
+    import json
+    import subprocess
+    from pathlib import Path
+    script = tmp_path / "reads.py"
+    script.write_text(PINNED_READS, encoding="utf-8")
+    python = os.environ["FD_SPARK_PYTHON"]
+    ran = subprocess.run([python, str(script), str(tmp_path / "lh"), str(Path(proof.__file__).parent)],
+                         capture_output=True, text=True, timeout=900, env=dict(os.environ, PYSPARK_PYTHON=python), cwd=tmp_path)
+    line = next((ln for ln in ran.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line, ran.stderr[-3000:]
+    out = json.loads(line[len("RESULT "):])
+    assert out == {"option_path": 3, "options_path": 3, "file_scheme": 3, "by_name": 3, "files": ["Files/raw/rates.csv"]}

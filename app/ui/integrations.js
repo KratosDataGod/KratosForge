@@ -24,7 +24,10 @@ const PERMISSION_HELP = {
 const TESTED_TOOLS = new Set();
 const DECISION_TEXT = { pending: "Waiting", approved: "Approved, not used yet", used: "Approved by you", denied: "Denied",
   expired: "Not answered" };
-const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info" };
+const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", timed_out: "wrn", running: "info", queued: "info",
+  started: "wrn", unfinished: "wrn" };
+// An approved call writes a "started" line before it runs; the engine drops it once the result is in.
+const OUTCOME_TITLE = { started: "Started after your approval. No result yet: it is still running, or the tool or KratosForge stopped before it finished." };
 
 const integ = { status: null, activity: null, watching: false, shown: new Set() };
 
@@ -99,6 +102,12 @@ function connectCard(status, refresh) {
   const httpToggle = h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: http.switch ? true : null, disabled: http.allowed ? null : true,
       onchange: async (e) => {
+        // Turning it on opens a port other programs on this PC can call, so it asks first.
+        if (e.target.checked && !(await confirmDialog("Turn on the local HTTP API?",
+          `Programs on this PC can then call KratosForge at ${http.url}. Each one still needs a token you make here, and gets only what you allow it.`, "Turn on"))) {
+          e.target.checked = false;
+          return;
+        }
         const res = await attempt(() => rpc("integrations_set_http", { enabled: e.target.checked }), "The local API didn't change");
         if (res) toast(res.http.running ? `The local API is on at ${res.http.url}` : "The local API is off");
         refresh();
@@ -291,6 +300,8 @@ function editTool(status, c, refresh) {
     }
   };
   const newToken = async () => {
+    if (!(await confirmDialog(`Make a new token for ${c.name}?`,
+      "Its current token stops working at once, so the tool can't connect until you give it the new one.", "Make a new token", { danger: true }))) return;
     const res = await attempt(() => rpc("integrations_new_token", { client_id: c.id }), "No new token");
     if (res) setupDialog(res.client, res.token, "http");
   };
@@ -376,7 +387,7 @@ function activityCard(rows, status) {
   const result = (r) => {
     const state = r.outcome === "ok" ? (r.execution_state || "ok") : r.outcome;
     const pill = state === "ok" ? "pass" : OUTCOME_PILL[state] || (r.outcome === "ok" ? "info" : "fail");
-    return h("span", { class: `pill-s ${pill}`, title: r.error || "" }, state.replaceAll("_", " "));
+    return h("span", { class: `pill-s ${pill}`, title: r.error || OUTCOME_TITLE[state] || "" }, state.replaceAll("_", " "));
   };
   const target = (r) => Object.entries(r.arguments || {}).filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
     .slice(0, 4).map(([k, v]) => `${k} ${v}`).join(" · ");

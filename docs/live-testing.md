@@ -97,6 +97,17 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 
 The [tenant smoke test](product/smoke-test/README.md) runs this live test with every opt-in check as one of ten core flows of the app (`fabric-desktop smoke-test`), adds sign-in, catalog and support-bundle checks, and lists the by-hand part of each flow.
 
+## Fakes follow what live runs refused
+
+The tests that stand in for Fabric use fakes. A fake that accepts what Fabric refuses lets a broken request pass every test and fail on the first live run, so each refusal seen on a live run becomes a rule the fakes share (`sidecar/tests/fabric_refusals.py`):
+
+| Refusal | Seen on | What the fakes do |
+| --- | --- | --- |
+| A User Data Functions item whose definition lists no functions: `NullOrEmptyArgument` | Live run 2, 2026-10-30 (#1165) | Refuse the create or update with the same 400 |
+| Windows sign-in with Microsoft's Fabric CLI client gets no token for Azure SQL or Kusto: `AADSTS65002` | Live run 2, 2026-10-30 (#1079) | Refuse the token with the same message |
+
+When a live run finds a new refusal, add it there with the run it came from, and add a row here.
+
 ## What it doesn't check yet
 
 - Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).
@@ -126,9 +137,11 @@ fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id>
 fabric-desktop live-test-databricks --profile kf-test --warehouse <warehouse id> --cluster <cluster id>             # asks "Run it?", then runs
 ```
 
+Both commands first check this PC and print a line for each: Python 3.12 or later, the Databricks CLI on PATH at 0.205 or later (it is only asked for its version), and the profile in `~/.databrickscfg` with an Azure Databricks workspace address (or the `--host` address). A line marked `NO` says what to install or run. The dry run only reports them; a real run stops there, before signing in or starting anything, until they all pass.
+
 Leave out `--cluster` to test only the SQL warehouse. Use `--host <workspace url>` instead of `--profile` to sign in with `databricks auth login --host`. Add `--stop-compute` to stop the warehouse and terminate the cluster afterwards. They are only stopped if they were stopped when the run began, so the test never stops compute someone else was using. Answering "Run it?" (or passing `--yes`) is the confirmation the engines need before they start remote compute.
 
-The exit code is 0 when every check passed, 1 when one failed, and 2 when the warehouse or cluster was refused or the run wasn't started.
+The exit code is 0 when every check passed, 1 when one failed, and 2 when this PC wasn't ready, the warehouse or cluster was refused, or the run wasn't started.
 
 ### What it checks
 
@@ -169,7 +182,7 @@ The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per 
 
 | Field | Holds |
 | --- | --- |
-| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
+| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `aggregate`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
 | `local.check` | The compatibility check's outcome and exact rules |
 | `local.format` | `formats` or `left_alone` (Format SQL left it as it was). Formatting must never change the check's findings |
 | `local.run` | Spark SQL cases only: the rows, or part of the error, that running it on this PC gives. T-SQL cases are always refused here, and the test checks that |

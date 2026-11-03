@@ -150,3 +150,82 @@ def test_another_fabric_error_is_raised_as_today(svc, api):
 ])
 def test_same_target(a, b, same):
     assert shortcuts.same_target(a, b) is same
+
+
+# --------------------------------------------------------------------------- declined after it was made (#1260)
+
+
+def fail_decision_once(monkeypatch):
+    real, seen = LocalPlatform.call, {"n": 0}
+
+    def call(self, name, **kwargs):
+        if name == "decide_request" and kwargs.get("approve"):
+            seen["n"] += 1
+            if seen["n"] == 1:
+                raise requests.HTTPError("UDF_Platform couldn't be reached to decide_request: Fabric answered 503")
+        return real(self, name, **kwargs)
+    monkeypatch.setattr(LocalPlatform, "call", call)
+
+
+LEFT = ("The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on "
+        "OneLake > Shortcuts if it isn't wanted")
+
+
+@pytest.mark.parametrize("close", ["decline", "withdraw"])
+def test_a_shortcut_request_closed_after_its_shortcut_was_made_says_it_is_still_in_onelake(svc, api, monkeypatch, close):
+    req = ask(svc)
+    fail_decision_once(monkeypatch)
+    with pytest.raises(requests.HTTPError):
+        svc.platform_decide(req["id"], True)
+    sid = core.shortcut_id("lh-1", "Tables/dbo/supplier")
+    assert svc.platform_requests("waiting")[0]["detail"]["made"] == {"shortcut_id": sid}
+    calls = [dict(s) for s in api.items["lh-1"]]
+    out = svc.platform_decide(req["id"], False) if close == "decline" else svc.platform_withdraw(req["id"])
+    assert out["next"] == [LEFT]
+    assert api.items["lh-1"] == calls and len(suppliers(api)) == 1  # nothing removed
+    action = "declined shortcut" if close == "decline" else "withdrew shortcut"
+    [row] = [e for e in svc._catalog().call("audit", limit=50) if e["action"] == action]
+    assert sid in row["detail"]
+
+
+def test_a_retry_after_the_shortcut_was_recorded_keeps_it_and_approves(svc, api, monkeypatch):
+    req = ask(svc)
+    fail_decision_once(monkeypatch)
+    with pytest.raises(requests.HTTPError):
+        svc.platform_decide(req["id"], True)
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and out["next"] == [KEPT] and len(suppliers(api)) == 1
+
+
+def test_a_shortcut_request_with_nothing_made_declines_as_before(svc, api):
+    req = ask(svc)
+    out = svc.platform_decide(req["id"], False)
+    assert out["status"] == "declined" and "next" not in out and suppliers(api) == []
+
+
+FOUND = ("The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. "
+         "Check which before removing it on OneLake > Shortcuts")
+
+
+def test_a_shortcut_that_was_already_there_is_recorded_as_found_and_a_decline_says_to_check(svc, api, monkeypatch):
+    """One made by hand before the request, pointing where it asks, may be someone else's: no removal advice."""
+    req = ask(svc)
+    api.items["lh-1"].append({"name": "supplier", "path": "Tables/dbo", "target": WANTED})
+    fail_decision_once(monkeypatch)
+    with pytest.raises(requests.HTTPError):
+        svc.platform_decide(req["id"], True)
+    sid = core.shortcut_id("lh-1", "Tables/dbo/supplier")
+    assert svc.platform_requests("waiting")[0]["detail"]["made"] == {"shortcut_id": sid, "found": True}
+    out = svc.platform_decide(req["id"], False)
+    assert out["next"] == [FOUND] and len(suppliers(api)) == 1
+    [row] = [e for e in svc._catalog().call("audit", limit=50) if e["action"] == "declined shortcut"]
+    assert '"found": true' in row["detail"]
+
+
+def test_a_shortcut_this_approval_logged_making_stays_made_by_it_on_a_retry(svc, api, monkeypatch):
+    """The decision failed after the shortcut was made and logged: the retry's 409 finds that log, so it's ours."""
+    req = ask(svc)
+    fail_decision_once(monkeypatch)
+    with pytest.raises(requests.HTTPError):
+        svc.platform_decide(req["id"], True)
+    assert svc._sc_made_before(svc.platform_requests("waiting")[0], "", RuntimeError("409")) is True

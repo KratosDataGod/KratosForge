@@ -25,20 +25,58 @@ A lesson marked **Draft** is still being written and may change.
 | LM-03 | Joins without surprise row counts | Data Fundamentals | SQ006 |
 | LM-04 | Grouping and aggregation | Data Fundamentals | SQ009 |
 | LM-05 | Keys: primary, foreign, business and surrogate | Data Fundamentals | |
+| LM-13 | NULL: the value that isn't there | Data Fundamentals | |
+| LM-14 | Dates, times and time zones | Data Fundamentals | SQ002 |
 | LAB-01 | From raw data to a checked answer: find six planted problems, then a clean answer | Data Fundamentals | |
+| LM-15 | Window functions: running totals and rankings | SQL Development | |
+| LM-16 | CTEs: queries you can read top to bottom | SQL Development | SQ002 |
+| LM-17 | Anti-joins and safe de-duplication | SQL Development | |
+| LM-18 | Reading a query plan | SQL Development | SQ006 |
 | LAB-02 | Optimize a slow query: the same answer, at least twice as fast | SQL Development | SQ002 |
+| LAB-05 | Build a type 2 slowly changing dimension: close the old row, add the new one | SQL Development | |
 | LM-06 | Lakehouses and the medallion layers | Microsoft Fabric | |
 | LM-07 | OneLake and Delta tables: files and a log | Microsoft Fabric | NB020 |
 | LM-08 | Notebooks: let the engine do the work | Microsoft Fabric | NB003 |
 | LM-09 | Direct Lake: tables a Power BI model reads straight from OneLake | Microsoft Fabric | |
 | LAB-03 | Build a star schema for a report: dimensions, a fact, and keys that all match | Microsoft Fabric | |
 | LAB-04 | Fix a broken load: find the doubled rows, rebuild, then a load that's safe to run again | Microsoft Fabric | |
+| LM-23 | Warehouse or lakehouse: where T-SQL writes | Microsoft Fabric | SQ004 |
+| LM-24 | Shortcuts and OneLake security | Microsoft Fabric | |
+| LM-25 | V-Order, OPTIMIZE and VACUUM | Microsoft Fabric | NB020 |
+| LAB-07 | A Gold layer that stays in Direct Lake: tables, the report's grain, and an Unknown member | Microsoft Fabric | |
+| LM-10 | QUALIFY: filter on a window function | Snowflake | |
+| LM-28 | Semi-structured data: nested records and arrays | Snowflake | |
+| LM-29 | Time travel and restoring a table | Snowflake | |
+| LAB-09 | Port Snowflake SQL to a Fabric Warehouse: standard functions, no QUALIFY, and division that keeps its fraction | Snowflake | |
+| LM-11 | MERGE: update, insert and delete in one step | Databricks | |
+| LM-26 | Three-part names: Unity Catalog and Fabric | Databricks | SQ005 |
+| LM-27 | Clustering and file pruning | Databricks | |
+| LAB-08 | Port a Databricks notebook to Fabric: names, functions and the write | Databricks | SQ005, SQ010 |
+| LM-12 | Incremental loads: a watermark that misses nothing | Python & Data Engineering | |
+| LM-19 | Lazy pipelines: filter and choose columns early | Python & Data Engineering | SQ002 |
+| LM-20 | Data quality checks in code | Python & Data Engineering | |
+| LM-21 | Loads that are safe to run again | Python & Data Engineering | SQ010 |
+| LM-22 | Schema drift: when a source adds a column | Python & Data Engineering | |
+| LAB-06 | Bronze to Silver that survives a rerun: typed, one row per order, rebuilt the same every time | Python & Data Engineering | |
+| LM-30 | Data contracts | Enterprise Architecture | |
+| LM-31 | Domains and data products | Enterprise Architecture | |
+| LM-32 | Least privilege in workspaces | Enterprise Architecture | |
+| LM-33 | Capacity and cost | Enterprise Architecture | SQ002 |
+| LM-34 | Environments, Git and deployments | Enterprise Architecture | |
+| LM-35 | Monitoring and incidents | Enterprise Architecture | |
+| LAB-10 | Ship a domain data product | Enterprise Architecture | SQ004, SQ010 |
+| LAB-11 | Incident: late and broken data | Enterprise Architecture | |
+| LAB-12 | The Forge Trial: raw data to a trusted answer (capstone, listed under Labs) | Enterprise Architecture | |
 
 The Microsoft Fabric lessons and labs also run on this PC, in DuckDB, with data generated here. They
 teach how lakehouses, OneLake, notebooks and Direct Lake work, and most of the SQL carries over to Fabric:
 where a lesson uses DuckDB's own SQL, it says so.
-Like every lab, they never read or write OneLake and never publish to Fabric. More lessons and the other paths (Python, Databricks,
-Snowflake, Enterprise Architecture) come in later updates.
+Like every lab, they never read or write OneLake and never publish to Fabric.
+
+The Snowflake, Databricks and Python & Data Engineering paths start with one lesson each. They run on this
+PC in DuckDB too, and say where the SQL differs on the other platform: QUALIFY isn't in Fabric Warehouse,
+and the MERGE lesson checks the table a MERGE would leave with a read-only SELECT. More lessons, and the
+Enterprise Architecture path, come in later updates.
 
 ## A lesson or lab
 
@@ -64,39 +102,74 @@ first. **Leave** goes back to Learn and keeps your answers.
 ## Guidance
 
 **Learning guidance**, at the top right of Learn and in **Settings > Appearance > Layout > Learning
-guidance**, sets how much the app suggests lessons. You can change it at any time; an organization
-policy can set it, and then it can't be changed here.
+guidance**, sets how much explanation shows beside your work. You can change it at any time; an
+organization policy can set it, and then it can't be changed here.
 
-| Mode | What it adds |
+| Level | What it adds |
 | --- | --- |
-| Focus (the default) | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
-| Guided | **Explain** and **Show example** under each notebook or SQL finding, and **Lesson: <title>** where a published lesson covers its rule. The lesson link opens that lesson. Draft lessons are linked only from Learn |
-| Learning | Guided, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order |
+| Expert | No explanations: a best-practice finding shows its rule, **About** link and **Dismiss** |
+| Professional (the default) | A line on why the finding matters, from the rule's guide, with **Explain** and **Show example** under each notebook or SQL finding |
+| Guided | **Explain** open to start with, **Lesson: <title>** where a published lesson covers the rule, and **Suggested next** on Learn Home: the next lesson you haven't started, in path order. Draft lessons are linked only from Learn |
 
-The checks themselves run the same in every mode; guidance only adds explanations and links.
+A level is a preference, not a permission: the checks run the same at every level, and a rule your
+organization requires is required at every level. Guidance only adds explanations and links.
+The first names of the levels still work in a settings or policy file: Focus reads as Expert and
+Learning as Guided.
+**SQL guidance** and **Notebook guidance**, under Learning guidance in **Settings > Appearance >
+Layout**, set a level for one subject only: for example Expert for SQL, which you know well, and
+Guided for notebooks. **Same** (the default) follows Learning guidance. They change only the
+guidance beside that subject's findings; checks and required rules are the same at every level, and
+an organization policy can set them too.
 Guidance shows only while **Show preview features** is on.
 
 ### Beside a finding
 
-- **Explain** shows why the rule matters, and when it's fine to leave, from the rule's section of the
-  notebook or SQL best-practices guide. That text ships with the app, so it works offline and nothing
-  is sent anywhere.
+- **Explain** shows how important the rule is (Critical, Recommended, Educational or Advanced) and its
+  area, why it matters, what to do, when it's fine to leave, and how to check a change worked, from
+  the rule's section of the notebook or SQL best-practices guide. Importance only explains a rule: its
+  severity and your organization's policies decide what is flagged and required. That text ships with
+  the app, so it works offline and nothing is sent anywhere.
 - **Show example** shows the guide's Before and After. **Copy example** copies the After; your code
   isn't changed for you.
+- **Try the fix**, at every level, shows a rewrite as a preview, for the rules that have a safe one. It
+  is offered only when KratosForge can show the rewrite returns exactly what the SQL returned before.
+  Otherwise the button isn't there:
+    - **SQ002**: `YEAR(order_date) = 2026` becomes `(order_date >= '2026-01-01' AND order_date < '2027-01-01')`,
+      when `order_date` is a date or date-and-time column (not `datetimeoffset`) of the one table that
+      has it. It needs the column types: on a warehouse, load its objects in the explorer first.
+    - **SQ005**: `sales` becomes `dbo.sales`, when `dbo`, the default schema, is the only schema with
+      that name.
+
+  Nothing changes until **Apply**, which is one edit in the editor: **Ctrl+Z** undoes it. On a
+  warehouse or SQL analytics endpoint, **Compare before applying** runs the statement as written, then
+  as fixed. That works for a SELECT, or the query of CREATE or ALTER VIEW. It asks first each time:
+  both versions only read, and both use capacity. It then says whether the rows are the same (every
+  row compared, or a checksum above the comparison limit) and gives each run's measured time. The
+  fixed version runs second, so data the first run cached can favor it. **Stop** ends a Compare that
+  is still running. A lakehouse tab's T-SQL doesn't run on this PC, so it has no Compare. Each fix
+  ends with the principle behind it.
 - **Dismiss** hides the finding in your own Best practices panels on this PC: **Not on this line**
   (that line, and any line in the same file that reads exactly the same, until it changes), **Not in
   this file** (this notebook or saved SQL file, by its folder and name; an unsaved SQL tab by its
-  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of the line is kept, never your code. The check still runs,
-  and governance checks and everything else that reads findings still see it. The panel's
-  **N dismissed** list has **Show again** for each, and **Show all again**.
+  lakehouse or warehouse and tab name) or **Never show** the rule. Only a fingerprint (SHA-256) of
+  the line is kept, never your code. The check still runs, and governance checks and everything else
+  that reads findings still see it. The panel's **N dismissed** list has **Show again** for each, and
+  **Show all again**.
 - A rule a governance policy for the project turns on can't be dismissed: the finding says **Your
   organization requires this rule**, and an earlier dismissal of it doesn't hide it. A policy that
   only changes a rule's severity doesn't stop you dismissing it.
 
 The first time you open Learn, a card at the top of Home asks **Would you like KratosForge to help you
-improve your development skills?** with the three modes and Focus picked. **Save** keeps the mode you
-picked; **Skip** keeps Focus. Either way it isn't asked again, and choosing another mode with
-**Learning guidance** answers it too. It isn't asked when an organization policy sets the mode.
+improve your development skills?** with the three levels and Professional picked. **Save** keeps the
+level you picked; **Skip** keeps Professional. Either way it isn't asked again, and choosing another
+level with **Learning guidance** answers it too. It isn't asked when an organization policy sets it.
+
+### Under a Query profile
+
+A notebook result's **Query profile** notes what the run measured that a best-practice rule
+explains, such as a scan that read 3,000,000 rows to keep 369,600 because its filter wraps the column
+in `year()`. Each note links **About** its rule, and appears only when the profile shows it
+([Notebooks](notebooks.md)).
 
 ## In your profile
 

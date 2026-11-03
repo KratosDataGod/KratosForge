@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from . import costs
+from . import costs, jsonfile
 from . import measurement as ms
 from .retrying import TRANSIENT_STATUS
 
@@ -212,7 +212,4 @@ def load(path: Path) -> dict[str, Any] | None:
 
 
 def save(path: Path, doc: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(doc, default=str), encoding="utf-8")
-    tmp.replace(path)
+    jsonfile.write_text(path, json.dumps(doc, default=str))

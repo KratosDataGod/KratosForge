@@ -282,3 +282,43 @@ def test_metadata_project_is_described_and_validated(svc, tmp_path):
         "checks", "clean", "derive", "freshness", "criticality"}
     result = services.validate_project(svc, ctx())
     assert result["ok"] is True and result["errors"] == []
+
+
+def test_every_check_follows_a_run_notebook_on_this_pc(svc):
+    """#1273: Runs on (open and save), Validate, Prove's check, the advisor and the AI tool all read
+    the helper a notebook runs, so they say the same thing about it."""
+    svc.notebooks.save("Helpers", [{"type": "code", "source": "import notebookutils as nu\nnu.fs.mount('abfss://c@a', '/m')"}])
+    main = [{"type": "code", "source": "%run Helpers"}]
+    svc.notebooks.save("Main", main)
+    text = "runs Helpers (%run), whose cell 1 uses Fabric notebook utilities that need Fabric"
+    opened = svc.open_notebook("Main")["check"]["local"]
+    saved = svc.save_notebook("Main", main)["check"]["local"]
+    tool = services.validate_notebook(svc, ctx(), name="Main")
+    assert opened["reasons"][0]["text"] == saved["reasons"][0]["text"] == tool["this_pc"]["reasons"][0]["text"] == text
+    assert tool["ok"] is False and tool["this_pc"]["status"] == "blocked"
+    assert any(f["code"] == "runs_on_pc" and text in f["text"] for f in tool["findings"])
+    assert [b for b in tool["proof"]["blockers"] if text in b["text"]]
+
+
+def test_placement_advice_follows_a_run_notebook_too(svc):
+    svc.notebooks.save("Helpers", [{"type": "code", "source": "import notebookutils as nu\nnu.fs.mount('abfss://c@a', '/m')"}])
+    svc.notebooks.save("Main", [{"type": "code", "source": "%run Helpers"}])
+    texts = [r["text"] for r in svc.placement_advice("Main")["reasons"] if r["kind"] == "compatibility"]
+    assert any("runs Helpers (%run), whose cell 1 uses Fabric notebook utilities" in t for t in texts), texts
+
+
+def test_every_check_reads_a_run_b_file_and_a_notebook_runs_own_lakehouse(svc):
+    """#1288: the service gives the checks this notebook's resources folder and the other notebooks' lakehouses."""
+    from pathlib import Path
+    svc.notebooks.save("Main", [{"type": "code", "source": "%run -b setup.py"},
+                                {"type": "code", "source": "import notebookutils as nu\nnu.notebook.run('Child')"}],
+                       {"workspace_id": "ws", "lakehouse_id": "lh", "name": "Sales"})
+    svc.notebooks.save("Child", [{"type": "code", "source": "df = spark.read.table('dbo.t')"}])
+    builtin = Path(svc.notebooks.resources("Main")) / "builtin"
+    builtin.mkdir(parents=True, exist_ok=True)
+    (builtin / "setup.py").write_text("import notebookutils as nu\nnu.fs.mount('abfss://c@a', '/m')", encoding="utf-8")
+    check = svc.open_notebook("Main")["check"]
+    assert check["local"]["reasons"][0]["text"].startswith("runs setup.py (%run -b), which uses Fabric notebook utilities")
+    assert check["fabric"]["reasons"][0]["text"].startswith("runs Child (notebook.run) in a session of its own")
+    tool = services.validate_notebook(svc, ctx(), name="Main")
+    assert tool["this_pc"]["reasons"] == check["local"]["reasons"] and tool["fabric"]["reasons"] == check["fabric"]["reasons"]

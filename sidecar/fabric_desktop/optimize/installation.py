@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import __version__
+from .. import __version__, jsonfile
 
 
 def now() -> str:
@@ -35,16 +35,13 @@ class Installation:
 
     def _load(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.path, {})
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-        tmp.replace(self.path)
+        jsonfile.write_text(self.path, json.dumps(data, indent=1))
 
     @property
     def id(self) -> str:

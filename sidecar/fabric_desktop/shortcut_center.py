@@ -66,6 +66,12 @@ def health_from_probe(s: dict[str, Any], host_status: int | None, status: int | 
         return {"health": "not_checked", "detail": f"The check didn't reach OneLake: {message}".strip(": ")}
     if 200 <= status < 300:
         return {"health": "healthy", "detail": ""}
+    # OneLake was busy (429, 503), or failed on a OneLake target: that says nothing about the shortcut.
+    # For an external target (ADLS, S3, GCS) OneLake passes on the storage's own failure as a 500, 502
+    # or 504, which can be a real break, so those stay broken and the watch still posts them.
+    if status in (429, 503) or (onelake and status >= 500):
+        return {"health": "not_checked", "detail": f"OneLake was busy (it answered {status}), so this wasn't checked. "
+                                                   "It's checked again next time"}
     if status == 404:
         return {"health": "broken", "detail": "The target table or folder isn't there any more (removed, renamed or moved)"
                 if onelake else "The storage path isn't there any more"}
@@ -236,7 +242,7 @@ def readers_gap(here: list[dict[str, Any]], there: list[dict[str, Any]] | None, 
     else:
         ids_there = {r["id"] for r in there}
         missing = [r for r in here if r["id"] not in ids_there]
-        out |= {"target": len(ids_here & ids_there), "gap": 0, "missing": missing[:50],
+        out |= {"target": len(ids_here & ids_there), "gap": len(missing), "missing": missing[:50],
                 "text": "Matches" if not missing else
                 f"{len(missing)} of {len(ids_here)} see it empty: they have no access to the target"}
     return out

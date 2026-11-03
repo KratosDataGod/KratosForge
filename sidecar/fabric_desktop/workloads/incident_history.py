@@ -25,9 +25,10 @@ import polars as pl
 from ..optimize import schema
 from ..optimize.shared import record_id, timestamp
 from ..redact import secrets
+from .. import jsonfile
 
 S = pl.String
-TABLES_V1: dict[str, dict[str, pl.DataType]] = {
+TABLES_V1: dict[str, dict[str, schema.Dtype]] = {
     "incident_event": {"incident_id": S, "number": S, "env": S, "workspace_id": S, "kind": S, "priority": S,
                        "at": S, "by": S, "what": S, "text": S},
     "incident_snapshot": {"incident_id": S, "number": S, "env": S, "workspace_id": S, "kind": S, "source": S,
@@ -91,7 +92,7 @@ class Sent:
 
     def _load(self) -> dict[str, list[str]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = jsonfile.read_json(self.path, {})
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}
@@ -106,7 +107,4 @@ class Sent:
         seen = set(known)
         known += [i for i in ids if i not in seen]
         data[lakehouse_id] = known[-KEEP_SENT:]
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.replace(self.path)
+        jsonfile.write_text(self.path, json.dumps(data))

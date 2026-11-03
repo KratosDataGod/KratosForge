@@ -40,6 +40,11 @@ async function environmentDialog(nb, job = null) {
     reopen(started);
   }
   async function remove(name) {
+    closeDialog();
+    const ok = await confirmDialog(`Remove ${name} from ${env.name}?`,
+      `Its files are deleted from this PC, so ${env.notebooks.length ? env.notebooks.join(", ") : "notebooks using it"} can't import it any more. Install it again to bring it back.`,
+      "Remove", { danger: true });
+    if (!ok) return reopen();
     const j = await attempt(() => rpc("environment_uninstall", { name: env.name, packages: [name] }), "Could not remove");
     reopen(j);
   }
@@ -57,7 +62,7 @@ async function environmentDialog(nb, job = null) {
     }
     reopen();
   }
-  const log = job ? h("div", { class: "env-job" }, h("p", {}, job.state === "running" ? "Installing..." : job.state === "done" ? "Done." : "pip failed:"),
+  const log = job ? h("div", { class: "env-job" }, h("p", {}, job.state === "running" ? (job.remove ? "Removing..." : "Installing...") : job.state === "done" ? "Done." : "pip failed:"),
     job.log ? h("pre", { class: "env-log" }, job.log) : null) : null;
   showDialog("Notebook environment", h("div", { class: "scroll env-body" },
     h("p", { class: "dialog-text" }, "Packages this notebook adds to the app's own. They come after the app's packages, so they can't replace Polars, DuckDB or the others it ships."),

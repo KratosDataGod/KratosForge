@@ -9,6 +9,7 @@ from fabric_desktop.central.client import PlatformKeys
 from fabric_desktop.meta import keys as K
 from fabric_desktop.meta.project import GateError
 from fabric_desktop.service import Service
+from tests.fabric_refusals import check_item
 
 
 @pytest.fixture
@@ -126,6 +127,7 @@ class FakeFabric:
         return self.items
 
     def save_item(self, ws, kind, name, definition=None, description=""):
+        check_item(kind, definition)
         self.saved.append((ws, kind, name, definition))
         return {"id": f"{kind}-id", "created": True}
 

@@ -34,9 +34,14 @@ Keys:
     ui_preview_marks  "tags" (default): Preview features carry a Preview tag; "dots": a small dot,
                      with the tag kept on page titles
     ui_density       "comfortable" (default) or "compact": spacing in tables, lists and toolbars
-    learn_mode       how much learning guidance shows beside your work (docs/learn.md): "focus"
-                     (default) findings and About only; "guided" adds the lesson that covers a
-                     finding; "learning" also suggests the next lesson on Learn's Home
+    learn_mode       how much learning guidance shows beside your work (docs/learn.md): "expert"
+                     findings, About and Dismiss; "professional" (default) adds a line on why and
+                     Explain and Show example on request; "guided" opens Explain, adds the lesson
+                     that covers a finding and suggests the next lesson on Learn's Home. The first
+                     names, "focus" and "learning", still read as "expert" and "guided"
+    learn_mode_sql, learn_mode_notebooks  the level for SQL findings or notebook findings only:
+                     "same" (default) follows learn_mode; "expert", "professional" or "guided"
+                     overrides it for that subject. Checks and policies are the same at every level
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -127,6 +132,7 @@ fail silently.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -134,6 +140,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonfile
+from .redact import one_line
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
@@ -215,10 +222,18 @@ DEFAULTS.update({"ui_explanations": "on_request", "ui_preview_marks": "tags", "u
 TYPES.update({"ui_explanations": str, "ui_preview_marks": str, "ui_density": str})
 USER_KEYS += ("ui_explanations", "ui_preview_marks", "ui_density")
 # Learn (app/ui/learn.js): guidance beside findings. Checks run the same in every mode.
-CHOICES["learn_mode"] = ("focus", "guided", "learning")
-DEFAULTS["learn_mode"] = "focus"
+CHOICES["learn_mode"] = ("expert", "professional", "guided")
+DEFAULTS["learn_mode"] = "professional"
 TYPES["learn_mode"] = str
 USER_KEYS += ("learn_mode",)
+# Guidance by subject (GD-08): "same" follows learn_mode; another level overrides it for that subject only.
+for _subject in ("sql", "notebooks"):
+    CHOICES[f"learn_mode_{_subject}"] = ("same", "expert", "professional", "guided")
+    DEFAULTS[f"learn_mode_{_subject}"] = "same"
+    TYPES[f"learn_mode_{_subject}"] = str
+    USER_KEYS += (f"learn_mode_{_subject}",)
+# A value saved, or set by policy, under a name a setting no longer has, read as its new name.
+RENAMED: dict[str, dict[str, str]] = {"learn_mode": {"focus": "expert", "learning": "guided"}}
 # Databricks Connect (engines/dbconnect.py): whether the app may install its client from the
 # hash-pinned lock files, and the package index to fetch them from (empty: the default index).
 DEFAULTS.update({"allow_dbconnect_install": True, "dbconnect_index_url": ""})
@@ -276,12 +291,18 @@ def saved_policy_path() -> Path:
     return user_path().with_name("policy-last-good.json")
 
 
-def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
-    """(settings, why the file can't be used, whether the saved copy stands in for it)."""
+def _policy_file(digest: dict[str, str | None] | None = None) -> tuple[dict[str, Any], str | None, bool]:
+    """(settings, why the file can't be used, whether the saved copy stands in for it). With ``digest``,
+    also the SHA-256 of the very bytes it read, as digest["sha256"] (None when it couldn't read any)."""
     path = policy_path()
     saved = saved_policy_path()
+    if digest is not None:
+        digest["sha256"] = None
     try:
-        text = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
+        if digest is not None:
+            digest["sha256"] = hashlib.sha256(raw).hexdigest()
+        text = raw.decode("utf-8-sig")
         data = json.loads(text)
     except FileNotFoundError:
         saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
@@ -331,6 +352,20 @@ def read_policy() -> tuple[dict[str, Any], str | None]:
     return data, None if from_copy else reason
 
 
+def policy_fingerprint() -> dict[str, Any]:
+    """What the policy file holds now, for the record of its changes (policy_watch.py): the SHA-256 of
+    its bytes, the same as PowerShell's Get-FileHash (None with no file, or one that can't be opened);
+    which settings apply ("applied", "last_good" when the saved copy stands in for a broken file,
+    "fail_closed" when nothing can, "none" with no file); and whether the account running the app
+    could change or replace it."""
+    path = policy_path()
+    digest: dict[str, str | None] = {}
+    _, reason, from_copy = _policy_file(digest)  # one read: the hash is of the bytes whose settings apply
+    exists = digest["sha256"] is not None or reason is not None
+    state = "last_good" if from_copy else "fail_closed" if reason else "applied" if exists else "none"
+    return {"sha256": digest["sha256"], "state": state, "user_can_change": exists and user_can_change(path)}
+
+
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
     """``key`` is a restriction the policy file means to set but can't: the file is unreadable, or
     the key has the wrong kind of value."""
@@ -370,7 +405,7 @@ def policy_problems() -> list[str]:
                         "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
-            problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+            problems.append(f"{one_line(key, 80)} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
         elif key in INTEGRATION_KEYS:
             continue  # integrations/policy.py checks these, below
         elif key == "fabric_view_sign_in_hosts":
@@ -388,7 +423,7 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
-        elif key in CHOICES and value not in CHOICES[key]:
+        elif key in CHOICES and value not in (*CHOICES[key], *RENAMED.get(key, {})):
             problems.append(f"{key} must be one of {', '.join(CHOICES[key])}")
         elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
             problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
@@ -563,6 +598,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
+            candidate = RENAMED.get(key, {}).get(candidate, candidate) if isinstance(candidate, str) else candidate
             if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break

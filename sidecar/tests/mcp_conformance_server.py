@@ -26,7 +26,7 @@ def main(port: int) -> None:
     from fabric_desktop.integrations.store import IntegrationStore
     from fabric_desktop.service import Service
 
-    service = Service(root=Path(data) / "FabricDesktop")
+    service = Service(root=Path(data) / "FabricDesktop", headless=True)  # as the real local API: never a sign-in window
     store = IntegrationStore.at(service.root)
     store.set_setting("enabled", True)
     _, token = store.add_client("Conformance suite", "other-mcp", transport="http", grants=["READ_METADATA"])

@@ -65,6 +65,7 @@ required items are never below P1, whatever their score. Each states why.
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | blocker | 2.48 | P0 | Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people. |
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | blocker | 1.85 | P0 | QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001. |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | blocker | 1.75 | P0 | HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
+| [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | blocker | 1.75 | P0 | EA-001 (appends quietly changed values in lakehouse tables) and EA-020 (engine packages and sources installed without hash checks) are data-integrity and release-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | required | 2.56 | P1 | Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof. |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | required | 2.45 | P1 | The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI. |
 | [PB-078](PRODUCT_BACKLOG.md#pb-078) | Preview tags match the docs | required | 2.45 | P1 | AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy. |
@@ -138,7 +139,7 @@ are sequenced by those programs; the order here is what the master product view 
 ## Ranking
 
 <!-- BEGIN GENERATED: ranking -->
-### P0 (5 items)
+### P0 (6 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -147,6 +148,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | 4 | 2 | 5 | 2 | 5 | 4 | 3 | 3.7 | 3.5 | 1.85 | blocker | XL | Medium | none | Engineering quality review |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
+| [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | L | Medium | none | Enterprise readiness |
 
 ### P1 (32 items)
 
@@ -185,7 +187,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (55 items)
+### P2 (59 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -203,7 +205,11 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-091](PRODUCT_BACKLOG.md#pb-091) | Agent dashboard | 2 | 1 | 5 | 3 | 4 | 2 | 2 | 3.0 | 2.0 | 2.4 | none | M | High | none | Workload management |
 | [PB-056](PRODUCT_BACKLOG.md#pb-056) | Enterprise policy registry | 3 | 1 | 5 | 4 | 4 | 3 | 2 | 3.4 | 2.5 | 2.38 | none | M | Medium | none | Enterprise governance foundation |
 | [PB-082](PRODUCT_BACKLOG.md#pb-082) | Versioned data contracts with consumer declarations | 3 | 1 | 5 | 4 | 4 | 3 | 2 | 3.4 | 2.5 | 2.38 | none | M | Medium | none | Staged roadmap |
-| [PB-119](PRODUCT_BACKLOG.md#pb-119) | Learn: lessons, labs and guidance modes | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-119](PRODUCT_BACKLOG.md#pb-119) | Learn v1: lessons, labs and finding actions | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-122](PRODUCT_BACKLOG.md#pb-122) | Guided Development: levels, Try the fix and Compare | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Guided development (GD) |
+| [PB-123](PRODUCT_BACKLOG.md#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
+| [PB-125](PRODUCT_BACKLOG.md#pb-125) | Learn ranks and profile pictures | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | M | Medium | none | Learning experience (LX) |
+| [PB-126](PRODUCT_BACKLOG.md#pb-126) | Learn curriculum content batches by path | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |
@@ -288,3 +294,9 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-28 | Product check for #827 and #829 to #838; fixed review findings (PB-025, PB-059, PB-082) taken off the inventory's limitations | Product management thread |
 | 2026-10-28 | Chris accepted the In review batch: 35 items Accepted (20 with documented limitations, PB-059 among them); PB-024 narrowed to warehouses (PB-114 split out) and PB-112's Fabric half split to PB-115; PB-005, PB-045, PB-084 and PB-024 stay In review | Product management thread |
 | 2026-10-30 | Chris accepted acceptance batch 2: 19 items Accepted (10 with documented limitations), with changed criteria for PB-031, PB-049 and PB-072; PB-049 stays In progress for its live run; PB-005, PB-024, PB-045 and PB-084 stay In review | Product management thread |
+| 2026-10-30 | Evening check for #1150 to #1191 (with #901 and #1147); PB-027 and PB-096 to In review, PB-061 to In progress | Product management thread |
+| 2026-10-31 | Morning check for #1196 and #1200 to #1202 | Product management thread |
+| 2026-10-31 | Evening check for #1205 to #1357; PB-014 and PB-062 to In progress | Product management thread |
+| 2026-11-01 | Morning check for #1381 to #1523 (hardening and tests); PB-014 review: Changes Required on criterion 2 (#1362) | Product management thread |
+| 2026-11-01 | Chris accepted PB-027, PB-096, PB-098, PB-116, PB-117 and PB-118 (three with documented limitations; PB-098 reworded) | Product management thread |
+| 2026-11-01 | Evening check for #1182 to #1549 (Learn GD-04, GD-05, GD-08; DuckDB 2 allowed, D-E10) | Product management thread |

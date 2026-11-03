@@ -167,10 +167,11 @@ class PermissionAuthorizer:
             state = current["state"]
             if state == "approved":
                 if self.store.consume(current["id"], client["id"], digest):
+                    ctx.approval_id = current["id"]
                     return
                 state = "used"
             if state == "denied":
-                raise IntegrationError("approval_denied", f"The person said no to {cap.title.lower()}.",
+                raise IntegrationError("approval_denied", f"The person said no to this request ({cap.title}).",
                                        details={"approval_id": current["id"], "note": current.get("note", "")})
             if state in ("expired", "used"):
                 raise IntegrationError("approval_required", "The approval request expired before anyone answered it.",
@@ -180,7 +181,7 @@ class PermissionAuthorizer:
                 raise IntegrationError("cancelled", "Cancelled by the caller while waiting for approval.")
             if time.monotonic() >= give_up:
                 raise IntegrationError(
-                    "approval_required", f"Waiting for the person to approve {cap.title.lower()} in KratosForge.",
+                    "approval_required", f"Waiting for the person to approve this request ({cap.title}) in KratosForge.",
                     retryable=True, details={"approval_id": current["id"], "expires_at": current["expires_at"]},
                     hint="Tell the person what you asked for. Once they approve it, make the same call again with the same arguments.")
             time.sleep(self.poll)

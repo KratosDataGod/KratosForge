@@ -22,6 +22,7 @@ from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, FABRIC_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, schema_cache, sql, sql_dialects, sql_exec, sql_format, sqlcompat, warehouse
+from .learn import evidence
 from .filenames import file_stem
 from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
@@ -241,12 +242,27 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
         threading.Thread(target=run, name="usage-send", daemon=True).start()
 
+    def _checks(self, name: str | None) -> dict[str, Any]:
+        """What compute_check (and Prove's and Validate's checks) need to follow the code that
+        notebook ``name`` runs: the other notebooks by name, and its resources folder for %run -b."""
+        return {"load": self._notebook_of, "resources": self._resources_dir(name) or None}  # type: ignore[attr-defined]
+
+    def _notebook_of(self, name: str) -> dict[str, Any]:
+        """Another notebook by name, for compute_check: its cells and its own lakehouse."""
+        nb = self.notebooks.load(name)
+        return {"cells": nb["cells"], "lakehouse": nb.get("lakehouse")}
+
+    def _cells_of(self, name: str) -> list[dict[str, Any]]:
+        """Another notebook's cells, by the name ``%run`` gives it: what the kernel runs, and what
+        compute_check follows."""
+        return self.notebooks.load(name)["cells"]
+
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
         inside the engine."""
         if process is None:
             process = bool(app_settings.value("kernel_process"))
-        load = lambda name: self.notebooks.load(name)["cells"]  # noqa: E731
+        load = self._cells_of
         if process:
             kernel = ProcessKernel(token=self._token_for, load_notebook=load, variable_libraries=self._notebook_variables)
             _apply_limits(kernel)
@@ -315,7 +331,18 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
-                "policy_problems": app_settings.policy_problems()}
+                "policy_problems": app_settings.policy_problems(), "policy_record": self.policy_record()}
+
+    def policy_record(self) -> dict[str, Any] | None:
+        """The policy file's hash and its last change, recording a change in the audit trail (policy_watch.py).
+        app_settings stays READ_ONLY in audit.py: opening Settings isn't audited, but a policy file that
+        changed since the last look is, as its own policy_file_changed entry."""
+        from . import policy_watch
+        try:
+            return policy_watch.check(self.root, self.audit)
+        except Exception:  # noqa: BLE001 - a record that can't be made never stops Settings or the engine
+            _log.exception("Couldn't record the policy file's state")
+            return None
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
@@ -438,7 +465,8 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             try:
                 return ref["lakehouse_id"], [f"{schema}.{t}" for schema in catalog.list_schemas(ref["workspace_id"], ref["lakehouse_id"])
                                              for t in catalog.list_tables(ref["workspace_id"], ref["lakehouse_id"], schema)]
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - one lakehouse's tables missing from the list, not the whole list
+                _log.warning("Couldn't list the tables of lakehouse %s: %s", ref["lakehouse_id"], describe(exc))
                 return ref["lakehouse_id"], []
 
         def run() -> None:
@@ -724,9 +752,13 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
 
     def notebook_frame_query_profile(self, frame: str) -> dict[str, Any]:
         """Query profile: the query behind a cell's spark or %%sql result, run again under DuckDB's
-        profiler, step by step (rows, time, share of the total). Reads only."""
+        profiler, step by step (rows, time, share of the total). Reads only. ``notes`` are what the
+        profile measured that a best-practice rule explains (learn/evidence.py, GD-04)."""
         try:
-            return self.kernel.frame_query_profile(frame=frame)
+            profile = self.kernel.frame_query_profile(frame=frame)
+            if not profile.get("gone"):
+                profile["notes"] = evidence.notes(profile)
+            return profile
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -939,7 +971,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
         columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-                "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+                "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
                 "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
@@ -1019,7 +1051,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
         nb = self.notebooks.load(name)
         self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
         self.sessions.reap_idle()
-        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"], **self._checks(name)),
                                        "replay": self.notebooks.extra(name, "replay"),  # a replay notebook (prove_service)
                                        "onelake_writes": self.notebooks.extra(name, "onelake_writes")}
 
@@ -1109,7 +1141,7 @@ class Service(NotebookBatchMixin, TrustMixin, AccessCacheMixin, LocalWritesMixin
             copy = self._keep_both_sides(name, cells, lakehouse_ref, compute, workspace, bool(out.get("unreadable")))
             return out | ({"outside_copy": copy} if copy else {})
         self._keep_version(name)
-        return out | {"check": compute_check(cells, lakehouse_ref)}
+        return out | {"check": compute_check(cells, lakehouse_ref, **self._checks(name))}
 
     def notebook_diff(self, name: str, other: str | None = None) -> dict[str, Any]:
         """How the notebook's cells differ, by source only, from ``other`` (another notebook) or,
@@ -1173,7 +1205,7 @@ def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
     (time.monotonic)."""
     columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
     return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns, strict=True)],
             "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
 

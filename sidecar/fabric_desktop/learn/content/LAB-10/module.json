@@ -1,0 +1,92 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-10",
+  "kind": "lab",
+  "title": "Ship a domain data product",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 30,
+  "objectives": [
+    "Build a product table with the types and key its contract promises",
+    "Keep every customer, including those with no orders",
+    "Prove every row points at a real customer"
+  ],
+  "prerequisites": [
+    "LM-05"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "customer-summary",
+      "prompt": "Build customer_summary: customer_id INTEGER, name VARCHAR, segment VARCHAR, orders INTEGER, revenue DECIMAL(12, 2) and last_order DATE, one row per customer in customers (0 orders and 0 revenue when they have none; last_order empty). Orders for unknown customers aren't part of the product. End with SELECT * FROM customer_summary ORDER BY customer_id.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter groups orders, so Tailspin (no orders) is missing and unknown customer 9 sneaks in.",
+        "Start from customers and LEFT JOIN orders, so every customer stays and unknown ones don't appear.",
+        "CREATE TABLE with the contract's types first, then INSERT ... SELECT c.customer_id, c.name, c.segment, count(o.order_id), coalesce(sum(o.amount), 0), max(o.order_date) ... GROUP BY c.customer_id, c.name, c.segment."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "table_shape",
+          "table": "customer_summary",
+          "columns": {
+            "customer_id": "INTEGER",
+            "name": "VARCHAR",
+            "segment": "VARCHAR",
+            "orders": "INTEGER",
+            "revenue": "DECIMAL",
+            "last_order": "DATE"
+          },
+          "unique": [
+            "customer_id"
+          ],
+          "not_null": [
+            "customer_id",
+            "orders",
+            "revenue"
+          ]
+        },
+        {
+          "kind": "integrity",
+          "child": "customer_summary",
+          "column": "customer_id",
+          "parent": "customers"
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ004",
+            "SQ010"
+          ]
+        }
+      ]
+    }
+  ],
+  "rules": [
+    "SQ004",
+    "SQ010"
+  ],
+  "docs": [
+    "https://learn.microsoft.com/fabric/governance/endorsement-overview"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

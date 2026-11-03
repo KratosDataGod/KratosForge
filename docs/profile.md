@@ -9,7 +9,7 @@ with, and nothing in it is sent anywhere.
 
 ## What gets recorded
 
-Three things:
+Four things:
 
 - A notebook that passes [Validate](validate-notebook.md) with a clean run (Ready, or Ready with
   warnings) and reads or writes at least one lakehouse table.
@@ -21,6 +21,11 @@ Three things:
   the lesson is recorded too. The profile keeps the lesson's id, the exercise, the content version,
   which kinds of check passed and, for a speed check, the times measured on this PC; never your
   answer or the lab's data.
+- A best-practice fix applied with **Try the fix** after **Compare** ran the query as written and as
+  fixed and found the same rows ([Learn](learn.md#beside-a-finding)). Only Apply records it, and only
+  when that Compare matched; a fix applied without a Compare, or after one that found different rows,
+  isn't recorded. The profile keeps the rule, the two runs' ids, the row count and each run's measured
+  time (one run each); never the SQL or its rows. It earns no XP.
 
 Each one is recorded as a line that says what passed, when, and the id of the Validate result, run
 receipt or Learn lesson.
@@ -71,15 +76,53 @@ A proof runs the notebook in Fabric, which uses some capacity, so Proof Forged i
 to level up. New revisions of a notebook already counted earn no XP. Nothing rewards
 hours, run counts, lines of code or compute used.
 
-Levels (rules version 2; version 2 added Learn and kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
-XP, level 5 is 800, level 10 is 2,700 and level 50 is 34,300. Titles: 1-4 Apprentice, 5-9 Forge
-Initiate, 10-14 Iron Forger, 15-19 Steel Forger, 20-29 Master Forger, 30-39 Forge Architect, 40-49
-Wolf Guardian, 50+ Legend of the Forge. A later rules version won't change what you've already
-earned.
+Levels (rules version 3; version 2 added Learn, version 3 added checked fixes, and both kept the level curve): reaching level L takes `round(100 × (L − 1)^1.5)` XP, so level 2 is 100
+XP, level 5 is 800, level 10 is 2,700 and level 50 is 34,300. A level is a number; your title is
+your rank (below). A later rules version won't change what you've already earned.
 
 **Profile > Journey** shows your level, recent milestones (achievements and levels reached), every
 badge and what you could earn next. **Profile > Achievements** lists each achievement with exactly
 what earns it and the evidence it rests on. Both tabs are hidden while Developer progression is off.
+
+## Ranks
+
+Your title is your rank: thirteen ranks in three tiers, from the forge floor, through the wolf pack,
+into Greek myth. A rank comes only from work KratosForge verified on this PC, and each rank needs
+every rank below it. **Profile > Ranks** lists them all with each requirement and how far you are;
+**Overview** shows your rank and what the next one needs. The tab is hidden while Developer
+progression is off.
+
+| # | Rank | Tier | What earns it |
+| --- | --- | --- | --- |
+| 1 | Apprentice | The Forge | Everyone starts here |
+| 2 | Forge Initiate | The Forge | Pass one Learn exercise |
+| 3 | Iron Forger | The Forge | Finish LM-01 to LM-05 and LAB-01 |
+| 4 | Steel Forger | The Forge | Finish LAB-02, and earn First Flame |
+| 5 | Master Forger | The Forge | Finish 3 learning paths, and earn The Query Forger |
+| 6 | Pack Runner | The Pack | Pass 25 different exercises and finish 4 labs |
+| 7 | Trailfinder | The Pack | Earn The Guardian, and check 3 best-practice fixes with Compare |
+| 8 | Wolf Guardian | The Pack | Finish the Microsoft Fabric path, and earn The Architect's Eye and Steady Hand |
+| 9 | Pack Leader | The Pack | Finish 5 paths and 8 labs, and check 10 fixes |
+| 10 | Argonaut | The Myth | Finish the Databricks or the Snowflake path |
+| 11 | Cyclops Smith | The Myth | Finish LAB-11, and validate 15 different notebooks |
+| 12 | Forge Architect | The Myth | Finish the Enterprise Architecture path |
+| 13 | Legend of the Forge | The Myth | Finish all seven paths and LAB-12, with evidence over at least 90 days |
+
+A path counts as finished when every lesson planned for it in this ladder version is finished, so a
+new lesson never takes a rank away. A rank that needs lessons that haven't shipped yet shows
+**Coming soon**. Proof Forged runs in Fabric, so no rank needs it. Excluding an accomplishment takes
+it out of your rank too. The Argonauts sailed with Jason, and in the myths the Cyclopes were the
+smiths who forged thunderbolts: the ranks are craftsmen and heroes, never gods.
+
+### Profile picture
+
+**Edit profile > Choose picture** sets your picture: a PNG, JPEG or WebP of up to 5 MB. KratosForge
+crops the middle square, scales it to 256 px and saves it again as PNG, so photo details such as
+location are dropped. It is kept only in your profile folder on this PC and shows on Profile and the
+account button. **Remove picture** puts your initial back.
+
+KratosForge doesn't make images. Each rank on **Profile > Ranks** has **Copy picture prompt**: a
+description of an original wolf-and-forge emblem for that rank to paste into your own image tool.
 
 ## Skills
 
@@ -90,7 +133,9 @@ artifacts over 60+ days, of 2+ kinds). Not seen yet and Not tracked yet mean exa
 a low rating. This version tracks Data Engineering, Engineering Quality and (through proofs) Performance &
 Optimization, and through Learn also Learning & Growth (every passed exercise) and, by the kind of
 check passed, Performance & Optimization (speed), Architecture & Reusability (table shape, integrity)
-and Engineering Quality (finding planted data quality problems).
+and Engineering Quality (finding planted data quality problems). A checked fix counts toward Engineering
+Quality, and toward its rule's area where there is a skill for it (Performance & Optimization for a
+performance rule).
 
 ## Excluding an accomplishment
 
@@ -103,12 +148,18 @@ and Engineering Quality (finding planted data quality problems).
 executive summary, key contributions, engineering quality, performance and efficiency, learning,
 technical competencies and an evidence appendix. A proof adds a key contribution, its measured times under
 performance and efficiency, and its run receipt in the appendix. Learning lists each Learn lesson or
-lab you finished and how many exercises passed. Every line says where it came from:
+lab you finished and how many exercises passed. Checked fixes are counted under engineering quality,
+with each one's two measured times under performance and efficiency, labeled one run each. The report
+says what was checked, never that a skill was mastered. Every line says where it came from:
 
 - **Verified**: from a recorded accomplishment, with its evidence reference (E1, E2, ...).
 - **Entered by you**: your own executive summary, if you write one.
 - **Generated summary**: fixed wording filled in from verified accomplishments. Nothing is inferred.
 - **Not measured**: there is no measurement for it in the period.
+
+The report names the notebooks and warehouses your accomplishments came from, such as a notebook
+you validated or the warehouse a checked fix ran on, so read it before you share it. To leave an
+accomplishment out, **Exclude** it on Overview.
 
 XP, levels and achievements are left out unless you tick **Include KratosForge achievements**.
 **Save Markdown** saves a new file in Downloads (it never replaces one), and **Copy summary**
@@ -117,5 +168,5 @@ copies the summary as plain text.
 ## Your data
 
 **Export my profile** saves the profile as JSON in Downloads. **Delete my profile data** deletes
-your recorded accomplishments, profile details and report summary on this PC; Validate history and
+your recorded accomplishments, profile details, picture and report summary on this PC; Validate history and
 run receipts stay. There is no leaderboard, no sharing and no manager view.

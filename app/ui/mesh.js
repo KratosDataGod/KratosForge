@@ -460,13 +460,14 @@ async function renderMeshLinksTab(body) {
         text: "Find a product on the Data products tab and choose Link, or add one here." }),
       rows.length ? status : null)].filter(Boolean));
   if (!rows.length) return;
-  const resolved = await attempt(() => rpc("mesh_resolve_links", { env })) || [];
+  const resolved = await attempt(() => rpc("mesh_resolve_links", { env }), "Couldn't check where the links point");
   for (const r of rows) {
-    const got = resolved.find((x) => x.alias === r.l.alias);
+    const got = resolved?.find((x) => x.alias === r.l.alias);
     r.where.replaceChildren(got?.ok ? h("span", { title: got.table }, got.table.replace(/^abfss:\/\/([^@]+)@[^/]+\//, "$1/"))
-      : h("span", { class: "fail-text" }, got?.message || "not resolved"));
+      : h("span", { class: resolved ? "fail-text" : "muted-text" }, got?.message || (resolved ? "not resolved" : "not checked")));
   }
-  status.textContent = `Resolved for ${ENV_LABEL[env]}.`;
+  // A refused check isn't "Resolved": the message says why.
+  status.textContent = resolved ? `Resolved for ${ENV_LABEL[env]}.` : `Not checked for ${ENV_LABEL[env]}.`;
 }
 
 function p_usedBy(alias) {
@@ -581,6 +582,16 @@ async function platformSection() {
 
 // ---------- one keys database for Dev, Test and Prod (Preview) ----------
 
+// Creating a workspace assigns it the capacity picked, so the setup dialogs ask first, as the landing
+// workspace does (platform.js). Only a new workspace asks: Finish or repair keeps the one there.
+// Cancel goes back to the setup dialog; reopen() shows it again with what was typed.
+async function confirmNewWorkspace(name, capacity, what, reopen) {
+  const cap = capacity.value ? capacity.selectedOptions[0]?.textContent : "";
+  const ok = await confirmDialog(`Create ${name}?`, `This creates the workspace ${name} in Fabric ${cap ? `on ${cap}` : "with no capacity"} (or uses the one with that name), and ${what} in it.`, "Create");
+  reopen();
+  return ok;
+}
+
 function keysRow(s, policy) {
   const k = s.keys || {};
   const where = k.kind === "fabric" ? k.workspace_name || k.workspace_id : "on this PC";
@@ -616,6 +627,7 @@ async function keysSetupDialog(s) {
   const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
   const steps = h("div", {});
   const run = async () => {
+    if (!k.workspace_id && !(await confirmNewWorkspace(name.value.trim(), capacity, "SQL_Keys and UDF_Keys", open))) return;
     steps.replaceChildren(h("p", { class: "muted-text" }, "Creating the Keys workspace. This takes a minute..."));
     const res = await attempt(() => rpc("platform_keys_setup", { name: name.value.trim(), capacity_id: capacity.value }), "Keys workspace not created");
     if (!res) { steps.replaceChildren(); return; }
@@ -623,11 +635,13 @@ async function keysSetupDialog(s) {
       icon(st.status === "done" ? "ok" : "error", 14), h("b", {}, ` ${st.step}: `), st.detail))),
     h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready ? "The Keys workspace is ready. Nothing has moved yet: choose Move keys in." : "Some steps didn't finish. Fix what they say, then choose Finish or repair."));
   };
-  showDialog(`${k.workspace_id ? "Finish" : "Create"} the Keys workspace`, h("div", {},
+  const body = h("div", {},
     h("p", { class: "text" }, "Creates (or finishes) a workspace with SQL_Keys, a SQL database for every environment's keys, and UDF_Keys, the functions that issue them. Nothing moves until you choose Move keys in."),
-    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps), [
-    btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
-    btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary")]);
+    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps);
+  const actions = [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
+    btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary")];
+  const open = () => showDialog(`${k.workspace_id ? "Finish" : "Create"} the Keys workspace`, body, actions);
+  open();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
   capacity.replaceChildren(...caps.map((x) => h("option", { value: x.id }, `${x.displayName}${x.sku ? ` (${x.sku})` : ""}`)),
     h("option", { value: "" }, "No capacity (SQL database and functions need one)"));
@@ -646,7 +660,9 @@ async function moveKeysIn() {
   const plan = await attempt(() => rpc("platform_share_keys", {}), "Could not read the keys");
   if (!plan) return;
   if (plan.already) { toast("Every environment already uses the one keys database"); render(); return; }
-  showDialog("Move keys in", h("div", {},
+  // Moving closes every environment's keys and renumbers Dev and Test keys, and once it switches it can't be
+  // cancelled (central/service.py platform_cancel_share_keys), so its button is danger-styled and Cancel has focus.
+  const overlay = showDialog("Move keys in", h("div", {},
     h("p", { class: "text" }, plan.message.replace(/ Confirm to continue\.$/, "")),
     keysMoveTable(plan.tables),
     plan.renumbered ? h("p", { class: "warn-text small" }, `${plan.renumbered.toLocaleString()} Dev and Test keys change number. Re-run Dev and Test afterwards.`) : null), [
@@ -669,7 +685,8 @@ async function moveKeysIn() {
         res.tables?.some((t) => !t.match) ? gateList(res.tables.filter((t) => !t.match).map((t) => `${ENV_LABEL[t.env] || t.env} ${t.table}: didn't check out`)) : null), [
         btn("Cancel the move", null, () => { closeDialog(); cancelKeysMove(); }, "tool outline"),
         btn("Move again", "sync", () => { closeDialog(); moveKeysIn(); }, "tool primary")]);
-    }, "tool primary")]);
+    }, "tool danger-solid")]);
+  overlay.querySelector(".dialog-actions button")?.focus();
 }
 
 async function cancelKeysMove() {
@@ -695,6 +712,7 @@ async function platformSetupDialog(env, s) {
   const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
   const steps = h("div", {});
   const run = async () => {
+    if (!c.workspace_id && !(await confirmNewWorkspace(name.value.trim(), capacity, "LH_Meta, LH_Landing, SQL_Platform, UDF_Platform and VL_Platform", open))) return;
     steps.replaceChildren(h("p", { class: "muted-text" }, "Creating the platform. This takes a minute..."));
     const res = await attempt(() => rpc("platform_setup", { env, name: name.value.trim(), capacity_id: capacity.value }), "Platform not created");
     if (!res) { steps.replaceChildren(); return; }
@@ -703,11 +721,13 @@ async function platformSetupDialog(env, s) {
     h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready ? "The platform is ready." : "Some steps didn't finish. Fix what they say, then choose Finish or repair."));
     if (res.ready) toast(`The ${ENV_LABEL[env]} platform is ready`, false, { log: true });
   };
-  showDialog(`${c.workspace_id ? "Finish" : "Create"} the ${ENV_LABEL[env]} platform`, h("div", {},
+  const body = h("div", {},
     h("p", { class: "text" }, "Creates (or finishes) the Platform workspace with LH_Meta, SQL_Platform, UDF_Platform and VL_Platform. Steps that are already done are kept."),
-    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps), [
-    btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
-    btn(c.workspace_id ? "Finish setup" : "Create platform", "add", run, "tool primary")]);
+    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps);
+  const actions = [btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
+    btn(c.workspace_id ? "Finish setup" : "Create platform", "add", run, "tool primary")];
+  const open = () => showDialog(`${c.workspace_id ? "Finish" : "Create"} the ${ENV_LABEL[env]} platform`, body, actions);
+  open();
   const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
   capacity.replaceChildren(...caps.map((x) => h("option", { value: x.id }, `${x.displayName}${x.sku ? ` (${x.sku})` : ""}`)),
     h("option", { value: "" }, "No capacity (SQL database and functions need one)"));

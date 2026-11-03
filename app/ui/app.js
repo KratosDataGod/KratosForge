@@ -567,8 +567,12 @@ function navKey(e) {
 function renderNavButtons() {
   const back = document.getElementById("nav-back");
   const fwd = document.getElementById("nav-forward");
-  if (back) back.disabled = !navCan(-1);
-  if (fwd) fwd.disabled = !navCan(1);
+  const canBack = navCan(-1), canFwd = navCan(1);
+  if (back) back.disabled = !canBack;
+  if (fwd) fwd.disabled = !canFwd;
+  // Hidden until there is somewhere to go: two faint arrows on a fresh start read as broken.
+  const wrap = back?.parentElement;
+  if (wrap) wrap.hidden = !canBack && !canFwd;
 }
 
 function go(view) {
@@ -586,7 +590,10 @@ function renderChrome() {
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
-  account.textContent = state.user ? state.user[0].toUpperCase() : "?";
+  // The profile picture when there is one (profile.js, PB-125), else the first letter.
+  const picture = state.user && state.avatar && typeof profilePicture === "function" ? profilePicture(state.avatar) : null;
+  if (picture) account.replaceChildren(picture);
+  else account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
@@ -782,6 +789,7 @@ async function renderHome() {
   const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
+  const started = gettingStarted();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
@@ -790,6 +798,7 @@ async function renderHome() {
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
     // start something; then readiness, problems and what is running.
     start,
+    started.el,
     homePinnedCard(),
     recent,
     ready,
@@ -869,12 +878,10 @@ async function renderHome() {
     if (!onHome()) return;
     if (project) state.meta.project = project;
     const hasProject = !!project?.path;
-    // Environments mean nothing before there's a metadata project: show the first steps instead.
-    if (!hasProject) {
-      await notebooksDone;
-      if (!onHome()) return;
-      envSection.replaceWith(getStarted(project, notebookCount) || "");
-    }
+    // Environments mean nothing before there's a metadata project; Getting started says where to begin.
+    if (!hasProject) envSection.remove();
+    // A notebook list that failed to draw (allSettled below) still ticks what it can, with no stray rejection.
+    notebooksDone.catch(() => {}).then(() => onHome() && started.mark(project, notebookCount));
 
     // The latest run of each table in each environment says how that table stands now.
     const latest = new Map();
@@ -1314,7 +1321,7 @@ async function renderWorkspaces() {
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
-        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
+        title: previewing ? `Preview ${it.displayName}` : null, "data-preview": previewing ? previewKey(target) : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
@@ -1732,13 +1739,18 @@ async function renderOneLake() {
   function drawGroups(groups, body, itemRow, depth = 0) {
     groups.forEach((g, i) => {
       const open = cp.groupOpen.has(g.key) ? cp.groupOpen.get(g.key) : depth > 0 || i === 0;
-      const toggle = () => { cp.groupOpen.set(g.key, !open); draw(); };
+      // The table is drawn afresh, so focus goes back to this header (a keyboard user stays put).
+      const toggle = () => {
+        cp.groupOpen.set(g.key, !open);
+        draw();
+        [...list.querySelectorAll(".group-head")].find((b) => b.dataset.group === g.key)?.focus();
+      };
       const wsCount = new Set(g.rows.map((r) => r.workspace_id)).size;
       const bits = [`${g.rows.length} item${g.rows.length === 1 ? "" : "s"}`];
       if (!g.env) bits.unshift(`${wsCount} workspace${wsCount === 1 ? "" : "s"}`);
       if (g.children && g.children.every((c) => c.env === "none")) bits.push("no environment");
       body.push(h("tr", { class: `group-row depth-${depth}` }, h("td", { colspan: 8 },
-        h("button", { class: "group-head", "aria-expanded": String(open), onclick: toggle },
+        h("button", { class: "group-head", "aria-expanded": String(open), "data-group": g.key, onclick: toggle },
           icon(open ? "chevronDown" : "chevronRight", 14),
           g.env ? envPill(g.env, true) : null,
           h("span", { class: "group-label" }, g.env && depth > 0 ? (g.workspaces || []).join(", ") : g.env ? "" : g.label),
@@ -1974,6 +1986,7 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
             title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
             onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
             ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
@@ -2002,6 +2015,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
@@ -2386,15 +2400,26 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here && !here.ok) {
+  const unknown = here?.unknown || [];
+  const place = where.fabric ? "in Fabric" : "on this PC";
+  const cells = (n) => `${n} cell${n === 1 ? "" : "s"}`;
+  if (here?.reasons?.length) {
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),
         h("b", { class: "grow" }, where.fabric ? "This notebook can't run in Fabric yet" : "This notebook only runs in Fabric"),
         other?.ok ? btn(where.fabric ? "Run on this PC" : "Run in Fabric", where.fabric ? "desktop" : "cloud",
           () => setNotebookCompute(switchTo), "tool small") : null),
-      computeReasons(here.reasons)));
-  } else if (where.fabric) {
+      computeReasons(here.reasons),
+      unknown.length ? [h("p", { class: "compute-unknown-head" }, `The check also can't tell for ${cells(unknown.length)}:`), computeReasons(unknown)] : null));
+  } else if (unknown.length) {
+    slot.append(h("div", { class: "compute-unknown" },
+      h("div", { class: "row" }, icon("help", 16),
+        h("b", { class: "grow" }, `The check can't tell whether ${cells(unknown.length)} run${unknown.length === 1 ? "s" : ""} ${place}`)),
+      computeReasons(unknown),
+      h("p", { class: "muted-text" }, "Prove and the risk check count these cells as not checked. Run them to find out, or write the names they use in the code.")));
+  }
+  if (!here?.reasons?.length && where.fabric) {
     const run = nb.fabricRun;
     slot.append(h("div", { class: "callout compute-callout" }, icon("cloud", 18),
       h("span", { class: "grow" }, `Run all publishes this notebook and runs it on ${publishWorkspaceName(nb)}'s Fabric capacity. `,
@@ -2918,7 +2943,7 @@ async function checkComponents(afterInstall = false) {
     report = await invoke("check_components");
   } catch (err) {
     set("app", "skip", "Needs Python");
-    set("python", "error", `${err} Install Python 3.11 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
+    set("python", "error", `${err} Install Python 3.12 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
     set("sidecar", "skip", "Needs Python");
     if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
     return closeDialog();
@@ -2932,7 +2957,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.12 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2978,10 +3003,14 @@ async function checkComponents(afterInstall = false) {
     help.hidden = false;
   };
 
-  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.11 or later");
+  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
-    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);
+    // A developer's own Python that lacks a package a newer engine needs (PyYAML, for the Ossie converter): say
+    // the command that installs what's missing rather than only the import error.
+    const missing = /^ModuleNotFoundError: No module named '[^'.]+'$/.exec(sidecar.error || "");
+    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}` + (missing
+      ? `. This Python (${report.python}) is missing a package the engine needs. In the sidecar folder, run: python -m pip install -e . -c constraints.txt` : ""));
     else if (sidecar.version) set("sidecar", "ok", `${sidecar.version}, ${kind}`);
     else set("sidecar", "error", "Not installed. In the sidecar folder, run: python -m pip install -e .");
   } else if (sidecar.commit === app.commit && !sidecar.error) {
@@ -3061,6 +3090,7 @@ function startMain() {
       state.user = env.user;
       state.tenant = env.tenant;
       await loadSettings();
+      if (typeof profileLoadAvatar === "function") profileLoadAvatar();  // profile.js; the account button's picture
       if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
       showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
       // The environment pill needs the metadata project; there may not be one yet.

@@ -42,7 +42,7 @@ def test_new_lakehouse_is_empty_and_initializes(tmp_path, lake):
     for name, cols in schema.expected().items():
         assert list(lake.columns_of(name)) == list(cols)
     config = lake.rows("fdopt_config")
-    assert dict(zip(config["key"], config["value"])) == schema.DEFAULT_CONFIG
+    assert dict(zip(config["key"], config["value"], strict=True)) == schema.DEFAULT_CONFIG
     assert ids(lake, "installations") == [pc(tmp_path).id]
 
 
@@ -386,7 +386,7 @@ def test_a_familys_default_settings_carry_its_prefix(tmp_path, lake, monkeypatch
     fam = schema.Family("fdtst_", "Test", [schema.Migration(1, "Create", INCIDENTS_V1)], (("retention_days", "30"),))
     monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
     setup.initialize(lake, pc(tmp_path), approve=True, family=fam)
-    rows = dict(zip(*lake.rows("fdopt_config").select("key", "value").to_dict(as_series=False).values()))
+    rows = dict(zip(*lake.rows("fdopt_config").select("key", "value").to_dict(as_series=False).values(), strict=True))
     assert rows["retention_days"] == "365" and rows["fdtst_retention_days"] == "30"
 
 

@@ -99,9 +99,31 @@ def test_arrays_and_distincts(spark, F):
 
 
 def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, capsys):
-    n = spark.createDataFrame([(2.345,), (0.125,), (1234567.5,)], ["x"])
-    assert rows(n.select(F.format_number("x", 2))) == [("2.34",), ("0.12",), ("1,234,567.50",)]
+    # Java's DecimalFormat, which Spark's format_number uses, rounds a double's exact binary value.
+    n = spark.createDataFrame([(2.345,), (0.125,), (1234567.5,), (2.675,), (-2.345,), (None,)], ["x"])
+    assert rows(n.select(F.format_number("x", 2))) == [("2.35",), ("0.12",), ("1,234,567.50",), ("2.67",),
+                                                       ("-2.35",), (None,)]
     assert rows(n.limit(1).select(F.format_number("x", 0))) == [("2",)]
+    assert rows(spark.createDataFrame([(-0.25,)], ["x"]).select(F.format_number("x", 0))) == [("-0",)]
+    assert rows(spark.createDataFrame([(1234,)], ["n"]).select(F.format_number("n", 1))) == [("1,234.0",)]
+    assert rows(spark.sql("SELECT CAST(0.125 AS DECIMAL(10, 3)) d").select(F.format_number("d", 2))) == [("0.12",)]
+    assert rows(spark.sql("SELECT CAST(1e20 AS DOUBLE) x").select(F.format_number("x", 0))) == [
+        ("100,000,000,000,000,000,000",)]
+    big = spark.sql("SELECT CAST(1e25 AS DECIMAL(38, 2)) d, CAST(10 AS HUGEINT) ** 30 h, CAST(1e19 AS DECIMAL(38, 2)) e")
+    edge = spark.sql("SELECT CAST(9223372036854775807 AS BIGINT) m, CAST(-9223372036854775808 AS BIGINT) n, "
+                     "CAST('NaN' AS DOUBLE) a, CAST('inf' AS DOUBLE) i, CAST('-inf' AS DOUBLE) j, "
+                     "CAST(123456789012345.67 AS DOUBLE) k")
+    assert rows(edge.select(*(F.format_number(c, 2) for c in "mnaijk"))) == [(
+        "9,223,372,036,854,775,807.00", "-9,223,372,036,854,775,808.00", "NaN", "∞", "-∞", "123,456,789,012,345.67")]
+    # Past a double's own digits Java pads its shortest digits with zeros, and prints a whole double
+    # from 2**53 to 2**62 exactly (#1358).
+    long = spark.createDataFrame([(585541422640.3867,), (-1.03375e18,), (9007199254740994.0,), (-0.0,)], ["x"])
+    assert rows(long.select(F.format_number("x", 5))) == [("585,541,422,640.38670",), ("-1,033,750,000,000,000,000.00000",),
+                                                          ("9,007,199,254,740,994.00000",), ("-0.00000",)]
+    # From 1e20 a number prints through a double, as before: no failure, but digits past 17 aren't exact.
+    [(d, e, h)] = rows(big.select(F.format_number("d", 2), F.format_number("e", 1), F.format_number("h", 0)))
+    assert d.startswith("10,000,000,000,000,000,") and d.endswith(".00") and len(d) == len("10,000,000,000,000,000,000,000,000.00")
+    assert e == "10,000,000,000,000,000,000.0" and h.startswith("1,000,000,000,000,000,") and len(h) == 31 + 10  # 10**30: 31 digits
     F.percentile_approx("x", 0.5, 100)
     F.to_json("x", {"timestampFormat": "yyyy"})
     out = capsys.readouterr().out
@@ -184,20 +206,29 @@ def test_create_dataframe_reads_a_ddl_schema_string(live):
     import decimal
     df = live.createDataFrame([(1, "x", decimal.Decimal("1.5"), [1, 2], datetime.date(2026, 1, 2))],
                                "id int, name string, amount decimal(10,2), tags array<int>, day date")
-    assert df.dtypes == [("id", "integer"), ("name", "string"), ("amount", "decimal(10,2)"),
-                         ("tags", "array<integer>"), ("day", "date")]
+    assert df.dtypes == [("id", "int"), ("name", "string"), ("amount", "decimal(10,2)"),
+                         ("tags", "array<int>"), ("day", "date")]
     assert live.createDataFrame([(5,)], "n: bigint").dtypes == [("n", "bigint")]
     assert live.createDataFrame([(5,)], "`my col` long").columns == ["my col"]
     with pytest.raises(ValueError, match="isn't supported on this PC"):
         live.createDataFrame([(1,)], "s geometry")
 
 
+def test_python_ints_are_bigint_as_spark_infers_them(live):
+    df = live.createDataFrame([(1, [2, 3], "x")], ["n", "xs", "s"])
+    assert df.dtypes == [("n", "bigint"), ("xs", "array<bigint>"), ("s", "string")]
+    assert rows(df) == [(1, [2, 3], "x")]
+    assert [t for _n, t in live.createDataFrame([(1,)]).dtypes] == ["bigint"]
+    assert live.createDataFrame([(1,)], "n int").dtypes == [("n", "int")]  # a schema says what it says
+
+
 def test_ddl_schema_reads_structs_comments_and_not_null(live):
     df = live.createDataFrame([((1, ["x"]), 5)],
                               "s STRUCT<a: INT, b: ARRAY<STRING>> COMMENT 'nested, kept', id bigint NOT NULL COMMENT \"key\"")
-    assert df.dtypes == [("s", "struct<a:integer,b:array<string>>"), ("id", "bigint")]
-    assert rows(df) == [({"a": 1, "b": ["x"]}, 5)]
-    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:integer>>")]
+    assert df.dtypes == [("s", "struct<a:int,b:array<string>>"), ("id", "bigint")]
+    [(s, n)] = rows(df)  # a struct comes back as a Row, as Spark's collect() gives it
+    assert type(s).__name__ == "Row" and s.asDict() == {"a": 1, "b": ["x"]} and n == 5
+    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:int>>")]
     assert live.createDataFrame([(1, None)], "id int NOT NULL, name string").count() == 1
     with pytest.raises(ValueError, match="field id: This field is not nullable, but got None"):
         live.createDataFrame([(1, "a"), (None, "b")], "id int NOT NULL, name string")
@@ -220,7 +251,7 @@ def test_a_struct_type_with_a_non_nullable_field_is_checked_too(live):
 
 def test_these_frames_leave_no_view_behind(live):
     def views():
-        return live.conn.execute("SELECT count(*) FROM duckdb_views() WHERE NOT internal").fetchone()[0]
+        return live.conn.execute("SELECT count(*) FROM duckdb_views() WHERE NOT internal").fetchall()[0][0]
     before = views()
     for i in range(50):
         df = live.createDataFrame([(i, None, 1.5), (i + 1, "b", None)], ["id", "v", "x"])

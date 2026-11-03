@@ -98,9 +98,20 @@ async function openEngineMenu(anchor, nb) {
     planned.length ? btn("More", "chevronRight", () => showMenu(anchor, [{ info: "Planned, not available in this version" },
       ...planned.map((e) => ({ info: `${e.label}: ${e.planned}` }))]), "tool engine-row", { role: "menuitem" }) : null,
     { info: "Engines on this PC start no Fabric job. Reading or writing OneLake from this PC still uses Fabric capacity." },
+    // GD-05: the decision pattern behind this choice, shipped with the app (learn.js).
+    previewShown() ? { label: "This PC or Fabric? How to choose", icon: "help", action: () => learnPatternDialog("DP-02") } : null,
     ...(onKernel && !where.fabric ? oneLakeWritesMenu(nb) : []),
     onKernel ? { label: "Restart kernel", icon: "restart", action: restartKernel } : null,
   ].filter(Boolean));
+}
+
+// A session the engine couldn't close comes back as notes, once (engines_service.py _with_notes): a remote
+// one may use compute or capacity until it times out. They're shown as given, as a warning rather than an
+// error, and kept in Activity so they can be read again. Returns them as one string to add to a toast, or "".
+function engineNotes(res) {
+  const notes = (res?.notes || []).filter(Boolean);
+  for (const n of notes) logActivity({ status: "info", title: "Engine session not closed", text: n });
+  return notes.join(" ");
 }
 
 // Python (this PC), Fabric job or Same as the environment: the kernel, as Runs on chose it.
@@ -111,8 +122,10 @@ async function chooseKernel(nb, value) {
       `The ${st.label} session closes, and what it holds isn't carried over. Cells and outputs stay.`,
       "Switch and close session", { danger: true });
     if (!ok) return;
-    await attempt(() => rpc("engine_select", { notebook: nb.name, engine: ENGINE_KERNEL, decision: "close" }), "Couldn't close the session");
+    const closed = await attempt(() => rpc("engine_select", { notebook: nb.name, engine: ENGINE_KERNEL, decision: "close" }), "Couldn't close the session");
     engineStates.delete(nb.name);
+    const notes = engineNotes(closed);
+    if (notes) toast(notes);
   }
   await setNotebookCompute(value);
   if (state.notebook === nb) renderNotebook();
@@ -235,10 +248,12 @@ async function chooseEngine(nb, e) {
     if (now.status !== "starting") {
       if (now.status === "error") {
         engineStates.delete(nb.name);
-        await rpc("engine_close", { notebook: nb.name }).catch(() => null);
-        toast(`${e.label} didn't start: ${now.error}`, true);
+        const closed = await rpc("engine_close", { notebook: nb.name }).catch(() => null);
+        const notes = [engineNotes(now), engineNotes(closed)].filter(Boolean).join(" ");
+        toast(`${e.label} didn't start: ${now.error}${notes ? ` ${notes}` : ""}`, true);
       } else {
-        toast(`${nb.name} now runs on ${e.label}.${plan.cells?.length ? ` ${plan.cells.length} cell${plan.cells.length === 1 ? "" : "s"} can't run on it or run translated; they're flagged before running.` : ""}`);
+        const notes = engineNotes(now);
+        toast(`${nb.name} now runs on ${e.label}.${plan.cells?.length ? ` ${plan.cells.length} cell${plan.cells.length === 1 ? "" : "s"} can't run on it or run translated; they're flagged before running.` : ""}${notes ? ` ${notes}` : ""}`);
       }
       if (state.notebook === nb) renderNotebook();
       return;

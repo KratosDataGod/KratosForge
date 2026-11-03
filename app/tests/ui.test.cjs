@@ -271,6 +271,34 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Help and about shows the policy file's SHA-256 and whether its last change came the way IT pushes it (#1670)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, text: kids.flat().join("") }), dateTimeText: () => "2 Nov 2026, 17:00" };
+  vm.runInNewContext(`${src.match(/function policyRecordRows\([\s\S]*?\n}\n/)[0]}; this.f = policyRecordRows;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ sha256: null, state: "none" }), null);
+  const managed = ctx.f({ sha256: "ab12", managed: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.strictEqual(managed[1].text, "ab12");
+  assert.strictEqual(managed[3].text, "Last changed 2 Nov 2026, 17:00. The audit log has each change.");
+  const unmanaged = ctx.f({ sha256: "ab12", managed: false, first: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.match(unmanaged[3].text, /^First seen .*could change the file: not the way IT pushes it\. Compare the SHA-256/);
+  assert.match(src, /h\("dd", \{ class: "mono" \}, s\.policy_file\),\n\s+policyRecordRows\(s\.policy_record\),/);
+});
+
+// friendlyError returns { text, details, cancelled }, so a call used as text shows "[object Object]".
+test("friendlyError's result is never used as text", () => {
+  const misused = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const m of src.matchAll(/friendlyError\([^()]*\)(?![.\w])/g)) {
+      const start = src.lastIndexOf("\n", m.index) + 1;
+      if (/(?:const|let) \w+ = $/.test(src.slice(start, m.index)) || /function $/.test(src.slice(start, m.index))) continue;
+      misused.push(`${name}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepStrictEqual(misused, []);
+});
+
 // Accessibility (FD-139): checks that need no browser.
 test("every icon-only button has a name a screen reader can say", () => {
   const missing = [];
@@ -349,6 +377,8 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(gitStatus({ branch: null })), "abc1234", "a detached head shows the commit");
   assert.strictEqual(gitPillText(gitStatus({ branch: null, commit: null })), "No commits");
   assert.strictEqual(gitPillText(null), "");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {
@@ -1626,6 +1656,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
+    // 256 px square PNG, and <img> only decodes it.
+    "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
   ]);
@@ -2468,22 +2501,23 @@ test("the update splash lists the build's notes and each change since the build 
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
-test("removing a schedule asks first, in red, and says what stops", () => {
+test("removing a schedule asks first, in red, and says what stops", async () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
   assert.strictEqual(removes.length, 3);
   for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
-  ctx.confirmDialog = (...args) => args;
-  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  vm.runInContext(/(?:async )?function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = async (...args) => args;
+  ctx.document = { getElementById: () => ({ firstElementChild: null }) };  // asked with no dialog open
+  const [title, text, ok, opts] = await ctx.f("nb_sales", "Daily at 06:00 UTC", false);
   assert.strictEqual(title, "Remove the schedule for nb_sales?");
   assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true))[1], /Fabric deletes the schedule/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true, false))[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -3076,6 +3110,10 @@ test("the command bar offers Go back and Go forward only when there is somewhere
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
   assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+  // The arrows stay hidden until there is a page to go back or forward to.
+  assert.match(html, /<div class="nav-buttons" hidden>/);
+  const appSrc = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(appSrc, /wrap\.hidden = !canBack && !canFwd/);
 });
 
 // UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).
@@ -3631,7 +3669,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -4504,7 +4542,7 @@ function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
   const { node } = chartsHarness(null);
   const calls = [];
-  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: String(e?.message ?? e), details: "" }), previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
     renderOutput: (o) => node("pre", {}, o.text || o.type),
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4840,7 +4878,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
@@ -5210,7 +5248,7 @@ test("Profile shows proofs, and Journey and Achievements only while progression 
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
@@ -5501,7 +5539,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
-    learn: ["Learn", "Writing a Learn lesson"],
+    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
@@ -5613,4 +5651,120 @@ test("workspace access requests show today's role, and the confirm says what app
   await confirmApproval(req("Member", { role: "Member" }));
   assert.deepStrictEqual([seen[0].text, seen[0].ok], ["Sales Engineers already has Member in Sales Prod, which is the role asked for. Approving keeps Member and marks the request approved. Nothing changes in Fabric." + after, "Approve"]);
   assert.match(src, /r\.kind === "workspace_access" \? accessTodayLine\(r\) : null/, "the line sits under the reason");
+});
+
+// #1195: declining a request whose approval already made something says it stays in Fabric, before the click.
+test("declining or withdrawing a partly carried-out request says what is still in Fabric", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));  // out of the vm's realm
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
+    ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
+    ["The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
+    ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
+  for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
+    assert.strictEqual(left({ kind, detail: { made: {} } }).length, 0, `${kind} with nothing made declines as before`);
+    assert.strictEqual(left({ kind, detail: {} }).length, 0);
+  }
+  assert.match(src, /Declining deletes nothing in Fabric\. \$\{left\.join\("\. "\)\}\./, "the decline confirm says it");
+  assert.match(src, /if \(res\.next\?\.length\) toast\(`Withdrew \$\{r\.target\}; \$\{res\.next\.join\("; "\)\}`/, "withdrawing says it after");
+});
+
+// #1206: a domain request's decline says where the domain it made still is.
+test("declining a domain request whose domain was made says where it is", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr" } } }),
+    ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
+    ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr", found: true } } }),
+    ["The domain HR is in the platform and Fabric: it was there before this request, or approving it made it. Check which before deleting it"], "#1270: possibly someone else's");
+});
+
+// #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
+test("declining a workspace access request says whether its approval gave, raised or kept the role", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (made) => JSON.parse(JSON.stringify(box.result({ kind: "workspace_access",
+    detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { email: "dev@contoso.com" }, made } })));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ assigned: true, change: "gave", from: "" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }),
+    ["dev@contoso.com has the Contributor role in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ assigned: true }),
+    ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
+});
+
+// #1260: a shortcut request's decline says the shortcut its approval made is still in OneLake.
+test("declining a shortcut request whose shortcut was made says it is still in OneLake", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
+  assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
+    ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
+    ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
+  assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
+});
+
+test("browser tests run axe through the harness, which waits for animations to end (#1337)", () => {
+  // axe judges contrast on the colors as drawn; a check taken while a dialog fades in fails on
+  // faded text (#1297). harness.cjs axeFindings turns motion off and waits; the audit has its own runner.
+  const dir = path.join(__dirname, "browser");
+  const own = new Set(["harness.cjs", "a11y-audit.test.cjs"]);
+  const direct = fs.readdirSync(dir).filter((f) => f.endsWith(".cjs") && !own.has(f))
+    .filter((f) => /axe\.run\(|addScriptTag\(\{ content: axeSource/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.deepStrictEqual(direct, []);
+  assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
+});
+
+// The engine failing to start fails every call the pages make: Activity shows one entry with a count.
+test("the same problem again within ten minutes updates one Activity entry", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = { localStorage: { setItem() {} }, renderBell() {}, Date, Math, Set, JSON };
+  vm.runInNewContext(`const activity = { items: [], open: false };
+    ${src.match(/const REPEAT_MS[\s\S]*?\n}\n\nfunction logActivity\([\s\S]*?\n}\n/)[0]}
+    function saveActivity() {}
+    const PROBLEM = new Set(["error", "failed"]);
+    Object.assign(this, { activity, logActivity });`, ctx);
+  const stopped = { status: "error", text: "The local engine stopped while doing this.", details: "The Python sidecar stopped" };
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  ctx.logActivity({ ...stopped, title: "Could not start the Python sidecar" });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  assert.strictEqual(ctx.activity.items.length, 1);
+  const one = ctx.activity.items[0];
+  assert.strictEqual(one.repeats, 3);
+  assert.strictEqual(one.title, "Ready to work");
+  assert.deepStrictEqual([...one.alsoIn], ["Could not start the Python sidecar"]);
+  ctx.logActivity({ ...stopped, details: "something else", title: "Ready to work" });  // a different failure
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });  // not a problem: never merged
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });
+  assert.strictEqual(ctx.activity.items.length, 4);
+  ctx.activity.items.forEach((i) => { i.at = new Date(Date.now() - 11 * 60 * 1000).toISOString(); });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });  // ten minutes on, it's news again
+  assert.strictEqual(ctx.activity.items.length, 5);
+});
+
+test("a developer Python missing a package says the command that installs it", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /missing a package the engine needs\. In the sidecar folder, run: python -m pip install -e \. -c constraints\.txt/);
+  const re = /^ModuleNotFoundError: No module named '[^'.]+'$/;
+  assert.ok(app.includes(re.source));
+  assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
+  assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
 });

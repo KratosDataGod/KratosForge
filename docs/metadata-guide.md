@@ -23,7 +23,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 ## 1. Set up a project
 
 1. Open **Data mesh** in the left rail. With no project yet, it shows **Set up a metadata project**.
-2. **Folder:** where the project goes. The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
+2. **Folder:** where the project goes, as a full path (a relative path such as `crm` is refused). The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
 3. **Layers:** pick 2 (raw, curated), 3 (bronze, silver, gold) or 5 (landing, bronze, silver, gold, semantic). You can add, remove, rename and reorder later.
 4. **Add the sample tables:** with 3 layers, tick this to get customers and orders from Bronze to Gold with sample CSV files, so you can try everything straight away.
 5. **Create project.**
@@ -282,7 +282,7 @@ by = "07:00"          # and one by 7:00 each day, this PC's clock
 envs = ["prod"]
 ```
 
-Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). The app checks at startup and every 10 minutes while it's open. Late and failed tables become [incidents](user-guide.md#incidents-preview) (Preview), shared with everyone who can read the environment, and each new incident is posted once, and again when it recovers. An environment that a running [agent](agent.md#incidents-preview) already checks is left to the agent, so Teams hears about a problem once. With preview features hidden, each late or failed table is posted once, as before.
+Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). The app checks at startup and every 10 minutes while it's open. Late and failed tables become [incidents](user-guide.md#incidents-preview) (Preview), shared with everyone who can read the environment, and each new incident is posted once, and again when it recovers. An environment that a running [agent](agent.md#incidents-preview) already checks is left to the agent, so Teams hears about a problem once. Teams hears about a table only from its incident, also with preview features hidden; then the bell shows late tables but not the incidents. For an environment in Fabric, the check reads and writes the incident list in its `LH_Meta` lakehouse, which uses capacity.
 
 ### Reliability objectives (Preview)
 

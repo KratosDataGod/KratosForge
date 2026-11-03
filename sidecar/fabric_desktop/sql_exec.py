@@ -72,7 +72,7 @@ from typing import Any, Callable
 import pyarrow as pa
 from sqlglot import exp
 
-from . import app_settings, sql, sql_policy, warehouse
+from . import app_settings, jsonfile, sql, sql_policy, warehouse
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -684,12 +684,28 @@ class SqlExecutions:
                 while need > 0 and i < reader.num_record_batches:
                     batch = reader.get_batch(i).slice(skip, need)
                     columns = [c.to_pylist() for c in batch.columns]  # by position: names can repeat
-                    rows.extend([list(r) for r in zip(*columns)])
+                    rows.extend([list(r) for r in zip(*columns, strict=True)])
                     need -= batch.num_rows
                     skip, i = 0, i + 1
         return {"id": run.id, "offset": offset, "limit": limit, "rows": [[_json_value(v) for v in r] for r in rows],
                 "columns": run.columns, "total": run.rows, "has_previous": offset > 0,
                 "has_next": offset + len(rows) < run.rows}
+
+    def query_of(self, run_id: str) -> str:
+        """The SQL a run ran, for the engine's own checks (GD-06); never sent to the page."""
+        return self._get(run_id).query
+
+    def table(self, run_id: str) -> tuple[dict[str, Any], pa.Table]:
+        """A completed run's status and its whole result, from its snapshot (Compare, GD-02). Columns
+        with the same name get the export's unique names."""
+        run = self._get(run_id)
+        if run.state != "completed":
+            raise ValueError(f"The query is {run.state.replace('_', ' ')}, so there are no rows to compare.")
+        if not run.snapshot.exists():
+            raise RerunNeeded("This result was cleaned up. Run the query again to compare it.")
+        with pa.memory_map(str(run.snapshot)) as source:
+            table = pa.ipc.open_file(source).read_all()
+        return run.status(), table.rename_columns(_unique_names(table.schema).names)
 
     # ---- export
 
@@ -750,7 +766,7 @@ class SqlExecutions:
                         writer.close()
             if export.cancel.is_set():
                 raise _Stopped()
-            os.replace(partial, export.path)  # over the empty file that reserved the name
+            jsonfile.replace(partial, export.path)  # over the empty file that reserved the name
             export.state = "completed"
         except _Stopped:
             _discard(partial, export.path)  # before the state changes: a finished export leaves no files

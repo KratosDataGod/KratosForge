@@ -26,7 +26,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | Part | Where | What it does |
 | --- | --- | --- |
 | **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
-| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
+| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). The arrows appear once you have opened a second page, so there is somewhere to go back to. Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
@@ -103,7 +103,7 @@ Click your initial at the top right:
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
 4. **Set up a metadata project** (Data mesh in the left rail) when you want KratosForge to build and run your medallion layers for you.
 
-Home shows a **Get started** list with these steps until you have a metadata project. Each step has a **Start** button and gets a tick when done. **Hide** removes the list.
+Home shows **Getting started with KratosForge** under **Start something**: one small tile for each main starting point (run a notebook on this PC, bring your notebooks from Fabric or Databricks, explore OneLake, build medallion tables, spend less Fabric capacity, set up the platform), each with a button that opens it. A tile gets a tick once you've tried it. Click the heading to fold the panel to one line; Home remembers that, and the heading opens it again.
 
 ## Home
 
@@ -117,6 +117,7 @@ From the top:
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. Signed out, it says to sign in so KratosForge can check Fabric. |
 | **Start something** | **Continue** (the notebook you changed last), New notebook, Import from Fabric or Databricks, New lakehouse, OneLake catalog. |
+| **Getting started with KratosForge** | Six starting points, each with a button that opens it, and a tick once tried. Click the heading to fold it to one line; Home remembers that. See [Get started](#get-started). |
 | **Pinned** (Preview) | Notebooks and Fabric items you pinned, with **Open**, and **Run** on a notebook. Shows once something is pinned. See [Pinned items](home-notebooks.md#pinned-items-preview). |
 | **Recent notebooks** | Your last eight notebooks, with each one's workspace, lakehouse, where it runs and how it last ran. Click to open. Tick several and press **Run** to run them at once (Preview). The section folds with its arrow. See [home-notebooks.md](home-notebooks.md). |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. While it shows, it's the one place Home asks you to sign in. See [Ready to work](#ready-to-work). |
@@ -125,7 +126,7 @@ From the top:
 | **Running now** | What this app is running, here or in Fabric. |
 | **Coming up** | The next scheduled runs, on this PC and in Fabric. **All schedules** opens Monitor > KratosForge > Schedules. |
 | **Data mesh** (Preview) | A map of the whole mesh: each domain and subdomain, the projects in it, the data products they publish (colored by who may read them) and arrows from each product to the projects that read it. Your open project is outlined; click it to open Data mesh > Domains > This project. The section folds with its arrow. |
-| **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Before you have a metadata project, this space shows **Get started** instead. |
+| **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Hidden until you have a metadata project. |
 | **Estate X-ray** (Preview) | See below. |
 
 ### All notebooks
@@ -536,7 +537,7 @@ The line above the list says what each source is and how fresh it is, for exampl
 
 **Actions say what they will do first.** **Retry**, **Run** and **Cancel the run** open a confirmation that names the environment, where it runs, as whom, what it writes and any warning (the last failure, or an environment that runs an older version). Runs go through the same paths as Data mesh > Run, Run in Fabric and Run now on a schedule. Each action is recorded as **Submitted**, then as **Succeeded** or **Failed** once the run records say how it ended. A cancel counts as succeeded only when Fabric reports the job as cancelled.
 
-A notebook is linked to its Fabric item when you publish or run it in Fabric from this app, and the link survives renames. A notebook that only shares a name with a Fabric item is shown as linked "by name"; **Link** keeps it by its id. **More > Unlink** removes the link.
+A notebook is linked to its Fabric item when you publish or run it in Fabric from this app, and the link survives renames. A notebook that only shares a name with a Fabric item is shown as linked "by name"; **Link** keeps it by its id. **More > Unlink** removes a link this PC keeps (one recorded when you published or linked it), after asking, since it decides which item Run in Fabric runs. A notebook found only from a run this app started in Fabric, or by its name, has no kept link to remove, so Unlink isn't offered there.
 
 Ownership, criticality, tags, links and the action log are kept on this PC in `workloads.sqlite`, next to your other app data. They aren't shared with your team yet.
 
@@ -625,7 +626,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ## Source control (Preview)
 
-**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit (a whole file, or one block of changed lines at a time), make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit (a whole file, or one block of changed lines at a time), make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and, in words, how many changes you haven't committed yet (for example "main · 3 unsaved changes"). Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
 
 ### Capacity repository
 
@@ -685,7 +686,8 @@ When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_C
 - **Explanations.** **On request** (the default) keeps the help out of the way: each page's one-line explanation and its **How this works** panel, which says what the page reads, what it changes and where results go, open together as a drawer from the info button in the title bar. Escape or the button closes it. The button shows only on pages that have help. **Beside the page** puts the explanation under the title and the panel in a column on the right, as before. Confirms before a change always say what they change, whichever you pick.
 - **Preview marks.** **Tags** (the default) marks features still in preview with a Preview tag. **Quiet dots** shows a small orange dot instead; hover it for what it means. Page titles keep the full tag, so you always know when a whole page is in preview.
 - **Density.** **Comfortable** (the default) or **Compact**, which tightens tables, lists, toolbars and cards.
-- **Learning guidance** (Preview). **Focus** (the default), **Guided** or **Learning**: how much the best-practice panels and Learn suggest lessons. See [Learn](learn.md#guidance).
+- **Learning guidance** (Preview). **Expert**, **Professional** (the default) or **Guided**: how much explanation the best-practice panels and Learn show beside your work. See [Learn](learn.md#guidance).
+- **SQL guidance** and **Notebook guidance** (Preview). **Same** (the default) follows Learning guidance; **Expert**, **Professional** or **Guided** sets the level beside that subject's best-practice findings only. See [Learn](learn.md#guidance).
 
 ### Motion and effects
 
@@ -704,7 +706,7 @@ On **Platform > Settings**. Each environment shows whether it uses a Platform wo
 
 ### External AI tools
 
-**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
+**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. Claude Code has been partly tried with it. The others haven't been tried yet, so they are marked **Untested** ([compatibility](product/ai-integration-compatibility.md)).
 
 1. Turn on **Let AI tools connect**. It's off until you do, and your organization can keep it off.
 2. **Add a tool**: pick it, name it, and choose what it may do. **Read metadata** (names, structure, schemas, checks, no rows) is always included. **Read data** reads rows. **Run code on this PC** runs Python and notebooks, and asks you every time.
@@ -717,7 +719,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
 | **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code, checks a run's risk only for workloads deployed in those workspaces, and sees only the notebooks, proofs, receipts and runs in those workspaces) or makes a new HTTP token. **Revoke** stops it at once. |
 | **Extensions** (Preview) | Extra capabilities tools can use, each off until you turn it on. The built-in **Notebook outline** lets a tool read a notebook's headings, functions and classes without its code. A tool still needs the permission an extension asks for, and anything that runs code still asks you. Tools that are connected see the change within a few seconds. Your organization can limit which extensions can be turned on. |
-| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
+| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. A call you approved shows **started** while it runs; if the tool or KratosForge stopped before it finished, it stays **started** (or **unfinished**), so an approved call never goes missing. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
 
 Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Setup for each tool, workflows and instructions to paste into it: [Connect your AI tool](ai/README.md). Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
 
@@ -760,7 +762,7 @@ The one list of Preview features, with where each one is, is on the [documentati
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses, your Windows user name in paths, and tenant, workspace and item ids. You can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, whether you're signed in, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and it takes out email addresses (a guest's sign-in name too), your tenant's name in `onmicrosoft.com` and `sharepoint.com` addresses, the site or team name in a SharePoint address, the owner in a OneDrive web address, your organization's name on a OneDrive folder, your Windows user name in paths, and tenant, workspace and item ids. Your organization's own domain (such as `contoso.com`) isn't recognized, so read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 
@@ -772,7 +774,7 @@ Setting KratosForge up for an organization, so nobody has to type an app ID: see
 
 ### Audit trail
 
-Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`), requeued (`agent_requeue`) or the queue is pruned from the command line (`agent_prune`), and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`), requeued (`agent_requeue`) or the queue is pruned from the command line (`agent_prune`), and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). The engine also adds a line when your organization's policy file is first seen or changes (`policy_file_seen`, `policy_file_changed`; [what they hold](enterprise-install.md#changes-to-the-policy-file)). Reading, listing, previewing and waiting for results aren't recorded.
 
 Each line says:
 

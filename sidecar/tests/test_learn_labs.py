@@ -1,6 +1,7 @@
 """LX-03: Learn datasets are the same every time, each check passes and fails for the right reasons,
 and a lab runs on this PC only: no file or network access, answers checked without changing the lab,
-reset back to the start, and a lab folder never outside <data>/learn."""
+reset back to the start, a lab folder never outside <data>/learn, and each run or check stopped at
+30 seconds with 1 GB of memory."""
 
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ def test_every_recorded_defect_is_really_there():
     con = duckdb.connect()
     found = {d["kind"]: d["key"] for d in datasets.generate(con, seed=3)["defects"]}
     assert set(found) == set(datasets.DEFECT_KINDS)
-    one = lambda sql, key: con.execute(sql, [key]).fetchone()[0]  # noqa: E731
+    one = lambda sql, key: con.execute(sql, [key]).fetchall()[0][0]  # noqa: E731
     assert one("SELECT count(*) FROM customers WHERE customer_id = ?", found["duplicate_customer"]) == 2
     assert one("SELECT email IS NULL FROM customers WHERE customer_id = ?", found["missing_email"])
     assert one("SELECT region = lower(region) FROM customers WHERE customer_id = ?", found["region_case"])
@@ -47,7 +48,7 @@ def test_every_recorded_defect_is_really_there():
     assert one("SELECT store_id NOT IN (SELECT store_id FROM stores) FROM orders WHERE order_id = ?", found["orphan_store"])
     clean = duckdb.connect()
     assert datasets.generate(clean, defects=False)["defects"] == []
-    assert clean.execute("SELECT count(*) FROM orders WHERE amount < 0").fetchone()[0] == 0
+    assert clean.execute("SELECT count(*) FROM orders WHERE amount < 0").fetchall()[0][0] == 0
 
 
 # Checks ------------------------------------------------------------------------------------------
@@ -73,7 +74,7 @@ def test_result_matches(con):
 
 def test_the_answer_never_changes_the_data(con):
     checks.result_matches(con, "DELETE FROM t; SELECT 1 AS id, 'a' AS name", reference="SELECT 1 AS id, 'a' AS name")
-    assert con.execute("SELECT count(*) FROM t").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM t").fetchall()[0][0] == 2
 
 
 def test_table_shape_and_integrity(con):
@@ -97,12 +98,16 @@ def test_no_findings():
     assert not checks.no_findings("try:\n    x()\nexcept Exception:\n    pass\n", ["NB012"], language="python")["passed"]
 
 
-def _clock(baseline: float, mine: float, runs: int = 3):
-    """A fake clock: the baseline's runs take ``baseline`` seconds each, then the learner's ``mine``."""
+def _clock(baseline, mine, runs: int = 3):
+    """A fake clock for runs that take turns, baseline first. ``baseline`` and ``mine`` are seconds
+    per run: one number for every run, or a list with one per run."""
+    base = baseline if isinstance(baseline, list) else [baseline] * runs
+    own = mine if isinstance(mine, list) else [mine] * runs
     times, t = [], 0.0
-    for d in [baseline] * runs + [mine] * runs:
-        times += [t, t + d]
-        t += d
+    for b, m in zip(base, own, strict=True):
+        for d in (b, m):
+            times += [t, t + d]
+            t += d
     return iter(times).__next__
 
 
@@ -113,6 +118,19 @@ def test_faster_than_needs_the_same_answer_and_the_factor(con):
     assert not slow["passed"] and "The goal is 2×" in slow["detail"]
     wrong = checks.faster_than(con, "SELECT 1 AS id", "SELECT id FROM t", factor=2, clock=_clock(9.0, 1.0))
     assert not wrong["passed"] and "same answer" in wrong["detail"]
+
+
+def test_faster_than_is_not_failed_by_a_busy_pc(con):
+    # The PC was busy for most of the learner's runs (LAB-02 measured 1.83× on a shared Windows CI
+    # runner): each query's fastest run is compared, so pauses that only add time don't count.
+    busy = checks.faster_than(con, "SELECT id FROM t", "SELECT id FROM t", factor=2, runs=5,
+                              clock=_clock([3.0, 3.1, 3.0, 3.2, 3.0], [2.5, 1.0, 2.6, 2.4, 1.1], runs=5))
+    assert busy["passed"], busy["detail"]
+    assert busy["measured"] == {"seconds": 1.0, "baseline_seconds": 3.0, "speedup": 3.0}
+    # A query that is never twice as fast still fails, however its runs vary.
+    close = checks.faster_than(con, "SELECT id FROM t", "SELECT id FROM t", factor=2, runs=5,
+                               clock=_clock([3.0, 3.5, 3.0, 4.0, 3.0], [1.6, 2.5, 1.7, 1.6, 3.0], runs=5))
+    assert not close["passed"] and close["measured"]["speedup"] == 1.88
 
 
 def test_defects_found(con):
@@ -192,7 +210,10 @@ def test_no_starter_already_passes(tmp_path, module_id):
 def test_labs_import_nothing_that_reaches_fabric():
     allowed = {"__future__", "contextlib", "datetime", "decimal", "threading", "hashlib", "json", "re", "shutil", "statistics", "time", "collections",
                "collections.abc", "pathlib", "typing", "duckdb", "jsonfile", "notebook_practices",
-               "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", ""}
+               "sqlcompat", "model_practices", "datasets", "checks", "content", "guides", "sys", "",
+               # fixes.py (GD-02) reads SQL with the compatibility checker's tokens: a parser, no I/O
+               "sqlglot.tokens", "sqlcompat.analyzer", "sqlcompat.profiles", "sqlcompat.rules",
+               "duckdb_rows"}  # one-row reads from DuckDB (#1341): no I/O of its own
     for path in LEARN.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []
@@ -210,3 +231,26 @@ def test_guard_refuses_only_transaction_statements(con):
     for sql in ("COMMIT", "SELECT 1; ROLLBACK", "BEGIN; SELECT 1"):
         with pytest.raises(ValueError):
             checks.guard(con, sql)
+
+
+# Limits ------------------------------------------------------------------------------------------
+
+SLOW = "SELECT count(*) FROM range(100000000000) a"   # minutes of work: only a stop ends it
+
+
+def test_a_run_and_a_check_are_stopped_at_the_time_limit(tmp_path, monkeypatch):
+    labs.start(tmp_path, "LM-01")
+    monkeypatch.setattr(labs, "TIME_LIMIT", 0.5)
+    with pytest.raises(ValueError, match="Stopped after 0.5 seconds"):
+        labs.run(tmp_path, "LM-01", SLOW)
+    result = labs.check(tmp_path, "LM-01", "north-big-orders", SLOW)
+    assert not result["passed"] and result["results"][0]["detail"].startswith("Stopped after 0.5 seconds")
+    assert labs.run(tmp_path, "LM-01", "SELECT 1 AS one")["rows"] == [[1]], "the lab works again after a stop"
+
+
+def test_the_limits_are_30_seconds_and_1gb_and_an_answer_cant_raise_the_memory(tmp_path):
+    assert labs.TIME_LIMIT == 30 and labs.MEMORY_LIMIT == "1GB"
+    labs.start(tmp_path, "LM-01")
+    assert labs.run(tmp_path, "LM-01", "SELECT current_setting('memory_limit') AS m")["rows"] == [["953.6 MiB"]]
+    with pytest.raises(duckdb.Error, match="locked"):
+        labs.run(tmp_path, "LM-01", "SET memory_limit = '8GB'")

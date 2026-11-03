@@ -2,6 +2,7 @@
 [source] landing reads from once it's there. Fakes only: nothing here reaches Fabric."""
 
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -89,11 +90,12 @@ def test_a_platform_made_before_zones_gets_them_by_adding_only(tmp_path):
     conn.execute("DROP TABLE catalog__landing_zone")
     conn.commit()
     conn.close()
-    db = core.Db(sqlite3.connect(path), "sqlite")
-    assert core.list_landing_zones(db) == [] and core.list_sources(db)[0]["zone"] == ""  # a read changes nothing
-    assert core.ensure_landing_zones(db) == ["catalog.landing_zone", "catalog.source.zone"]
-    assert core.ensure_landing_zones(db) == []
-    assert core.list_sources(db)[0]["name"] == "sap"
+    with closing(sqlite3.connect(path)) as conn:
+        db = core.Db(conn, "sqlite")
+        assert core.list_landing_zones(db) == [] and core.list_sources(db)[0]["zone"] == ""  # a read changes nothing
+        assert core.ensure_landing_zones(db) == ["catalog.landing_zone", "catalog.source.zone"]
+        assert core.ensure_landing_zones(db) == []
+        assert core.list_sources(db)[0]["name"] == "sap"
 
 
 # --------------------------------------------------------------------------- setting it up
@@ -267,14 +269,14 @@ def test_switching_reads_is_admin_only_audited_and_kept(platform):
 def test_a_landing_zone_table_made_before_the_switch_gains_its_columns(tmp_path):
     path = tmp_path / "old.sqlite"
     LocalPlatform(path, lambda: ADMIN).call("save_landing_zone", zone={"name": "Shared"})
-    conn = sqlite3.connect(path)
-    conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_at")
-    conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_by")
-    conn.commit()
-    db = core.Db(conn, "sqlite")
-    assert not core.list_landing_zones(db)[0]["read"]
-    assert core.ensure_landing_zones(db) == ["catalog.landing_zone.switched_at", "catalog.landing_zone.switched_by"]
-    assert core.ensure_landing_zones(db) == []
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_at")
+        conn.execute("ALTER TABLE catalog__landing_zone DROP COLUMN switched_by")
+        conn.commit()
+        db = core.Db(conn, "sqlite")
+        assert not core.list_landing_zones(db)[0]["read"]
+        assert core.ensure_landing_zones(db) == ["catalog.landing_zone.switched_at", "catalog.landing_zone.switched_by"]
+        assert core.ensure_landing_zones(db) == []
 
 
 def test_a_run_sent_to_fabric_uses_the_zone_map_it_was_sent_with(tmp_path):

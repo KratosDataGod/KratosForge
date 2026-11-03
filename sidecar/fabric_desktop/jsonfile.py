@@ -21,35 +21,59 @@ from typing import Any
 _log = logging.getLogger(__name__)
 
 # As retrying.local_retry waits out the Windows Delta-log race: 0.05 s doubling, about 1.5 s in all,
-# long enough for a virus scanner or indexer that has the file open.
-_REPLACE_ATTEMPTS = 6
-_REPLACE_BACKOFF = 0.05
+# long enough for a virus scanner or indexer that has the file open. Other waits on a busy local file
+# (auth.SharedTokenCache) use the same.
+REPLACE_ATTEMPTS = 6
+REPLACE_BACKOFF = 0.05
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
     write_text(path, json.dumps(data, indent=indent))
 
 
-def write_text(path: Path, text: str) -> None:
-    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it."""
+def write_text(path: Path, text: str, newline: str | None = None) -> None:
+    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it.
+    ``newline`` is open()'s: None writes this OS's line endings, "\n" keeps them as LF."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        for attempt in range(_REPLACE_ATTEMPTS):
-            try:
-                os.replace(tmp, path)
-                return
-            except PermissionError:  # Windows: a reader has the file open right now
-                if attempt == _REPLACE_ATTEMPTS - 1:
-                    raise
-                time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+        replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def write_bytes(path: Path, data: bytes) -> None:
+    """``write_text`` for bytes (a profile picture): the old file or the new one, never half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+    """``os.replace``, waiting out Windows refusing it (PermissionError, WinError 5) while a reader, a
+    virus scanner or an indexer has either file open: about 1.5 s, then the error. Every swap of a
+    finished temporary file into place goes through here (tests/test_file_replace.py)."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
 
 
 def set_aside(path: Path, then: str = "it is being started again empty", keep: bool = False) -> Path:
@@ -69,11 +93,11 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
 def read_text(path: Path) -> str:
     """The whole file. On Windows, opening it just as a writer swaps in a new copy (write_text) fails with
     PermissionError for a moment, so that is waited out the same way the writer waits out a reader."""
-    for attempt in range(_REPLACE_ATTEMPTS - 1):
+    for attempt in range(REPLACE_ATTEMPTS - 1):
         try:
             return path.read_text(encoding="utf-8")
         except PermissionError:
-            time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+            time.sleep(REPLACE_BACKOFF * (2 ** attempt))
     return path.read_text(encoding="utf-8")
 
 

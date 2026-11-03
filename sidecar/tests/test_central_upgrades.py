@@ -10,6 +10,7 @@ run here. No tenant calls."""
 import json
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -30,10 +31,10 @@ def _shape(conn):
 
 
 def _today():
-    conn = sqlite3.connect(":memory:")
-    core.ensure_schema(core.Db(conn, "sqlite"))
-    typed = {n: sorted((c[1], c[2]) for c in conn.execute(f"PRAGMA table_info('{n}')")) for n in _shape(conn)}
-    return _shape(conn), typed
+    with closing(sqlite3.connect(":memory:")) as conn:  # at import: left open, 3.13 warns wherever gc runs
+        core.ensure_schema(core.Db(conn, "sqlite"))
+        typed = {n: sorted((c[1], c[2]) for c in conn.execute(f"PRAGMA table_info('{n}')")) for n in _shape(conn)}
+        return _shape(conn), typed
 
 
 TODAY, TODAY_TYPED = _today()

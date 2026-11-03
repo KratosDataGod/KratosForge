@@ -791,12 +791,32 @@ impl SidecarState {
     }
 }
 
+/// The origins of the app's own page (http/https on Windows, tauri:// elsewhere).
+const APP_ORIGINS: [&str; 3] = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// Whether an engine call may come from this Origin header. Frames inside the app (the notebook
+/// output frame, the Power BI host page) are served from their own `*.localhost` protocols, which
+/// Tauri counts as local, so its capability rules alone would let them call. Only the app's own
+/// page may: the whole origin must match exactly, never by prefix. A missing header is the
+/// postMessage route, which WebView2 delivers only from the top page of a webview, not from its
+/// frames. The frames also can't reach the IPC protocol at all: their policies allow no
+/// connections (tests notebook_output_frame_has_no_network_and_only_opens_in_the_app and
+/// the_embed_host_page_allows_no_connections). Loosening either policy needs a security read.
+fn rpc_origin_allowed(origin: Option<&str>) -> bool {
+    origin.is_none_or(|o| APP_ORIGINS.contains(&o))
+}
+
 #[tauri::command]
 async fn rpc(
+    request: tauri::ipc::Request<'_>,
     state: tauri::State<'_, SidecarState>,
     method: String,
     params: Option<Value>,
 ) -> Result<Value, String> {
+    let origin = request.headers().get(tauri::http::header::ORIGIN).map(|v| v.to_str().unwrap_or("not text"));
+    if !rpc_origin_allowed(origin) {
+        return Err("Only KratosForge's own page can call the engine.".into());
+    }
     // The lock is held only to find or start the engine, not for the call, so a long call
     // doesn't hold up the others.
     let sidecar = {
@@ -2782,6 +2802,25 @@ mod embed_host_tests {
             assert_eq!(header(&r, "X-Content-Type-Options"), "nosniff");
         }
         assert!(header(&embed_host("main", "/host.html"), "Content-Type").starts_with("text/html"));
+    }
+
+    #[test]
+    fn the_embed_host_page_allows_no_connections() {
+        assert!(EMBED_CSP.contains("connect-src 'none'"), "{EMBED_CSP}");
+        assert!(!EMBED_CSP.contains('*'), "{EMBED_CSP}");
+    }
+
+    #[test]
+    fn only_the_apps_own_page_can_call_the_engine() {
+        for ok in [None, Some("http://tauri.localhost"), Some("https://tauri.localhost"), Some("tauri://localhost")] {
+            assert!(rpc_origin_allowed(ok), "{ok:?}");
+        }
+        for bad in ["null", "http://nbout.localhost", "http://pbiembed.localhost", "http://tauri.localhost.evil",
+                    "http://tauri.localhost.evil.com", "http://tauri.localhost:8080", "http://evil.tauri.localhost",
+                    "https://app.fabric.microsoft.com", "http://localhost", "HTTP://TAURI.LOCALHOST", "",
+                    "http://tauri.localhost/", "not text"] {
+            assert!(!rpc_origin_allowed(Some(bad)), "{bad}");
+        }
     }
 
     #[test]

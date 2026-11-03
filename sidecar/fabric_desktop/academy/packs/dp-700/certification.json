@@ -151,7 +151,9 @@
                 "E06",
                 "E07"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -175,7 +177,9 @@
               "exercises": [
                 "E08"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [
                 "LM-23"
               ],
@@ -202,7 +206,9 @@
               "exercises": [
                 "E09"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -232,7 +238,9 @@
               "exercises": [
                 "E10"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -257,7 +265,9 @@
               "exercises": [
                 "E11"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [
                 "LM-24"
               ],
@@ -285,7 +295,9 @@
                 "E13",
                 "E14"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [
                 "LM-24"
               ],
@@ -316,7 +328,9 @@
               "exercises": [
                 "E15"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -517,7 +531,9 @@
                 "E24",
                 "E25"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LAB-03",
                 "LAB-05"
@@ -701,7 +717,9 @@
                 "E33",
                 "E34"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LM-08",
                 "LM-19"
@@ -734,7 +752,9 @@
               "exercises": [
                 "E35"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LAB-07"
               ],
@@ -759,7 +779,9 @@
               "exercises": [
                 "E36"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LM-04"
               ],
@@ -782,13 +804,16 @@
               "fabric_required": false,
               "best_local": "local_verified",
               "exercises": [
+                "E25",
                 "E37",
                 "E38",
                 "E39",
                 "E57",
                 "E58"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LM-13",
                 "LM-17",
@@ -822,7 +847,9 @@
               "exercises": [
                 "E40"
               ],
-              "capstones": [],
+              "capstones": [
+                "C2"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -872,7 +899,9 @@
                 "E26",
                 "E42"
               ],
-              "capstones": [],
+              "capstones": [
+                "C2"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -970,7 +999,9 @@
               "exercises": [
                 "E44"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1053,7 +1084,9 @@
               "exercises": [
                 "E46"
               ],
-              "capstones": [],
+              "capstones": [
+                "C2"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1085,7 +1118,9 @@
                 "E49",
                 "E58"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1180,7 +1215,9 @@
               "exercises": [
                 "E54"
               ],
-              "capstones": [],
+              "capstones": [
+                "C2"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1204,7 +1241,9 @@
               "exercises": [
                 "E55"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [
                 "LAB-09"
               ],
@@ -1236,7 +1275,9 @@
               "exercises": [
                 "E56"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LM-25"
               ],
@@ -1286,7 +1327,9 @@
               "exercises": [
                 "E61"
               ],
-              "capstones": [],
+              "capstones": [
+                "C3"
+              ],
               "lessons": [],
               "questions_planned": 4,
               "validation": [
@@ -1365,7 +1408,9 @@
                 "E59",
                 "E64"
               ],
-              "capstones": [],
+              "capstones": [
+                "C1"
+              ],
               "lessons": [
                 "LM-18",
                 "LAB-02"

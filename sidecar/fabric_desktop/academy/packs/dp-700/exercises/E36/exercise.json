@@ -1,0 +1,51 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E36",
+  "version": 1,
+  "status": "live",
+  "title": "Group and aggregate with ROLLUP",
+  "objectives": [
+    "2.2.8"
+  ],
+  "objective_text": "Produce totals at several levels in one query, with subtotals and a grand total in the right place.",
+  "scenario": "The sales team's quarterly report shows totals by region and category, a subtotal under each region and a grand total at the bottom. Today it's three queries glued together, and last quarter one of them used a different filter. Build it as one query on the Gold sales table.",
+  "prerequisites": [
+    "LM-04"
+  ],
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "verifies": [
+    "Your query gives every region and category total, each region's subtotal and the grand total, in the order the report needs, on generated data on this PC."
+  ],
+  "does_not_verify": [
+    "It doesn't run your query on a Fabric lakehouse or warehouse. GROUP BY ROLLUP and GROUPING() exist in Spark SQL and T-SQL too, but this exercise didn't run them there."
+  ],
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "datasets": [],
+  "expected": {
+    "description": "Columns region, category, total_amount: 6 region and category rows, 3 region subtotals and 1 grand total, 10 rows in report order."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true
+    }
+  ],
+  "hints": [
+    "One GROUP BY can make more than one level of totals. Which grouping option makes a subtotal per region and a grand total, and nothing else?",
+    "GROUP BY ROLLUP (region, category) makes the three levels. The subtotal rows have NULL in category.",
+    "Order with GROUPING(region), region, GROUPING(category), category so each subtotal follows its region's rows."
+  ],
+  "explanation": "GROUP BY ROLLUP (region, category) groups by (region, category), then (region), then (), in one pass over the table. CUBE would also add a total per category across regions, which the report doesn't want. Ordering by GROUPING() places subtotals after their detail rows whatever the engine does with NULLs, so the same query gives the same report in DuckDB, Spark SQL and T-SQL.",
+  "remediation": [
+    "LM-04"
+  ],
+  "reset": "Reset rebuilds gold_sales from setup.sql and puts the starter query back.",
+  "parity": [],
+  "reviewed": "2026-11-03"
+}

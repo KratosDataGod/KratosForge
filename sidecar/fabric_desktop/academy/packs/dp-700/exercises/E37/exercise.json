@@ -1,0 +1,59 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E37",
+  "version": 1,
+  "status": "live",
+  "title": "Deduplicate a retried load: one row per key, the latest version",
+  "objectives": [
+    "2.2.9"
+  ],
+  "objective_text": "Find the rows a retried, append-only load doubled and rebuild the table with one row per key, the latest version.",
+  "scenario": "Last night's load failed after writing and was retried, so silver_orders has some orders twice, and one order has an old version beside its new one. Reports are double counting. Rebuild the table so each order appears once, as its latest load.",
+  "prerequisites": [
+    "LM-06"
+  ],
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "uses": "LAB-04/rebuild",
+  "verifies": [
+    "Your rebuild leaves one row per order, each order's latest version, with no NULL keys, on generated data on this PC."
+  ],
+  "does_not_verify": [
+    "It doesn't rewrite a Delta table in a Fabric lakehouse, so it doesn't show the new table version or what time travel would let you undo."
+  ],
+  "datasets": [],
+  "expected": {
+    "description": "silver_orders holds orders 1 to 4 once each; order 3 is complete."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver_orders",
+      "unique": [
+        "order_id"
+      ],
+      "not_null": [
+        "order_id"
+      ]
+    }
+  ],
+  "hints": [
+    "SELECT DISTINCT only removes rows that are the same in every column. Order 3's two versions differ.",
+    "row_number() OVER (PARTITION BY order_id ORDER BY loaded_at DESC) numbers each order's rows, newest first.",
+    "CREATE OR REPLACE TABLE silver_orders AS ... WHERE the row number is 1."
+  ],
+  "explanation": "Rank each order's rows newest first with row_number() over a partition by the key, and keep rank 1. DISTINCT can't help when versions differ, and ordering oldest first keeps stale data. The same pattern works in Spark SQL and T-SQL; on a Delta table the rebuild is a new table version you can compare with the old one.",
+  "remediation": [
+    "LM-17",
+    "LAB-04"
+  ],
+  "reset": "Reset rebuilds the LAB-04 tables from its setup and puts the starter back.",
+  "reviewed": "2026-11-03"
+}

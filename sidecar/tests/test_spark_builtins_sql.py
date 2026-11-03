@@ -268,3 +268,22 @@ def test_databricks_sql_gets_the_same_functions():
                         ("SELECT hour('2009-07-30 12:58:59')", 12),
                         ("SELECT try_add(2147483647, 1)", None)]:
         assert con.execute(sql.duckdb_sql(_databricks(query)[-1])).fetchone()[0] == want
+
+
+@pytest.mark.parametrize("fmt, text, want", [
+    ("yyyy-MM-dd HH:mm:ss", "2026-03-02 10:11:12", dt.date(2026, 3, 2)),
+    ("yyyy-MM-dd HH:mm:ss", "2026-03-02", None),     # the format is read, not dropped: NULL as in Spark
+    ("yyyy-MM-dd HH:mm:ss", "2026/03/01", None),
+    ("yyyy-MM-dd", "2026/03/02", None),
+    ("MM/dd/yyyy", "03/02/2026", dt.date(2026, 3, 2)),
+])
+def test_to_date_reads_the_format_it_is_given(fmt, text, want):
+    assert one(f"SELECT to_date('{text}', '{fmt}')") == want
+
+
+def test_dataframe_to_date_reads_the_format_too():
+    from fabric_desktop import spark_compat
+    query = spark_compat.spark_expr("to_date(t, 'yyyy-MM-dd HH:mm:ss')")
+    con = duckdb.connect()
+    got = con.execute(f"SELECT {query} FROM (VALUES ('2026-03-02'), ('2026-03-02 10:11:12')) AS v(t)").fetchall()
+    assert got == [(None,), (dt.date(2026, 3, 2),)]

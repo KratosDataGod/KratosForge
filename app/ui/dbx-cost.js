@@ -5,7 +5,7 @@
 // whose execution policy is "never" refuses; one that allows Databricks SQL runs without the confirm.
 // Mockup: https://claude.ai/artifact/XgpknxChxChHfHTKHKHugD (Cost)
 
-const dbxCost = { connection: "", days: 7, reading: false };
+const dbxCost = { connection: "", days: 7, reading: false, load: 0 };
 const DBX_KIND = { job: "Job", pipeline: "Lakeflow pipeline", warehouse: "SQL warehouse", cluster: "Cluster", other: "Other" };
 
 function databricksCostSection() {
@@ -16,9 +16,12 @@ function databricksCostSection() {
 }
 
 async function dbxCostLoad(box) {
+  // Loads can overlap (one starts as a read begins, another when it ends): only the newest draws.
+  const mine = ++dbxCost.load;
   const found = await rpc("engine_connections").catch(() => ({ connections: [] }));
   const conns = (found.connections || []).filter((c) => c.host);
   const head = h("h2", {}, "Databricks DBUs ", previewTag());
+  if (mine !== dbxCost.load) return;
   if (!conns.length) {
     box.replaceChildren(head, h("p", { class: "muted-text small" }, "No Databricks connection on this PC. Add one on Settings > Connections to read its billing."));
     return;
@@ -26,7 +29,7 @@ async function dbxCostLoad(box) {
   if (!conns.some((c) => c.key === dbxCost.connection)) dbxCost.connection = conns[0].key;
   const conn = conns.find((c) => c.key === dbxCost.connection);
   const last = await rpc("databricks_billing_last", { connection: dbxCost.connection }).catch(() => ({}));
-  if (!box.isConnected) return;
+  if (!box.isConnected || mine !== dbxCost.load) return;
   const warehouse = h("input", { "aria-label": "SQL warehouse id", value: conn.warehouse_id || "", placeholder: "warehouse id", spellcheck: "false" });
   box.replaceChildren(head,
     h("p", { class: "muted-text small" }, "DBUs from system.billing.usage. They are never added to Fabric CU or Snowflake credits."),
@@ -49,7 +52,7 @@ async function dbxCostRead(box, warehouseId) {
   if (ask.refused) { toast(`Billing wasn't read: ${ask.error}`, true); return; }
   if (!ask.needs_confirm) {
     if (!ask.ok) toast(`Billing wasn't read: ${ask.error}`, true);
-    if (box.isConnected) dbxCostLoad(box);
+    dbxCostRedraw(box);
     return;
   }
   const w = ask.warehouse || {};
@@ -59,11 +62,17 @@ async function dbxCostRead(box, warehouseId) {
     "Run the query", { danger: true });
   if (!ok) return;
   dbxCost.reading = true;
-  dbxCostLoad(box);
+  dbxCostRedraw(box);
   const out = await attempt(() => rpc("databricks_billing", { ...params, confirmed: true }), "Couldn't read billing");
   dbxCost.reading = false;
   if (out && !out.ok) toast(`Billing wasn't read: ${out.error}`, true);
-  if (box.isConnected) dbxCostLoad(box);
+  dbxCostRedraw(box);
+}
+
+// The Cost tab may have drawn the section again while the query ran: redraw whichever is on screen.
+function dbxCostRedraw(box) {
+  const live = box.isConnected ? box : document.querySelector(".dbx-cost");
+  if (live) dbxCostLoad(live);
 }
 
 function dbxCostTable(r) {

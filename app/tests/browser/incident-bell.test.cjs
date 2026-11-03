@@ -73,6 +73,12 @@ test("the bell counts incidents waiting on you, and For you lists them waiting f
   const tray = await page().textContent(".tray");
   assert.ok(tray.includes("Couldn't read Dev, so incidents there aren't listed."));
   assert.strictEqual(await page().locator(".tray-item").nth(2).getByRole("button", { name: "Acknowledge" }).count(), 0);
+  assert.strictEqual(await page().getByRole("button", { name: "For you 3, 2 waiting" }).count(), 1, "the chip agrees with the bell");
+  const before = app.calls.filter((c) => c.method === "incidents_for_me").length;
+  await page().locator(".tray").getByRole("button", { name: "Try again" }).click();
+  for (const end = Date.now() + 3000; app.calls.filter((c) => c.method === "incidents_for_me").length === before; await new Promise((r) => setTimeout(r, 25))) {
+    if (Date.now() > end) assert.fail("Try again didn't read again");
+  }
 });
 
 test("Acknowledge asks first, sends that incident only, and the count drops", { skip }, async () => {

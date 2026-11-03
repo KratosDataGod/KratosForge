@@ -614,6 +614,12 @@ function incidentsForMeShown() {
 // Waiting on you: open, not yet acknowledged. The bell counts these.
 const incWaitingOnMe = () => (activity.incidents?.incidents || []).filter((i) => i.state === "open");
 
+// The chip names both counts when they differ, so it agrees with the bell's (waiting only).
+function incForYouLabel() {
+  const all = activity.incidents.incidents.length, waiting = incWaitingOnMe().length;
+  return waiting && waiting < all ? `For you ${all}, ${waiting} waiting` : `For you ${all}`;
+}
+
 function incidentsTrayList() {
   const m = activity.incidents;
   const reload = () => loadIncidentsForMe().then(() => { if (activity.open) renderTray(); });
@@ -626,13 +632,14 @@ function incidentsTrayList() {
       h("div", { class: "tray-text" }, `${waiting ? "Waiting on you" : "Acknowledged, assigned to you"} · ${envName(i.env)} · `,
         h("span", { class: sla.cls }, sla.text)),
       h("div", { class: "row wrap" },
-        waiting ? btn("Acknowledge", null, () => acknowledgeIncident(i, reload), "tool primary small") : null,
+        waiting ? btn("Acknowledge", null, () => acknowledgeIncident(i, reload), "tool outline small") : null,
         btn("Open", null, () => { toggleTray(false); openIncident(i); }, "tool link small")));
   });
   const unread = m.unreadable.map((u) => envName(u.env));
   return [
     ...(items.length ? items : [h("p", { class: "muted-text tray-empty" }, "Nothing is assigned to you.")]),
-    unread.length ? h("p", { class: "muted-text small pn-note" }, `Couldn't read ${unread.join(", ")}, so incidents there aren't listed.`) : null,
+    unread.length ? h("p", { class: "muted-text small pn-note" }, `Couldn't read ${unread.join(", ")}, so incidents there aren't listed. `,
+      btn("Try again", null, reload, "tool link small")) : null,
     h("p", { class: "muted-text small pn-note" }, "Teams and email copies follow the incident routes your admin set."),
   ];
 }

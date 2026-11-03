@@ -263,7 +263,7 @@ function renderTray() {
       }, "tool link small"),
       h("button", { class: "tool small", "aria-label": "Close", onclick: () => toggleTray(false) }, icon("dismiss", 16))),
     h("div", { class: "tray-chips" }, chip("all", "All"), chip("running", `Running ${running.length}`), chip("problems", `Problems ${problems.length}`),
-      forYou ? chip("for_you", `For you ${activity.incidents.incidents.length}`) : null,
+      forYou ? chip("for_you", incForYouLabel()) : null,
       platform ? chip("platform", `Platform ${activity.platform.open.length}`) : null),
     h("div", { class: "tray-list" }, activity.filter === "platform" ? platformTrayList() : activity.filter === "for_you" ? incidentsTrayList()
       : shown.length ? shown.map(trayItem)

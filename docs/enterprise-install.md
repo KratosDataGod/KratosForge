@@ -122,6 +122,7 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `api.powerbi.com` | Semantic models, workspace access, and reading endorsement for a Fabric administrator |
 | `graph.microsoft.com` | Looking up people when granting access, and Entra ID groups on the Platform page |
 | `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |
+| `api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, your Azure OpenAI resource (`<name>.openai.azure.com`) or your own OpenAI-compatible server | Only if someone adds a model connection in App Studio (Preview, not in the app yet): their own key and billing, schema and metadata only unless they allow sample rows ([App Studio](architecture/app-studio.md)). Ollama connections stay on the PC (`localhost`) |
 | Your Git hosts (`dev.azure.com`, `github.com`, `gitlab.com`, `bitbucket.org` or your own server) | Only if people connect notebooks to a repository |
 | `*.vault.azure.net` | Only if notebook code reads Key Vault secrets with `notebookutils.credentials.getSecret` |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |

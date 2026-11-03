@@ -94,3 +94,22 @@ def test_an_unreadable_outbox_and_ledger_are_set_aside_and_start_empty(tmp_path,
     alone = tmp_path / "ledger.sqlite"
     alone.write_bytes(b"garbage" * 1000)
     assert Ledger(alone).set_aside is not None and "sent once more" in caplog.text
+
+
+def test_an_unreadable_local_platform_file_is_refused_and_kept_as_it_is(tmp_path):
+    from fabric_desktop.central.client import LocalPlatform
+    path = tmp_path / "platform.sqlite"
+    path.write_bytes(b"garbage" * 1000)
+    with pytest.raises(ValueError, match="holds the keys and rules"):
+        LocalPlatform(path, user=lambda: "me@contoso.com")
+    assert path.read_bytes() == b"garbage" * 1000 and not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_a_healthy_local_platform_file_keeps_its_admin(tmp_path):
+    from fabric_desktop.central import core
+    from fabric_desktop.central.client import LocalPlatform
+    path = tmp_path / "platform.sqlite"
+    LocalPlatform(path, user=lambda: "me@contoso.com")
+    platform = LocalPlatform(path, user=lambda: "someone@contoso.com")
+    with platform._db() as db:
+        assert [a["user_name"] for a in core.list_admins(db)] == ["me@contoso.com"]

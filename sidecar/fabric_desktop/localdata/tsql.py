@@ -15,6 +15,7 @@ APPLY, SELECT INTO, OFFSET/FETCH). On top of that this module:
 - joins strings with ``+`` as T-SQL does when a side is known to be text;
 - runs ``BIT`` as a boolean, and ``CHOOSE``, ``ROUND(x, n, 1)``, ``DATALENGTH``, ``STRING_SPLIT`` and
   ``TOP n WITH TIES``, which DuckDB doesn't have (``ISNUMERIC`` is refused for now);
+- runs ``QUOTENAME`` and ``STR``, and refuses by name a function DuckDB doesn't have;
 - gives ``POWER`` its first argument's type (an integer base gives an integer; a decimal base is refused);
 - matches ``LIKE`` patterns with ``[a-c]`` and ``[^a-c]`` character ranges, as a regular expression;
 - keeps ``#temp`` tables apart from ordinary tables of the same name (as temporary ``"#name"``);
@@ -65,11 +66,14 @@ def split_batches(sql: str) -> list[str]:
     return [part for part in _GO.split(sql) if part.strip()]
 
 
-def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None) -> tuple[list[str], list[str]]:
+def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = None,
+              known: set[str] | None = None) -> tuple[list[str], list[str]]:
     """Each statement of the T-SQL script ``sql`` as DuckDB SQL, and notes on what may differ.
 
     ``columns`` is {schema: {table: {column: DuckDB type}}} for the tables the script may read; it
-    lets divisions and ``+`` follow T-SQL's types. Raises ValueError for what isn't carried."""
+    lets divisions and ``+`` follow T-SQL's types. ``known`` is the upper-case names of the functions
+    the DuckDB database has; a function call outside it is refused by name rather than left to DuckDB's
+    catalog error. Raises ValueError for what isn't carried."""
     texts: list[str] = []
     notes: list[str] = []
     schema = _schema(columns or {})
@@ -86,6 +90,8 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
             _functions(tree)
             _gaps(tree)
             _string_edges(tree)
+            if known is not None:
+                _unknown_functions(tree, known)
             try:
                 text = tree.sql(dialect=KfDuckDB, unsupported_level=ErrorLevel.RAISE)
             except SqlglotError as exc:
@@ -399,13 +405,20 @@ def _patindex(tree: exp.Expression) -> None:
     """``PATINDEX(pattern, s)``: where in ``s`` the LIKE pattern first matches, from 1, or 0; DuckDB has
     no PATINDEX. A pattern that starts with ``%`` is looked for anywhere, the rest of it matched from
     there to the end (``PATINDEX('%b%', 'abc')`` is 2); without one it must match from the start, so the
-    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal."""
+    answer is 1 or 0. NULL in, NULL out. The pattern has to be a literal, or NULL."""
     for node in list(tree.find_all(exp.Anonymous)):
         if node.name.upper() != "PATINDEX":
             continue
         if len(node.expressions) != 2:
             raise ValueError("This T-SQL can't be run on the local engine: PATINDEX takes a pattern and a text.")
         pattern, text = node.expressions
+        bare = pattern
+        # CAST(NULL AS VARCHAR(10)), which _types has made LEFT(CAST(NULL AS VARCHAR), 10), or (NULL)
+        while isinstance(bare, (exp.Cast, exp.Paren, exp.Left)):
+            bare = bare.this
+        if isinstance(bare, exp.Null):  # a NULL pattern finds nothing: NULL, as in T-SQL
+            node.replace(exp.null())
+            continue
         if not (isinstance(pattern, exp.Literal) and pattern.is_string):
             raise ValueError("This T-SQL can't be run on the local engine: PATINDEX needs its pattern written out "
                              "as text ('%b%'), not taken from a column or an expression.")
@@ -614,9 +627,70 @@ def _gaps(tree: exp.Expression) -> None:
             call.replace(_datalength(args[0]))
         elif name == "STRING_SPLIT":
             _string_split(call)
+        elif name == "QUOTENAME" and 1 <= len(args) <= 2:
+            call.replace(_quotename(args))
+        elif name == "STR" and 1 <= len(args) <= 3:
+            call.replace(_str(args))
         elif name == "ISNUMERIC":
             raise ValueError(_NOT_YET + "ISNUMERIC isn't mapped yet (its rules accept '$', ',' and '-' alone). "
                              "Use TRY_CAST(x AS FLOAT) IS NOT NULL, or TRY_CAST to the type you need.")
+
+
+_QUOTES = {"[": ("[", "]"), "]": ("[", "]"), '"': ('"', '"'), "'": ("'", "'")}
+
+
+def _quotename(args: list[exp.Expression]) -> exp.Expression:
+    """``QUOTENAME(s [, q])``: s between brackets (or q), the closing character doubled inside, and NULL
+    for more than 128 characters, as T-SQL does."""
+    quote = "["
+    if len(args) == 2:
+        q = args[1]
+        if not (isinstance(q, (exp.Literal, exp.National)) and q.is_string and q.name in _QUOTES):
+            raise ValueError(_NOT_YET + "QUOTENAME runs here with [, ], \" or ' written in the query.")
+        quote = q.name
+    left, right = _QUOTES[quote]
+    text = args[0]
+    quoted = exp.DPipe(this=exp.DPipe(this=exp.Literal.string(left), expression=exp.func(
+        "REPLACE", text.copy(), exp.Literal.string(right), exp.Literal.string(right * 2)), safe=False),
+        expression=exp.Literal.string(right), safe=False)
+    return exp.Case(ifs=[exp.If(this=exp.GT(this=exp.Length(this=text.copy()), expression=exp.Literal.number(128)),
+                                true=exp.Null())], default=quoted)
+
+
+def _whole_literal(node: exp.Expression, what: str, low: int, high: int) -> int:
+    if not (isinstance(node, exp.Literal) and not node.is_string and node.name.isdigit()
+            and low <= int(node.name) <= high):
+        raise ValueError(_NOT_YET + f"STR's {what} has to be a whole number from {low} to {high} written in the query.")
+    return int(node.name)
+
+
+def _str(args: list[exp.Expression]) -> exp.Expression:
+    """``STR(x [, length [, decimals]])``: x as right-aligned text of ``length`` characters (10) with
+    ``decimals`` places (0, at most 16), rounded; fewer places when they don't fit, and ``length``
+    asterisks when the whole number doesn't, as T-SQL does."""
+    length = _whole_literal(args[1], "length", 1, 8000) if len(args) > 1 else 10
+    places = min(_whole_literal(args[2], "decimals", 0, 16), 16) if len(args) > 2 else 0
+    value = exp.Cast(this=args[0].copy(), to=exp.DataType.build("DOUBLE"))
+    width = exp.Literal.number(length)
+    ifs = []
+    for d in range(places, -1, -1):
+        text = exp.func("PRINTF", exp.Literal.string(f"%.{d}f"), exp.Round(this=value.copy(),
+                                                                         decimals=exp.Literal.number(d)))
+        ifs.append(exp.If(this=exp.LTE(this=exp.Length(this=text.copy()), expression=width),
+                          true=exp.func("LPAD", text, width.copy(), exp.Literal.string(" "))))
+    return exp.Case(ifs=[exp.If(this=exp.Is(this=value.copy(), expression=exp.Null()), true=exp.Null()), *ifs],
+                    default=exp.Literal.string("*" * length))
+
+
+def _unknown_functions(tree: exp.Expression, known: set[str]) -> None:
+    """A function DuckDB doesn't have is refused by its T-SQL name, not with DuckDB's catalog error."""
+    for call in tree.find_all(exp.Anonymous):
+        name = call.name.upper()
+        if name and name not in known:
+            raise ValueError(_NOT_YET + f"{name} isn't mapped yet.")
+    if any(True for _ in tree.find_all(exp.CurrentTimestampLTZ)):
+        raise ValueError(_NOT_YET + "SYSDATETIMEOFFSET isn't mapped yet. A warehouse's clock is UTC: "
+                         "SYSUTCDATETIME() gives the same time without the offset.")
 
 
 def _datalength(value: exp.Expression) -> exp.Expr:

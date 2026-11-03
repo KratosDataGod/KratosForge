@@ -162,3 +162,17 @@ test("With preview features hidden the card isn't there", { skip }, async () => 
   assert.strictEqual(count, 0);
   assert.deepStrictEqual(calls, []);
 });
+
+test("An engine without PyYAML turns off only this card, and says why", { skip }, async () => {
+  const calls = [];
+  const why = "Export to Ossie and Import from Ossie need the Python package PyYAML, which this engine doesn't have.";
+  const { page, errors } = await open(calls, { meta_model_ossie_folders: () => ({ folders: [], unavailable: why }) });
+  const card = page.locator("#model-under-test .ossie-card");
+  await card.waitFor();
+  await card.locator(".warn-box").waitFor();
+  assert.match(await card.locator(".warn-box").textContent(), /need the Python package PyYAML/);
+  assert.ok(await card.locator("button:has-text('Export to Ossie')").isDisabled());
+  assert.ok(await card.locator("button:has-text('Import from Ossie')").isDisabled());
+  assert.strictEqual(await page.locator("#model-under-test .dl-card").count(), 1, "the Direct Lake check is still there");
+  assert.deepStrictEqual(errors, []);
+});

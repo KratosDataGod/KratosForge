@@ -13,9 +13,13 @@ Two ways a shortcut decides who reads it:
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from typing import Any
+
+from . import redact
 
 ENV_ORDER = ("dev", "test", "prod")
 _ENV_WORDS = {"dev": ("dev", "development", "sandbox"), "test": ("test", "uat", "qa", "staging"),
@@ -250,3 +254,45 @@ def readers_gap(here: list[dict[str, Any]], there: list[dict[str, Any]] | None, 
 
 def same_definition(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
     return json.dumps(a or {}, sort_keys=True) == json.dumps(b or {}, sort_keys=True)
+
+
+CSV_HEADER = ["Shortcut", "Path", "Workspace", "Lakehouse", "Environment", "Points at", "Target", "Target path",
+              "Target workspace", "Target lakehouse", "Target environment", "Data product", "Health", "Health detail",
+              "Checked at", "Worth a look", "Used by", "Last change", "Last change at", "Last change by"]
+_FORMULA = ("=", "+", "-", "@", "\t", "\r")  # Excel runs a cell starting with one of these as a formula
+_HEALTH_WORDS = {"healthy": "Healthy", "broken": "Broken", "unreachable": "Unreachable", "not_checked": "Not checked"}
+
+
+def _cell(value: Any) -> str:
+    """A CSV cell Excel won't run as a formula: a shortcut or target name is anyone's text."""
+    text = str(value if value is not None else "")
+    return "'" + text if text[:1] in _FORMULA else text
+
+
+def to_csv(rows: list[dict[str, Any]]) -> str:
+    """The command center's rows as CSV, one shortcut a line, in the order given. Names, paths and
+    targets only: who can read a shortcut and connection details stay in the app."""
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\r\n")
+    w.writerow(CSV_HEADER)
+    for r in rows:
+        onelake = r.get("target_type") == "OneLake"
+        product = r.get("product") or {}
+        change = r.get("last_change") or {}
+        how = change.get("how")
+        by = (change.get("by_user") or "KratosForge") if how == "app" else "Health check" if how == "check" else \
+            "Seen at scan" if change else ""
+        worth = [x.get("text") or x.get("kind") or "" for x in open_risks(r)]
+        w.writerow([_cell(x) for x in (
+            r.get("name"), r.get("path"), r.get("workspace_name"), r.get("lakehouse_name"),
+            str(r.get("host_env") or "").title(), r.get("target_type"),
+            "" if onelake else redact.secrets(str(r.get("target") or "")), r.get("target_path") if onelake else "",
+            r.get("target_workspace_name") if onelake else "", r.get("target_lakehouse_name") if onelake else "",
+            str(r.get("target_env") or "").title(),
+            (product.get("name") or "") + (" (deprecated)" if product.get("status") == "deprecated" else ""),
+            _HEALTH_WORDS.get(r.get("health") or "not_checked", r.get("health")),
+            redact.secrets(str(r.get("health_detail") or "")),
+            r.get("checked_at"), "; ".join(worth),
+            "; ".join(str(u.get("entity") or "") for u in r.get("used_by") or []),
+            change.get("kind") or "", change.get("at") or "", by)])
+    return out.getvalue()

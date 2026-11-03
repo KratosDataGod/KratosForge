@@ -283,3 +283,22 @@ def test_an_xray_scan_is_added_to_the_connected_central_lakehouse(svc):
     conn = svc.central_lakehouse()
     svc.optimize_registry.add(dict(conn, access="read"))
     assert svc._xray_share(xray_result(), taken) is None  # read-only: X-ray doesn't try
+
+
+def test_xray_findings_carry_effort_and_can_be_dismissed_on_this_pc(svc):
+    from fabric_desktop import xray
+    assert xray.effort_of("optimize") == "Low" and xray.effort_of("vacuum") == "Low"
+    assert xray.effort_of("open") == "Medium" and xray.effort_of(None) == "Medium"
+    recs = xray.optimize_records(xray_result())["recommendations"]
+    assert [r["effort"] for r in recs] == ["Low"]
+    out = svc._xray_annotate(xray_result(), refresh=False)
+    orders = next(f for f in out["findings"] if f.get("table") == "orders")
+    assert orders["effort"] == "Low" and orders["dismissed"] is None
+    with pytest.raises(ValueError):
+        svc.xray_dismiss("")
+    got = svc.xray_dismiss(orders["id"], "Retired, password=hunter2")
+    assert got["dismissed"]["reason"].startswith("Retired") and "hunter2" not in got["dismissed"]["reason"]
+    again = next(f for f in svc._xray_annotate(xray_result(), refresh=False)["findings"] if f.get("table") == "orders")
+    assert again["dismissed"]["reason"] == got["dismissed"]["reason"]  # a later scan finds it dismissed
+    assert svc.xray_dismiss(orders["id"], reopen=True)["dismissed"] is None
+    assert svc.fake.created == []  # nothing in Fabric

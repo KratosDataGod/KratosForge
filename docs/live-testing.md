@@ -105,6 +105,7 @@ The tests that stand in for Fabric use fakes. A fake that accepts what Fabric re
 | --- | --- | --- |
 | A User Data Functions item whose definition lists no functions: `NullOrEmptyArgument` | Live run 2, 2026-10-30 (#1165) | Refuse the create or update with the same 400 |
 | Windows sign-in with Microsoft's Fabric CLI client gets no token for Azure SQL or Kusto: `AADSTS65002` | Live run 2, 2026-10-30 (#1079) | Refuse the token with the same message |
+| A User Data Functions binding with no item type: `UnsupportedArgument` (artifactType) | Live run 3, 2026-11-03 | Refuse the create or update when a binding's `itemType` isn't one Fabric lists (UDF_Platform's SQL_Platform connection is `SqlDbNative`) |
 
 When a live run finds a new refusal, add it there with the run it came from, and add a row here.
 

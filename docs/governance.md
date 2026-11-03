@@ -282,6 +282,31 @@ A policy whose **Checked by** is `notebook.no_print` then runs it on every item 
 
 The notebook rules `NB001` to `NB012` and `NB018` to `NB020` ([notebook best practices](notebook-best-practices.md)) the SQL rules `SQ001` to `SQ010` ([SQL best practices](sql-best-practices.md)) and the semantic model rules `SM001` to `SM007` ([semantic model rules](semantic-model-rules.md)) are registered this way (`best_practice_checkers.py`), so a policy can name them in **Checked by**, like `NB003, NB006`. Each runs only the rules its policy names, with the policy's severity, or `severity` and `enabled` parameters. `NB004` and `NB008` are for scheduled runs, so Check now runs them only on the notebooks a schedule on this PC runs: a notebook schedule's notebook, or a saved notebook a pipeline schedule's Notebook step runs (Fabric schedules aren't read, and a paused schedule doesn't count). SQL rules check each script as warehouse T-SQL; a script that can't be read is listed under the result's problems, not skipped silently. A policy whose rules found nothing of their kind (no notebooks, no scheduled notebooks or no SQL scripts on this PC) shows as not checked, never as passing, and so does one whose parameters turn its rules off (`enabled = false`).
 
+### Team guidance
+
+A policy whose **Checked by** names `learn.guidance` sets a team's default learning guidance level
+(`learn/team.py`, [your team's level](learn.md#your-teams-level)) through its parameters, each a
+fixed value: `level` for everything, and `sql` or `notebooks` for one subject. The values are
+`expert`, `professional` and `guided`. Assign it where the team works: the enterprise, a domain or a
+project, and a lower scope's assignment can change the level like any parameter. The open project's
+Best practices panels get it with the rule settings (`governance_practice_settings` returns
+`guidance: {level, policy}`), so the project's [policy package](#offline-policy-packages) carries it
+offline too.
+
+- It's a default, never a lock: a level someone picked in Settings wins, and only the IT policy file
+  can fix a level on a PC.
+- Two policies that set a level for one subject: the one with more guidance wins (Guided over
+  Professional over Expert). A value that isn't a level is ignored and the panel says so.
+- It changes how much explanation shows, never which rules run or are required. `learn.guidance` can
+  sit beside rule ids in the same **Checked by** (`learn.guidance, NB003`), and Check now has nothing
+  to check for it: a policy that only sets a level shows as not checked, never as passing.
+
+| Field | Example |
+| --- | --- |
+| Name | New starters |
+| Checked by | `learn.guidance` |
+| Parameters | `level` = `guided` (fixed), `sql` = `professional` (fixed) |
+
 ## What isn't built yet
 
 - Blocking promote or deployment on a **Block** policy (later GOV items). Check now is warn only: it reports and stops nothing.

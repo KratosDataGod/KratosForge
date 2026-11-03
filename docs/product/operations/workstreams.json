@@ -128,21 +128,13 @@
       "pillar": "fabric",
       "name": "Enterprise Services",
       "scope": "Metadata, governance, business keys, shared data assets, data quality, lineage and centralized optimization.",
-      "lead": "Enterprise governance foundation",
+      "lead": "Finish governance follow-ups",
       "members": [
         "Metadata-driven data mesh",
         "Workload management workspace"
       ],
-      "active": {
-        "issue": 1670,
-        "title": "[HD] A policy file changed outside IT's channel is recorded and shown to an admin"
-      },
-      "ready": [
-        {
-          "issue": 1671,
-          "title": "[Docs] One IT deployment checklist, checked against the code"
-        }
-      ],
+      "active": null,
+      "ready": [],
       "backlog": [
         "PB-060",
         "PB-092"
@@ -151,11 +143,12 @@
         "PB-057 builds on PB-056 (policy registry, In review)"
       ],
       "blockers": [
-        "MSI or MSIX packaging is a new capability: needs Chris's go",
-        "PB-062 Save a support bundle button waits on Chris's mockup reaction"
+        "MSI or MSIX packaging is a new capability: decision card with Chris (MSI recommended)",
+        "Email notices for requests: decision card with Chris on how to send without an app registration (Power Automate flow recommended)",
+        "#1679 Save support bundle: passed review, waits on Chris's Windows click test"
       ],
-      "last_completed": "#1387 (#1386) internal hosts left out of support bundles; #1351, #1353, #1354 audit trail",
-      "next_action": "#1670 then #1671."
+      "last_completed": "#1685 (#1670) policy file changes recorded and shown; #1688 (#1671) IT deployment checklist",
+      "next_action": "Shortcut follow-ups in review (#1719 CSV export, #1724 approvals in Dev, Test and Prod); then email notices and MSI once Chris picks."
     },
     {
       "key": "devex",

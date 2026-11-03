@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-02",
+  "updated": "2026-11-03",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -634,7 +634,8 @@
         "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met",
         "Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written",
         "The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed",
-        "Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept"
+        "Re-review of criterion 2 in docs/product/reviews/PB-014-1190.md (2026-11-02): met (#1663); recommend Accept",
+        "Re-review in docs/product/reviews/PB-014-1190.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); criterion 2's ribbon is met by the notebook's compute note, per the mockup Chris approved"
       ],
       "features": [
         "FEAT-NB-07"
@@ -663,7 +664,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In review",
+      "state": "Accepted",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
@@ -3639,7 +3640,8 @@
         "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.",
         "Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges",
         "Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7",
-        "Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations"
+        "Implementation review docs/product/reviews/PB-084-1553.md (2026-11-02): criteria met; recommend Accept with Documented Limitations",
+        "Implementation review docs/product/reviews/PB-084-1553.md: Accepted with Documented Limitations (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f); limitations: no Windows or live Teams run; with Preview off the incident list uses capacity for an environment in Fabric"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3664,7 +3666,7 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "In review",
+      "state": "Accepted",
       "prs": [
         127,
         1553
@@ -4929,14 +4931,15 @@
       "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).",
       "evidence": [
         "Chris's Optimize brief, 2026-10-18 08:55Z",
-        "No code or plan merged yet"
+        "Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py",
+        "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4"
       ],
       "features": [
         "FEAT-ADM-01"
       ],
       "acceptance": [
-        "As defined in PR-OPT-001..009 by its owning thread",
-        "Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized"
+        "As defined in PR-OPT-001..013 in docs/optimize/plan.md section 4",
+        "Savings follow the brief's rule: no CU savings without a measured Fabric baseline, and estimated savings are never labelled realized"
       ],
       "scores": {
         "developer_value": 3,
@@ -4950,7 +4953,7 @@
       "mandatory": "none",
       "owner": "Optimize central lakehouse",
       "source_refs": [
-        "PR-OPT-001..009"
+        "PR-OPT-001..013"
       ],
       "duplicates": [
         "Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item"
@@ -6173,7 +6176,7 @@
     {
       "id": "PB-125",
       "title": "Learn ranks and profile pictures",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "M",
@@ -6186,7 +6189,8 @@
         "Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp",
         "Nothing built. Builds as draft PRs once Chris approves the rank ladder",
         "Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7",
-        "Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept"
+        "Implementation review docs/product/reviews/PB-125-1657.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-125-1657.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6223,7 +6227,7 @@
     {
       "id": "PB-126",
       "title": "Learn curriculum content batches by path",
-      "state": "In review",
+      "state": "Accepted",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
@@ -6241,7 +6245,8 @@
         "From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09)",
         "Nothing built. Each batch needs Chris's go before it is built",
         "All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7",
-        "Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept"
+        "Implementation review docs/product/reviews/PB-126-curriculum.md (2026-11-02): criteria met; recommend Accept",
+        "Implementation review docs/product/reviews/PB-126-curriculum.md: Accepted (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f)"
       ],
       "features": [
         "FEAT-DEV-04"

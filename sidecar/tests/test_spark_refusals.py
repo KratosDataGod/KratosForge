@@ -50,7 +50,7 @@ BLOCKED = {
                    "DeltaTable.vacuum"),
     "withSchemaEvolution": ("t.merge(s, 'a = b').withSchemaEvolution().whenMatchedUpdateAll().execute()",
                             "withSchemaEvolution"),
-    "csv": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
+    "_refusal": ("df = spark.read.option('ignoreLeadingWhiteSpace', 'true').csv('Files/x.csv')", "ignoreLeadingWhiteSpace"),
 }
 
 

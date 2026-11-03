@@ -2935,7 +2935,10 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
   const rows = section.split("\n").filter((l) => l.startsWith("| **"));
-  assert.strictEqual(rows.length, appWide.length);
+  // ...and one for zoom, which WebView2 handles itself: listed in the dialog's Window group (PB-063).
+  assert.strictEqual(rows.length, appWide.length + 1);
+  assert.ok(rows.some((r) => r.startsWith("| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** |")), "the guide lists zoom");
+  assert.match(features, /registerShortcuts\("Window", \[\s*\{ keys: \["Ctrl\+=", "Ctrl\+-", "Ctrl\+0"\]/);
   assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
 });
 

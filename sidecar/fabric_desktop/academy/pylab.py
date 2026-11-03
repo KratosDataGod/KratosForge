@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .. import jsonfile
 from . import sandbox, validators
 from . import workspace as ws
 
@@ -120,7 +121,7 @@ def prepare(work: Path, folder: Path, ex: dict[str, Any], answer: str) -> None:
     """Fill an empty workspace: the exercise's data files, then ``answer`` as its starter script."""
     for name in ex.get("files") or []:
         shutil.copyfile(folder / name, ws.inside(work, name, must_exist=False))
-    ws.inside(work, ex["starter"], must_exist=False).write_text(answer, encoding="utf-8")
+    jsonfile.write_text(ws.inside(work, ex["starter"], must_exist=False), answer)
 
 
 def self_test(folder: Path, grading: Path, ex: dict[str, Any], lib_roots: list[Path] | None = None) -> dict[str, Any]:

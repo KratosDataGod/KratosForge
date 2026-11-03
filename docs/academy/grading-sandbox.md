@@ -179,7 +179,7 @@ ended, runs the checks in the engine on what is left:
 | `notebook_ran` | the run itself: it finished without an error (optional `prints`) |
 | `artifact_present` | files and folders, through `workspace` |
 | `config_matches` | a JSON file (`path`, `rules`) |
-| `schema_matches`, `data_quality` | a parquet, CSV or JSON file loaded by the validators' locked DuckDB |
+| `schema_matches`, `data_quality` | a parquet, CSV or JSON file loaded by the validators' locked DuckDB (a file it can't read fails, with the reader's message cut to 200 characters) |
 | `delta_table` | the checked Delta log; no data file is opened |
 
 A run that stops early (an error, the time or memory limit) is reported on its own, in words, and the

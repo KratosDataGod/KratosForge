@@ -75,6 +75,14 @@ def test_grading_material_never_reaches_the_workspace(tmp_path):
     assert res["passed"], res
 
 
+def test_notebook_ran_checks_what_was_printed(tmp_path):
+    data_root, work = _workspace(tmp_path, "print('loaded 3 orders')\n")
+    assert pylab.grade(work, "answer.py", [{"kind": "notebook_ran", "prints": "loaded 3"}], data_root)["passed"]
+    res = pylab.grade(work, "answer.py", [{"kind": "notebook_ran", "prints": "loaded 4"}], data_root)
+    assert res["results"] == [{"kind": "notebook_ran", "passed": False,
+                               "detail": "Your script ran, but it didn't print 'loaded 4'."}]
+
+
 def test_a_script_that_runs_too_long_is_stopped_and_said_so(tmp_path):
     data_root, work = _workspace(tmp_path, "while True:\n    pass\n")
     res = pylab.grade(work, "answer.py", VALIDATION, data_root, time_limit=3)

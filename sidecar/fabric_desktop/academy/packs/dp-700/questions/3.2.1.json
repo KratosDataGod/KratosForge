@@ -1,0 +1,133 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.1",
+  "questions": [
+    {
+      "id": "3.2.1-q1",
+      "type": "single",
+      "stem": "A pipeline must run a cleanup activity only when a Copy activity fails. How do you connect them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By putting both in a ForEach"
+        },
+        {
+          "id": "b",
+          "text": "By scheduling the cleanup separately"
+        },
+        {
+          "id": "c",
+          "text": "With an Upon success dependency"
+        },
+        {
+          "id": "d",
+          "text": "With an Upon failure dependency from the Copy activity to the cleanup activity"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Activity dependencies can be Upon success, Upon failure, Upon completion or Upon skip. Upon failure runs the next activity only when the previous one fails.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.1-q2",
+      "type": "single",
+      "stem": "A Copy activity sometimes fails with a brief network timeout and works when run again. What should you change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Remove the activity"
+        },
+        {
+          "id": "b",
+          "text": "Set a retry count and retry interval on the activity"
+        },
+        {
+          "id": "c",
+          "text": "Change the destination to CSV"
+        },
+        {
+          "id": "d",
+          "text": "Increase the capacity SKU"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Activity retries handle transient errors by running the activity again after an interval.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/activity-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.1-q3",
+      "type": "single",
+      "stem": "A Copy activity fails because a few source rows have values that can't convert to the destination column types. The business accepts losing those rows if they're logged. What do you configure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A larger timeout"
+        },
+        {
+          "id": "b",
+          "text": "A different workspace"
+        },
+        {
+          "id": "c",
+          "text": "Fault tolerance to skip incompatible rows and log them"
+        },
+        {
+          "id": "d",
+          "text": "Retries"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Fault tolerance lets the copy skip rows it can't write and log them for review, instead of failing the whole copy. Retries would fail the same way.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/copy-data-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.1-q4",
+      "type": "order",
+      "stem": "Put the steps of finding why a pipeline run failed in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Find the activity whose status is Failed"
+        },
+        {
+          "id": "b",
+          "text": "Fix the cause and rerun from the failed activity"
+        },
+        {
+          "id": "c",
+          "text": "Open that activity's error details"
+        },
+        {
+          "id": "d",
+          "text": "Open the pipeline run from the Monitoring hub or the pipeline's run history"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "c",
+        "b"
+      ],
+      "explanation": "You find the run, then the failed activity, then its error message, and fix and rerun. A pipeline can be rerun from the failed activity so earlier successful steps aren't repeated.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitor-pipeline-runs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

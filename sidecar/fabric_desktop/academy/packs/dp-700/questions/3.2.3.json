@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.3",
+  "questions": [
+    {
+      "id": "3.2.3-q1",
+      "type": "single",
+      "stem": "A notebook fails with an error that a column can't be resolved. The column exists in the source file. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "V-Order is turned off"
+        },
+        {
+          "id": "b",
+          "text": "The name in the code doesn't match the DataFrame's schema, for example different spelling or a column lost in an earlier select"
+        },
+        {
+          "id": "c",
+          "text": "The Spark pool is too small"
+        },
+        {
+          "id": "d",
+          "text": "The lakehouse is in a different domain"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "An unresolved column error means the plan refers to a column the DataFrame doesn't have at that point. Print the schema before the failing step.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-detail-monitoring",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.3-q2",
+      "type": "single",
+      "stem": "A notebook fails with an out-of-memory error on the driver at df.toPandas() on a large table. What is the best fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn off autoscale"
+        },
+        {
+          "id": "b",
+          "text": "Aggregate or filter in Spark first, and bring only the small result to the driver"
+        },
+        {
+          "id": "c",
+          "text": "Use collect() instead"
+        },
+        {
+          "id": "d",
+          "text": "Call toPandas() twice"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "toPandas and collect pull all the data onto the driver. Keep the work distributed in Spark and only bring small results back.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.3-q3",
+      "type": "single",
+      "stem": "A notebook fails with ModuleNotFoundError for a package it imports. The package must be available to every run, including scheduled ones. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Rename the import"
+        },
+        {
+          "id": "b",
+          "text": "Install it on your PC"
+        },
+        {
+          "id": "c",
+          "text": "Add the package to an environment and attach the environment to the notebook or workspace"
+        },
+        {
+          "id": "d",
+          "text": "Run the notebook again"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "An environment's libraries are installed in every session that uses it, including scheduled runs. An in-session install lasts only for that session.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/environment-manage-library",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.3-q4",
+      "type": "single",
+      "stem": "Two notebooks append to and update the same Delta table at once, and one fails with a concurrent modification conflict. Which approach helps?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn off the checkpoint"
+        },
+        {
+          "id": "b",
+          "text": "Retry the failed write, or make the jobs write to separate partitions so they don't conflict"
+        },
+        {
+          "id": "c",
+          "text": "Convert the table to CSV"
+        },
+        {
+          "id": "d",
+          "text": "Delete the _delta_log folder"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Delta uses optimistic concurrency: conflicting commits fail and can be retried, and writers that touch separate partitions conflict far less.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/optimizations/isolation-level",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

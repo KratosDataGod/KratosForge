@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.3",
+  "questions": [
+    {
+      "id": "2.2.3-q1",
+      "type": "single",
+      "stem": "You create a OneLake shortcut in a lakehouse that points to a folder in Azure Data Lake Storage Gen2. What happens to the data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It is copied into OneLake every hour"
+        },
+        {
+          "id": "b",
+          "text": "It stays in ADLS Gen2 and is read in place through the shortcut"
+        },
+        {
+          "id": "c",
+          "text": "It is copied into OneLake once, when the shortcut is created"
+        },
+        {
+          "id": "d",
+          "text": "It is moved into OneLake and removed from ADLS Gen2"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A shortcut is a reference: the data stays where it is, and Fabric engines read it through OneLake without copying or moving it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.3-q2",
+      "type": "single",
+      "stem": "A lakehouse has a shortcut to a folder in another workspace's lakehouse. You delete the shortcut. What happens to the folder it pointed to?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The folder and its files are deleted"
+        },
+        {
+          "id": "b",
+          "text": "Nothing: deleting a shortcut removes only the reference"
+        },
+        {
+          "id": "c",
+          "text": "The folder becomes read-only"
+        },
+        {
+          "id": "d",
+          "text": "The folder is moved into your lakehouse"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Deleting a shortcut deletes the shortcut object only. The target data is untouched.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.3-q3",
+      "type": "multiple",
+      "stem": "Which three can a OneLake shortcut point to? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Power BI report"
+        },
+        {
+          "id": "b",
+          "text": "A table in a Fabric deployment pipeline"
+        },
+        {
+          "id": "c",
+          "text": "Amazon S3"
+        },
+        {
+          "id": "d",
+          "text": "A folder in another Fabric lakehouse"
+        },
+        {
+          "id": "e",
+          "text": "Azure Data Lake Storage Gen2"
+        }
+      ],
+      "answer": [
+        "e",
+        "c",
+        "d"
+      ],
+      "explanation": "Shortcuts can point to other OneLake locations and to external storage such as ADLS Gen2, Amazon S3 and Google Cloud Storage. A report or a deployment pipeline isn't storage.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.3-q4",
+      "type": "single",
+      "stem": "A folder in ADLS Gen2 holds a Delta table. You want it to appear as a table that Spark and the SQL analytics endpoint can query. Where do you create the shortcut?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the workspace, outside any lakehouse"
+        },
+        {
+          "id": "b",
+          "text": "At the top level of the lakehouse's Tables section"
+        },
+        {
+          "id": "c",
+          "text": "In the lakehouse's Files section, in any subfolder"
+        },
+        {
+          "id": "d",
+          "text": "In the warehouse's staging schema"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A shortcut at the top level of Tables to a Delta folder is discovered as a table. A shortcut under Files appears as a folder of files.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

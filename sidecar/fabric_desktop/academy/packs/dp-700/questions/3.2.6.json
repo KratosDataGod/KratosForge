@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.6",
+  "questions": [
+    {
+      "id": "3.2.6-q1",
+      "type": "single",
+      "stem": "Two jobs update the same warehouse table at the same time and one fails with an update conflict under snapshot isolation. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Drop the table"
+        },
+        {
+          "id": "b",
+          "text": "Retry the failed transaction, or run the jobs so they don't update the same table at the same time"
+        },
+        {
+          "id": "c",
+          "text": "Switch the warehouse to read uncommitted"
+        },
+        {
+          "id": "d",
+          "text": "Disable transactions"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Fabric warehouse transactions use snapshot isolation, and concurrent updates to the same table can conflict. Retry, or schedule writers so they don't overlap.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/transactions",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.6-q2",
+      "type": "single",
+      "stem": "A CREATE TABLE statement fails in a Fabric warehouse because of a column's data type datetime. What should you use instead?",
+      "options": [
+        {
+          "id": "a",
+          "text": "timestamp"
+        },
+        {
+          "id": "b",
+          "text": "datetime2"
+        },
+        {
+          "id": "c",
+          "text": "sql_variant"
+        },
+        {
+          "id": "d",
+          "text": "text"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The warehouse supports a subset of SQL Server types; datetime isn't one of them and datetime2 is the supported replacement.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/data-types",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.6-q3",
+      "type": "single",
+      "stem": "A query fails when some text values can't be converted to int. You want those rows to give NULL instead of failing the query. What do you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "CAST(value AS int)"
+        },
+        {
+          "id": "b",
+          "text": "CONVERT(int, value)"
+        },
+        {
+          "id": "c",
+          "text": "ISNUMERIC(value) AS int"
+        },
+        {
+          "id": "d",
+          "text": "TRY_CAST(value AS int)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "TRY_CAST returns NULL when a conversion fails. CAST and CONVERT raise an error.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/try-cast-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.6-q4",
+      "type": "single",
+      "stem": "You need to find which warehouse queries failed last night and what they ran. Where do you look?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The OneLake catalog"
+        },
+        {
+          "id": "b",
+          "text": "The Spark UI"
+        },
+        {
+          "id": "c",
+          "text": "The queryinsights views, which keep a history of completed requests"
+        },
+        {
+          "id": "d",
+          "text": "The eventstream runtime logs"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Query insights keeps a history of completed requests on the warehouse, which is where you look for failed or canceled queries.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/query-insights",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.1.4",
+  "questions": [
+    {
+      "id": "3.1.4-q1",
+      "type": "single",
+      "stem": "Operators must be alerted when any meter's reading in an eventstream goes above a threshold. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "A deployment pipeline"
+        },
+        {
+          "id": "c",
+          "text": "A warehouse view"
+        },
+        {
+          "id": "d",
+          "text": "Activator"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Activator watches data such as eventstreams and takes actions, such as sending an alert, when a condition is met.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.4-q2",
+      "type": "single",
+      "stem": "At Fernway, nobody is told when the nightly pipeline fails. What is the simplest fix inside the pipeline?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add an Office 365 Outlook or Teams activity on the failure path of the last activities"
+        },
+        {
+          "id": "b",
+          "text": "Turn off retries"
+        },
+        {
+          "id": "c",
+          "text": "Schedule the pipeline twice"
+        },
+        {
+          "id": "d",
+          "text": "Add a Wait activity"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A notification activity connected with an Upon failure dependency runs only when that activity fails and sends the message.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/outlook-activity",
+      "case": "fernway-telemetry",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.4-q3",
+      "type": "single",
+      "stem": "A manager wants an email when a measure in a Power BI report visual drops below a target. What can they do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Set an alert on the visual, which creates an Activator rule"
+        },
+        {
+          "id": "b",
+          "text": "Export the visual to Excel each day"
+        },
+        {
+          "id": "c",
+          "text": "Add a sensitivity label"
+        },
+        {
+          "id": "d",
+          "text": "Ask for a new pipeline"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Power BI visuals can create Activator alerts that watch the value and send an email or Teams message.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.4-q4",
+      "type": "multiple",
+      "stem": "Which three actions can an Activator rule take when its condition is met? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Send an email"
+        },
+        {
+          "id": "b",
+          "text": "Change the capacity SKU"
+        },
+        {
+          "id": "c",
+          "text": "Send a Teams message"
+        },
+        {
+          "id": "d",
+          "text": "Delete the workspace"
+        },
+        {
+          "id": "e",
+          "text": "Run a Fabric item, such as a pipeline or notebook"
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "e"
+      ],
+      "explanation": "Activator can notify people by email or Teams and can start Fabric items such as pipelines and notebooks.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/data-activator/activator-introduction",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

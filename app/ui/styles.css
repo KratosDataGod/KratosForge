@@ -2180,6 +2180,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .profile-report h3 { margin: 14px 0 2px; font-size: 15px; }
 .profile-report p, .profile-report ul { margin: 0; }
 .profile-report em { color: var(--muted); font-size: 12px; }
+.profile-goal-input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border-input); border-radius: 4px; font: inherit; background: var(--surface); color: inherit; }
 @media (max-width: 900px) { .profile-grid, .profile-report-layout, .profile-skills { grid-template-columns: minmax(0, 1fr); } }
 
 /* Optimize > Settings history */

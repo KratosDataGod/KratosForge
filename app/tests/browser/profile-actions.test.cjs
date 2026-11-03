@@ -10,6 +10,8 @@
 // row added; Export sends profile_export and says where the file went; Delete my profile data asks in a
 // danger confirm (Cancel sends nothing, confirming sends profile_delete once); the engine's refusals
 // read as plain sentences; opening every tab sends no write; axe finds nothing serious; no page errors.
+// KF-DX-009..011: Save PDF sends the period shown and writes a PDF; on Goals, Add goal sends exactly the
+// words typed, Make it a goal sends that milestone, Mark done and Remove send that goal's id.
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
@@ -21,7 +23,8 @@ const skip = !playwright && "Playwright is not installed";
 let app;
 const page = () => app.page;
 const READS = ["profile_get", "profile_report"];
-const WRITES = ["profile_save", "profile_exclude", "profile_report_save", "profile_backfill", "profile_export", "profile_delete"];
+const WRITES = ["profile_save", "profile_exclude", "profile_report_save", "profile_report_pdf", "profile_backfill", "profile_export", "profile_delete",
+  "profile_goal_add", "profile_goal_remove", "profile_goal_done"];
 const SIDECAR = path.join(__dirname, "..", "..", "..", "sidecar");
 const python = process.env.FABRIC_DESKTOP_PYTHON || (process.platform === "win32" ? "python" : "python3");
 
@@ -175,6 +178,51 @@ test("Save summary sends exactly the summary typed; Save Markdown sends the peri
   assert.strictEqual(fs.readFileSync(file, "utf8"), shown);
 });
 
+test("Save PDF sends the period and choice shown and writes a PDF of the report to Downloads", { skip }, async () => {
+  await openProfile("report", "Validated notebook sales_daily_load");
+  await page().getByRole("combobox", { name: "Reporting period" }).selectOption("180");
+  await page().waitForFunction(() => profilePage.report && profilePage.days === 180);
+  const from = app.calls.length;
+  await page().getByRole("button", { name: "Save PDF" }).click();
+  const said = await toastNow("Saved ");
+  assert.deepStrictEqual(writes(from), [{ method: "profile_report_pdf", params: { days: 180, include_achievements: false } }]);
+  const file = path.join(downloads(), "accomplishments.pdf");
+  assert.strictEqual(said, `Saved ${file}`);
+  const pdf = fs.readFileSync(file);
+  assert.strictEqual(pdf.subarray(0, 8).toString("latin1"), "%PDF-1.4");
+  assert.match(pdf.toString("latin1"), /Validated notebook sales_daily_load/);
+  assert.doesNotMatch(pdf.toString("latin1"), /XP|First Flame/);
+});
+
+test("Goals: Add goal sends the words typed, Make it a goal sends the milestone, Mark done and Remove send the goal", { skip }, async () => {
+  await openProfile("goals", "Development roadmap");
+  let from = app.calls.length;
+  await page().getByRole("textbox", { name: "Goal in your own words" }).fill("  Present the Gold layer design  ");
+  await page().getByRole("button", { name: "Add goal" }).click();
+  await page().locator(".profile-row", { hasText: "Present the Gold layer design" }).waitFor();
+  assert.deepStrictEqual(writes(from), [{ method: "profile_goal_add", params: { text: "Present the Gold layer design" } }]);
+  const own = onDisk().goals[0];
+  assert.strictEqual(own.text, "Present the Gold layer design");
+  // Two notebooks validated: Notebook development is met, so its track suggests the next milestone.
+  const suggested = page().locator(".card", { hasText: "Suggested next" });
+  await suggested.getByText("Loads that are safe to run again").waitFor();
+  from = app.calls.length;
+  await suggested.getByRole("button", { name: "Make it a goal" }).click();
+  await page().locator(".profile-row", { hasText: "Loads that are safe to run again" }).waitFor();
+  assert.deepStrictEqual(writes(from), [{ method: "profile_goal_add", params: { milestone: "de-reliable-loads" } }]);
+  const goalRow = page().locator(".profile-row", { hasText: "Loads that are safe to run again" });
+  assert.strictEqual(await goalRow.getByRole("button", { name: "Mark done" }).count(), 0, "a roadmap goal can't be ticked");
+  from = app.calls.length;
+  await page().locator(".profile-row", { hasText: "Present the Gold layer design" }).getByRole("button", { name: "Mark done" }).click();
+  await page().getByText("Done (marked by you)").waitFor();
+  assert.deepStrictEqual(writes(from), [{ method: "profile_goal_done", params: { id: own.id, done: true } }]);
+  from = app.calls.length;
+  await goalRow.getByRole("button", { name: "Remove" }).click();
+  await goalRow.waitFor({ state: "detached" });
+  assert.deepStrictEqual(writes(from), [{ method: "profile_goal_remove", params: { id: "m-de-reliable-loads" } }]);
+  assert.deepStrictEqual(onDisk().goals.map((g) => g.id), [own.id]);
+});
+
 test("Add them sends profile_backfill once and shows the validation it added", { skip }, async () => {
   await openProfile("settings", "Include past validations");
   const from = app.calls.length;
@@ -272,6 +320,7 @@ test("opening every tab of Profile sends no write", { skip }, async () => {
   const from = app.calls.length;
   await openProfile("overview", "Validated notebook sales_daily_load");
   for (const [tab, ready] of [["Journey", "Recent milestones"], ["Achievements", "How to earn it"],
+    ["Impact", "Verified outcomes"], ["Goals", "Development roadmap"],
     ["Professional report", "Executive summary"], ["Settings", "Your data"], ["Overview", "Recorded accomplishments"]]) {
     await page().getByRole("tab", { name: tab }).click();
     await page().getByText(ready, { exact: false }).first().waitFor();
@@ -285,7 +334,7 @@ test("opening every tab of Profile sends no write", { skip }, async () => {
   assert.deepStrictEqual([...new Set(made.filter((m) => !READS.includes(m) && !baseline.has(m)))], []);
 });
 
-test("axe finds nothing serious on Overview, the report, Settings and the delete confirm", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+test("axe finds nothing serious on Overview, the report, Settings, Impact, Goals and the delete confirm", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
   const check = async (where, selector) => assert.deepStrictEqual(await axeFindings(page(), selector), [], where);
   await openProfile("overview", "Validated notebook sales_daily_load");
   await check("overview", ".page.profile");
@@ -293,6 +342,10 @@ test("axe finds nothing serious on Overview, the report, Settings and the delete
   await check("report", ".page.profile");
   await openProfile("settings", "Your data");
   await check("settings", ".page.profile");
+  await openProfile("impact", "Verified outcomes");
+  await check("impact", ".page.profile");
+  await openProfile("goals", "Development roadmap");
+  await check("goals", ".page.profile");
   await page().getByRole("button", { name: "Delete my profile data" }).click();
   await page().getByRole("dialog", { name: "Delete your profile data?" }).waitFor();
   await check("delete confirm", "#dialog-root .dialog");

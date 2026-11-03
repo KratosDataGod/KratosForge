@@ -44,6 +44,12 @@ from .pyspark_shim import TABLES, table_path
 ANSWER_FILE = "answer.py"
 CHECKS = ("result_matches", "table_shape", "idempotent")
 RUN_SECONDS = 120
+# What the engine reads back from a table an answer left: the checked live files' size on disk (not
+# what the log says) and the rows. An exercise table is far smaller.
+MAX_TABLE_BYTES = 256 * 1024 * 1024
+MAX_TABLE_ROWS = checks.MAX_ROWS
+# Any failure on hidden data says only this: the learner's error text could print the hidden rows.
+HIDDEN_FAILED = "On data you haven't seen, your code didn't finish. Check it handles rows unlike the exercise's."
 Runner = Callable[[Path, str], dict[str, Any]]
 
 # The process's first code: put kf_learner first on the path, make spark, run answer.py, exit at once
@@ -165,10 +171,19 @@ def _table(work: Path, name: str) -> Any:
         raise
     if not log.is_dir():
         return None
+    size = 0
     for file in validators._table_facts(validators.check_log(work, rel))["files"]:
-        if not ws.inside(work, f"{rel}/{file}").is_file():
+        live = ws.inside(work, f"{rel}/{file}")
+        if not live.is_file():
             raise ws.Refused(f"{name}'s Delta log lists a data file that isn't there.")
-    return deltalake.DeltaTable(str(path)).to_pyarrow_table()
+        size += os.stat(live).st_size
+        if size > MAX_TABLE_BYTES:
+            raise ws.Refused(f"{name} is bigger than {MAX_TABLE_BYTES // (1024 * 1024)} MB; an exercise table is much smaller.")
+    table = deltalake.DeltaTable(str(path))
+    data = table.to_pyarrow_dataset().head(MAX_TABLE_ROWS + 1)
+    if data.num_rows > MAX_TABLE_ROWS:
+        raise ws.Refused(f"{name} has more than {MAX_TABLE_ROWS:,} rows; an exercise table has far fewer.")
+    return data
 
 
 def _rows(work: Path, name: str) -> tuple[list[str], list[tuple[Any, ...]]] | None:
@@ -272,7 +287,7 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                             hw = fresh("hidden", hidden or setup)
                             hidden_run = {"run": runner(hw, answer), "work": hw}
                         if hidden_run["run"]["status"] != "ok":
-                            results.append(_check_result(kind, False, "On data you haven't seen, " + _error(hidden_run["run"]).lower()))
+                            results.append(_check_result(kind, False, HIDDEN_FAILED))
                             continue
                         got = _rows(hidden_run["work"], table)
                     else:

@@ -10,7 +10,8 @@
   "auto_update": false and deploys each new MSI instead.
 
   Never change UpgradeCode: it is how a newer MSI finds and replaces an older one.
-  The version is 0.1.<CI run number>, passed in as -d Version=..., so each build upgrades the last.
+  The version comes from the CI run number (0.1.<run>, carrying into the second field past 65535),
+  passed in as -d Version=..., so each build upgrades the last.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="KratosForge"

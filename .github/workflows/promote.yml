@@ -77,8 +77,7 @@ jobs:
             fi
           done
           # The per-user MSI (docs/enterprise-install.md), when the build has one; a build from before
-          # it goes without. The app never downloads it, so version.json doesn't name it: the build's
-          # attestation covers it (gh attestation verify kratosforge.msi --repo ...).
+          # it goes without. Its SHA-256 is checked against version.json's msi_sha256 below.
           SBOMS_AND_MSI=()
           if grep -qx kratosforge.msi <<< "$ASSETS"; then
             gh release download "$SOURCE" --pattern kratosforge.msi
@@ -100,6 +99,7 @@ jobs:
           # Stable only gets the exact files the build's version.json names.
           PAIRS=("kratosforge.exe exe_sha256" "fabric-desktop.exe exe_sha256" "fabric-desktop-engine.zip engine_sha256")
           [ ${#UPDATE_ZIP[@]} -eq 0 ] || PAIRS+=("fabric-desktop-engine-update.zip engine_update_sha256")
+          [[ " ${SBOMS_AND_MSI[*]} " != *" kratosforge.msi "* ]] || PAIRS+=("kratosforge.msi msi_sha256")
           for pair in "${PAIRS[@]}"; do
             read -r file key <<< "$pair"
             expected=$(jq -r --arg k "$key" '.[$k] // ""' version.json)

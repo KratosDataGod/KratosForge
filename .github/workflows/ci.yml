@@ -502,8 +502,11 @@ jobs:
         shell: pwsh
         run: |
           dotnet tool install --global wix --version 5.0.2
+          # An MSI version's third field stops at 65535, so the run number carries into the second.
+          $run = ${{ github.run_number }}
+          $version = "0.$([math]::Floor($run / 65536) + 1).$($run % 65536)"
           wix build ..\installer\kratosforge.wxs -arch x64 `
-            -d Version=0.1.${{ github.run_number }} `
+            -d Version=$version `
             -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
             -o target\release\kratosforge.msi
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
@@ -521,6 +524,14 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      - name: Check the MSI's signature
+        shell: pwsh
+        env:
+          SIGNING: ${{ vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          $sig = Get-AuthenticodeSignature target\release\kratosforge.msi
+          "The MSI's signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          if ($env:SIGNING -eq 'true' -and $sig.Status -ne 'Valid') { throw "Signing is set up, but the MSI isn't validly signed ($($sig.Status)), so it isn't published." }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
@@ -611,13 +622,14 @@ jobs:
           [[ "$RUNTIME" =~ ^[0-9a-f]{64}$ ]] || { echo "The engine's engine.json has no runtime key"; exit 1; }
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
+            --arg msi "$(sha256sum kratosforge.msi | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, engine_sha256: $engine,
               engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
               published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be

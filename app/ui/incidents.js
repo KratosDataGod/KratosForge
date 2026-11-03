@@ -125,8 +125,9 @@ async function loadIncidents(box) {
   const list = await rpc("incidents_board", { env }).catch((err) => ({ env, incidents: [], error: friendlyError(err).text }));
   if (!box.isConnected) return;
   const again = (changes = {}) => { Object.assign(incPage, changes); loadIncidents(box); };
-  const envChip = (e) => h("button", { class: `chip${e.env === env ? " on" : ""}`, title: e.count === null ? e.observation?.detail || "" : "",
-    onclick: () => again({ env: e.env }) }, `${envName(e.env)} · ${e.count === null ? e.observation?.label || "Can't read" : e.count}`);
+  const envPick = h("select", { class: "inc-env", "aria-label": "Environment", onchange: (ev) => again({ env: ev.target.value }) },
+    envs.map((e) => h("option", { value: e.env, selected: e.env === env, title: e.count === null ? e.observation?.detail || "" : "" },
+      `${envName(e.env)} · ${e.count === null ? e.observation?.label || "Can't read" : e.count}`)));
   const counts = list.counts || {};
   const late = (counts.at_risk || 0) + (counts.breached || 0);
   const count = (key) => key === "late" ? late : counts[key];
@@ -148,7 +149,7 @@ async function loadIncidents(box) {
     : state.query ? "No incidents match your search." : `No active incidents in ${envName(env)}.`;
   box.replaceChildren(
     h("div", { class: "monitor-filters" },
-      h("div", { class: "row wrap", role: "group", "aria-label": "Environment" }, envs.map(envChip)),
+      envPick,
       h("span", { class: "inc-gap" }),
       h("div", { class: "row wrap", role: "group", "aria-label": "Show" }, INC_FILTERS.map(filterChip)),
       h("span", { class: "spacer" }),
@@ -205,7 +206,7 @@ function incidentMenu(anchor, i, reload) {
   showMenu(anchor, [
     { label: "Assign", icon: "person", action: () => assignIncident(i, reload) },
     { label: "Add note", icon: "markdown", action: () => noteIncident(i, reload) },
-    { label: "Change priority", icon: "warning", action: () => priorityIncident(i, reload) },
+    { label: "Change priority", action: () => priorityIncident(i, reload) },
     { label: "Resolve", icon: "ok", action: () => resolveIncident(i, reload) },
     i.workload && i.workload.startsWith("meta:") ? { label: "Open workload", icon: "table", action: () => openWorkload(i.workload) } : null,
   ].filter(Boolean));
@@ -278,6 +279,21 @@ function resolveIncident(i, reload) {
     async (note) => after(await rpc("incident_resolve", { env: i.env, id: i.id, note }), reload));
 }
 
+// A required field left empty: say so beside it, and mark it for screen readers, until it's filled.
+function incRequired(input, message) {
+  const id = `${input.id || (input.id = `inc-f-${Math.random().toString(36).slice(2, 8)}`)}-why`;
+  let note = document.getElementById(id);
+  if (!note) {
+    note = h("p", { class: "reason small inc-required", id, role: "alert" });
+    (input.closest("label") || input).insertAdjacentElement("afterend", note);  // outside the label, so it stays out of the field's name
+    input.addEventListener("input", () => { if (input.value.trim()) { input.removeAttribute("aria-invalid"); note.remove(); } }, { once: false });
+  }
+  note.textContent = message;
+  input.setAttribute("aria-invalid", "true");
+  input.setAttribute("aria-describedby", id);
+  input.focus();
+}
+
 function priorityIncident(i, reload) {
   const current = i.priority || "P3";
   const select = h("select", {}, INC_PRIORITIES.map(([p, label]) => h("option", { value: p, selected: p === current }, `${p}: ${label}`)));
@@ -289,7 +305,7 @@ function priorityIncident(i, reload) {
     h("label", { class: "field" }, "Note (required)", why)),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Change priority", null, async () => {
     const note = why.value.trim();
-    if (!note) { why.focus(); return; }
+    if (!note) { incRequired(why, "Add a note saying why."); return; }
     const done = await attempt(async () => after(await rpc("incident_set_priority", { env: i.env, id: i.id, priority: select.value, note }), reload), "Not saved");
     if (done) closeDialog();
   }, "tool primary")]);
@@ -305,17 +321,18 @@ function reportIncident(prefill = {}, reload = null) {
   const text = h("textarea", { rows: 3, placeholder: "What you saw, when, and who it blocks" });
   let priority = "P3";
   const hint = h("p", { class: "muted-text small" });
-  const options = h("div", { class: "inc-priorities", role: "radiogroup", "aria-label": "How bad is it" });
+  const options = h("div", { class: "inc-priorities" });
   const pick = (p) => {
     priority = p;
-    for (const b of options.children) b.setAttribute("aria-checked", String(b.dataset.p === p));
+    for (const r of options.querySelectorAll("input")) r.checked = r.value === p;
     const t = incPage.sla?.targets?.[p];
     hint.textContent = t && (t.acknowledge_minutes || t.resolve_minutes)
       ? `${p} means acknowledge within ${incMinutes(t.acknowledge_minutes || 0)} and resolve within ${incMinutes(t.resolve_minutes || 0)}, your organization's SLA.`
       : `${p} has no SLA target.`;
   };
   for (const [p, label] of INC_PRIORITIES) {
-    options.append(h("button", { type: "button", class: "inc-priority", role: "radio", "data-p": p, onclick: () => pick(p) }, h("b", {}, p), h("span", {}, label)));
+    options.append(h("label", { class: "inc-priority" }, h("input", { type: "radio", name: "inc-priority", value: p, onchange: () => pick(p) }),
+      h("span", {}, h("b", {}, p), h("span", {}, label))));
   }
   rpc("incident_sla_policy", {}).then((pol) => { incPage.sla = pol; pick(priority); }).catch(() => {});
   pick(priority);
@@ -327,10 +344,10 @@ function reportIncident(prefill = {}, reload = null) {
     h("label", { class: "field" }, "Details", text),
     about,
     h("label", { class: "field" }, "Environment", env),
-    h("div", { class: "field" }, "How bad is it", options, hint),
+    h("fieldset", { class: "field inc-fieldset" }, h("legend", {}, "How bad is it"), options, hint),
     h("p", { class: "muted-text small" }, "It goes into that environment's shared incident list with your name and a new number. Agents that check incidents tell Teams; this app doesn't.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Report", null, async () => {
-    if (!title.value.trim()) { title.focus(); return; }
+    if (!title.value.trim()) { incRequired(title, "Say what's wrong first."); return; }
     const inc = await attempt(() => rpc("incident_report", { env: env.value, title: title.value.trim(), text: text.value.trim(), priority,
       workload: prefill.workload || "", name: prefill.name || "" }), "Not reported");
     if (!inc) return;
@@ -389,13 +406,16 @@ async function renderIncident() {
         h("p", { class: "sub" }, [inc.kind_label, inc.criticality ? inc.criticality[0].toUpperCase() + inc.criticality.slice(1) : "",
           envName(inc.env), opened, seen].filter(Boolean).join(" · "), " ", learnMore("incidents-preview"))),
       h("div", { class: "row" },
-        inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary") : null,
+        inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary")
+          : inc.state === "acknowledged" ? btn("Resolve", "ok", () => resolveIncident(inc, reload), "tool primary") : null,
         inc.state !== "resolved" ? btn("Assign", "person", () => assignIncident(inc, reload), "tool outline") : null,
-        inc.state !== "resolved" ? btn("Change priority", "warning", () => priorityIncident(inc, reload), "tool outline") : null,
-        btn("Add note", "markdown", () => noteIncident(inc, reload), "tool outline"),
-        inc.state !== "resolved" ? btn("Resolve", "ok", () => resolveIncident(inc, reload), "tool outline") : null,
-        inc.workload && inc.workload.startsWith("meta:") ? btn("Open workload", "table", () => openWorkload(inc.workload), "tool outline") : null,
-        inc.kind === "agent_offline" && previewShown() ? btn("Open agent", "desktop", () => openAgent(inc.name), "tool outline") : null)),
+        btn("More", "chevronDown", (e) => showMenu(e.currentTarget, [
+          inc.state !== "resolved" ? { label: "Change priority", action: () => priorityIncident(inc, reload) } : null,
+          { label: "Add note", icon: "markdown", action: () => noteIncident(inc, reload) },
+          inc.state === "open" ? { label: "Resolve", icon: "ok", action: () => resolveIncident(inc, reload) } : null,
+          inc.workload && inc.workload.startsWith("meta:") ? { label: "Open workload", icon: "table", action: () => openWorkload(inc.workload) } : null,
+          inc.kind === "agent_offline" && previewShown() ? { label: "Open agent", icon: "desktop", action: () => openAgent(inc.name) } : null,
+        ].filter(Boolean)), "tool outline", { "aria-haspopup": "menu" }))),
     h("div", { class: "wl-grid inc-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What happened"), incWhatHappened(inc)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is told"), incWhoIsTold(inc, list))),

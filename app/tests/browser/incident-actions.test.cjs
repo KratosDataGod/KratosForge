@@ -207,7 +207,7 @@ async function listed(env, filter, n) {
 async function rowsNow(env, n, title = null, cell = null, want = null) {
   const handle = await page().waitForFunction(([env, n, title, cell, want]) => {
     const box = document.querySelector(".page.monitor .inc-panel");
-    const on = box?.querySelector('[aria-label="Environment"] .chip.on')?.textContent || "";
+    const on = box?.querySelector('select[aria-label="Environment"]')?.selectedOptions[0]?.textContent || "";
     const trs = [...(box?.querySelectorAll("tbody tr") || [])];
     const rows = trs.map((tr) => [...tr.children].map((td) => td.textContent.trim()));
     if (!on.startsWith(`${ENV_LABEL[env]} ·`) || rows.length !== n) return false;
@@ -246,7 +246,7 @@ const ACTIONS = {
     dialog: "Acknowledge bronze.customers failed?", field: "Note (optional)", param: "note", text: "Checking the landing folder" },
   assign: { method: "incident_assign", env: "prod", id: A, title: "silver.orders failed", where: "menu", button: "Assign",
     dialog: "Assign silver.orders failed?", field: "Owner (required)", param: "owner", text: "dana@contoso.com" },
-  note: { method: "incident_note", env: "dev", id: E, title: "silver.returns missed its objective", where: "page", button: "Add note",
+  note: { method: "incident_note", env: "dev", id: E, title: "silver.returns missed its objective", where: "page menu", button: "Add note",
     dialog: "Add a note to silver.returns missed its objective?", field: "Note (required)", param: "text", text: "Late upstream file, now on time" },
   resolve: { method: "incident_resolve", env: "prod", id: B, title: "gold.sales is late", where: "page", button: "Resolve",
     dialog: "Resolve gold.sales is late?", field: "Note (optional)", param: "note", text: "Source moved to 05:00" },
@@ -258,6 +258,10 @@ async function start(a) {
   if (a.where === "page") {
     await openPage(a.env, a.id);
     await page().locator(".page .wl-head").getByRole("button", { name: a.button, exact: true }).click();
+  } else if (a.where === "page menu") {
+    await openPage(a.env, a.id);
+    await page().locator(".page .wl-head").getByRole("button", { name: "More" }).click();
+    await page().getByRole("menuitem", { name: a.button }).click();
   } else {
     await listed(a.env, "active", ROWS[a.env]);
     if (a.where === "menu") {
@@ -286,7 +290,7 @@ test("the list shows Open, Acknowledged and Resolved in each environment, and an
   assert.strictEqual(rowOf(prod, "gold.sales")[9], "Not needed: acknowledged");
   const shows = await page().locator(".page.monitor .inc-panel [aria-label=Show] button").allTextContents();
   assert.deepStrictEqual(shows, ["Active · 2", "Mine · 1", "Unassigned · 1", "SLA at risk · 2", "Resolved"]);
-  const chips = await page().locator(".page.monitor .inc-panel [aria-label=Environment] button").allTextContents();
+  const chips = await page().locator(".page.monitor .inc-panel select[aria-label=Environment] option").allTextContents();
   assert.deepStrictEqual(chips, ["Dev · 1", "Test · 0", "Prod · 2"]);
   assert.match(await page().textContent(".page.monitor .inc-watchers"), /Checked by agent etl-01 every 5 min/);
   const prodDone = await listed("prod", "resolved", 1);
@@ -306,7 +310,10 @@ test("the list shows Open, Acknowledged and Resolved in each environment, and an
   const shown = await incidentNow(B);
   assert.strictEqual(shown.title, "INC-PROD-0002 · gold.sales is late");
   assert.strictEqual(shown.pill, "Acknowledged");
-  assert.deepStrictEqual(shown.buttons, ["Assign", "Change priority", "Add note", "Resolve", "Open workload"]);
+  assert.deepStrictEqual(shown.buttons, ["Resolve", "Assign", "More"]);
+  await page().locator(".page .wl-head").getByRole("button", { name: "More" }).click();
+  assert.deepStrictEqual(await page().getByRole("menuitem").allTextContents(), ["Change priority", "Add note", "Open workload"]);
+  await page().keyboard.press("Escape");
   assert.match(shown.text, /Priority\s+P2 from its criticality/);
   assert.match(shown.text, /Resolve by\s+.+\(soon\)/);
   assert.match(shown.text, /Late · High · Prod · opened yesterday by agent etl-01/);
@@ -374,7 +381,7 @@ test("Resolve on the incident page asks for a note, sends that incident with it,
   await dialog.waitFor({ state: "detached" });
   assert.deepStrictEqual(writes(from), sentFor(a));
   const shown = await incidentNow(a.id, "Resolved");
-  assert.deepStrictEqual(shown.buttons, ["Add note", "Open workload"]);
+  assert.deepStrictEqual(shown.buttons, ["More"]);
   assert.deepStrictEqual(shown.history.slice(0, 1), [`Resolved by ${ME}: ${a.text}`]);
   // Gone from Active, listed under Resolved; the other open incident is untouched.
   const active = await listed("prod", "active", 1);
@@ -441,10 +448,19 @@ test("Report an incident asks what's wrong and how bad, sends exactly that, and 
   await page().locator(".page.monitor .inc-panel").getByRole("button", { name: "Report an incident" }).click();
   const dialog = page().getByRole("dialog", { name: "Report an incident" });
   await dialog.waitFor();
-  await dialog.getByRole("radio", { name: /P2/ }).click();
+  // How bad is it: one radio group, so the arrow keys move the choice (P3 is chosen to start).
+  const p3 = dialog.getByRole("radio", { name: /^P3/ });
+  assert.ok(await p3.isChecked());
+  await p3.focus();
+  await page().keyboard.press("ArrowUp");
+  assert.ok(await dialog.getByRole("radio", { name: /^P2/ }).isChecked(), "ArrowUp moves P3 to P2");
+  assert.ok(!(await p3.isChecked()));
   assert.match(await dialog.innerText(), /P2 means acknowledge within 30 min and resolve within 8 h/);
   await dialog.getByRole("button", { name: "Report", exact: true }).click();
   assert.deepStrictEqual(writes(from), [], "nothing is sent without a title");
+  const what = dialog.getByRole("textbox", { name: "What's wrong (required)" });
+  assert.strictEqual(await what.getAttribute("aria-invalid"), "true");
+  assert.strictEqual(await dialog.getByRole("alert").textContent(), "Say what's wrong first.");
   await dialog.getByRole("textbox", { name: "What's wrong (required)" }).fill("Sales dashboard shows yesterday's numbers");
   await dialog.getByRole("textbox", { name: "Details" }).fill("Still shows Friday at 08:40");
   await dialog.getByRole("button", { name: "Report", exact: true }).click();
@@ -479,12 +495,15 @@ test("Report an incident: Cancel sends nothing, and an engine error keeps what w
 test("Change priority needs a note, sends that incident's new priority, and the timeline shows it", { skip }, async () => {
   const from = app.calls.length;
   await openPage("prod", A);
-  await page().locator(".page .wl-head").getByRole("button", { name: "Change priority", exact: true }).click();
+  await page().locator(".page .wl-head").getByRole("button", { name: "More" }).click();
+  await page().getByRole("menuitem", { name: "Change priority" }).click();
   const dialog = page().getByRole("dialog", { name: "Change the priority of INC-PROD-0003 · silver.orders failed?" });
   await dialog.waitFor();
   await dialog.getByRole("combobox", { name: "Priority" }).selectOption("P1");
   await dialog.getByRole("button", { name: "Change priority", exact: true }).click();
   assert.deepStrictEqual(writes(from), [], "nothing is sent without a note");
+  assert.strictEqual(await dialog.getByRole("alert").textContent(), "Add a note saying why.");
+  assert.strictEqual(await dialog.getByRole("textbox", { name: "Note (required)" }).getAttribute("aria-invalid"), "true");
   await dialog.getByRole("textbox", { name: "Note (required)" }).fill("Month-end close depends on it");
   await dialog.getByRole("button", { name: "Change priority", exact: true }).click();
   await dialog.waitFor({ state: "detached" });

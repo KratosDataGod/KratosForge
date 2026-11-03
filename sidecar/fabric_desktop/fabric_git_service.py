@@ -119,3 +119,34 @@ class FabricGitMixin:
         out["remote_tracking"] = tracking
         out["remote_fetched_matches"] = bool(tracking) and tracking == out["remote_commit"]
         return {"env": env, "link": link, **out}
+
+    def fabric_git_update(self, repo: str, env: str, fingerprint: str, policy: str = "",
+                          confirm_name: str = "") -> dict[str, Any]:
+        """Update the linked workspace from Git, the only Fabric write on this tab. Every call reads
+        Fabric's status again first and acts only when nothing changed since the preview the person
+        saw (``fingerprint``), every conflict has a choice (``policy``) and ``confirm_name`` is the
+        workspace's name exactly as linked. Otherwise it returns what's missing and writes nothing:
+        ``stale`` (with the new status), ``needs_choice``, ``needs_confirm`` (with the plan) or
+        ``nothing``. Fabric itself also refuses if the workspace moved meanwhile (WorkspaceHeadMismatch)."""
+        r = self._repo(repo)  # type: ignore[attr-defined]
+        env = fabric_git.env_name(env)
+        links = fabric_git.read_links(r.root)
+        link = links["envs"].get(env)
+        if links["problem"] or not link:
+            raise GitError(links["problem"] or f"Link this repository to a {env.title()} workspace first.", kind="invalid")
+        client = self._scoped(GIT_STATUS_SCOPES)  # type: ignore[attr-defined]
+        st = fabric_git.status(client.git_status(link["workspace_id"]))
+        plan = fabric_git.update_plan(st, policy)
+        name = link.get("workspace_name") or link["workspace_id"]
+        base = {"env": env, "plan": plan, "confirm_text": name, "fingerprint": st["fingerprint"]}
+        if not fingerprint or fingerprint != st["fingerprint"]:
+            return {**base, "stale": True, "status": st, "done": False}
+        if plan["nothing"] or not st["remote_commit"]:
+            return {**base, "nothing": True, "done": False}
+        if plan["needs_policy"]:
+            return {**base, "needs_choice": True, "done": False}
+        if confirm_name != name:
+            return {**base, "needs_confirm": True, "done": False}
+        client.git_update_from_git(link["workspace_id"], st["remote_commit"], st["workspace_head"],
+                                   fabric_git.POLICIES[policy], allow_override=True)
+        return {**base, "done": True}

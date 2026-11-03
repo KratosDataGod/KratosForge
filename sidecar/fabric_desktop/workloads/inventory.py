@@ -25,7 +25,8 @@ RUNNER_NOTEBOOK = "nb_fabric_desktop_runner"
 FABRIC_APP = "https://app.fabric.microsoft.com"
 # Item types tagged Preview in the app until a run against a real tenant has been checked.
 PREVIEW_FABRIC_TYPES = {"CopyJob", "Dataflow"}
-_ITEM_PATHS = {"Notebook": "synapsenotebooks", "DataPipeline": "pipelines", "SparkJobDefinition": "sparkjobdefinitions"}
+_ITEM_PATHS = {"Notebook": "synapsenotebooks", "DataPipeline": "pipelines", "SparkJobDefinition": "sparkjobdefinitions",
+               "CopyJob": "copyjobs"}
 
 
 def fabric_url(workspace_id: str, item_id: str, item_type: str) -> str:

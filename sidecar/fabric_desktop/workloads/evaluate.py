@@ -65,7 +65,14 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
                                    "title": f"{name} is late in {env.title()}", "text": "; ".join(f["reasons"]),
                                    "evidence": {"source": "freshness promise", "expected": f["expected"],
                                                 "last_ok": f["last_ok"], "due_at": f["due_at"]}})
-        broken = promise_signal(name, (promises or {}).get(name) or [], mine, env, now, skip_late=own_late)
+        promised = (promises or {}).get(name) or []
+        if own_late:
+            # The table's own lateness is the one incident; it names the products whose promise it also breaks.
+            late_for = [x["product"] for x in promised if env in (x.get("envs") or []) and (x.get("within_hours") or x.get("by"))
+                        and freshness_mod.status({"within_hours": x.get("within_hours"), "by": x.get("by")}, mine, now)["status"] == "late"]
+            if late_for:
+                out[-1]["evidence"]["promise_products"] = late_for
+        broken = promise_signal(name, promised, mine, env, now, skip_late=own_late)
         if broken:
             out.append(base | broken)
         o = objectives_mod.objective(spec, criticality.get(name))

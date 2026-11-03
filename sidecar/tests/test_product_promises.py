@@ -174,6 +174,10 @@ def test_the_entitys_own_lateness_isnt_reported_twice():
     spec = {"freshness": {"within_hours": 26, "envs": ["prod"]}}
     got = evaluate.signals("crm", {"silver.customers": spec}, [_run(hours_ago=30)], "prod", now=NOW, promises=PROMISED)
     assert [s["kind"] for s in got] == ["late"]
+    assert got[0]["evidence"]["promise_products"] == ["customers"]  # the late incident says it breaks the promise
+    kept = evaluate.signals("crm", {"silver.customers": {"freshness": {"within_hours": 2, "envs": ["prod"]}}},
+                            [_run(hours_ago=3)], "prod", now=NOW, promises=PROMISED)
+    assert [s["kind"] for s in kept] == ["late"] and "promise_products" not in kept[0]["evidence"]  # 24 h still kept
 
 
 def test_a_load_that_read_nothing_or_failed_says_nothing_about_rejected_rows():

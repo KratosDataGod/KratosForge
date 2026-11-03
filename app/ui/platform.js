@@ -1408,9 +1408,9 @@ async function renderProductTrust(p) {
         h("div", { class: "row" }, h("h2", { class: "trust-name" }, p.name), badges, previewTag()),
         h("div", { class: "muted-text small" }, p.description || ""), h("div", { class: "muted-text small mono" }, p.id), lastScan),
       productOfferCard(p, (items) => { models = items.filter((i) => i.item_type === "SemanticModel"); paintBadge(); }),
-      endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
+      productPromiseCard(p), endorsement, terms, productChecklistCard(p), productAccessCard(p), productDomainGroupsCard(p)),
     howItWorks("onelake.product-trust", {
-      reads: "The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
+      reads: "The product's promise to readers as the catalog keeps it and, for your open project's own product, its open incidents in Monitor > Incidents. The product's endorsement as the last tenant scan read it, its business terms, and its semantic models and reports (catalog.product_item), from the platform's catalog; its tables are its ports. Add a model and Add a report list your workspaces and their items from Fabric, read only. Scan now reads Fabric's admin tenant scan (Power BI) of the workspaces the platform's published products live in, as you: only a Fabric administrator can. Nothing reads Purview.",
       changes: "Scan now writes what the scan read to catalog.endorsement in the platform's catalog. Adding or removing a term writes catalog.product_term. Take access away deletes that project's row in catalog.grant; links it already made stay. Ask for a change adds a request to catalog.request for the product's owner. Still needed records your confirmation in catalog.grant_review. Follow adds you to catalog.follow (Following takes you off). Add a model or Add a report writes one row to catalog.product_item (the item's id, type, workspace id and display name) and an add product item entry to catalog.audit; Remove deletes that row and logs remove product item there. Nothing changes in Fabric or Purview: KratosForge can't set endorsement, and terms stay in Purview.",
       results: "Everyone who opens this product sees the last scan's badge and when it was read, and each term with a link to it in Purview. Each scan, term change, model or report added or removed, and access taken away is in the platform's audit log. The product's badge here and on the products list is its semantic model's endorsement when it has one. When a promote to Prod deprecates the product, changes its version or changes a port's columns, its followers and the people who linked a project to it are named in a Teams notice that says what changed.",
       anchor: "endorsement-and-business-terms-preview",
@@ -1461,6 +1461,82 @@ async function renderProductTrust(p) {
   } catch (err) {
     failed(err);
   }
+}
+
+// What a product promises its readers ([promise] in its file, kept with it in the catalog). Its own team,
+// with the product's project open, also sees whether each promise holds now: a broken one is an open
+// "Promise broken" incident on one of its ports in Monitor > Incidents, or a "Late" one that says it breaks this
+// product's promise too.
+const PROMISE_ENV = { dev: "Dev", test: "Test", prod: "Prod" };
+
+function promiseLines(promise) {
+  const out = [];
+  if (promise.within_hours) out.push({ key: "fresh", text: `Loaded at least every ${Number(promise.within_hours)} h` });
+  if (promise.by) out.push({ key: "fresh", text: `Loaded by ${promise.by} each day` });
+  if (promise.max_rejected_pct !== undefined && promise.max_rejected_pct !== null) {
+    out.push({ key: "rejected", text: `Under ${Number(promise.max_rejected_pct)} % of rows rejected` });
+  }
+  return out;
+}
+
+function productPromiseCard(p) {
+  const card = h("div", { class: "card pad product-promise" });
+  const promise = p.promise;
+  const own = !!(productsPage.mine && p.project === productsPage.mine);
+  const head = h("div", { class: "row tight" }, h("b", { class: "grow" }, "Promise to readers"), previewTag(),
+    own ? btn(promise ? "Edit promise" : "Add a promise", null, () => editProductPromise(p), "tool outline small") : null);
+  if (!promise) {
+    card.replaceChildren(head, h("p", { class: "muted-text small" }, own
+      ? "This product promises nothing yet. Add how fresh and how clean it will be, so readers know what they can count on before they link."
+      : "This product promises nothing about how fresh or clean it is. Ask for a change to ask its team for one."));
+    return card;
+  }
+  const envs = (promise.envs || ["prod"]).map((e) => PROMISE_ENV[e] || e).join(" and ");
+  const lines = promiseLines(promise);
+  const now = (line) => h("td", { class: "promise-now" }, own ? h("span", { class: "muted-text small" }, "Checking…") : null);
+  const rows = lines.map((line) => ({ line, cell: now(line) }));
+  card.replaceChildren(head,
+    h("p", { class: "muted-text small" }, `In ${envs}, from the product's file. A broken promise opens an incident for its team.`),
+    h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Promise"), own ? h("th", {}, "Now") : null)),
+      h("tbody", {}, rows.map((r) => h("tr", { "data-promise": r.line.key }, h("td", {}, r.line.text), own ? r.cell : null)))));
+  if (!own) return card;
+  const ports = new Set((p.ports || []).map((x) => x.entity).filter(Boolean));
+  Promise.all((promise.envs || ["prod"]).map((env) => rpc("incidents_list", { env, include_resolved: false })
+    .then((res) => ({ env, res })).catch(() => ({ env, res: null })))).then((all) => {
+    if (!card.isConnected) return;
+    const open = all.flatMap(({ env, res }) => (res?.incidents || []).map((i) => ({ ...i, env })))
+      .filter((i) => ["open", "acknowledged"].includes(i.state) && ports.has(i.name)
+        && (i.kind === "late" ? (i.evidence?.promise_products || []).includes(p.name)
+          : i.kind === "promise" && (i.evidence?.products || []).includes(p.name)));
+    const unread = all.some(({ res }) => !res || (res.observation && res.observation.state !== "live"));
+    for (const r of rows) {
+      // A promise incident's reasons start with the product's name; rows rejected is its own reason.
+      const mine = (i) => (i.evidence?.reasons || []).filter((x) => x.startsWith(`${p.name}: `));
+      const hits = open.filter((i) => r.line.key === "fresh"
+        ? i.kind === "late" || mine(i).some((x) => !/rows rejected/.test(x))
+        : mine(i).some((x) => /rows rejected/.test(x)));
+      const why = hits.flatMap(mine).map((x) => x.slice(p.name.length + 2))
+        .find((x) => (r.line.key === "fresh") !== /rows rejected/.test(x));
+      r.cell.replaceChildren(hits.length
+        ? h("span", { class: "row tight" }, h("span", { class: "pill-s wrn" }, "Broken"),
+          why ? h("span", { class: "muted-text small promise-why" }, why) : null,
+          btn(hits.length === 1 ? "Open the incident" : `${hits.length} incidents`, null,
+            () => (hits.length === 1 ? openIncident(hits[0]) : backToIncidents()), "tool link small"))
+        : unread ? h("span", { class: "muted-text small" }, "Couldn't read the incidents. Refresh to try again.")
+          : h("span", { class: "pill-s pass" }, "Kept"));
+    }
+  });
+  return card;
+}
+
+// Edit promise opens the product's own dialog here: the product is in the project open on this PC.
+async function editProductPromise(p) {
+  const [project, o] = await Promise.all([state.meta.project || loadMetaProject(), meshOverview()]);
+  if (!project || !o) return;
+  const x = (o.products || []).find((y) => y.name === p.name);
+  if (!x) return toast(`${p.name} isn't in the project open on this PC, so its file can't be edited here.`, true);
+  productDialog(project, x, () => render());
 }
 
 // Who was given access to a product, and taking it away. The product's owner or a platform admin

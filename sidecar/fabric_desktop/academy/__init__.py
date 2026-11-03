@@ -1,1 +1,1 @@
-"""KratosForge Academy: certification paths built on Learn (docs/academy/)."""
+"""KratosForge Academy: certification packs, exercises, assessments and readiness over Learn (docs/academy/)."""

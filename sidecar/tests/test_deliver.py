@@ -93,6 +93,8 @@ def test_email_is_encrypted_signs_in_and_carries_only_one_line_text():
     assert sender == "kf@contoso.com" and to == ("ana@contoso.com", "li@contoso.com")
     assert "\n" not in subject and "\r" not in subject and subject.startswith("Request waiting: Sales")
     assert "Waits on ana" in body and body.rstrip().endswith("Sent by KratosForge.")
+    msg = deliver.email("kf@contoso.com", ["ana@contoso.com", "li@contoso.com"], "t", [])
+    assert msg["To"] == "kf@contoso.com" and "ana@contoso.com" not in msg.as_string()
 
 
 def test_a_server_without_starttls_gets_nothing_and_tls_uses_a_checked_context():
@@ -111,6 +113,10 @@ def test_failures_say_what_happened_without_the_password():
     with pytest.raises(RuntimeError) as err:
         deliver.send_email(MAIL, "hunter2", ["a@contoso.com"], "t", [], smtp=Lib)
     assert "didn't accept the user name and password" in str(err.value) and "hunter2" not in str(err.value)
+    FakeSMTP.fail = smtplib.SMTPDataError(550, b"5.1.1 <bob@contoso.com> unknown")
+    with pytest.raises(RuntimeError) as err:
+        deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)
+    assert str(err.value) == "smtp.contoso.com answered 550 (5.1.1)"
     FakeSMTP.fail = ConnectionRefusedError("refused")
     with pytest.raises(RuntimeError, match="Couldn't reach smtp.contoso.com:587"):
         deliver.send_email(MAIL, "pw", ["a@contoso.com"], "t", [], smtp=Lib)

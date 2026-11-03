@@ -33,7 +33,14 @@ def _api() -> tuple[Any, Any]:
                     ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
                     ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
 
-    return ctypes.WinDLL("advapi32", use_last_error=True), Credential  # type: ignore[attr-defined]
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+    pcred = ctypes.POINTER(Credential)
+    advapi.CredWriteW.argtypes, advapi.CredWriteW.restype = [pcred, wintypes.DWORD], wintypes.BOOL
+    advapi.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(pcred)]
+    advapi.CredReadW.restype = wintypes.BOOL
+    advapi.CredDeleteW.argtypes, advapi.CredDeleteW.restype = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD], wintypes.BOOL
+    advapi.CredFree.argtypes, advapi.CredFree.restype = [ctypes.c_void_p], None
+    return advapi, Credential
 
 
 def write(target: str, user: str, secret: str) -> None:

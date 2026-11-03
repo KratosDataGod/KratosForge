@@ -363,7 +363,8 @@ function gitHelpers() {
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
-    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES });`, ctx);
+    platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES,
+    fabricGitBoxes, fabricGitSummary, FABRIC_GIT_STATES });`, ctx);
   return ctx;
 }
 
@@ -379,6 +380,31 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(null), "");
   assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
   assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
+});
+
+test("the Fabric workspace tab lines up this PC, the remote and the workspace in words", () => {
+  const { fabricGitBoxes } = gitHelpers();
+  const a = { local: { branch: "feature/x", commit: "4be19a2aaaa", ahead_of_remote: 2, behind_remote: 0, uncommitted: 3 },
+    remote: { name: "origin", branch: "main", commit: "91c07deaaaa", ahead_of_workspace: 1, behind_workspace: 0 },
+    workspace: { commit: "7d2e410aaaa", last_sync: "2026-11-03T09:00:00Z", known_here: true, folder: "/fabric" }, notes: [] };
+  const [l, r, w] = fabricGitBoxes(a);
+  assert.deepStrictEqual([l.title, l.commit, l.line], ["feature/x", "4be19a2", "2 commits not pushed · 3 files not committed"]);
+  assert.deepStrictEqual([r.title, r.line], ["origin/main", "1 commit the workspace doesn't have"]);
+  assert.deepStrictEqual([w.title, w.line], ["Synced to 7d2e410", "Folder /fabric · last sync 2026-11-03T09:00:00Z"]);
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { ...a.remote, ahead_of_workspace: 0 } })[1].line, "Same commit as the workspace");
+  assert.strictEqual(fabricGitBoxes({ ...a, remote: { name: "origin", branch: "main", commit: null } })[1].line, "Not fetched on this PC yet");
+  assert.strictEqual(fabricGitBoxes({ local: { branch: "main", commit: "a" }, remote: null, workspace: null, notes: [] }).length, 1,
+    "a workspace not connected to Git shows only this PC");
+  assert.strictEqual(fabricGitBoxes(null).length, 0);
+});
+
+test("the Fabric items heading says what differs, conflicts first", () => {
+  const { fabricGitSummary, FABRIC_GIT_STATES } = gitHelpers();
+  assert.strictEqual(fabricGitSummary({ aligned: true, counts: {} }), "The workspace and Git match: nothing to update or commit.");
+  assert.strictEqual(fabricGitSummary({ aligned: false, counts: { conflict: 1, incoming: 2, outgoing: 1 } }),
+    "1 conflict · 2 newer in Git · 1 newer in the workspace");
+  for (const s of ["conflict", "both_changed", "incoming", "outgoing", "same_change", "unchanged"]) assert.ok(FABRIC_GIT_STATES[s], s);
+  assert.strictEqual(FABRIC_GIT_STATES.conflict[1], "fail");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {

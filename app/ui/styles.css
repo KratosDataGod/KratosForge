@@ -2742,3 +2742,17 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .as-ready li { display: flex; gap: 6px; align-items: flex-start; }
 .as-ready li.ok { color: #1f7a4a; }
 .as-ready li.todo { color: #8a5300; }
+/* Source control > Fabric workspace: this PC, the Git remote and the workspace side by side */
+.fg-env { height: 32px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
+.fg-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.fg-box { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.fg-box.workspace { border-color: var(--brand-orange); }
+.fg-box code { font-family: var(--mono); }
+.fg-notes { margin: 0; padding-left: 18px; color: var(--text-2); }
+.fg-said { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; min-height: 20px; }
+.fg-said:empty { display: none; }
+.fg-ok { color: #0e5c2a; font-weight: 600; }
+.fg-warn { color: #8a5300; font-weight: 600; }
+tr.fg-conflict { background: var(--danger-soft); }
+.git-platform .card > .pad { padding: 10px 16px; margin: 0; }
+.git-platform .table-scroll { overflow-x: auto; }

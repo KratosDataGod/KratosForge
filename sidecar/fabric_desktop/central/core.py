@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import re
 import time
 import uuid
@@ -777,6 +778,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     ensure_contracts(db)
+    ensure_promises(db)
     promise = _promise(product.get("promise"))
     pid = f"{project}/{name}"
     require_member(db, project, by, "publish its products")
@@ -791,7 +793,6 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
            "access": product.get("access", "private"), "version": str(product.get("version") or "1"),
            "status": product.get("status", "draft"), "deprecated_on": product.get("deprecated_on") or None,
            "updated_at": _now(), "updated_by": by}
-    ensure_promises(db)
     row["promise"] = json.dumps(promise) if promise else None
     _upsert(db, "catalog", "product", "id", row)
     changed = []
@@ -1253,13 +1254,14 @@ def _promise(value: Any) -> dict[str, Any] | None:
         v = value.get(key)
         if v in (None, ""):
             continue
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0 or (key == "within_hours" and v == 0) \
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 \
+                or (key == "within_hours" and v == 0) \
                 or (key == "max_rejected_pct" and v >= 100):
             raise PlatformError(f"The promise's {key} isn't a usable number")
         out[key] = float(v)
     by = value.get("by")
     if by not in (None, ""):
-        if not (isinstance(by, str) and re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", by)):
+        if not (isinstance(by, str) and re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", by)):
             raise PlatformError('The promise\'s by is a time like "06:00"')
         out["by"] = by
     if not out:

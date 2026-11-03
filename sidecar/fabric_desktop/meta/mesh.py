@@ -16,6 +16,7 @@ All of it is optional: a project without these files works exactly as before.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 import tomllib
 from dataclasses import dataclass
@@ -95,13 +96,14 @@ def promise_problems(where: str, raw: Any) -> list[str]:
     if not any(raw.get(k) not in (None, "") for k in PROMISE_KEYS[:3]):
         errors.append(f"{where}: [promise] needs within_hours, by or max_rejected_pct")
     wh = raw.get("within_hours")
-    if wh is not None and (isinstance(wh, bool) or not isinstance(wh, (int, float)) or wh <= 0):
+    if wh is not None and (isinstance(wh, bool) or not isinstance(wh, (int, float)) or not math.isfinite(wh) or wh <= 0):
         errors.append(f"{where}: promise within_hours must be a number of hours above 0")
     by = raw.get("by")
-    if by is not None and not (isinstance(by, str) and _TIME.match(by)):
+    if by is not None and not (isinstance(by, str) and _TIME.fullmatch(by)):
         errors.append(f'{where}: promise by must be a time like "06:00"')
     pct = raw.get("max_rejected_pct")
-    if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 0 <= pct < 100):
+    if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float)) or not math.isfinite(pct)
+                            or not 0 <= pct < 100):
         errors.append(f"{where}: promise max_rejected_pct must be a percentage from 0 up to (not including) 100")
     envs = raw.get("envs")
     if envs is not None and (not isinstance(envs, list) or not envs or any(x not in ENVIRONMENTS for x in envs)):

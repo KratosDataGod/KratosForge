@@ -74,9 +74,22 @@ def test_no_promise_and_drafts_promise_nothing(svc):
     ({"within_hours": 1, "envs": ["qa"]}, "envs must list"),
     ({"within_hours": 1, "soon": True}, "doesn't know soon"),
     ({"envs": ["prod"]}, "needs within_hours, by or max_rejected_pct"),
+    ({"within_hours": float("nan")}, "within_hours must be a number"),
+    ({"within_hours": float("inf")}, "within_hours must be a number"),
+    ({"max_rejected_pct": float("nan")}, "max_rejected_pct must be a percentage"),
+    ({"by": "06:00\n"}, 'like "06:00"'),
 ])
 def test_the_save_gate_checks_the_promise(bad, said):
     assert any(said in e for e in mesh.promise_problems("products/customers", bad))
+
+
+def test_toml_nan_and_inf_promise_nothing_and_fail_the_gate(svc):
+    path = svc._project().root / "metadata" / "products" / "customers.toml"
+    _save(svc, {"within_hours": 24})
+    path.write_text(path.read_text().replace("within_hours = 24", "within_hours = nan\nmax_rejected_pct = inf"))
+    svc._project().reload()
+    errors = mesh.promise_problems("products/customers", svc._project().products["customers"].spec["promise"])
+    assert len(errors) == 2
 
 
 def test_a_bad_promise_stops_the_save(svc):
@@ -99,7 +112,9 @@ def test_the_catalog_keeps_the_promise_readers_see(platform):
 
 
 @pytest.mark.parametrize("bad", [{"within_hours": "soon"}, {"by": "25:00"}, {"max_rejected_pct": 150},
-                                 {"within_hours": 1, "envs": ["qa"]}, "fast"])
+                                 {"within_hours": 1, "envs": ["qa"]}, "fast", {"within_hours": float("nan")},
+                                 {"within_hours": float("inf")}, {"max_rejected_pct": float("nan")},
+                                 {"by": "06:00\n"}])
 def test_the_catalog_refuses_a_promise_nobody_can_check(platform, bad):
     with pytest.raises(core.PlatformError):
         platform.call("register_product", product=_product(promise=bad), ports=PORT, env="prod")

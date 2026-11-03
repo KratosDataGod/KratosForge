@@ -1507,6 +1507,18 @@ test("Monitor > KratosForge > Operations > Workloads and Agents carry the shared
 });
 
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Optimize shows whether this PC's results reached the lakehouse, under the band (PR-OPT-006)", () => {
+  const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  const line = /function optimizeSyncLine\(o\) \{[\s\S]*?\n\}/.exec(opt)[0];
+  assert.match(line, /Waiting on this PC/);
+  assert.match(line, /They go with the next scan, or when you connect again/);
+  assert.match(line, /dropped/);
+  assert.match(line, /Everything from this PC is in the lakehouse/);
+  assert.doesNotMatch(line, /rpc\(/, "the line only reads optimize_status; it never sends");
+  assert.match(opt, /status\?\.allowed && status\.active \? optimizeSyncLine\(status\.outbox\)/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.optimize-sync\[hidden\] \{ display: none; \}/);
+});
+
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];

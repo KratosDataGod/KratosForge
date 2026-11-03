@@ -87,7 +87,7 @@ Sharing runs normally reads which runs the lakehouse already has. With no networ
 - **What isn't kept.** A permission error, a lakehouse open read-only, or the policy switch being off isn't a passing failure: it's shown as before and nothing waits. A waiting item the lakehouse refuses as it is gets dropped, so it can't hold up the rest.
 - **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.
-- **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. It isn't on screen yet; the Optimize page shows it after a mockup.
+- **Status.** `optimize_status` returns `outbox` for the active lakehouse: `pending` (items), `pending_rows`, `oldest`, `last_sync`, `last_error` (cleared by the next send that works) and `dropped`. Optimize shows it as one line under the lakehouse name: everything sent, results waiting on this PC with why, or how many were dropped, with **Details** for the figures. The line only reads; it never sends.
 
 ## Findings and recommendations
 

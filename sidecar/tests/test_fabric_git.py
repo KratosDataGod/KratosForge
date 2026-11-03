@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fabric_desktop import audit, fabric_git, server
+from fabric_desktop import artifacts, audit, fabric_git, server
 from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.fabric_git_service import FabricGitMixin
 from fabric_desktop.git.cli import GitError
@@ -477,3 +477,9 @@ def test_a_branch_name_that_looks_like_an_option_or_range_is_never_passed_to_git
     out = ssvc.fabric_git_status(str(repo.root), "dev")
     assert out["remote_tracking"] is None
     assert not any(branch in " ".join(a) for a in seen)
+
+
+def test_status_rows_carry_the_registry_limits():
+    rows = {r["name"]: r for r in fabric_git.status(STATUS)["items"]}
+    assert any("never go" in limit for limit in rows["LH_Silver"]["limits"])
+    assert rows["LH_Silver"]["limits"] == list(artifacts.capability("Lakehouse").limits)

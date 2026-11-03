@@ -36,14 +36,15 @@ const ALIGN = {
   notes: ["You're on feature/orders-silver; the workspace follows main. Your commits reach the workspace only after they're on main and someone updates it from Git.",
     "Pushing to Git doesn't update the workspace: it changes only when someone chooses Update from Git."],
 };
-const row = (name, label, ws, remote, conflict, state, support = "yes") => ({ item_type: label, label, name, logical_id: "", object_id: "",
-  workspace_change: ws, remote_change: remote, conflict, state, git_support: support, round_trip: support });
+const row = (name, label, ws, remote, conflict, state, support = "yes", limits = []) => ({ item_type: label, label, name, logical_id: "", object_id: "",
+  workspace_change: ws, remote_change: remote, conflict, state, git_support: support, round_trip: support, limits });
+const DATA_STAYS = "Tables and files never go through Git or deployment pipelines; only the definition does";
 const STATUS = { workspace_head: SHA("7"), remote_commit: SHA("9"), fingerprint: "abc", aligned: false,
   remote_tracking: SHA("9"), remote_fetched_matches: true,
   counts: { conflict: 1, both_changed: 0, incoming: 1, outgoing: 2, same_change: 0, unchanged: 0 },
   items: [row("NB_Orders_Silver", "Notebook", "modified", "modified", "conflict", "conflict"),
     row("PL_Daily_Load", "Data pipeline", "", "modified", "", "incoming"),
-    row("LH_Silver", "Lakehouse", "modified", "", "", "outgoing"),
+    row("LH_Silver", "Lakehouse", "modified", "", "", "outgoing", "yes", [DATA_STAYS]),
     row("SM_Sales", "Semantic model", "added", "", "", "outgoing", "preview")] };
 
 let db;
@@ -67,9 +68,12 @@ const mocks = {
   git_info: () => ({ installed: true, version: "2.47.1", repos: [{ path: REPO, name: "sales", exists: true, kind: null, suggested: null }], current: REPO,
     kinds: {}, notebooks_folder: "C:/Users/chris/KratosForge/notebooks", clone_folder: "C:/Users/chris/source/repos" }),
   git_status: guard(() => status()),
-  fabric_git_overview: guard(({ env }) => (db.link && env === "dev"
+  fabric_git_overview: guard(({ env }) => {
+    if (db.overviewFails) { db.overviewFails -= 1; throw new Error("FabricError: Fabric didn't answer in time."); }
+    return db.link && env === "dev"
     ? { env, linked: true, link: db.link, problem: null, connection: CONN, changed_in_fabric: [], alignment: ALIGN }
-    : { env, linked: false, problem: null, link: null })),
+    : { env, linked: false, problem: null, link: null };
+  }),
   fabric_git_check: guard(({ workspace_id }) => ({ connection: workspace_id === WS ? CONN : AZDO, remote: workspace_id === WS ? "origin" : null })),
   fabric_git_link: guard(({ workspace_id, confirm }) => {
     if (workspace_id !== WS && !confirm) {
@@ -166,9 +170,24 @@ test("linked: three commits side by side, then items that differ, conflicts firs
   assert.deepStrictEqual(names, ["NB_Orders_Silver", "PL_Daily_Load", "LH_Silver", "SM_Sales"]);
   assert.match(await page().locator(".git-platform").innerText(), /1 conflict · 1 newer in Git · 2 newer in the workspace/);
   assert.match(await page().locator("tr", { hasText: "SM_Sales" }).innerText(), /Preview in Fabric/);
+  assert.match(await page().locator("tr", { hasText: "LH_Silver" }).innerText(), /Full, definition only[\s\S]*Tables and files never go through Git/);
+  assert.match(await page().locator("tr", { hasText: "PL_Daily_Load" }).innerText(), /Full$/);
   assert.deepStrictEqual(writes(from), [], "checking status sent a write");
   assert.deepStrictEqual(await serious(".git-page"), []);
   await shot("4-items");
+});
+
+test("when the workspace's connection can't be read, the tab says so and Retry reads it again", { skip }, async () => {
+  db.link = copy(LINK);
+  db.overviewFails = 1;
+  try {
+    await openTab();
+    const panel = page().locator(".git-platform .error-panel");
+    await panel.waitFor();
+    assert.match(await panel.innerText(), /Couldn't read the workspace's Git connection/);
+    await panel.getByRole("button", { name: "Retry" }).click();
+    await page().locator(".fg-box").first().waitFor();
+  } finally { db.overviewFails = 0; }
 });
 
 test("unlink asks first, and only then writes", { skip }, async () => {

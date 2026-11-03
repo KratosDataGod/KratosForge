@@ -364,7 +364,7 @@ function gitHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
     platformChangeLines, platformStepText, PLATFORM_STATES, capacityLines, CAPACITY_STATES,
-    fabricGitBoxes, fabricGitSummary, FABRIC_GIT_STATES });`, ctx);
+    fabricGitBoxes, fabricGitSummary, fgSupportText, FABRIC_GIT_STATES });`, ctx);
   return ctx;
 }
 
@@ -405,6 +405,15 @@ test("the Fabric items heading says what differs, conflicts first", () => {
     "1 conflict · 2 newer in Git · 1 newer in the workspace");
   for (const s of ["conflict", "both_changed", "incoming", "outgoing", "same_change", "unchanged"]) assert.ok(FABRIC_GIT_STATES[s], s);
   assert.strictEqual(FABRIC_GIT_STATES.conflict[1], "fail");
+});
+
+test("Fabric workspace support says definition only when the item's data never goes through Git", () => {
+  const { fgSupportText } = gitHelpers();
+  const stays = ["Tables and files never go through Git or deployment pipelines; only the definition does"];
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: stays }), "Full, definition only");
+  assert.strictEqual(fgSupportText({ git_support: "yes", limits: [] }), "Full");
+  assert.strictEqual(fgSupportText({ git_support: "preview", limits: ["Preview in Fabric Git"] }), "Preview in Fabric");
+  assert.strictEqual(fgSupportText({ git_support: "no", limits: stays }), "Not supported by Fabric Git");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {

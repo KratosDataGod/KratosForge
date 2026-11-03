@@ -1,6 +1,7 @@
 # Learn (Preview)
 
-**Learn** is at the bottom of the left rail, above Source control and Settings. It has short
+**Learn** opens from [Academy](academy-guide.md) > **Practice** > **Open lessons and labs** (Academy took
+its spot in the rail), or from the command bar. It has short
 lessons, practice labs and the best-practice rules the app checks. Everything runs on this PC with
 data generated here. A lesson or lab never reads or writes OneLake, never starts a Fabric job and
 never publishes anything to Fabric.

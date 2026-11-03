@@ -75,7 +75,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "update_pc_schedule", "set_pc_schedule_signed_out", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
+           "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
@@ -153,6 +154,16 @@ METHODS |= ACCESS_CACHE_METHODS
 from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
 
 METHODS |= LEARN_METHODS
+
+# Academy (Preview): certification packs, exercises and readiness on this PC (academy_service.py).
+from .academy_service import METHODS as ACADEMY_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_METHODS
+
+# Academy > Assessments (Preview): practice exams, diagnostics and drills on this PC (academy_exam_service.py).
+from .academy_exam_service import METHODS as ACADEMY_EXAM_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_EXAM_METHODS
 
 # Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
 from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402

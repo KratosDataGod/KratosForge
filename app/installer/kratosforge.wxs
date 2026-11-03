@@ -9,7 +9,8 @@
   the app can still update itself there; IT that wants to control versions sets
   "auto_update": false and deploys each new MSI instead.
 
-  Never change UpgradeCode: it is how a newer MSI finds and replaces an older one.
+  Never change UpgradeCode or the component GUIDs: they are how a newer MSI finds and replaces an
+  older one. Each component is keyed on an HKCU value, so WiX can't generate its GUID.
   The version comes from the CI run number (0.1.<run>, carrying into the second field past 65535),
   passed in as -d Version=..., so each build upgrades the last.
 -->
@@ -40,7 +41,7 @@
     <StandardDirectory Id="ProgramMenuFolder" />
 
     <!-- A per-user install keys each component on an HKCU value, not on a file. -->
-    <Component Id="App" Directory="INSTALLFOLDER" Guid="*">
+    <Component Id="App" Directory="INSTALLFOLDER" Guid="107d600b-cfc6-498c-850e-469a6e49a7b2">
       <File Id="KratosForgeExe" Source="$(var.ExeFile)" Name="kratosforge.exe" />
       <RegistryValue Root="HKCU" Key="Software\KratosBI\KratosForge" Name="InstallFolder" Type="string"
                      Value="[INSTALLFOLDER]" KeyPath="yes" />
@@ -49,7 +50,7 @@
     </Component>
 
     <!-- Not advertised, so starting it never triggers an MSI repair (which would undo a self-update). -->
-    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="*">
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="2251f9c4-e5b9-4ed0-89ab-2fede5e58dd8">
       <Shortcut Id="KratosForgeShortcut" Name="KratosForge" Description="KratosForge for Microsoft Fabric"
                 Target="[INSTALLFOLDER]kratosforge.exe" WorkingDirectory="INSTALLFOLDER" Icon="KratosForge.ico" />
       <RegistryValue Root="HKCU" Key="Software\KratosBI\KratosForge" Name="StartMenuShortcut" Type="integer"

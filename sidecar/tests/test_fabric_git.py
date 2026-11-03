@@ -485,19 +485,28 @@ def test_update_plan_without_a_conflict_choice_needs_one():
     plan = fabric_git.update_plan(fabric_git.status(STATUS))
     assert plan["needs_policy"] and plan["conflicts"] == 1 and not plan["nothing"]
     assert [i["name"] for i in plan["changes"]] == ["PL_Daily_Load"]
-    assert plan["overwrites"] == []
+    assert [i["name"] for i in plan["overwrites"]] == ["LH_Silver"]
 
 
 def test_update_plan_keep_workspace_and_take_git():
     st = fabric_git.status(STATUS)
     keep = fabric_git.update_plan(st, "PreferWorkspace")
-    assert not keep["needs_policy"] and keep["overwrites"] == []
+    assert not keep["needs_policy"] and [i["name"] for i in keep["overwrites"]] == ["LH_Silver"]
     assert "NB_Orders_Silver" in [i["name"] for i in keep["kept"]]
     take = fabric_git.update_plan(st, "PreferRemote")
-    assert [i["name"] for i in take["overwrites"]] == ["NB_Orders_Silver"]
+    assert [i["name"] for i in take["overwrites"]] == ["NB_Orders_Silver", "LH_Silver"]
     assert "lost" in take["overwrites"][0]["why"]
     kept = {i["name"]: i["why"] for i in take["kept"]}
-    assert "stays as it is" in kept["LH_Silver"] and "doesn't carry" in kept["DM_Old"]
+    assert "doesn't carry" in kept["DM_Old"]
+
+
+def test_a_change_made_only_in_the_workspace_counts_as_at_risk():
+    # Learn doesn't say Update from Git keeps an uncommitted workspace change, so the plan doesn't promise it.
+    for policy in ("PreferWorkspace", "PreferRemote"):
+        plan = fabric_git.update_plan(fabric_git.status(STATUS), policy)
+        risky = {i["name"]: i["why"] for i in plan["overwrites"]}
+        assert "commit it in Fabric first" in risky["LH_Silver"]
+        assert "LH_Silver" not in [i["name"] for i in plan["kept"]]
 
 
 def test_update_plan_refuses_an_unknown_policy():
@@ -515,6 +524,10 @@ class UpdateFabric(StatusFabric):
     def __init__(self, answers, status_answer):
         super().__init__(answers, status_answer)
         self.updates: list[tuple] = []
+        self.names = {WS: "Sales Dev"}
+
+    def get_workspace(self, workspace_id):
+        return {"id": workspace_id, "displayName": self.names.get(workspace_id, "")}
 
     def git_update_from_git(self, *args, **kw):
         self.updates.append((args, kw))
@@ -540,16 +553,43 @@ def test_update_writes_nothing_without_every_gate(usvc, repo):
     assert usvc.fabric_git_update(r, "dev", "old")["stale"]
     assert usvc.fabric_git_update(r, "dev", fp())["needs_choice"]
     out = usvc.fabric_git_update(r, "dev", fp(), "PreferRemote")
-    assert out["needs_confirm"] and out["confirm_text"] == "Sales Dev"
-    assert usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "sales dev")["needs_confirm"]  # exactly as linked
+    assert out["needs_override"] and not out["allow_override"]
+    assert usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "Sales Dev")["needs_override"]
+    out = usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", allow_override=True)
+    assert out["needs_confirm"] and out["confirm_text"] == "Sales Dev" and not out["name_differs"]
+    assert usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "sales dev", True)["needs_confirm"]  # exact
     assert usvc.fabric.updates == []
 
 
 def test_update_runs_with_a_fresh_preview_a_choice_and_the_name(usvc, repo):
-    out = usvc.fabric_git_update(str(repo.root), "dev", fp(), "PreferWorkspace", "Sales Dev")
+    out = usvc.fabric_git_update(str(repo.root), "dev", fp(), "PreferWorkspace", "Sales Dev", True)
     assert out["done"]
     assert usvc.fabric.updates == [((WS, H2, H1, "PreferWorkspace"), {"allow_override": True})]
     assert usvc.fabric.status_calls == [WS]  # status read again right before the write
+
+
+def test_the_name_to_type_is_fabrics_not_the_link_files(usvc, repo):
+    r = str(repo.root)
+    # Someone with push rights edited fabric-desktop.toml; Fabric still calls the workspace "Sales Prod".
+    usvc.fabric.names[WS] = "Sales Prod"
+    out = usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "Sales Dev", True)
+    assert out["needs_confirm"] and out["confirm_text"] == "Sales Prod"
+    assert out["name_differs"] and out["linked_name"] == "Sales Dev"
+    assert usvc.fabric.updates == []
+    assert usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "Sales Prod", True)["done"]
+    assert len(usvc.fabric.updates) == 1
+
+
+def test_override_is_sent_only_when_asked(usvc, repo):
+    # Only a conflict, kept on the workspace side: Fabric still counts it as incoming, so consent is asked.
+    usvc.fabric.status_answer = {"workspaceHead": H1, "remoteCommitHash": H2, "changes": [
+        change(NB, "Notebook", "NB", ws="Modified", remote="Modified", conflict="Conflict")]}
+    f = fabric_git.status(usvc.fabric.status_answer)["fingerprint"]
+    r = str(repo.root)
+    out = usvc.fabric_git_update(r, "dev", f, "PreferWorkspace", "Sales Dev")
+    assert out["needs_override"] and out["plan"]["overwrites"] == [] and usvc.fabric.updates == []
+    assert usvc.fabric_git_update(r, "dev", f, "PreferWorkspace", "Sales Dev", allow_override=True)["done"]
+    assert usvc.fabric.updates == [((WS, H2, H1, "PreferWorkspace"), {"allow_override": True})]
 
 
 def test_update_stops_when_fabric_changed_since_the_preview(usvc, repo):

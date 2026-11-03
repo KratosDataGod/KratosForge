@@ -77,6 +77,7 @@ NO_UI_CALLER: dict[str, str] = {
     "pbi_embed_content": _EMBED,
     "fabric_item_support": _FABRIC_GIT,
     "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
+    "fabric_git_update": _FABRIC_GIT,  # the Update from Git dialog (#1766) calls it
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

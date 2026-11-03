@@ -77,6 +77,7 @@ async function loadPracticeSettings(nb) {
     out = { settings: {}, policies: [], note: `The policies couldn't be read, so every rule is on as built: ${err.message || err}` };
   }
   Object.assign(p, { settings: out.settings || {}, policies: out.policies || [], note: out.note || "", sig: "" });
+  learnSetTeam("notebooks", out.guidance);  // learn.js: the team's default level (GD-09)
   checkPractices(nb);
 }
 
@@ -184,7 +185,8 @@ function practicesContent(nb) {
   }
   body.append(h("p", { class: "muted-text" }, p.policies.length
     ? `Tuned by ${p.policies.join(", ")}: a rule a policy turns off isn't shown.`
-    : "No policy for this project names a notebook rule, so every rule is on as built. A governance policy can name them in Checked by."));
+    : "No policy for this project names a notebook rule, so every rule is on as built. A governance policy can name them in Checked by."),
+    learnTeamNote("notebooks") || "");
   return [head, body, h("div", { class: "validate-how" }, howItWorks("practices", {
     reads: "This notebook's code cells as they are in the editor, and the governance policies in force for the open project (to see which rules they turn off or change).",
     changes: "Nothing. The cells aren't run, and nothing is saved or sent to Fabric.",

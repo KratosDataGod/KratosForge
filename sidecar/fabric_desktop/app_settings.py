@@ -47,7 +47,8 @@ Keys:
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
-                     it's ended; 0 (default) for no limit
+                     it's ended; 0 (default) for no limit. A new process already uses about
+                     0.8 GB on Windows (pyarrow), so under 2 leaves a notebook little room
     kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
                      opening one more stops the least recently used idle one (default 5)
     kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle
@@ -62,6 +63,9 @@ Keys:
                      the PC (default true)
     allow_notebook_packages  IT only: false stops people installing packages into notebook
                      environments (environments.py); the engine's own packages still work
+    allow_signed_out_schedules  IT only: false stops people setting schedules on this PC to run while
+                     they're signed out of Windows (Windows keeps their password with the task); schedules
+                     already set that way say so and can only be turned back to signed-in (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -189,6 +193,11 @@ DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
+# Schedules on this PC that also run while signed out of Windows (local_schedules, signed_out_tasks).
+# Policy only: the person ticks it per schedule; IT can turn the choice off.
+DEFAULTS["allow_signed_out_schedules"] = True
+TYPES["allow_signed_out_schedules"] = bool
+
 # Owner coverage's last-used dates (central/core.py note_seen): personal data everyone who reads the
 # platform's catalog sees, so it stays off until IT turns it on in the policy file. Policy only.
 DEFAULTS["platform_presence"] = False
@@ -248,7 +257,8 @@ RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO
                               "allow_dbconnect_install": False,
                               "platform_presence": False,
                               "allow_replay_samples": False, "allow_optimize_lakehouse": False,
-                              "allow_notebook_packages": False}
+                              "allow_notebook_packages": False,
+                              "allow_signed_out_schedules": False}
 
 
 def policy_path() -> Path:

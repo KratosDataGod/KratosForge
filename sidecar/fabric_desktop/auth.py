@@ -167,13 +167,17 @@ def write_cache(path: Path, text: str) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     # Refresh tokens: this user only, from the moment the file exists (POSIX; Windows ignores the mode).
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())  # on disk before the swap, so a power cut can't leave an empty cache in place
-    if os.name != "nt":
-        tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
-    jsonfile.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap, so a power cut can't leave an empty cache in place
+        if os.name != "nt":
+            tmp.chmod(0o600)  # a temporary file left by an earlier run keeps its old mode
+        jsonfile.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # an encrypted copy of the cache isn't left lying next to it
+        raise
 
 
 _UNREAD = object()

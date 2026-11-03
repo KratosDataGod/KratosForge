@@ -14,7 +14,12 @@ and can see exactly which of them ran on this PC and which still need real Fabri
 
 ## Status
 
-Planning (2026-11-03). Nothing in this folder is a shipped feature yet. New Academy screens wait for
+Planning (2026-11-03). Nothing in this folder is a shipped feature yet.
+
+The DP-700 objective registry (ACD-001) is data in
+`sidecar/fabric_desktop/academy/packs/dp-700/certification.json`, read and checked by
+`academy/registry.py`. CI fails if a published objective is missing or reworded without a new
+snapshot, if an objective has no exercise, or if an objective that needs Fabric has no gap record. New Academy screens wait for
 a mockup Chris has reacted to; the engine and content work goes first, as small PRs.
 
 ## The plan

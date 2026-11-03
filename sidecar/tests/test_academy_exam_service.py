@@ -120,3 +120,21 @@ def test_bad_ids_are_refused(svc):
         svc.academy_exam_open("../../etc/passwd")
     with pytest.raises(exam.ExamError):
         svc.academy_exam_start("dp-700", "speedrun")
+
+
+def test_databricks_home_uses_the_published_exam_and_flat_domains(svc):
+    home = svc.academy_exam_home("dbx-de-associate")
+    assert home["practice"] == {"count": 45, "minutes": 90}
+    assert home["certification"]["code"] == "Databricks Certified Data Engineer Associate"
+    assert "Databricks" in home["notice"] and "Microsoft" not in home["notice"]
+    assert [d["id"] for d in home["domains"]] == [str(i) for i in range(1, 8)]
+    objs = [o for d in home["domains"] for o in d["objectives"]]
+    assert len(objs) == 33 and all(o["questions"] >= exam.MIN_PER_OBJECTIVE for o in objs)
+
+
+def test_databricks_practice_exam_runs_to_a_result_named_for_databricks(svc):
+    v = svc.academy_exam_start("dbx-de-associate", "practice")
+    assert v["total"] == 45 and v["minutes"] == 90 and v["title"].endswith("practice exam")
+    res = svc.academy_exam_finish(v["id"])["result"]
+    assert res["vendor"] == "Databricks" and res["total"] == 45 and "Databricks" in res["notice"]
+    assert svc.academy_exam_home("dp-700")["certification"]["code"] == "DP-700"

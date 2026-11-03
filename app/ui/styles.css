@@ -1424,6 +1424,17 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .inc-what { display: flex; flex-direction: column; gap: 10px; }
 .inc-likely { gap: 8px; align-items: center; flex-wrap: wrap; }
 .inc-card .wl-finding.click { cursor: pointer; }
+.inc-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.inc-guide { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.inc-at-risk { color: var(--warn); }
+.inc-priorities { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.inc-priority { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; min-height: 44px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 12px; cursor: pointer; }
+.inc-priority > span { display: flex; flex-direction: column; gap: 2px; }
+.inc-priority:has(input:checked) { border: 2px solid var(--accent); padding: 7px 9px; }
+.inc-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.inc-fieldset legend { padding: 0; margin-bottom: 4px; }
+.inc-required { margin: 2px 0 0; }
 /* Agents (agents.js) */
 .ag-overlap { background: var(--warn-soft-3); border: 1px solid #f3dca5; border-radius: 6px; padding: 10px 16px; margin: 8px 0; color: var(--text); }
 .ag-overlap b { color: #6b4100; }
@@ -2716,6 +2727,22 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-fix-times td { font-variant-numeric: tabular-nums; }
 .learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
 
+/* Settings > Connections (connections.js, Preview) */
+.cx-page { display: flex; flex-direction: column; gap: 12px; }
+.cx-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.cx-profiles { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.cx-add { flex: 2 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.cx-add .seg { align-self: flex-start; }
+.cx-profile { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.cx-profile.active { border-color: var(--accent); }
+.cx-conns li { gap: 8px; padding: 4px 0; border-top: 1px solid var(--border-soft); }
+.cx-conns .mono, .cx-form .mono { overflow-wrap: anywhere; }
+.cx-form, .cx-found, .cx-save { display: flex; flex-direction: column; gap: 10px; }
+.cx-found h3 { margin: 6px 0 0; font-size: 14px; }
+.cx-found .table-wrap { overflow-x: auto; }
+.cx-warn { color: var(--danger); }
+.cx-problems, .cx-part-error { color: var(--danger); }
+.cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: 4px; }
 /* Optimize's sync line under the band, and its details (PR-OPT-006). */
 .optimize-sync[hidden] { display: none; }
 .optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
@@ -2922,3 +2949,5 @@ tr.fg-conflict { background: var(--danger-soft); }
 .assess-orders ol { margin: 4px 0 0; padding-left: 20px; }
 .assess-why { background: var(--surface-2); border-left: 3px solid var(--accent); padding: 8px 12px; font-size: 13px; color: var(--text-2); margin-top: 10px; }
 @media (max-width: 760px) { .assess-exam { grid-template-columns: 1fr; } }
+.assess-table a, .assess-why a { color: var(--accent); text-decoration: underline; }
+.assess-table a:hover, .assess-why a:hover { text-decoration-thickness: 2px; }

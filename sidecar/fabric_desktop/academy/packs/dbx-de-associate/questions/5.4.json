@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "5.4",
+  "questions": [
+    {
+      "id": "5.4-q1",
+      "type": "single",
+      "stem": "Which command sets up OAuth sign-in from the Databricks CLI to a workspace?",
+      "options": [
+        {
+          "id": "a",
+          "text": "databricks fs ls"
+        },
+        {
+          "id": "b",
+          "text": "databricks auth login"
+        },
+        {
+          "id": "c",
+          "text": "databricks connect"
+        },
+        {
+          "id": "d",
+          "text": "databricks bundle deploy"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "databricks auth login signs you in with OAuth and saves a configuration profile.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/cli/authentication",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.4-q2",
+      "type": "single",
+      "stem": "You work with two workspaces. How do you tell a CLI command which one to use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Edit the job's JSON"
+        },
+        {
+          "id": "b",
+          "text": "Rename your computer"
+        },
+        {
+          "id": "c",
+          "text": "Pass --profile with the name of a configuration profile"
+        },
+        {
+          "id": "d",
+          "text": "Use a different terminal font"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Configuration profiles hold connection settings, and --profile picks one.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/cli/authentication",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.4-q3",
+      "type": "single",
+      "stem": "Which CLI command starts a new bundle from a template?",
+      "options": [
+        {
+          "id": "a",
+          "text": "databricks bundle init"
+        },
+        {
+          "id": "b",
+          "text": "databricks repos delete"
+        },
+        {
+          "id": "c",
+          "text": "databricks auth token"
+        },
+        {
+          "id": "d",
+          "text": "databricks bundle destroy"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "bundle init creates a bundle from a template.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.4-q4",
+      "type": "multiple",
+      "stem": "Which tasks can you do with the Databricks CLI? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Design a dashboard visually"
+        },
+        {
+          "id": "b",
+          "text": "Deploy an asset bundle"
+        },
+        {
+          "id": "c",
+          "text": "Change a column mask by editing a Parquet file"
+        },
+        {
+          "id": "d",
+          "text": "List jobs in a workspace"
+        }
+      ],
+      "answer": [
+        "d",
+        "b"
+      ],
+      "explanation": "The CLI has command groups for the workspace APIs, such as jobs list, and the bundle commands.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/cli/commands",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.4-q5",
+      "type": "single",
+      "stem": "Where does the Databricks CLI keep named configuration profiles by default?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In a Unity Catalog volume"
+        },
+        {
+          "id": "b",
+          "text": "In the workspace's Git folder"
+        },
+        {
+          "id": "c",
+          "text": "In the job's settings"
+        },
+        {
+          "id": "d",
+          "text": "In a .databrickscfg file in your home folder"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Profiles live in .databrickscfg in your home folder.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/cli/authentication",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

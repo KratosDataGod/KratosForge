@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.1",
+  "questions": [
+    {
+      "id": "1.1-q1",
+      "type": "single",
+      "stem": "What does Delta Lake add on top of Parquet data files in cloud storage?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A separate database server that stores the rows"
+        },
+        {
+          "id": "b",
+          "text": "A transaction log that gives ACID transactions, table versions and schema enforcement"
+        },
+        {
+          "id": "c",
+          "text": "A dashboarding layer for SQL users"
+        },
+        {
+          "id": "d",
+          "text": "A columnar file format that replaces Parquet"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Delta Lake stores data as Parquet files plus a transaction log. The log makes writes atomic, each write creates a new table version, and writes are checked against the table's schema.",
+      "source": "https://docs.databricks.com/aws/en/delta/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1-q2",
+      "type": "single",
+      "stem": "What is Unity Catalog's role in the Databricks platform?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A compute engine that runs Spark jobs"
+        },
+        {
+          "id": "b",
+          "text": "A file format for streaming data"
+        },
+        {
+          "id": "c",
+          "text": "A replacement for Delta Lake"
+        },
+        {
+          "id": "d",
+          "text": "Central governance: access control, auditing, lineage and discovery for data and AI assets across workspaces"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Unity Catalog governs data and AI assets in one place across workspaces: who can access what, with audit and lineage.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1-q3",
+      "type": "single",
+      "stem": "In Unity Catalog's three-level namespace, how is a table addressed?",
+      "options": [
+        {
+          "id": "a",
+          "text": "workspace.table"
+        },
+        {
+          "id": "b",
+          "text": "database.owner.table"
+        },
+        {
+          "id": "c",
+          "text": "schema.catalog.table"
+        },
+        {
+          "id": "d",
+          "text": "catalog.schema.table"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Unity Catalog organizes objects as catalog, then schema, then table (or view, volume, function).",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1-q4",
+      "type": "multiple",
+      "stem": "Which two are guarantees Delta Lake's transaction log provides? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Tables need no storage"
+        },
+        {
+          "id": "b",
+          "text": "Reads use a consistent snapshot of the table"
+        },
+        {
+          "id": "c",
+          "text": "Data is copied to every workspace"
+        },
+        {
+          "id": "d",
+          "text": "Commits are atomic: a write is recorded completely or not at all"
+        },
+        {
+          "id": "e",
+          "text": "Every query runs on a GPU"
+        }
+      ],
+      "answer": [
+        "d",
+        "b"
+      ],
+      "explanation": "The transaction log controls commit atomicity, and reads get snapshot isolation, so a reader never sees half of a write.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/acid",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1-q5",
+      "type": "single",
+      "stem": "A team needs one place to grant a group read access to tables used from several workspaces. What should they use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Unity Catalog privileges on the catalog, schema or table"
+        },
+        {
+          "id": "b",
+          "text": "Notebook-level permissions only"
+        },
+        {
+          "id": "c",
+          "text": "A copy of the tables in each workspace"
+        },
+        {
+          "id": "d",
+          "text": "A shared password"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Workspaces in a region share one Unity Catalog metastore, so the same grants apply in each of them (unless a catalog is bound to specific workspaces). Access is managed once.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/best-practices",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

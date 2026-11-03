@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.2",
+  "questions": [
+    {
+      "id": "1.2-q1",
+      "type": "single",
+      "stem": "A nightly production job must start quickly with no cluster to configure, and the team wants to pay only while it runs. Which compute fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Serverless compute for jobs"
+        },
+        {
+          "id": "b",
+          "text": "A SQL warehouse for the Python job"
+        },
+        {
+          "id": "c",
+          "text": "A personal laptop"
+        },
+        {
+          "id": "d",
+          "text": "An all-purpose cluster left running"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Serverless compute is managed by Databricks, so there's no cluster to configure, and it minimizes idle time.",
+      "source": "https://docs.databricks.com/aws/en/compute/serverless/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2-q2",
+      "type": "single",
+      "stem": "Analysts run SQL queries and dashboards against gold tables. Which compute is designed for that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Lakeflow Connect gateway"
+        },
+        {
+          "id": "b",
+          "text": "A job cluster"
+        },
+        {
+          "id": "c",
+          "text": "A SQL warehouse"
+        },
+        {
+          "id": "d",
+          "text": "A single-node all-purpose cluster with ML runtime"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "SQL warehouses are compute built for SQL queries, dashboards and BI tools.",
+      "source": "https://docs.databricks.com/aws/en/compute/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2-q3",
+      "type": "single",
+      "stem": "What does auto termination do on an all-purpose compute resource?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Terminates the compute after it has been idle for the time you set"
+        },
+        {
+          "id": "b",
+          "text": "Moves its jobs to a SQL warehouse"
+        },
+        {
+          "id": "c",
+          "text": "Restarts it every hour"
+        },
+        {
+          "id": "d",
+          "text": "Deletes the notebooks attached to it"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "With auto termination, Databricks terminates compute that has been inactive for the set number of minutes, so it doesn't run up cost.",
+      "source": "https://docs.databricks.com/aws/en/compute/configure",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2-q4",
+      "type": "single",
+      "stem": "Several engineers want one classic compute resource they can share, to collaborate at low cost. Which type fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Lakeflow Connect gateway"
+        },
+        {
+          "id": "b",
+          "text": "A SQL warehouse for their Python code"
+        },
+        {
+          "id": "c",
+          "text": "Standard (multi-user) compute"
+        },
+        {
+          "id": "d",
+          "text": "No compute; notebooks run in the browser"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Standard compute is multi-user compute with shared resources for cost-effective collaboration.",
+      "source": "https://docs.databricks.com/aws/en/compute/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.2-q5",
+      "type": "multiple",
+      "stem": "Which two are characteristics of serverless compute? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "It can't run notebooks"
+        },
+        {
+          "id": "b",
+          "text": "It always runs the latest runtime version"
+        },
+        {
+          "id": "c",
+          "text": "You must install the runtime by hand"
+        },
+        {
+          "id": "d",
+          "text": "You choose every VM type yourself"
+        },
+        {
+          "id": "e",
+          "text": "Databricks allocates and manages the compute resources"
+        }
+      ],
+      "answer": [
+        "e",
+        "b"
+      ],
+      "explanation": "With serverless, Databricks automatically allocates and manages the compute, and workloads run on the latest runtime version.",
+      "source": "https://docs.databricks.com/aws/en/compute/serverless/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

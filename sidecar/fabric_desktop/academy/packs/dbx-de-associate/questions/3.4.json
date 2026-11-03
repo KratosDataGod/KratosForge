@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.4",
+  "questions": [
+    {
+      "id": "3.4-q1",
+      "type": "single",
+      "stem": "Which keyword in a SELECT removes duplicate rows from the result?",
+      "options": [
+        {
+          "id": "a",
+          "text": "UNIQUE ROWS"
+        },
+        {
+          "id": "b",
+          "text": "DISTINCT"
+        },
+        {
+          "id": "c",
+          "text": "DEDUPE"
+        },
+        {
+          "id": "d",
+          "text": "ONLY"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "SELECT DISTINCT returns each distinct row once; ALL, the default, keeps duplicates.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-column-list",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.4-q2",
+      "type": "single",
+      "stem": "Counting distinct users over billions of rows is slow, and a small error is acceptable. Which function fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "count"
+        },
+        {
+          "id": "b",
+          "text": "countDistinct"
+        },
+        {
+          "id": "c",
+          "text": "approx_count_distinct"
+        },
+        {
+          "id": "d",
+          "text": "collect_set then size"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "approx_count_distinct returns an estimate of the number of distinct values, with a relative error you can set.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/approx_count_distinct",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.4-q3",
+      "type": "single",
+      "stem": "Which SQL returns the average amount per region?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT region, avg(amount) FROM sales GROUP BY region"
+        },
+        {
+          "id": "b",
+          "text": "SELECT region, amount FROM sales ORDER BY region"
+        },
+        {
+          "id": "c",
+          "text": "SELECT avg(region) FROM sales"
+        },
+        {
+          "id": "d",
+          "text": "SELECT region, avg(amount) FROM sales GROUP BY amount"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "GROUP BY groups rows by region so the aggregate runs once per group.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-select-groupby",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.4-q4",
+      "type": "single",
+      "stem": "Which aggregate counts the rows where amount is over 100?",
+      "options": [
+        {
+          "id": "a",
+          "text": "count(amount) > 100"
+        },
+        {
+          "id": "b",
+          "text": "max(amount > 100)"
+        },
+        {
+          "id": "c",
+          "text": "count_if(amount > 100)"
+        },
+        {
+          "id": "d",
+          "text": "sum(amount > 100) OVER ()"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "count_if returns the number of rows for which the condition is true.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/count_if",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.4-q5",
+      "type": "single",
+      "stem": "Each order can appear several times with different updated_at values. You need only the latest per order. Which approach is correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "distinct() on all columns"
+        },
+        {
+          "id": "b",
+          "text": "groupBy(\"order_id\").max() on every column"
+        },
+        {
+          "id": "c",
+          "text": "dropDuplicates([\"order_id\"]) with no ordering"
+        },
+        {
+          "id": "d",
+          "text": "Rank rows with row_number() over a window partitioned by order_id ordered by updated_at descending, and keep rank 1"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "row_number numbers the rows in each partition in the window's order, so rank 1 is the newest; the other choices keep an arbitrary row or mix values from different versions.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/row_number",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

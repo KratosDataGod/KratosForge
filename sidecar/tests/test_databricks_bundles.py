@@ -5,6 +5,7 @@ needs the target typed back, and only then is --auto-approve passed."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -201,3 +202,36 @@ def test_a_change_past_what_is_shown_still_asks_again_and_a_long_command_says_so
     (Path(bundle) / "databricks.yml").write_text(YML + f"experimental:\n  scripts:\n    predeploy: {long} && evil\n")
     again = db.plan(bundle, "dev", "dev", cli, allow=held["commands_digest"])
     assert again["needs_confirm"] and again["local_commands"] == held["local_commands"] and cli.calls == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_an_include_linked_out_of_the_folder_refuses(bundle, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("elsewhere") / "evil.yml"
+    outside.write_text("experimental:\n  scripts:\n    prebuild: rm -rf /\n")
+    (Path(bundle) / "linked.yml").symlink_to(outside)
+    (Path(bundle) / "databricks.yml").write_text(YML + "include:\n  - linked.yml\n")
+    cli = FakeCli()
+    with pytest.raises(db.BundleError, match="out of the bundle folder"):
+        db.plan(bundle, "dev", "dev", cli)
+    assert cli.calls == []
+
+
+@pytest.mark.parametrize("extra, key", [("python:\n  venv_path: .venv\n", "python"),
+                                        ("experimental:\n  python:\n    resources: [x:y]\n", "experimental.python"),
+                                        ("experimental:\n  pydabs:\n    enabled: true\n", "experimental.pydabs")])
+def test_python_resource_code_counts_as_a_command(bundle, extra, key):
+    (Path(bundle) / "databricks.yml").write_text(YML + extra)
+    cli = FakeCli()
+    held = db.validate(bundle, "dev", "dev", cli)
+    assert held["local_commands"] == [f"databricks.yml: {key}: runs Python code from the bundle"] and cli.calls == []
+
+
+def test_a_target_named_prod_is_production_without_a_mode(bundle):
+    (Path(bundle) / "databricks.yml").write_text("bundle:\n  name: x\ntargets:\n  dev: {}\n  prod: {}\n")
+    assert db.production(bundle, "prod") and not db.production(bundle, "dev")
+    cli = FakeCli([SAFE])
+    out = db.plan(bundle, "prod", "dev", cli)
+    assert out["production"] and out["needs_typed_confirm"]
+    with pytest.raises(db.BundleError, match="Type prod"):
+        db.deploy(bundle, "prod", "dev", out["digest"], "", cli)
+    assert "deploy" not in cli.verbs()

@@ -176,9 +176,11 @@ function closeDialog() {
 // outside would close, and focus goes back to whatever opened it.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+// lastOutside is a WeakRef: the last element focused may be on a page you've left since, and holding
+// it would keep that whole page in memory.
 const dialogFocus = { opener: null, lastOutside: null };
 document.addEventListener("focusin", (e) => {
-  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = e.target;
+  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = new WeakRef(e.target);
 });
 
 function trapFocus(e, root) {
@@ -204,7 +206,7 @@ new MutationObserver(() => {
   const root = document.getElementById("dialog-root");
   if (root.childElementCount) {
     // showDialog may already have focused a field, so remember where focus was before it.
-    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside;
+    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside?.deref() || null;
     // Start inside the dialog unless the code that opened it already chose a field.
     if (!root.contains(document.activeElement)) root.querySelector(FOCUSABLE)?.focus();
   } else {
@@ -672,6 +674,10 @@ function render() {
   navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
+  // The preview panel belongs to the page drawn last: let go of it, or a page you left (every row of
+  // a 5,000-item workspace) stays in memory. A page with the panel sets it again as it draws.
+  itemPreview.host = null;
+  itemPreview.onChange = null;
   (features.views[state.view] || renderHome)();
 }
 

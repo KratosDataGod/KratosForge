@@ -166,6 +166,27 @@ Also:
 - The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a
   link, a path outside the workspace or a device name is refused before anything runs.
 
+## Python and Delta exercises (ACD-011)
+
+`academy/pylab.py` is the `python_lab` and `delta_lab` adapter. An exercise's folder holds the
+starter script (`starter: answer.py`) and the data files it reads (`files`); its grading folder holds
+`solution.py` and at least two `wrong-*.py`. Grading copies only those listed files and the learner's
+script into the workspace, runs the script with `sandbox.run`, and, once the process and its job have
+ended, runs the checks in the engine on what is left:
+
+| Check | Reads |
+| --- | --- |
+| `notebook_ran` | the run itself: it finished without an error (optional `prints`) |
+| `artifact_present` | files and folders, through `workspace` |
+| `config_matches` | a JSON file (`path`, `rules`) |
+| `schema_matches`, `data_quality` | a parquet, CSV or JSON file loaded by the validators' locked DuckDB |
+| `delta_table` | the checked Delta log; no data file is opened |
+
+A run that stops early (an error, the time or memory limit) is reported on its own, in words, and the
+other checks are skipped. `exercises.problems()` refuses a Python exercise without a `.py` starter, a
+`solution.py`, two wrong answers, plain file names in `files`, or with `uses` (a Learn SQL lab).
+`exercises.self_test()` runs the reference and each wrong answer in a fresh workspace of its own.
+
 ## `pipeline_lab` (ACD-012)
 
 Runs in the engine process on `orchestration/runner.py` with only local activity adapters and the

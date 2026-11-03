@@ -373,3 +373,31 @@ def test_long_operation_names_are_cut(work: Path) -> None:
     _add_commit(table, {"commitInfo": {"operation": "X" * 5000}})
     out = v.delta_table(work, "tables/sales", operations=["MERGE"])
     assert not out["passed"] and len(out["detail"]) < 300
+
+
+# ---- unchanged
+
+def test_unchanged_passes_when_only_the_target_changes(con: duckdb.DuckDBPyConnection) -> None:
+    before = v.snapshot(con, ["dim_customer"])
+    con.execute("UPDATE orders SET customer_id = 1 WHERE order_id = 12")
+    assert v.unchanged(con, ["dim_customer"], before)["passed"]
+
+
+def test_unchanged_wrong_answers(con: duckdb.DuckDBPyConnection) -> None:
+    before = v.snapshot(con, ["dim_customer", "orders"])
+    con.execute("UPDATE dim_customer SET tier = 'gold' WHERE customer_id = 2")
+    out = v.unchanged(con, ["dim_customer", "orders"], before)
+    assert not out["passed"] and "dim_customer has 3 rows as before" in out["detail"] and "orders" not in out["detail"]
+    con.execute("INSERT INTO orders SELECT * FROM orders")
+    assert "orders went from 3 to 6 rows" in v.unchanged(con, ["orders"], before)["detail"]
+    con.execute("DROP TABLE orders")
+    assert "orders is gone" in v.unchanged(con, ["orders"], before)["detail"]
+
+
+def test_unchanged_counts_duplicates(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("CREATE TABLE d (a INTEGER)")
+    con.execute("INSERT INTO d VALUES (1), (1)")
+    before = v.snapshot(con, ["d"])
+    con.execute("DELETE FROM d")
+    con.execute("INSERT INTO d VALUES (1), (2)")
+    assert not v.unchanged(con, ["d"], before)["passed"]

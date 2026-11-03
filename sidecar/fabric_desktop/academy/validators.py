@@ -12,6 +12,7 @@ numbers compare with a tolerance only when the exercise declares one.
     artifact_present  required files and folders exist, with sizes and JSON keys
     delta_table       a Delta table's log is safe, then its versions, operations, partitions, files, columns
     pipeline_outcome  a local pipeline run record (orchestration/runner.py): status, activities, outputs
+    unchanged         tables the answer must not touch hold the same rows as before it ran (``snapshot`` first)
 
 ``result_matches``, ``faster_than`` and the others stay in learn/checks.py and are reused as they are.
 """
@@ -480,3 +481,43 @@ def pipeline_outcome(run: dict[str, Any], status: str = "Succeeded", activities:
         if got != want:
             return _no(kind, f"The pipeline returns {key} = {_say(None if got is _MISSING else got)}; the exercise needs {_say(want)}.")
     return _ok(kind, f"The run ended {state} with the activity results the exercise asks for.")
+
+
+# ---- unchanged
+
+def snapshot(con: duckdb.DuckDBPyConnection, tables: list[str]) -> dict[str, tuple[int, int] | None]:
+    """Each table's row count and an order-free fingerprint of its rows (a sum of row hashes, so
+    duplicates count), computed by DuckDB without loading the rows. Compared only within one run of
+    the engine; a missing table is None."""
+    out: dict[str, tuple[int, int] | None] = {}
+    for table in tables:
+        if not _columns(con, table):
+            out[table] = None
+            continue
+        n, fp = one_row(con.execute(f"SELECT count(*), coalesce(sum(hash(t)::HUGEINT), 0) FROM {_ident(table)} t"))  # type: ignore[misc]
+        out[table] = (int(n), int(fp))
+    return out
+
+
+def unchanged(con: duckdb.DuckDBPyConnection, tables: list[str],
+              before: dict[str, tuple[int, int] | None]) -> dict[str, Any]:
+    """Run after the learner's answer, with ``before`` from ``snapshot`` taken just before it: passes
+    when every listed table holds the same rows, which shows the fix changed nothing else."""
+    kind = "unchanged"
+    after = snapshot(con, tables)
+    changed = [t for t in tables if before.get(t) != after[t]]
+    if changed:
+        said = []
+        for t in changed[:8]:
+            b, a = before.get(t), after[t]
+            if a is None:
+                said.append(f"{t} is gone")
+            elif b is None:
+                said.append(f"{t} is new")
+            elif a[0] != b[0]:
+                said.append(f"{t} went from {b[0]:,} to {a[0]:,} rows")
+            else:
+                said.append(f"{t} has {a[0]:,} rows as before, but some of them changed")
+        more = f" and {len(changed) - 8} more" if len(changed) > 8 else ""
+        return _no(kind, f"The answer changed tables it shouldn't touch: {'; '.join(said)}{more}.")
+    return _ok(kind, f"Nothing else changed: {', '.join(tables[:8])}{' and others' if len(tables) > 8 else ''} hold the same rows.")

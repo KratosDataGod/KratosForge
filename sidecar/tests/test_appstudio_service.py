@@ -166,3 +166,20 @@ def test_text_components_show_their_text():
     doc["pages"][0]["components"].append({"id": "c_t", "type": "text", "title": "Hello", "measures": [], "fields": [],
                                           "layout": {"x": 0, "y": 0, "w": 12, "h": 1}, "props": {"text": "Welcome"}})
     assert sample.preview(doc)["components"][0]["text"] == "Welcome"
+
+
+@pytest.mark.parametrize("name", ["CON", "nul", "Com1", "LPT9"])
+def test_windows_device_names_are_refused(svc, name):
+    with pytest.raises(ValueError, match="device"):
+        svc.appstudio_create(name)
+    assert svc.appstudio_create(f"{name} report")["project"] == f"{name} report.KFApp"
+
+
+def test_a_folder_that_resolves_outside_the_projects_folder_is_refused(svc, monkeypatch, tmp_path):
+    svc.appstudio_create("Real", "blank")
+    from pathlib import Path
+    real = Path.resolve
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: tmp_path / "elsewhere" / self.name
+                        if self.name == "Real.KFApp" else real(self, *a, **k))
+    with pytest.raises(ValueError, match="isn't in your App Studio projects"):
+        svc.appstudio_open("Real.KFApp")

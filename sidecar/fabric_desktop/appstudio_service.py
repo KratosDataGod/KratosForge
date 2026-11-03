@@ -40,8 +40,11 @@ class AppStudioMixin:
         name = str(name)
         if not name.endswith(project.SUFFIX) or project.folder_name(name[:-len(project.SUFFIX)]) != name:
             raise ValueError("Choose a project from the list.")
-        folder = self._appstudio_root() / name
-        if not folder.is_dir() or folder.is_symlink():
+        root = self._appstudio_root()
+        folder = root / name
+        # A link of any kind (a symlink, or an NTFS junction on Windows) could point outside the projects folder.
+        if (not folder.is_dir() or folder.is_symlink() or folder.is_junction()
+                or folder.resolve().parent != root.resolve()):
             raise ValueError(f"{name} isn't in your App Studio projects.")
         return folder
 

@@ -197,7 +197,9 @@ max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 
 envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
 ```
 
-Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing. A promise is a setting in the product's file, with no screen of its own yet: its broken promises show in Monitor > Incidents.
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing.
+
+**On screen.** On the open project, **Data mesh > Project > Products and links > Data products**, a product's dialog has **Promise to readers**: loaded at least every so many hours, loaded by a time each day, under a percentage of rows rejected, and whether it applies in Prod or in Test and Prod. Saving writes `[promise]` in the product's file; leaving all three empty removes it. A product's page (**Data mesh > Products >** the product) shows a **Promise to readers** card to everyone. Its own team, with the product's project open, also sees **Kept** or **Broken** on each line, read from the open incidents on its ports, with a link to the incident.
 
 **Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
 

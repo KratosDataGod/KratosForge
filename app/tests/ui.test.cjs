@@ -5552,7 +5552,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     platform: ["Owners", "Notices to Teams", "One landing workspace for Dev, Test and Prod", "One list of source systems",
       "Platform notices", "Semantic model rules"],
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
-      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests"],
+      "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
+      "Promises to readers"],
     trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
@@ -5573,7 +5574,6 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
-    "Promises to readers": ["docs/data-mesh.md", /a setting in the product's file, with no screen of its own yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

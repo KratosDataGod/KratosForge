@@ -150,7 +150,7 @@ def test_the_password_script_gets_the_task_by_environment_never_on_its_command_l
 
 @pytest.mark.parametrize(("code", "stderr", "words"), [
     (3, "", "closed the Windows prompt"),
-    (4, "", "your own Windows account"),
+    (6, "", "only lets your Microsoft account sign in with Windows Hello"),
     (5, "hresult=-2147023570 The user name or password is incorrect.", "didn't accept that password"),
     (5, "hresult=-2147023511 Logon failure: the user has not been granted the requested logon type", "doesn't allow runs while"),
     (5, "hresult=-1 Access is denied.", "Task Scheduler: hresult=-1 Access is denied."),
@@ -240,3 +240,24 @@ def test_signed_out_tasks_set_up_before_the_policy_never_run_and_are_paused(tmp_
     assert scheduler.calls == [("set_enabled", item["id"], False)]
     assert svc.pc_schedules.get(item["id"])["enabled"] is False and svc.pc_schedules.get(plain["id"])["enabled"] is True
     assert svc.sync_pc_schedules()["paused"] == []  # already paused: nothing more to do
+
+
+def test_the_task_always_runs_as_this_account_whatever_the_user_name_box_says():
+    assert "-User $me -Password" in signed_out_tasks.REGISTER and "$c.UserName" not in signed_out_tasks.REGISTER
+    assert "not your PIN" in signed_out_tasks.REGISTER
+
+
+def test_hello_only_sign_in_is_spotted_before_asking_for_a_password():
+    """With "Only allow Windows Hello sign-in" on, a Microsoft account's password can't log a task on,
+    so the script says so before Windows' prompt shows (2026-11-02 Windows check on Chris's PC)."""
+    script = signed_out_tasks.REGISTER
+    assert script.index("DevicePasswordLessBuildVersion") < script.index("Get-Credential")
+    assert "MicrosoftAccount" in script and "exit 6" in script
+
+
+def test_refusals_keep_windows_own_words_in_the_log(monkeypatch, caplog):
+    monkeypatch.setattr(signed_out_tasks.subprocess, "run",
+                        lambda args, **kw: subprocess.CompletedProcess(args, 5, "", "hresult=-1 Access is denied."))
+    with caplog.at_level("WARNING"), pytest.raises(signed_out_tasks.PasswordNotSaved):
+        signed_out_tasks.register("FabricDesktop", "abc", "<Task/>")
+    assert "hresult=-1" in caplog.text

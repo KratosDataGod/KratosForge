@@ -27,8 +27,8 @@ _ID = re.compile(r"[0-9a-f]{1,32}")
 
 # Exit codes the scripts use, besides 0.
 CANCELLED = 3
-OTHER_ACCOUNT = 4
 FAILED = 5
+HELLO_ONLY = 6
 
 # Task Scheduler's last result when the task couldn't log on: the password changed (1326), or this
 # account may not log on as a batch job, which an organization can turn off (1385).
@@ -45,13 +45,20 @@ PROMPT_SECONDS = 5 * 60  # a prompt nobody answers (or one stuck on a hidden con
 
 REGISTER = _PRELUDE + """
 $me = "$env:USERDOMAIN\\$env:USERNAME"
-try { $c = Get-Credential -UserName $me -Message 'KratosForge: run this schedule while you are signed out of Windows. Windows keeps your password with the task; KratosForge never sees it.' }
+# "Only allow Windows Hello sign-in for Microsoft accounts" blocks password logon for such an account,
+# so asking for a password could never work: say so instead (exit 6).
+$pl = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\PasswordLess\\Device' -ErrorAction SilentlyContinue).DevicePasswordLessBuildVersion
+if ($pl -eq 2) {
+  $u = Get-LocalUser -Name $env:USERNAME -ErrorAction SilentlyContinue
+  if ($u -and [string]$u.PrincipalSource -eq 'MicrosoftAccount') { exit 6 }
+}
+try { $c = Get-Credential -UserName $me -Message 'KratosForge: run this schedule while you are signed out of Windows. Type your Windows password (with a Microsoft account, its password, not your PIN). Windows keeps it with the task; KratosForge never sees it.' }
 catch { exit 3 }
 if ($null -eq $c) { exit 3 }
-if ($c.UserName -ne $me) { exit 4 }
+# Always your own account, whatever the user name box says (an email typed there would not name this account).
 try {
   $xml = Get-Content -LiteralPath $env:KF_TASK_XML -Raw -Encoding Unicode
-  Register-ScheduledTask -TaskPath $folder -TaskName $env:KF_TASK_ID -Xml $xml -User $c.UserName -Password $c.GetNetworkCredential().Password -Force | Out-Null
+  Register-ScheduledTask -TaskPath $folder -TaskName $env:KF_TASK_ID -Xml $xml -User $me -Password $c.GetNetworkCredential().Password -Force | Out-Null
 } catch {
   [Console]::Error.WriteLine("hresult=$($_.Exception.HResult) $($_.Exception.Message)")
   exit 5
@@ -103,12 +110,16 @@ def _powershell(script: str, folder: str, env: dict[str, str], prompt: bool = Fa
 def _explain(res: subprocess.CompletedProcess[str]) -> str:
     if res.returncode == CANCELLED:
         return "You closed the Windows prompt; nothing changed."
-    if res.returncode == OTHER_ACCOUNT:
-        return "Use your own Windows account in the prompt; nothing changed."
+    if res.returncode == HELLO_ONLY:
+        return ("This PC only lets your Microsoft account sign in with Windows Hello (Settings > Accounts > "
+                "Sign-in options), so Windows can't keep a password for runs while you're signed out; nothing "
+                "changed. Turn that setting off, or keep this schedule to times you're signed in.")
     text = (res.stderr or res.stdout).strip()
+    _log.warning("signed-out schedules: Task Scheduler refused (exit %s): %s", res.returncode, text[:500])
     low = text.lower()
     if "0x8007052e" in low or "-2147023570" in low or "password is incorrect" in low:
-        return "Windows didn't accept that password; nothing changed."
+        return ("Windows didn't accept that password; nothing changed. If you sign in with a Microsoft account, "
+                "use its password, not your PIN.")
     if "0x80070569" in low or "-2147023511" in low or "logon type" in low:
         return ("Your organization doesn't allow runs while you're signed out (Windows refused the "
                 "'Log on as a batch job' right); nothing changed.")
@@ -124,7 +135,8 @@ def register(folder: str, schedule_id: str, xml: str) -> None:
     try:
         res = _powershell(REGISTER, folder, {"KF_TASK_XML": f.name, "KF_TASK_ID": schedule_id}, prompt=True)
     except subprocess.TimeoutExpired as e:
-        raise PasswordNotSaved("Windows' password prompt wasn't answered within 5 minutes; nothing changed. It may have opened on another screen.") from e
+        raise PasswordNotSaved(f"Windows' password prompt wasn't answered within {PROMPT_SECONDS // 60} minutes; nothing changed. "
+                               "It may have opened on another screen.") from e
     finally:
         os.unlink(f.name)
     if res.returncode != 0:

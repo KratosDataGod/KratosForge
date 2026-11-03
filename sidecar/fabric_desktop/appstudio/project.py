@@ -255,6 +255,13 @@ def redo(path: str | os.PathLike[str]) -> dict[str, Any]:
     return _step(path, back=False)
 
 
+def history(path: str | os.PathLike[str], limit: int = 100) -> list[dict[str, Any]]:
+    """The newest ``limit`` history entries, newest first, without the operations themselves."""
+    folder = _dir(path)
+    keep = ("seq", "at", "kind", "source", "note", "changed", "of", "version", "kept_as")
+    return [{k: e[k] for k in keep if k in e} for e in reversed(_history(folder)[-max(1, min(int(limit), 500)):])]
+
+
 # ---------------------------------------------------------------- versions
 
 

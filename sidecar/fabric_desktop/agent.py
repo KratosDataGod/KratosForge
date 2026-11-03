@@ -40,12 +40,15 @@ from .onelake import FileStore
 from .redact import describe
 from .redact import without_webhook as _without_webhook
 from .runtime import Runtime
-from .workloads import evaluate
+from .workloads import deliver, evaluate
 from .workloads.agents import read_status
 from .workloads.incidents import IncidentLog
 from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
 from .workloads.platform_notify import Ledger, PlatformRoute, PlatformRouting, validate
 from .workloads.platform_notify import send as send_notices
+
+AGENT_NO_EMAIL = ("Email routes are sent from the KratosForge app; on an agent use a Power Automate flow "
+                  "(flow:https://...). This route's messages go nowhere")
 
 KIND_META = "meta"
 
@@ -113,15 +116,36 @@ class Agent:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
+    def _can_send(self, route: str, url: str) -> bool:
+        """Whether an agent can send to this address: a Teams webhook or a Power Automate flow. Email
+        is sent from the KratosForge app, which has the company mail server; an agent has none."""
+        if not url:
+            return False
+        try:
+            deliver.check(url)
+        except ValueError as exc:
+            self.log.warning("an incident route's address can't be used; its messages go nowhere",
+                             extra=fields(route=route, error=str(exc)))
+            return False
+        if deliver.kind(url) == "email":
+            self.log.warning(AGENT_NO_EMAIL, extra=fields(route=route))
+            return False
+        return True
+
+    def _post(self, url: str, title: str, lines: list[str]) -> None:
+        """Teams or a Power Automate flow (workloads/deliver.py), each message redacted and bounded."""
+        deliver.poster(None, lambda u, t, ls: post_teams(u, t, ls))(url, title, lines)
+
     def incident_routing(self) -> Routing:
         """Where incident messages go: the [[incidents.route]] channels, and alerts.teams_webhook_env
         for anything none of them matches. Webhook addresses are read from the environment now."""
         inc = self.config.incidents
-        routes = [Route(DEFAULT_ROUTE, self.config.teams_webhook)] if self.config.teams_webhook else []
+        routes = [Route(DEFAULT_ROUTE, self.config.teams_webhook)] if self._can_send(DEFAULT_ROUTE, self.config.teams_webhook) else []
         for r in inc.routes:
             url = os.environ.get(r["webhook_env"], "")
             if url:
-                routes.append(Route(r["name"], url, r["teams"], r["owners"], r["criticality"], r["kinds"], r["envs"]))
+                if self._can_send(r["name"], url):
+                    routes.append(Route(r["name"], url, r["teams"], r["owners"], r["criticality"], r["kinds"], r["envs"]))
             else:
                 self.log.warning("an incident route's webhook variable isn't set; its messages go nowhere",
                                  extra=fields(route=r["name"], variable=r["webhook_env"]))
@@ -177,7 +201,7 @@ class Agent:
         if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
                 self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
-            result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", post_teams,
+            result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", self._post,
                           self.config.incidents.digest_over, now=now)
             if result.get("error"):
                 self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
@@ -454,17 +478,17 @@ class Agent:
         """Post job alerts Teams didn't take before (no network, Teams down), marked as delayed. They
         wait in job_alerts.sqlite3 in the agent's home and are dropped after three days."""
         url = self.config.teams_webhook
-        if not url or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
+        if not self._can_send(DEFAULT_ROUTE, url) or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
             return
         with self._alert_lock:
-            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", post_teams)
+            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", self._post)
         if result.get("error"):
             self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
                              extra=fields(error=_without_webhook(result["error"], url)))
 
     def _alert(self, job: dict[str, Any], error: str) -> None:
         url = self.config.teams_webhook
-        if not url:
+        if not self._can_send(DEFAULT_ROUTE, url):
             return
         self.send_waiting_alerts()  # older alerts first
         env = str(job["payload"].get("env", "")).title()
@@ -472,7 +496,7 @@ class Agent:
         lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
         with self._alert_lock:
             try:
-                post_teams(url, title, lines)
+                self._post(url, title, lines)
                 return
             except Exception as exc:  # kept, and sent with the next try
                 problem = _without_webhook(failure(exc), url)

@@ -15,7 +15,6 @@ from typing import Any
 
 from . import __version__, app_settings, sealed_settings
 from .auth import STORAGE_SCOPES
-from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
 from .central.core import PlatformError
@@ -208,7 +207,8 @@ class IncidentMixin:
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
-            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge", post_teams)
+            out["notified"] = send(self._not_told_before(env, changes), single(url), outbox, "KratosForge",
+                                   self._notice_post())  # type: ignore[attr-defined]  # Teams, a flow or email
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 

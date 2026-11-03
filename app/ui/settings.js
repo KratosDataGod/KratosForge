@@ -782,7 +782,7 @@ async function renderSettings() {
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
-    settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
+    settingRow("Incident alerts", "Send late and failed tables to a Teams channel, a Power Automate flow or email. The bell always shows them.",
       btn("Set up", "alert", () => alertsDialog(), "tool outline")),
     await platformNoticesSection());
 

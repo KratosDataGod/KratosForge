@@ -623,7 +623,7 @@ def test_the_app_checks_only_environments_no_running_agent_checks(tmp_path, monk
     name = sorted(svc._project().entities)[0]
     monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")])
     posted = []
-    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", lambda url, title, lines: posted.append(title))
+    monkeypatch.setattr("fabric_desktop.platform_notify_service.post_teams", lambda url, title, lines: posted.append(title))
     settings = svc._settings
     svc._settings = lambda: {**settings(), "teams_webhook": "https://hook"}
     out = {e["env"]: e for e in svc.incidents_watch(notify=True)["envs"]}
@@ -758,3 +758,46 @@ def test_a_credential_in_a_run_message_reaches_neither_teams_nor_the_outbox(tmp_
     # a row an older build queued unredacted is cleaned when it's sent
     card = json.dumps(teams_card("New: " + secret, [secret]))
     assert "hunter2" not in card and "eyJhbGciOiJIUzI1NiJ9" not in card and "\\n" not in card
+
+
+# ---------------------------------------------------------------------------- stage 3: flow and email delivery
+
+
+def test_the_agent_sends_to_a_flow_and_leaves_email_routes_to_the_app(agent_setup, monkeypatch, caplog):
+    from fabric_desktop.workloads import deliver
+    monkeypatch.setenv("TEST_INCIDENT_HOOK", "flow:https://prod-12.westeurope.logic.azure.com/workflows/abc")
+    flows, teams = [], []
+    monkeypatch.setattr(deliver, "post_flow", lambda url, title, lines, http=None: flows.append((url, title)))
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", lambda url, title, lines: teams.append(title))
+    agent = Agent(agent_setup, clock=Clock())
+    name = sorted(agent.runtime.entity_names())[0]
+    monkeypatch.setattr(agent.runtime, "meta_runs", lambda env, limit: [run(name, "failed", "r1", message="boom")])
+    agent.step()
+    assert flows == [("https://prod-12.westeurope.logic.azure.com/workflows/abc", f"New: {name} failed in Dev (agent etl-01)")]
+    assert teams == []
+    monkeypatch.setenv("TEST_INCIDENT_HOOK", "mailto:oncall@contoso.com")
+    with caplog.at_level("WARNING"):
+        assert agent.incident_routing().routes == []
+    assert any("Email routes are sent from the KratosForge app" in r.getMessage() for r in caplog.records)
+
+
+def test_the_app_sends_alerts_to_a_flow_or_email_and_needs_a_mail_server_for_email(tmp_path, monkeypatch):
+    from fabric_desktop.workloads import deliver
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    with pytest.raises(ValueError, match="mail server first"):
+        svc.meta_set_alerts("mailto:oncall@contoso.com")
+    with pytest.raises(ValueError, match="starts with https://"):
+        svc.meta_set_alerts("flow:http://insecure")
+    flows = []
+    monkeypatch.setattr(deliver, "post_flow", lambda url, title, lines, http=None: flows.append((title, lines)))
+    out = svc.meta_set_alerts("flow:https://prod-12.westeurope.logic.azure.com/workflows/abc", test=True)
+    assert out["kind"] == "flow" and out["label"] == "prod-12.westeurope.logic.azure.com"
+    assert flows and flows[0][0] == "KratosForge alerts are on"
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1", message="token=abc123secret")])
+    svc.incidents_evaluate("dev", notify=True)
+    title, lines = flows[-1]
+    assert title.startswith("New: ") and "abc123secret" not in " ".join(lines)

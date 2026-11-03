@@ -477,3 +477,120 @@ def test_a_branch_name_that_looks_like_an_option_or_range_is_never_passed_to_git
     out = ssvc.fabric_git_status(str(repo.root), "dev")
     assert out["remote_tracking"] is None
     assert not any(branch in " ".join(a) for a in seen)
+
+
+# ---- Update from Git: re-checked in the engine, a choice for conflicts, a typed confirm
+
+def test_update_plan_without_a_conflict_choice_needs_one():
+    plan = fabric_git.update_plan(fabric_git.status(STATUS))
+    assert plan["needs_policy"] and plan["conflicts"] == 1 and not plan["nothing"]
+    assert [i["name"] for i in plan["changes"]] == ["PL_Daily_Load"]
+    assert plan["overwrites"] == []
+
+
+def test_update_plan_keep_workspace_and_take_git():
+    st = fabric_git.status(STATUS)
+    keep = fabric_git.update_plan(st, "PreferWorkspace")
+    assert not keep["needs_policy"] and keep["overwrites"] == []
+    assert "NB_Orders_Silver" in [i["name"] for i in keep["kept"]]
+    take = fabric_git.update_plan(st, "PreferRemote")
+    assert [i["name"] for i in take["overwrites"]] == ["NB_Orders_Silver"]
+    assert "lost" in take["overwrites"][0]["why"]
+    kept = {i["name"]: i["why"] for i in take["kept"]}
+    assert "stays as it is" in kept["LH_Silver"] and "doesn't carry" in kept["DM_Old"]
+
+
+def test_update_plan_refuses_an_unknown_policy():
+    with pytest.raises(GitError):
+        fabric_git.update_plan(fabric_git.status(STATUS), "Overwrite")
+
+
+def test_update_plan_with_nothing_incoming():
+    st = fabric_git.status({"workspaceHead": H1, "remoteCommitHash": H1, "changes": [
+        change(LH, "Lakehouse", "LH", ws="Modified")]})
+    assert fabric_git.update_plan(st)["nothing"]
+
+
+class UpdateFabric(StatusFabric):
+    def __init__(self, answers, status_answer):
+        super().__init__(answers, status_answer)
+        self.updates: list[tuple] = []
+
+    def git_update_from_git(self, *args, **kw):
+        self.updates.append((args, kw))
+        return {}
+
+
+@pytest.fixture
+def usvc(tmp_path, repo):
+    s = ScopedSvc(tmp_path / "app", UpdateFabric({WS: GITHUB}, STATUS))
+    s.root.mkdir()
+    s.git_open(str(repo.root))
+    s.fabric_git_link(str(repo.root), "dev", WS, "Sales Dev")
+    return s
+
+
+def fp():
+    return fabric_git.status(STATUS)["fingerprint"]
+
+
+def test_update_writes_nothing_without_every_gate(usvc, repo):
+    r = str(repo.root)
+    assert usvc.fabric_git_update(r, "dev", "")["stale"]
+    assert usvc.fabric_git_update(r, "dev", "old")["stale"]
+    assert usvc.fabric_git_update(r, "dev", fp())["needs_choice"]
+    out = usvc.fabric_git_update(r, "dev", fp(), "PreferRemote")
+    assert out["needs_confirm"] and out["confirm_text"] == "Sales Dev"
+    assert usvc.fabric_git_update(r, "dev", fp(), "PreferRemote", "sales dev")["needs_confirm"]  # exactly as linked
+    assert usvc.fabric.updates == []
+
+
+def test_update_runs_with_a_fresh_preview_a_choice_and_the_name(usvc, repo):
+    out = usvc.fabric_git_update(str(repo.root), "dev", fp(), "PreferWorkspace", "Sales Dev")
+    assert out["done"]
+    assert usvc.fabric.updates == [((WS, H2, H1, "PreferWorkspace"), {"allow_override": True})]
+    assert usvc.fabric.status_calls == [WS]  # status read again right before the write
+
+
+def test_update_stops_when_fabric_changed_since_the_preview(usvc, repo):
+    old = fp()
+    usvc.fabric.status_answer = {**STATUS, "remoteCommitHash": "3" * 40}
+    out = usvc.fabric_git_update(str(repo.root), "dev", old, "PreferRemote", "Sales Dev")
+    assert out["stale"] and out["status"]["remote_commit"] == "3" * 40 and not out["done"]
+    assert usvc.fabric.updates == []
+
+
+def test_update_with_nothing_to_bring_in(usvc, repo):
+    usvc.fabric.status_answer = {"workspaceHead": H1, "remoteCommitHash": H1, "changes": []}
+    f = fabric_git.status(usvc.fabric.status_answer)["fingerprint"]
+    assert usvc.fabric_git_update(str(repo.root), "dev", f, "", "Sales Dev")["nothing"]
+    assert usvc.fabric.updates == []
+
+
+def test_update_is_audited_not_read_only():
+    assert "fabric_git_update" in server.METHODS and "fabric_git_update" not in audit.READ_ONLY
+
+
+def test_update_body_matches_microsoft_learn():
+    from fabric_desktop.fabric_api import FabricClient
+
+    sent = {}
+
+    class Resp:
+        status_code = 200
+        content = b"{}"
+        headers: dict = {}
+
+        def json(self):
+            return {}
+
+    class Session:
+        def request(self, method, url, headers=None, timeout=None, json=None, **kw):
+            sent.update(method=method, url=url, json=json)
+            return Resp()
+
+    FabricClient(lambda: "t", session=Session()).git_update_from_git(WS, H2, H1, "PreferRemote", True)
+    assert sent["method"] == "POST" and sent["url"].endswith(f"/workspaces/{WS}/git/updateFromGit")
+    assert sent["json"] == {"remoteCommitHash": H2, "workspaceHead": H1, "options": {"allowOverrideItems": True},
+                            "conflictResolution": {"conflictResolutionType": "Workspace",
+                                                   "conflictResolutionPolicy": "PreferRemote"}}

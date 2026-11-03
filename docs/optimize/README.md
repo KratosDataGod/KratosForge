@@ -79,9 +79,11 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 
 When a write to the central lakehouse fails for a reason that passes (no network, throttling, a commit that lost a race with another installation, a dropped upload), what it was writing waits on this PC instead of being lost. Today that covers Estate X-ray findings and shared runs on this PC.
 
+Sharing runs normally reads which runs the lakehouse already has. With no network at all it can't, so every run not already waiting on this PC is queued; any that turn out to be in the lakehouse already are skipped when they're sent.
+
 - **Where it waits.** In `optimize\outbox.sqlite` in the app's data folder, kept for the lakehouse it was meant for. Errors are stored with secrets removed. Nothing in it is sent anywhere else.
 - **When it's sent.** The next time Optimize writes to that lakehouse (a finished X-ray scan, sharing runs), and when you connect or switch to it. What waits goes first, oldest first. There's no timer: nothing is sent in the background.
-- **No duplicates.** Every row has its `record_id`, so sending something twice, or finishing a batch that was half sent, adds nothing.
+- **No duplicates.** Every row has its `record_id`, so sending something twice, or finishing a batch that was half sent, adds nothing. Queuing the same thing again doesn't add it twice either: a scan shared again replaces the waiting one, and runs already waiting aren't queued again, so repeats don't fill the limit below.
 - **What isn't kept.** A permission error, a lakehouse open read-only, or the policy switch being off isn't a passing failure: it's shown as before and nothing waits. A waiting item the lakehouse refuses as it is gets dropped, so it can't hold up the rest.
 - **Bounded.** At most 200 items per lakehouse, none older than 30 days. Past either, the oldest go. Every dropped item is counted.
 - **Disconnecting** keeps what waits for that lakehouse on this PC, to be sent if you connect to it again.

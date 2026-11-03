@@ -77,6 +77,21 @@ def test_discard_and_drop_count_too(tmp_path):
         "last_error_at": None, "dropped": 2}
 
 
+def test_the_same_thing_queued_again_waits_once(tmp_path):
+    box = ob.Outbox(tmp_path / "o.sqlite", max_items=2)
+    box.add("lh1", ob.ANALYSIS, payload(1), "down")
+    box.add("lh1", ob.ANALYSIS, payload(1), "down")  # the same scan shared again: replaces, not added
+    runs = {"rows": [{"execution_id": "a"}, {"execution_id": "b"}]}
+    box.add("lh1", ob.LOCAL_EXECUTIONS, runs, "down")
+    assert box.add("lh1", ob.LOCAL_EXECUTIONS, runs, "down") == ""  # every run already waits
+    box.add("lh1", ob.LOCAL_EXECUTIONS, {"rows": [{"execution_id": "b"}, {"execution_id": "c"}]}, "down")
+    items = box.due("lh1", include_waiting=True)
+    assert [i["kind"] for i in items] == [ob.LOCAL_EXECUTIONS, ob.LOCAL_EXECUTIONS]  # cap 2: the scan went
+    assert [r["execution_id"] for r in items[1]["payload"]["rows"]] == ["c"]
+    assert box.waiting_execution_ids("lh1") == {"a", "b", "c"}
+    assert box.status("lh1")["dropped"] == 1  # only the cap dropped something; repeats aren't drops
+
+
 def test_bad_items_are_refused(tmp_path):
     box = ob.Outbox(tmp_path / "o.sqlite")
     with pytest.raises(ValueError):
@@ -173,3 +188,25 @@ def test_shared_local_runs_wait_too(svc, monkeypatch):  # noqa: F811
     out = svc.optimize_share_local_runs(approve=True)
     assert out["shared"] == 0 and out["queued"] == preview["new"]
     assert svc.optimize_status()["outbox"]["pending_rows"] == preview["new"]
+
+
+def test_runs_shared_with_no_network_at_all_wait_once(svc, monkeypatch):  # noqa: F811
+    svc.optimize_create("w1", workspace_name="Platform")
+    write = {"job": "Notebook write", "finished_at": "2026-10-20T09:00:00Z", "seconds": 3.0, "rows": 10,
+             "table_uri": "abfss://w1@onelake.dfs.fabric.microsoft.com/lh-sales/Tables/dbo/orders", "delta_version": 1}
+    monkeypatch.setattr(type(svc), "history", lambda self, limit=0: [write])
+    monkeypatch.setattr(type(svc.pc_schedules), "runs", lambda self, limit=0: [])
+    down = ConnectionError("network down")
+    read_ids = Shared.local_execution_ids
+    monkeypatch.setattr(Shared, "local_execution_ids", lambda self: (_ for _ in ()).throw(down))
+    state = _offline(monkeypatch, "record_local_executions", down)
+    out = svc.optimize_share_local_runs(approve=True)
+    assert out["queued"] == 1 and "network down" in out["offline"]
+    again = svc.optimize_share_local_runs(approve=True)  # sharing again while still offline
+    assert again["new"] == 0 and again["waiting"] == 1
+    assert svc.optimize_status()["outbox"]["pending"] == 1
+    # Back online: the waiting run goes with the next connect or switch, once.
+    state["down"] = False
+    monkeypatch.setattr(Shared, "local_execution_ids", read_ids)
+    lakehouse = svc.optimize_status()["active"]["lakehouse_id"]
+    assert svc.optimize_switch(lakehouse)["sync"]["sent"] == 1

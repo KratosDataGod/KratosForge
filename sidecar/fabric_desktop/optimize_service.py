@@ -346,11 +346,21 @@ class OptimizeMixin:
         notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
         rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
                 + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
-        done = shared.local_execution_ids()
-        new = [r for r in rows if r["execution_id"] not in done]
+        offline = None
+        try:
+            done = shared.local_execution_ids()
+        except Exception as exc:
+            if not self._optimize_transient(exc):
+                raise
+            # Out of reach: what's already there can't be read, so every run not already waiting on this
+            # PC counts as new; rows that turn out to be there already are skipped when they're sent.
+            done, offline = set(), redact.secrets(str(exc))
+        waiting = self.optimize_outbox.waiting_execution_ids((self.optimize_registry.active() or {}).get("lakehouse_id", ""))
+        new = [r for r in rows if r["execution_id"] not in done and r["execution_id"] not in waiting]
         writes = sum(r["workload_type"] == "notebook_write" for r in new)
         out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
-               "already": len(rows) - len(new), "shared": 0}
+               "already": len(rows) - len(new), "waiting": sum(r["execution_id"] in waiting for r in rows),
+               "shared": 0, **({"offline": offline} if offline else {})}
         if not new:
             return out
         if not approve:

@@ -111,7 +111,8 @@ class Outbox:
                        (old + over, lakehouse_id))
 
     def add(self, lakehouse_id: str, kind: str, payload: dict[str, Any], error: str = "") -> str:
-        """Keep one call's input for the lakehouse, with why it couldn't be sent."""
+        """Keep one call's input for the lakehouse, with why it couldn't be sent. Returns the item's
+        id, or "" when everything in it was already waiting."""
         if kind not in KINDS:
             raise ValueError(f"Unknown outbox item kind: {kind}")
         if not (lakehouse_id or "").strip():
@@ -119,6 +120,20 @@ class Outbox:
         now, item = self.clock(), uuid.uuid4().hex
         reason = redact.secrets(error)[:500] if error else None
         with self._tx() as db:
+            # The same thing queued twice (a scan shared again, runs shared again while still offline)
+            # waits once, so repeats don't fill the cap and push out other results.
+            if kind == ANALYSIS:
+                run_id = str((payload.get("run") or {}).get("run_id") or "")
+                for old in self._items(db, lakehouse_id, ANALYSIS):
+                    if run_id and str((old["payload"].get("run") or {}).get("run_id") or "") == run_id:
+                        db.execute("delete from outbox where id = ?", (old["id"],))
+            else:
+                waiting = {r.get("execution_id") for old in self._items(db, lakehouse_id, LOCAL_EXECUTIONS)
+                           for r in old["payload"].get("rows") or []}
+                rows = [r for r in payload.get("rows") or [] if r.get("execution_id") not in waiting]
+                if not rows:
+                    return ""
+                payload = payload | {"rows": rows}
             db.execute("insert into outbox (id, lakehouse_id, kind, payload, rows, created_at, attempts, next_at, "
                        "last_error) values (?, ?, ?, ?, ?, ?, 1, ?, ?)",
                        (item, lakehouse_id, kind, json.dumps(payload, default=str), rows_in(kind, payload), now,
@@ -129,6 +144,17 @@ class Outbox:
                            (reason, now, lakehouse_id))
             self._trim(db, lakehouse_id, now)
         return item
+
+    @staticmethod
+    def _items(db: sqlite3.Connection, lakehouse_id: str, kind: str) -> list[dict[str, Any]]:
+        rows = db.execute("select id, payload from outbox where lakehouse_id = ? and kind = ?", (lakehouse_id, kind))
+        return [{"id": r["id"], "payload": json.loads(r["payload"])} for r in rows.fetchall()]
+
+    def waiting_execution_ids(self, lakehouse_id: str) -> set[str]:
+        """Runs on this PC already waiting for the lakehouse, so sharing again doesn't count them as new."""
+        with self._db() as db:
+            return {str(r.get("execution_id")) for old in self._items(db, lakehouse_id, LOCAL_EXECUTIONS)
+                    for r in old["payload"].get("rows") or []}
 
     def due(self, lakehouse_id: str, include_waiting: bool = False) -> list[dict[str, Any]]:
         """Items for the lakehouse, oldest first; only those whose wait is over unless ``include_waiting``."""

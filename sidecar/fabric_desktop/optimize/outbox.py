@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from .. import redact
+from .. import redact, sqlitefile
 
 ANALYSIS, LOCAL_EXECUTIONS = "analysis", "local_executions"
 KINDS = (ANALYSIS, LOCAL_EXECUTIONS)
@@ -68,20 +68,25 @@ class Outbox:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.clock = clock
         self.max_items, self.max_age = max(1, int(max_items)), max_age_days * 86400
+        # A file SQLite can't read is moved aside and the outbox starts empty, so a damaged file never
+        # stops Optimize writing: results waiting in it stay in the moved file but aren't sent. Running
+        # the X-ray or sharing runs again records them.
+        self.set_aside = sqlitefile.open_store(
+            self.path, self._first_open,
+            then="results waiting in it for the central lakehouse aren't sent; new ones are kept as usual")
+
+    def _first_open(self) -> None:
         with self._db() as db:
+            sqlitefile.check(db)
             db.executescript(_SCHEMA)
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
         """One connection per call, closed after it: X-ray writes from its own thread, and on Windows
         an open handle keeps the file locked."""
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        try:
-            db.row_factory = sqlite3.Row
+        with sqlitefile.connect(self.path) as db:
             db.execute("pragma synchronous=full")
             yield db
-        finally:
-            db.close()
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:

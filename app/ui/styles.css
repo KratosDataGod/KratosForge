@@ -2691,6 +2691,11 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .learn-fix-times td { font-variant-numeric: tabular-nums; }
 .learn-principle { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
 
+/* Optimize's sync line under the band, and its details (PR-OPT-006). */
+.optimize-sync[hidden] { display: none; }
+.optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.optimize-sync-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 24px; margin-bottom: 8px; }
+
 /* App Studio (Preview, appstudio.js) */
 .as-body { display: flex; flex-direction: column; gap: 16px; }
 .as-create-fields { gap: 16px; flex-wrap: wrap; }

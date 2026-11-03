@@ -68,7 +68,7 @@ def _string(text: str, scope: Scope) -> Any:
         return expression(text[1:], scope)
     if "@{" not in text:
         return text
-    out, i = [], 0
+    out, i, size = [], 0, 0
     while True:
         start = text.find("@{", i)
         if start < 0:
@@ -80,7 +80,12 @@ def _string(text: str, scope: Scope) -> Any:
             continue
         out.append(text[i:start])
         end = _closing(text, start + 2)
-        out.append(_text(expression(text[start + 2:end], scope)))
+        part = _text(expression(text[start + 2:end], scope))
+        size += len(part)
+        if size > MAX_TEXT:   # "@{variables('s')}@{variables('s')}" in a loop doubles a value too
+            raise ExpressionError(f"the text made a value with more than {MAX_TEXT:,} characters, the limit for one "
+                                  "pipeline value")
+        out.append(part)
         i = end + 1
     return "".join(out)
 
@@ -517,11 +522,11 @@ FUNCTIONS = tuple(sorted(set(_PURE) | set(_SCOPED)))
 MAX_TEXT = 10 * 1024 * 1024    # characters in one value: a pipeline value is small; a loop that doubles one isn't
 
 
-def _too_big(value: Any) -> str:
-    """Why ``value`` is too big for a pipeline value, or "". Arrays and objects are walked through
-    (shared parts count each time they appear, as they would in its JSON), stopping at the limits."""
+def weight(value: Any) -> tuple[int, int]:
+    """(items, characters) in ``value``, counted through arrays and objects; stops counting once past
+    the limits, so it costs at most MAX_ITEMS steps."""
     nodes, chars, stack = 0, 0, [value]
-    while stack:
+    while stack and nodes <= MAX_ITEMS and chars <= MAX_TEXT:
         v = stack.pop()
         nodes += 1
         if isinstance(v, str):
@@ -531,11 +536,22 @@ def _too_big(value: Any) -> str:
             stack.extend(v.values())
         elif isinstance(v, (list, tuple)):
             stack.extend(v)
-        if chars > MAX_TEXT:
-            return f"more than {MAX_TEXT:,} characters"
-        if nodes > MAX_ITEMS:
-            return f"more than {MAX_ITEMS:,} items"
+    return nodes, chars
+
+
+def over(nodes: int, chars: int) -> str:
+    """Why a value of this weight is too big for one pipeline value, or ""."""
+    if chars > MAX_TEXT:
+        return f"more than {MAX_TEXT:,} characters"
+    if nodes > MAX_ITEMS:
+        return f"more than {MAX_ITEMS:,} items"
     return ""
+
+
+def _too_big(value: Any) -> str:
+    """Why ``value`` is too big for a pipeline value, or "". Shared parts count each time they appear,
+    as they would in its JSON."""
+    return over(*weight(value))
 
 
 def _bounded(name: str, value: Any) -> Any:

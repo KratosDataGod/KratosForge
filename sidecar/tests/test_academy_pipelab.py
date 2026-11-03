@@ -88,15 +88,30 @@ def test_waits_take_no_time_and_a_loop_that_never_ends_is_stopped(tmp_path):
     assert got["ok"] and got["run"]["state"] == "Failed" and got["run"]["stop_reason"] == "timed_out"
 
 
-def test_a_value_that_doubles_in_a_loop_is_stopped_before_it_eats_memory(tmp_path):
+@pytest.mark.parametrize(("value", "failed"), [
+    ("@concat(variables('s'), variables('s'))", "Double"),
+    ("@{variables('s')}@{variables('s')}", "Double"),
+])
+def test_a_value_that_doubles_in_a_loop_is_stopped_before_it_eats_memory(tmp_path, value, failed):
     grow = act("Grow", "Until", expression={"value": "@equals(1, 2)", "type": "Expression"}, timeout="0.00:10:00",
-               activities=[act("Double", "SetVariable", variableName="t", value="@concat(variables('s'), variables('s'))"),
+               activities=[act("Double", "SetVariable", variableName="t", value=value),
                            act("Keep", "SetVariable", ["Double"], variableName="s", value="@variables('t')")])
     text = pipeline(grow, variables={"s": {"type": "String", "defaultValue": "x" * 1000}, "t": {"type": "String"}})
     got = pipelab.run_pipeline(_write(tmp_path, text), "pipeline.json")
     assert got["ok"] and got["run"]["state"] == "Failed" and got["run"]["seconds"] < 10, got["run"]["seconds"]
-    double = [a for a in got["run"]["activities"] if a["name"] == "Double" and a["status"] == "Failed"]
-    assert double and "the limit for one pipeline value" in json.dumps(double[0].get("error"))
+    stopped = [a for a in got["run"]["activities"] if a["name"] == failed and a["status"] == "Failed"]
+    assert stopped and "the limit for one pipeline value" in json.dumps(stopped[0].get("error"))
+
+
+def test_an_array_that_grows_in_a_loop_is_stopped(tmp_path):
+    grow = act("Grow", "Until", expression={"value": "@equals(1, 2)", "type": "Expression"}, timeout="0.00:10:00",
+               activities=[act("Add", "AppendVariable", variableName="xs", value="@variables('s')")])
+    text = pipeline(grow, variables={"s": {"type": "String", "defaultValue": "y" * 100_000},
+                                     "xs": {"type": "Array", "defaultValue": []}})
+    got = pipelab.run_pipeline(_write(tmp_path, text), "pipeline.json")
+    assert got["ok"] and got["run"]["state"] == "Failed"
+    added = [a for a in got["run"]["activities"] if a["name"] == "Add" and a["status"] == "Failed"]
+    assert added and "LocalValueTooBig" in json.dumps(added[0].get("error"))
 
 
 @pytest.mark.parametrize(("text", "said"), [

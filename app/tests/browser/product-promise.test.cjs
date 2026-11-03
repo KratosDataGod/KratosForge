@@ -110,3 +110,17 @@ test("the product dialog keeps the promise and edits it", { skip }, async () => 
   await page().waitForFunction(() => !document.querySelector(".product-promise-fields"));
   assert.strictEqual(saved.product.promise, null);
 });
+
+test("saving the dialog keeps envs the select has no preset for", { skip }, async () => {
+  for (const envs of [["dev", "test", "prod"], ["test"], ["dev", "prod"]]) {
+    const x = { name: "c360", title: "C360", description: "d", owner: "bo@contoso.com", access: "public", status: "published",
+      version: "2", ports: [{ name: "customers", entity: "silver.customers" }], promise: { within_hours: 24, envs } };
+    await page().evaluate((item) => productDialog({ entities: [{ name: "silver.customers", layer: "silver" }] }, item, () => {}), x);
+    await page().waitForSelector(".product-promise-fields");
+    await page().fill('.dialog label.field:has-text("Title") input', "Customer 360");
+    await page().click('.dialog button:has-text("Save")');
+    await page().waitForFunction(() => !document.querySelector(".product-promise-fields"));
+    assert.strictEqual(saved.product.title, "Customer 360");
+    assert.deepStrictEqual(saved.product.promise, { within_hours: 24, envs }, envs.join(","));
+  }
+});

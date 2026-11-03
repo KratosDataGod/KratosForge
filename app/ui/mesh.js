@@ -407,8 +407,13 @@ function productDialog(p, x, done) {
   const within = h("input", { type: "number", min: "0", step: "any", value: pr.within_hours ?? "", placeholder: "Like 24" });
   const by = h("input", { type: "time", value: pr.by || "" });
   const rejected = h("input", { type: "number", min: "0", max: "99.99", step: "any", value: pr.max_rejected_pct ?? "", placeholder: "Like 1" });
-  const promiseEnvs = h("select", {}, [["prod", "Prod"], ["test,prod", "Test and Prod"]].map(([id, label]) =>
-    h("option", { value: id, selected: (pr.envs || ["prod"]).join(",") === id ? true : null }, label)));
+  // The file may name any of dev, test and prod: offer what it says, so saving the dialog keeps it.
+  const ENV_NAME = { dev: "Dev", test: "Test", prod: "Prod" };
+  const curEnvs = ["dev", "test", "prod"].filter((e) => (Array.isArray(pr.envs) && pr.envs.length ? pr.envs : ["prod"]).includes(e)).join(",") || "prod";
+  const envChoices = [["prod", "Prod"], ["test,prod", "Test and Prod"]];
+  if (!envChoices.some(([id]) => id === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ENV_NAME[e]).join(" and ")]);
+  const promiseEnvs = h("select", {}, envChoices.map(([id, label]) =>
+    h("option", { value: id, selected: curEnvs === id ? true : null }, label)));
   const promiseOf = () => {
     const out = {};
     if (within.value.trim()) out.within_hours = Number(within.value);

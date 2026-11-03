@@ -10,34 +10,69 @@ The learner's SQL runs exactly as a Learn lab answer does (learn/labs.py, review
 LX-03): a connection with no file or network access, a memory limit and locked settings, a transaction
 that is always rolled back, BEGIN/COMMIT/ROLLBACK refused, and a time limit. Reset removes only the
 workspace folder, which is always a folder under ``<data>/academy/<pack>``.
+
+Learner code may one day write in the workspace (ACD-005), so every file the engine reads or writes
+there goes through academy/workspace.py: the path stays inside the folder and no part of it may be a
+link, junction or hard link; reads are size-capped; writes go to a temporary file in the folder and
+replace the target, which is checked first.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
-from .. import jsonfile
 from ..learn import checks
 from ..learn import labs as learn_labs
 from . import exercises
+from . import workspace as ws
 
 DB_FILE = "lab.duckdb"
 ANSWER_FILE = "answer.sql"
 STATE_FILE = "state.json"
 
 
+MAX_ANSWER_BYTES = 1024 * 1024
+
+
 def workspace(root: Path, pack_id: str, exercise_id: str) -> Path:
     """The exercise's folder under ``<root>/academy/<pack>``; refuses anything that isn't a known exercise."""
     exercises.get(pack_id, exercise_id)   # raises for an unknown pack or exercise id
-    base = (Path(root) / "academy" / pack_id).resolve()
-    folder = (base / exercise_id).resolve()
-    if folder.parent != base:
-        raise ValueError(f"Not an exercise: {exercise_id}")
-    return folder
+    return ws.workspace_dir(Path(root), pack_id, exercise_id)
+
+
+def _exists(folder: Path, name: str) -> bool:
+    """Whether ``name`` is in the workspace (refused if any part of it is a link)."""
+    if not folder.is_dir():
+        return False
+    return ws.inside(folder, name, must_exist=False).exists()
+
+
+def _read_text(folder: Path, name: str) -> str:
+    return ws.read_bytes(folder, name, MAX_ANSWER_BYTES).decode("utf-8", errors="replace")
+
+
+def _write(folder: Path, name: str, data: str) -> None:
+    """Write ``name`` in the workspace: a temporary file in the folder, then replace the checked target."""
+    target = ws.inside(folder, name, must_exist=False)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".tmp-", suffix=".part")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(data)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _write_state(folder: Path, st: dict[str, Any]) -> None:
+    _write(folder, STATE_FILE, json.dumps(st, indent=2))
 
 
 def _duckdb_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
@@ -48,7 +83,10 @@ def _duckdb_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
 
 
 def _state(folder: Path) -> dict[str, Any]:
-    return dict(jsonfile.read_json(folder / STATE_FILE, None) or {})
+    if not _exists(folder, STATE_FILE):
+        return {}
+    st = ws.read_json(folder, STATE_FILE)
+    return dict(st) if isinstance(st, dict) else {}
 
 
 def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
@@ -56,19 +94,19 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     so work survives an app restart."""
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = workspace(root, pack_id, exercise_id)
-    if (folder / STATE_FILE).is_file():
+    if _exists(folder, STATE_FILE):
         return state(root, pack_id, exercise_id)
     folder.mkdir(parents=True, exist_ok=True)
     ref = exercises.reference(pack_id, exercise_id)
-    con = duckdb.connect(str(folder / DB_FILE))
+    con = duckdb.connect(str(ws.inside(folder, DB_FILE, must_exist=False)))
     try:
         if ref["setup"]:
             con.execute(ref["setup"])
     finally:
         con.close()
-    if not (folder / ANSWER_FILE).exists():
-        jsonfile.write_text(folder / ANSWER_FILE, ref["starter"])
-    jsonfile.write_json(folder / STATE_FILE, {"pack": pack_id, "exercise": exercise_id, "version": ex["version"],
+    if not _exists(folder, ANSWER_FILE):
+        _write(folder, ANSWER_FILE, ref["starter"])
+    _write_state(folder, {"pack": pack_id, "exercise": exercise_id, "version": ex["version"],
                                               "hints_used": 0, "explanation_seen": False, "last": None})
     return state(root, pack_id, exercise_id)
 
@@ -79,21 +117,24 @@ def state(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     if not st:
         return {"pack": pack_id, "exercise": exercise_id, "started": False}
     return {"pack": pack_id, "exercise": exercise_id, "started": True, "version": st.get("version"),
-            "answer": (folder / ANSWER_FILE).read_text(encoding="utf-8") if (folder / ANSWER_FILE).exists() else "",
+            "answer": _read_text(folder, ANSWER_FILE) if _exists(folder, ANSWER_FILE) else "",
             "hints_used": int(st.get("hints_used") or 0), "explanation_seen": bool(st.get("explanation_seen")),
             "last": st.get("last")}
 
 
 def _started(root: Path, pack_id: str, exercise_id: str) -> Path:
     folder = workspace(root, pack_id, exercise_id)
-    if not (folder / STATE_FILE).is_file():
+    if not _exists(folder, STATE_FILE):
         raise ValueError(f"Start {exercise_id} first")
     return folder
 
 
 def save(root: Path, pack_id: str, exercise_id: str, text: str) -> None:
     _duckdb_exercise(pack_id, exercise_id)
-    jsonfile.write_text(_started(root, pack_id, exercise_id) / ANSWER_FILE, str(text))
+    text = str(text)
+    if len(text.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
+    _write(_started(root, pack_id, exercise_id), ANSWER_FILE, text)
 
 
 def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) -> dict[str, Any]:
@@ -123,7 +164,7 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
 def _connect(folder: Path) -> duckdb.DuckDBPyConnection:
     """The workspace database with no file or network access, a memory limit and locked settings: the
     same connection Learn labs use."""
-    con = duckdb.connect(str(folder / DB_FILE))
+    con = duckdb.connect(str(ws.inside(folder, DB_FILE)))
     con.execute("SET enable_external_access = false")
     con.execute(f"SET memory_limit = '{learn_labs.MEMORY_LIMIT}'")
     con.execute("SET lock_configuration = true")
@@ -150,7 +191,7 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     if answer is None:
-        answer = (folder / ANSWER_FILE).read_text(encoding="utf-8")
+        answer = _read_text(folder, ANSWER_FILE)
     ref = exercises.reference(pack_id, exercise_id)
     solution = ref["solution"]
     results = []
@@ -167,7 +208,7 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
     st = _state(folder)
     passed = all(r["passed"] for r in results)
     st["last"] = {"passed": passed, "checks": [{"kind": r["kind"], "passed": r["passed"]} for r in results]}
-    jsonfile.write_json(folder / STATE_FILE, st)
+    _write_state(folder, st)
     return {"pack": pack_id, "exercise": exercise_id, "version": ex["version"], "passed": passed, "results": results,
             "verification": exercises.label(ex), "hints_used": int(st.get("hints_used") or 0),
             "explanation_seen": bool(st.get("explanation_seen"))}
@@ -183,7 +224,7 @@ def hint(root: Path, pack_id: str, exercise_id: str, level: int) -> dict[str, An
     folder = _started(root, pack_id, exercise_id)
     st = _state(folder)
     st["hints_used"] = max(int(st.get("hints_used") or 0), level)
-    jsonfile.write_json(folder / STATE_FILE, st)
+    _write_state(folder, st)
     return {"level": level, "of": len(hints), "text": hints[level - 1]}
 
 
@@ -194,14 +235,15 @@ def explanation(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     st = _state(folder)
     if not (st.get("last") or {}).get("passed"):
         st["explanation_seen"] = True
-        jsonfile.write_json(folder / STATE_FILE, st)
+        _write_state(folder, st)
     return {"text": ex["explanation"], "remediation": list(ex.get("remediation") or [])}
 
 
 def reset(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
     """Throw the workspace away, answer included, and start it again."""
     folder = workspace(root, pack_id, exercise_id)
-    if folder.exists():
+    if os.path.lexists(folder):
+        ws.inside(folder, ".")   # refused when the folder itself is a link or junction
         shutil.rmtree(folder)
     return start(root, pack_id, exercise_id)
 

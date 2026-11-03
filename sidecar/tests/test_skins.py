@@ -39,7 +39,7 @@ def test_the_kratosforge_skin_is_todays_look():
     root = _root_tokens()
     light = skins.KRATOSFORGE["appearance"]["tokens"]["light"]
     assert {k: v.lower() for k, v in light.items()} == {k: root[k].strip().lower() for k in skins.TOKENS}
-    assert [s["id"] for s in skins.built_in()] == ["kratosforge"]
+    assert skins.built_in()[0]["id"] == "kratosforge"
 
 
 def test_a_valid_skin_round_trips_through_export_and_import():
@@ -148,3 +148,17 @@ def test_skin_settings(tmp_path, monkeypatch):
         app_settings.save({"ui_skin": "kratosforge\n"})
     with pytest.raises(ValueError, match="ui_color_mode must be one of"):
         app_settings.save({"ui_color_mode": "sepia"})
+
+
+def test_the_fabric_skin_is_light_and_orders_the_rail_without_hiding_a_page():
+    fabric = skins.BUILT_IN["fabric"]
+    assert fabric["targets"][0]["platform"] == "fabric" and fabric["appearance"]["color_mode"] == "light"
+    assert set(fabric["workflow"]["rail"]) == set(skins.KRATOSFORGE["workflow"]["rail"])  # reordered, nothing removed
+    assert skins.contrast(fabric["appearance"]["tokens"]["light"]["--accent"], "#ffffff") >= skins.CONTRAST_MIN
+
+
+def test_skins_list_answers_from_the_server_and_is_read_only():
+    from fabric_desktop import audit, server
+    assert "skins_list" in server.METHODS and "skins_list" in audit.READ_ONLY
+    listing = skins.listing()
+    assert [s["id"] for s in listing["skins"]][:2] == ["kratosforge", "fabric"] and listing["schema"] == skins.SCHEMA

@@ -75,7 +75,7 @@ NODE_PATH="$(npm root -g)" node app/tests/browser/ui-benchmark.cjs --runs 3 --js
 | navigation | opening each left-rail page until it is styled and laid out (first visit and later visits) |
 | token switch | new values for the color tokens on the page root, as a skin change sets them, until restyled |
 | density switch | Comfortable to Compact and back, until restyled |
-| large list | a workspace of 5,000 items: Show items until the rows are drawn, and the elements added |
+| large list | a workspace of 5,000 items: Show items until the first screen of rows is drawn, and the elements added |
 | editor | 200 characters typed into the SQL editor, and the longest task while typing |
 | memory | JS heap, elements in the page, and elements still held anywhere, after visiting every page |
 | background | main-thread time used in 10 seconds of doing nothing |
@@ -90,7 +90,8 @@ from Playwright 1.63). Times in milliseconds.
 | navigation, median | 2.2 | |
 | token switch, slowest | 5.2 | 25 |
 | density switch, slowest | 2.7 | 15 |
-| large list, 5,000 items | 2,959 | 9,000 |
+| large list, 5,000 items | 2,959 (706 now, see below) | 2,100 |
+| large list, elements added | 76,673 (3,007 now) | 9,000 |
 | editor, 200 characters | 724 | 2,500 |
 | editor, longest task | 159 | 500 |
 | JS heap | 10.3 MB | 32 MB |
@@ -107,9 +108,11 @@ What the baseline shows:
 
 - **Switching appearance is cheap.** Restyling the whole window for new tokens takes about 5 ms, so a skin
   can switch at once without reloading the page (which would also lose open work).
-- **Large workspaces are slow.** 5,000 items take about 3 seconds and add about 77,000 elements, because
-  every row is drawn. That is the first thing to fix (draw only the visible rows); the budget holds today's
-  number until then.
+- **Large workspaces were slow.** At the baseline, 5,000 items took about 3 seconds and added about 77,000
+  elements, because every row was drawn. Now the first 200 rows are drawn and 200 more each time you scroll
+  near the end: 706 ms and 3,007 elements (median of 3 runs, same machine, 2026-11-03), and the budgets are
+  about three times that. The browser's find-in-page only sees rows already drawn, so in a big workspace
+  scroll to the end first.
 - **Pages already left are kept in memory.** After visiting every page and returning to Home, about 94,000
   elements are still held, against 356 in the page, even after a garbage collection. In a separate check the
   held count grew after the first and second visit to a large workspace and then stopped, so it looks like one

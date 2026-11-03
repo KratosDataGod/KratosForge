@@ -1319,13 +1319,16 @@ async function renderWorkspaces() {
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
+            : pbiEmbeddable(it.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: stop(() => openEmbedStudio(target.item)) }, it.displayName)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
           whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
+          pbiEmbeddable(it.type) ? btn("Open in Embed Studio", null, stop(() => openEmbedStudio(target.item)), "tool small link") : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     })));
   }
@@ -1814,7 +1817,9 @@ async function renderOneLake() {
           r.type === "Warehouse" && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page",
               onclick: () => openWarehouseQuery({ kind: "warehouse", workspace_id: r.workspace_id, workspace_name: r.workspace_name, item_id: r.item_id, name: r.name }) }, r.name)
-            : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
+            : pbiEmbeddable(r.type)
+              ? h("button", { class: "name-link", title: "Open in Embed Studio", onclick: () => openEmbedStudio(r) }, r.name)
+              : h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
           onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
@@ -1822,6 +1827,7 @@ async function renderOneLake() {
         h("td", {}, e ? h("span", { class: `pill-s ${e === "Certified" ? "pass" : "info"}` }, e) : ""),
         h("td", {}, (isLh && cp.layers[r.name]) || ""),
         h("td", { class: "actions" },
+          pbiEmbeddable(r.type) ? btn("Open in Embed Studio", null, () => openEmbedStudio(r), "tool small link") : null,
           btn("Show in Fabric", null, () => openInFabric(fabricItemLink(r)), "tool small link"),
           isLh ? btn("SQL query", null, () => openSqlQuery(r), "tool small link") : null,
           isLh ? btn("Open in notebook", null, () => newNotebook(r), "tool small link") : null)));

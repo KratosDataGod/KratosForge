@@ -191,6 +191,23 @@ test("Power BI's error shows what to do, never offers to resume capacity, and Co
   assert.ok(copied.includes("req-1") && !copied.includes(TOKEN), copied.slice(0, 200));
 });
 
+test("a report in Your workspaces opens in Embed Studio by its name or its button", { skip }, async () => {
+  await page().evaluate(() => go("workspaces"));
+  const wsRow = page().locator("tr", { hasText: "Sales Analytics [Prod]" });
+  await wsRow.getByRole("button", { name: /Show items|Hide items/ }).waitFor();
+  if (!(await page().evaluate((ws) => workspacesPage.open.has(ws), WS))) await wsRow.getByRole("button", { name: "Show items" }).click();
+  const name = page().locator(".ws-items").getByRole("button", { name: "Sales performance" });
+  await name.waitFor();
+  assert.strictEqual(await name.getAttribute("title"), "Open in Embed Studio");
+  const row = page().locator(".ws-items tr", { hasText: "Sales performance" });
+  assert.strictEqual(await row.getByRole("button", { name: "Open in Fabric" }).count(), 1, "Open in Fabric stays");
+  const gold = page().locator(".ws-items tr", { hasText: "Gold" });
+  assert.strictEqual(await gold.getByRole("button", { name: "Open in Embed Studio" }).count(), 0, "a lakehouse has no Embed Studio");
+  await row.getByRole("button", { name: "Open in Embed Studio" }).click();
+  await page().waitForFunction((id) => state.view === "embedstudio" && pbiStudio.item?.item_id === id, RPT);
+  assert.strictEqual(await page().evaluate(() => pbiStudio.item.workspace_name), "Sales Analytics [Prod]");
+});
+
 test("with preview features hidden, there's no Power BI tab", { skip }, async () => {
   settings.show_preview = { value: false, source: "user" };
   await page().evaluate(() => loadSettings().then(() => go("workspaces")));

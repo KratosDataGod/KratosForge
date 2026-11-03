@@ -326,9 +326,7 @@ class DataOpsMixin:
 
     def meta_alerts(self) -> dict[str, Any]:
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url, "kind": deliver.kind(url) if url else "",
-                "label": deliver.label(url, self._mail_server()) if url else ""} | (  # type: ignore[attr-defined]
-            {"unreadable": True} if self._alerts_unreadable() else {})
+        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
         """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)

@@ -524,7 +524,7 @@ async function alertsDialog() {
     fresh.alerts = !!res.teams_webhook;
     fresh.alertsUnreadable = !!res.unreadable;
     closeDialog();
-    const where = { flow: "the flow", email: "email" }[res.kind] || "Teams";
+    const where = res.teams_webhook.startsWith("flow:") ? "the flow" : res.teams_webhook.startsWith("mailto:") ? "email" : "Teams";  // workloads/deliver.py kind
     toast(res.teams_webhook ? (test ? `Sent a test message to ${where} and saved` : `Alerts to ${where} are on`) : "Alerts are off");
   };
   showDialog("Incident alerts", h("div", { class: "dataops" },

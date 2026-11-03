@@ -1558,3 +1558,14 @@ def test_a_connection_binding_without_an_item_type_is_refused_as_fabric_did():
     with pytest.raises(Exception, match="artifactType") as err:
         check_item("UserDataFunction", files)
     assert UDF_NO_ARTIFACT_TYPE in str(err.value)
+
+
+def test_a_data_source_fabric_doesnt_name_is_refused_as_fabric_did():
+    from tests.fabric_refusals import check_item
+    files = udf.definition("ws", "sql")
+    assert json.loads(files["definition.json"])["connectedDataSources"][0]["sourceType"] == "SqlDbNative"
+    body = json.loads(files["definition.json"])
+    body["connectedDataSources"][0]["sourceType"] = "SqlDatabase"  # what live run 4 sent
+    files["definition.json"] = json.dumps(body)
+    with pytest.raises(Exception, match="artifactType"):
+        check_item("UserDataFunction", files)

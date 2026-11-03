@@ -464,3 +464,16 @@ def test_status_explains_a_workspace_no_longer_connected(ssvc, repo):
 
 def test_status_is_a_listed_read():
     assert "fabric_git_status" in server.METHODS and "fabric_git_status" in audit.READ_ONLY
+
+
+@pytest.mark.parametrize("branch", ["--output=/tmp/x", "main..evil"])
+def test_a_branch_name_that_looks_like_an_option_or_range_is_never_passed_to_git(ssvc, repo, monkeypatch, branch):
+    ssvc.fabric_git_link(str(repo.root), "dev", WS)
+    links = fabric_git.read_links(repo.root)["envs"]["dev"]
+    fabric_git.write_link(repo.root, "dev", {**links, "branch": branch})
+    seen: list[tuple] = []
+    real = Repository._try
+    monkeypatch.setattr(Repository, "_try", lambda self, *a, **k: (seen.append(a), real(self, *a, **k))[1])
+    out = ssvc.fabric_git_status(str(repo.root), "dev")
+    assert out["remote_tracking"] is None
+    assert not any(branch in " ".join(a) for a in seen)

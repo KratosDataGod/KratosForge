@@ -39,9 +39,7 @@ function assessKeysOn(value) {
 
 function assessClock(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));
-  const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
-  const two = (n) => String(n).padStart(2, "0");
-  return hh ? `${hh}:${two(mm)}:${two(ss)}` : `${mm}:${two(ss)}`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;  // minutes:seconds, as "100:00"
 }
 
 function assessWhen(stamp) {

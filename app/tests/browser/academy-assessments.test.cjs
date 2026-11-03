@@ -19,7 +19,7 @@ const calls = (m) => app.calls.filter((c) => c.method === m);
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ engine: ENGINE });
+  app = await openApp({ engine: ENGINE, mocks: { readiness_check: () => [] } });
   await page().waitForFunction(() => state.settings && "show_preview" in state.settings);
 });
 
@@ -54,7 +54,7 @@ test("A practice exam: keyboard answers, a flag, the grid, pause and resume", { 
   await page().locator(".assess-card .tool.primary", { hasText: "Start practice exam" }).click();
   await page().locator(".assess-qpanel").waitFor();
   assert.match(await page().locator(".assess-qhead").first().textContent(), /Question 1 of 50/);
-  assert.match(await page().locator(".assess-clock-sub").textContent(), /used of 1:40:00/);
+  assert.match(await page().locator(".assess-clock-sub").textContent(), /used of 100:00/);
   // Find a single-answer question and answer it with "2", then flag it with F.
   const n = await page().evaluate(() => assess.view.items.findIndex((it) => it.type === "single"));
   await page().evaluate((i) => assessGo(i), n);
@@ -87,25 +87,8 @@ test("A practice exam: keyboard answers, a flag, the grid, pause and resume", { 
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "assess-question.png") });
 });
 
-test("An ordering question moves steps with Alt+arrows, keeps focus on the step and announces it", { skip }, async () => {
-  const n = await page().evaluate(() => assess.view.items.findIndex((it) => it.type === "order"));
-  assert.ok(n >= 0, "a 50-question exam has an ordering question");
-  await page().evaluate((i) => assessGo(i), n);
-  const first = await page().locator(".assess-order li .assess-step").first().textContent();
-  await page().locator(".assess-order li").first().locator('button[data-dir="down"]').focus();
-  await page().keyboard.press("Alt+ArrowDown");
-  await page().waitForFunction((i) => assess.view.items[i].answer?.length > 1, n);
-  assert.strictEqual(await page().locator(".assess-order li .assess-step").nth(1).textContent(), first);
-  const focused = await page().evaluate(() => document.activeElement.closest("li")?.querySelector(".assess-step")?.textContent);
-  assert.strictEqual(focused, first);
-  await page().waitForFunction(() => /Moved to position 2 of/.test(document.getElementById("announce")?.textContent || ""));
-  const up = await page().locator(".assess-order li").first().locator('button[data-dir="up"]');
-  assert.ok(await up.isDisabled(), "the first step can't move up");
-  assert.match(await up.getAttribute("aria-label"), /^Move '.+' up$/);
-  if (axeSource) await axe();
-});
-
 test("Review lists flagged and unanswered questions; Finish scores once and shows results by domain", { skip }, async () => {
+  await page().locator(".assess-stem").focus();   // shortcuts work while focus is in the question
   await page().keyboard.press("r");
   await page().locator(".assess-head h2", { hasText: "Review before finishing" }).waitFor();
   assert.match(await page().locator(".assess-switch [aria-pressed=true]").textContent(), /Flagged or not answered/);
@@ -155,5 +138,29 @@ test("A drill checks each answer, then locks it", { skip }, async () => {
   assert.ok(await page().evaluate(() => document.activeElement.classList.contains("assess-why")));
   assert.ok(calls("academy_exam_check").length === 1);
   if (!isOrder) assert.ok(await page().locator(".assess-options input").first().isDisabled());
+  if (axeSource) await axe();
+});
+
+test("An ordering question moves steps with Alt+arrows, keeps focus on the step and announces it", { skip }, async () => {
+  // A random practice exam may hold no ordering question, so drill an objective that has one (2.1.1).
+  await openTab();
+  await page().locator(".assess-card .tool", { hasText: "Pick objectives" }).click();
+  await page().locator('.assess-objective input[value="2.1.1"]').check();
+  await page().locator(".assess-objectives .tool.primary", { hasText: "Start drill" }).click();
+  await page().locator(".assess-qpanel").waitFor();
+  const n = await page().evaluate(() => assess.view.items.findIndex((it) => it.type === "order"));
+  assert.ok(n >= 0, "objective 2.1.1 has an ordering question");
+  await page().evaluate((i) => assessGo(i), n);
+  const first = await page().locator(".assess-order li .assess-step").first().textContent();
+  await page().locator(".assess-order li").first().locator('button[data-dir="down"]').focus();
+  await page().keyboard.press("Alt+ArrowDown");
+  await page().waitForFunction((i) => assess.view.items[i].answer?.length > 1, n);
+  assert.strictEqual(await page().locator(".assess-order li .assess-step").nth(1).textContent(), first);
+  const focused = await page().evaluate(() => document.activeElement.closest("li")?.querySelector(".assess-step")?.textContent);
+  assert.strictEqual(focused, first);
+  await page().waitForFunction(() => /Moved to position 2 of/.test(document.getElementById("announce")?.textContent || ""));
+  const up = await page().locator(".assess-order li").first().locator('button[data-dir="up"]');
+  assert.ok(await up.isDisabled(), "the first step can't move up");
+  assert.match(await up.getAttribute("aria-label"), /^Move '.+' up$/);
   if (axeSource) await axe();
 });

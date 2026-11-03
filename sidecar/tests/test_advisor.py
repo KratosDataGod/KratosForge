@@ -127,5 +127,5 @@ def test_the_service_reads_receipts_for_the_current_code_and_changes_nothing(svc
     cap = default_registry().get("fabric_desktop_placement_advice")
     assert cap.permission == "READ_METADATA" and cap.status == "preview"
     assert services.get_placement_advice(svc, None, "nb")["place"] == advisor.PC
-    from fabric_desktop import audit, server
-    assert "placement_advice" in audit.READ_ONLY and "placement_advice" in server.METHODS
+    from fabric_desktop import server
+    assert "placement_advice" not in server.METHODS  # the MCP tool calls it in-process (HD-050 slice 4)

@@ -23,9 +23,8 @@ from typing import Any, Callable
 class DisplayObject:
     def __init__(self, data: Any = None, url: str | None = None, filename: str | None = None, **_kw: Any):
         if filename is not None:
-            mode = "rb" if self._binary else "r"
-            with open(filename, mode, **({} if self._binary else {"encoding": "utf-8"})) as f:
-                data = f.read()
+            path = Path(filename)
+            data = path.read_bytes() if self._binary else path.read_text(encoding="utf-8")
         self.data = data
         self.url = url
         self.filename = filename
@@ -171,27 +170,21 @@ def build(display: Callable[..., Any], clear_output: Callable[..., None]) -> typ
                         ("Markdown", Markdown), ("Latex", Latex), ("Math", Math), ("Pretty", Pretty), ("Code", Code),
                         ("SVG", SVG), ("JSON", JSON), ("Image", Image), ("IFrame", IFrame), ("Javascript", Javascript)):
         setattr(mod, name, value)
-    mod.display = display
-    mod.clear_output = clear_output
 
     def update_display(obj: Any, *, display_id: Any, **kwargs: Any) -> None:
         display(obj, display_id=display_id, update=True, **kwargs)
-    mod.update_display = update_display
 
     class BoundHandle(DisplayHandle):
         def __init__(self, display_id: str | None = None):
             super().__init__(display_id, display)
     BoundHandle.__name__ = BoundHandle.__qualname__ = "DisplayHandle"
-    mod.DisplayHandle = BoundHandle
 
     def display_kind(cls: type) -> Callable[..., None]:
         return lambda *objs, raw=False, **_kw: display(*(cls(o) if not raw or isinstance(o, str) else o for o in objs))
-    mod.display_html = display_kind(HTML)
-    mod.display_markdown = display_kind(Markdown)
-    mod.display_json = display_kind(JSON)
-    mod.display_svg = display_kind(SVG)
-    mod.display_png = display_kind(Image)
-    mod.display_jpeg = display_kind(Image)
+    vars(mod).update(display=display, clear_output=clear_output, update_display=update_display,
+                     DisplayHandle=BoundHandle, display_html=display_kind(HTML),
+                     display_markdown=display_kind(Markdown), display_json=display_kind(JSON),
+                     display_svg=display_kind(SVG), display_png=display_kind(Image), display_jpeg=display_kind(Image))
     pkg = types.ModuleType("IPython", "IPython isn't installed here; KratosForge provides IPython.display.")
     pkg.display = mod  # type: ignore[attr-defined]
     pkg.__path__ = []  # type: ignore[attr-defined]  # so "import IPython.display" finds the submodule

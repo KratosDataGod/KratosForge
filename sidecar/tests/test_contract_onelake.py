@@ -5,11 +5,15 @@ through a fake transport under a real ``requests.Session`` (tests/fake_http.py).
 network or a tenant. The contracts:
 
 * upload is create (PUT ?resource=file), append (PATCH ?action=append&position=0) then flush
-  (PATCH ?action=flush&position=<length>), with the bearer token and x-ms-version on each request;
-  it replaces an existing file (no If-None-Match), and a failed step stops before the file is
-  committed (no flush after a failed append, nothing after a failed create);
+  (PATCH ?action=flush&position=<length>) of a new file beside the target, then a rename of it over
+  the target (PUT with x-ms-rename-source), with the bearer token and x-ms-version on each request;
+  it replaces an existing file (no If-None-Match), which keeps its content until the rename (EA-007),
+  and a failed step stops there (no flush after a failed append, nothing after a failed create) and
+  removes the new file;
 * delete sends one DELETE with recursive=true by default (false on request), treats 404 as done and
-  never repeats itself on an error;
+  never repeats itself on an error other than throttling (429, where OneLake did nothing);
+* upload waits out a 429 on any step and sends anything else once; mkdir (If-None-Match: *) is
+  tried again after throttling, a 5xx or a dropped connection;
 * the read-only and dry-run paths (probe, list, the live test's plan and --dry-run, the readiness
   write test refused for a production workspace) send no mutating request;
 * every request stays under https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/.
@@ -19,11 +23,14 @@ network or a tenant. The contracts:
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 import requests
 
 from fabric_desktop import readiness
-from fabric_desktop.onelake import DFS_HOST, FileStore
+from fabric_desktop.onelake import DFS_HOST, FileStore, TableCatalog
 from fake_http import MUTATING, Reply, session
 
 WS = "11111111-1111-1111-1111-111111111111"
@@ -39,6 +46,12 @@ def no_network(monkeypatch):
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", refuse)
 
 
+def temp_of(target):
+    """The new file an upload of ``target`` writes first: beside it, hidden, named for it."""
+    folder, _, name = target.rpartition("/")
+    return re.compile(re.escape(f"{folder}/.{name}.") + r"[0-9a-f]{12}\.uploading$")
+
+
 def store(replies):
     s, transport = session(replies)
     return FileStore(lambda: "tok", session=s), transport
@@ -48,37 +61,41 @@ def store(replies):
 
 
 def test_upload_is_create_append_flush_with_exact_urls_methods_and_headers():
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/in/data.csv", b"a,b\n1,2\n")
 
+    temp = t.sent[0].base
+    assert temp_of(f"{ITEM}/Files/in/data.csv").match(temp)
     assert [(r.method, r.base, r.query) for r in t.sent] == [
-        ("PUT", f"{ITEM}/Files/in/data.csv", {"resource": "file"}),
-        ("PATCH", f"{ITEM}/Files/in/data.csv", {"action": "append", "position": "0"}),
-        ("PATCH", f"{ITEM}/Files/in/data.csv", {"action": "flush", "position": "8"}),
+        ("PUT", temp, {"resource": "file"}),
+        ("PATCH", temp, {"action": "append", "position": "0"}),
+        ("PATCH", temp, {"action": "flush", "position": "8"}),
+        ("PUT", f"{ITEM}/Files/in/data.csv", {}),
     ]
+    assert t.sent[3].headers["x-ms-rename-source"] == temp.removeprefix(f"https://{DFS_HOST}")
     for r in t.sent:
         assert r.headers["Authorization"] == "Bearer tok"
         assert r.headers["x-ms-version"] == "2023-11-03"
-    assert t.sent[0].body is None and t.sent[2].body is None
+    assert t.sent[0].body is None and t.sent[2].body is None and t.sent[3].body is None
     assert t.sent[1].body == b"a,b\n1,2\n"
 
 
 def test_upload_replaces_an_existing_file_it_is_not_create_only():
-    """FileStore offers create-or-replace only: the create carries no If-None-Match (or overwrite
-    flag), so OneLake truncates an existing file. A create-only caller must check first."""
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    """FileStore offers create-or-replace only: the rename carries no If-None-Match (or overwrite
+    flag), so OneLake replaces an existing file. A create-only caller must check first."""
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/x.txt", b"new")
-    create = t.sent[0]
-    assert create.method == "PUT"
-    assert not {"if-none-match", "if-match"} & {h.lower() for h in create.headers}
-    assert "overwrite" not in create.query
+    rename = t.sent[-1]
+    assert rename.method == "PUT" and rename.base == f"{ITEM}/Files/x.txt"
+    assert not {"if-none-match", "if-match"} & {h.lower() for h in rename.headers}
+    assert "overwrite" not in rename.query
 
 
 def test_upload_of_an_empty_file_skips_the_append():
-    fs, t = store([Reply(201), Reply(200)])
+    fs, t = store([Reply(201), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/empty.txt", b"")
     assert [(r.method, r.query.get("action"), r.query.get("position")) for r in t.sent] == [
-        ("PUT", None, None), ("PATCH", "flush", "0")]
+        ("PUT", None, None), ("PATCH", "flush", "0"), ("PUT", None, None)]
 
 
 def test_a_failed_create_sends_nothing_more():
@@ -90,17 +107,29 @@ def test_a_failed_create_sends_nothing_more():
 
 def test_a_failed_append_is_not_flushed_or_repeated():
     """Without the flush OneLake never commits the bytes, so a reader can't see half a file."""
-    fs, t = store([Reply(201), Reply(500)])
+    fs, t = store([Reply(201), Reply(500), Reply(200)])
     with pytest.raises(requests.HTTPError):
         fs.upload(WS, LH, "Files/x.txt", b"data")
-    assert [(r.method, r.query.get("action")) for r in t.sent] == [("PUT", None), ("PATCH", "append")]
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [("PUT", None), ("PATCH", "append"), ("DELETE", None)]
+    # Only the new file is removed; Files/x.txt itself was never touched.
+    assert t.sent[2].base == t.sent[0].base and t.sent[2].query == {"recursive": "false"}
+    assert all(r.base != f"{ITEM}/Files/x.txt" for r in t.sent)
 
 
 def test_a_failed_flush_is_not_repeated():
-    fs, t = store([Reply(201), Reply(202), Reply(503)])
+    fs, t = store([Reply(201), Reply(202), Reply(503), Reply(200)])
     with pytest.raises(requests.HTTPError):
         fs.upload(WS, LH, "Files/x.txt", b"data")
-    assert len(t.sent) == 3 and t.sent[-1].query["action"] == "flush"
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "flush"), ("DELETE", None)]
+
+
+def test_a_failed_rename_is_not_repeated_and_removes_the_new_file():
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(500), Reply(200)])
+    with pytest.raises(requests.HTTPError):
+        fs.upload(WS, LH, "Files/x.txt", b"data")
+    assert [r.method for r in t.sent] == ["PUT", "PATCH", "PATCH", "PUT", "DELETE"]
+    assert t.sent[-1].base == t.sent[0].base
 
 
 # ---- delete: file and folder, recursive flag, 404
@@ -136,12 +165,66 @@ def test_deleting_something_already_gone_is_fine():
     assert len(t.sent) == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
+@pytest.mark.parametrize("status", [500, 503])
 def test_a_failed_delete_raises_and_is_not_repeated_by_filestore(status):
     fs, t = store([Reply(status)])
     with pytest.raises(requests.HTTPError):
         fs.delete(WS, LH, "Files/folder")
     assert len(t.sent) == 1
+
+
+# ---- throttling (#1287): a 429 is waited out, since OneLake did nothing
+
+
+def waiting_store(replies):
+    s, transport = session(replies)
+    waits = []
+    return FileStore(lambda: "tok", session=s, sleep=waits.append), transport, waits
+
+
+def test_an_upload_whose_append_is_throttled_writes_once():
+    fs, t, waits = waiting_store([Reply(201), Reply(429, headers={"Retry-After": "2"}), Reply(202), Reply(200), Reply(201)])
+    fs.upload(WS, LH, "Files/x.txt", b"data")
+    assert [(r.method, r.query.get("action")) for r in t.sent] == [
+        ("PUT", None), ("PATCH", "append"), ("PATCH", "append"), ("PATCH", "flush"), ("PUT", None)]
+    assert waits == [2]
+
+
+def test_a_throttled_delete_is_sent_again_after_the_wait():
+    fs, t, waits = waiting_store([Reply(429, headers={"Retry-After": "1"}), Reply(200)])
+    fs.delete(WS, LH, "Files/folder")
+    assert [r.method for r in t.sent] == ["DELETE", "DELETE"] and waits == [1]
+
+
+@pytest.mark.parametrize("first", [Reply(503), Reply(429)])
+def test_a_folder_create_is_tried_again_after_a_busy_answer(first):
+    fs, t, _ = waiting_store([first, Reply(201)])
+    fs.mkdir(WS, LH, "Files/in")
+    assert [r.method for r in t.sent] == ["PUT", "PUT"]
+    assert all(r.headers["If-None-Match"] == "*" for r in t.sent)
+
+
+def test_a_folder_that_is_there_is_still_fine():
+    fs, t, _ = waiting_store([Reply(409, {"error": {"code": "PathAlreadyExists"}})])
+    fs.mkdir(WS, LH, "Files/in")
+    assert len(t.sent) == 1
+
+
+def test_a_refused_write_says_what_and_why_without_the_url():
+    fs, _, _ = waiting_store([Reply(201), Reply(202), Reply(503, {"error": {"code": "ServerBusy", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.upload(WS, LH, "Files/in/data.csv", b"data")
+    assert str(err.value) == "OneLake didn't commit Files/in/data.csv (503: ServerBusy)."
+    assert err.value.response.status_code == 503 and "https://" not in str(err.value)
+
+    fs, _, _ = waiting_store([Reply(403, headers={"x-ms-error-code": "AuthorizationPermissionMismatch"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't delete Files/a \(403: AuthorizationPermissionMismatch\)\.$"):
+        fs.delete(WS, LH, "Files/a")
+
+    fs, t, _ = waiting_store([Reply(500)] * 5)  # a folder create is tried 5 times before it gives up
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't create the folder Files/b \(500\)\.$"):
+        fs.mkdir(WS, LH, "Files/b")
+    assert len(t.sent) == 5
 
 
 # ---- read-only and dry-run paths send no mutating request
@@ -154,6 +237,27 @@ def test_probe_reads_at_most_one_entry_and_writes_nothing():
     assert (r.method, r.base) == ("GET", f"https://{DFS_HOST}/{WS}")
     assert r.query == {"resource": "filesystem", "recursive": "false", "maxResults": "1",
                        "directory": f"{LH}/Files/shortcut"}
+
+
+def test_probe_waits_out_throttling_and_a_busy_onelake():
+    s, t = session([Reply(429, headers={"Retry-After": "1"}), Reply(503), Reply(200, {"paths": []})])
+    waits = []
+    fs = FileStore(lambda: "tok", session=s, sleep=waits.append)
+    assert fs.probe(WS, LH, "Files/shortcut") == (200, "")
+    assert [r.method for r in t.sent] == ["GET"] * 3 and waits[0] == 1
+
+
+def test_probe_gives_its_last_answer_after_a_few_tries():
+    s, t = session([Reply(503, {"error": {"code": "ServerBusy", "message": "busy"}})] * 5)
+    fs = FileStore(lambda: "tok", session=s, sleep=lambda w: None)
+    assert fs.probe(WS, LH, "Files/shortcut") == (503, "ServerBusy busy")
+    assert len(t.sent) == 3  # onelake.PROBE_ATTEMPTS
+
+
+def test_probe_doesnt_repeat_a_404():
+    fs, t = store([Reply(404, {"error": {"code": "PathNotFound", "message": "gone"}})])
+    assert fs.probe(WS, LH, "Files/shortcut") == (404, "PathNotFound gone")
+    assert len(t.sent) == 1
 
 
 def test_list_follows_the_continuation_header_and_only_reads():
@@ -238,7 +342,8 @@ def test_the_write_test_writes_reads_and_deletes_only_its_own_folder():
     result = readiness.write_test(FileStore(lambda: "tok", session=s), WS, LH, "Sales Dev")
     assert result["status"] == "ok"
     mutating = [r for r in t.sent if r.method in MUTATING]
-    assert {r.path for r in mutating[:3]} == {f"/{WS}/{LH}/{readiness.CHECK_FILE}"}
+    assert mutating[3].path == f"/{WS}/{LH}/{readiness.CHECK_FILE}"  # the rename over it
+    assert {r.path.rsplit("/", 1)[0] for r in mutating[:4]} == {f"/{WS}/{LH}/{readiness.CHECK_FOLDER}"}
     assert (mutating[-1].method, mutating[-1].path, mutating[-1].query) == (
         "DELETE", f"/{WS}/{LH}/{readiness.CHECK_FOLDER}", {"recursive": "true"})
 
@@ -253,12 +358,14 @@ def test_the_write_test_writes_reads_and_deletes_only_its_own_folder():
     ("Files/ünïcode.txt", "Files/%C3%BCn%C3%AFcode.txt"),
 ])
 def test_writes_and_deletes_go_to_the_given_workspace_and_lakehouse(path, expected):
-    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201), Reply(200)])
     fs.upload(WS, LH, path, b"x")
     fs.delete(WS, LH, path)
     assert {r.host for r in t.sent} == {DFS_HOST}
     assert all(r.url.startswith("https://") for r in t.sent)
-    assert {r.path for r in t.sent} == {f"/{WS}/{LH}/{expected}"}
+    assert {r.path for r in t.sent[3:]} == {f"/{WS}/{LH}/{expected}"}
+    assert all(temp_of(f"/{WS}/{LH}/{expected}").match(r.path) for r in t.sent[:3])
+    assert t.sent[3].headers["x-ms-rename-source"] == t.sent[0].path
 
 
 def test_each_call_uses_its_own_workspace_and_lakehouse():
@@ -306,10 +413,52 @@ def test_encoded_and_backslash_dot_segments_are_refused(path):
     assert t.sent == []
 
 
+@pytest.mark.parametrize("path", ["Files/a%20b.txt", "Files/100%.txt", "Files/my folder/a b.txt", "Files/ünï.txt"])
+def test_the_rename_names_the_new_file_as_its_create_did(path):
+    """Security's review of #1594: the rename's source is the path the create went to, byte for byte,
+    whatever the name holds, so it can't miss the new file."""
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
+    fs.upload(WS, LH, path, b"x")
+    assert t.sent[3].headers["x-ms-rename-source"] == t.sent[0].path
+
+
+@pytest.mark.parametrize("name, encoded", [("a#b.csv", "a%23b.csv"), ("x?y", "x%3Fy"), ("a%20b.txt", "a%2520b.txt"),
+                                           ("50%.txt", "50%25.txt")])
+def test_a_name_with_a_hash_question_mark_or_percent_names_that_file(name, encoded, tmp_path):
+    """Security's review of #1604: the path is percent-encoded, so "#" and "?" can't end it (a delete
+    of Files/a#b.csv removing Files/a, an upload of Files/x?y replacing Files/x)."""
+    fs, t = store([Reply(200), Reply(201), Reply(202), Reply(200), Reply(201), Reply(200, b"hi"), Reply(200, b"hi")])
+    fs.delete(WS, LH, f"Files/{name}")
+    fs.upload(WS, LH, f"Files/{name}", b"x")
+    fs.download(WS, LH, f"Files/{name}", tmp_path / "out")
+    fs.read_bytes(WS, LH, f"Files/{name}")
+    expected = f"/{WS}/{LH}/Files/{encoded}"
+    assert t.sent[0].path == expected and not t.sent[0].query.get("b.csv")
+    assert t.sent[4].path == expected and t.sent[4].headers["x-ms-rename-source"] == t.sent[1].path
+    assert t.sent[1].path.startswith(f"/{WS}/{LH}/Files/.") and t.sent[1].path.endswith(".uploading")
+    assert t.sent[5].path == expected and t.sent[6].path == expected
+    assert all("#" not in r.url and set(r.query) <= {"resource", "action", "position", "recursive"} for r in t.sent)
+
+
+def test_a_failed_upload_of_a_hash_name_removes_only_its_own_new_file():
+    fs, t = store([Reply(201), Reply(500), Reply(200)])
+    with pytest.raises(requests.HTTPError):
+        fs.upload(WS, LH, "Files/.x#y", b"data")
+    assert t.sent[2].method == "DELETE" and t.sent[2].path == t.sent[0].path and "%23" in t.sent[2].path
+
+
+def test_a_listing_never_shows_an_uploads_new_file():
+    from fake_http import Reply as R
+    names = [f"{LH}/Files/a.txt", f"{LH}/Files/.a.txt.0123456789ab.uploading", f"{LH}/Files/sub/.b.0123456789ab.uploading",
+             f"{LH}/Files/.keep", f"{LH}/Files/x.uploading"]
+    fs, _ = store([R(200, {"paths": [{"name": n} for n in names]})])
+    assert [e["name"] for e in fs.list(WS, LH, "Files", recursive=True)] == [".keep", "a.txt", "x.uploading"]
+
+
 def test_a_folder_name_with_dots_is_still_a_path():
-    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    fs, t = store([Reply(201), Reply(202), Reply(200), Reply(201)])
     fs.upload(WS, LH, "Files/v1..2/..hidden/x.parquet", b"x")
-    assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 3
+    assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 4
 
 
 @pytest.mark.parametrize("path", ["Files/../..", "Files/..", "/lakehouse/default/Files/%2e%2e"])
@@ -328,3 +477,58 @@ def test_notebookutils_rm_cant_climb_out_of_files(path, tmp_path, monkeypatch):
     finally:
         lakehouse.attach(None)
     assert [s for s in t.sent if s.method in MUTATING] == []
+
+
+# ---- refused reads (#1313): one line, what wasn't read, the status and OneLake's code, no URL
+
+
+def test_a_refused_list_says_what_and_why_without_the_url():
+    fs, _ = store([Reply(403, {"error": {"code": "AuthorizationPermissionMismatch", "message": "x"}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == "OneLake didn't list Files/in (403: AuthorizationPermissionMismatch)."
+    assert err.value.response.status_code == 403
+
+
+def test_refused_reads_of_a_file_say_which_file():
+    fs, _ = store([Reply(403, headers={"x-ms-error-code": "AuthorizationFailure"})])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(403: AuthorizationFailure\)\.$"):
+        fs.read_bytes(WS, LH, "Files/a.csv")
+
+    fs, _ = store([Reply(401)])
+    with pytest.raises(requests.HTTPError, match=r"^OneLake didn't read Files/a\.csv \(401\)\.$") as err:
+        fs.download(WS, LH, "Files/a.csv", Path("unused"))
+    assert err.value.response.status_code == 401
+
+
+def test_a_missing_file_is_still_none():
+    fs, _ = store([Reply(404, {"error": {"code": "PathNotFound"}})])
+    assert fs.read_bytes(WS, LH, "Files/gone.csv") is None
+
+
+def test_a_refused_table_listing_gives_the_table_apis_code():
+    s, _ = session([Reply(403, {"error_code": "PERMISSION_DENIED", "message": "no"})])
+    with pytest.raises(requests.HTTPError) as err:
+        TableCatalog(lambda: "tok", session=s).list_tables(WS, LH, "dbo")
+    assert str(err.value) == "OneLake didn't list the tables in dbo (403: PERMISSION_DENIED)."
+    assert "https://" not in str(err.value)
+
+
+@pytest.mark.parametrize("code, shown", [("AuthorizationFailure", "AuthorizationFailure"), ("a" * 64, "a" * 64),
+                                         ("a" * 65, ""), ("Bad code\nwith lines", ""), ("x" * 10000, ""), (None, "")])
+def test_an_error_code_is_shown_only_when_it_looks_like_one(code, shown):
+    from fabric_desktop.onelake import error_code
+    assert error_code(code) == shown
+    fs, _ = store([Reply(403, {"error": {"code": code}})])
+    with pytest.raises(requests.HTTPError) as err:
+        fs.list(WS, LH, "Files/in")
+    assert str(err.value) == f"OneLake didn't list Files/in (403{': ' + shown if shown else ''})."
+
+
+def test_lease_and_control_files_get_encoded_urls_too():
+    from fabric_desktop.leases import LEASE_DIR, OneLakeBackend
+    from fabric_desktop.mailbox import CONTROL_DIR, OneLakeControl
+    lease = OneLakeBackend(WS, LH, lambda: "tok")._url("LH_Gold/dbo.a#b")
+    control = OneLakeControl(WS, LH, lambda: "tok")._url("requests/r?1.json")
+    assert lease == f"{ITEM}/{LEASE_DIR}/LH_Gold/dbo.a%23b.json"
+    assert control == f"{ITEM}/{CONTROL_DIR}/requests/r%3F1.json"

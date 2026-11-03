@@ -1,0 +1,44 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LAB-02",
+  "kind": "lab",
+  "title": "Optimize a slow query",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 25,
+  "objectives": [
+    "Find where a query spends its time",
+    "Rewrite filters so the engine can skip work",
+    "Prove a faster query still gives the same answer"
+  ],
+  "prerequisites": ["LM-01"],
+  "platforms": ["DuckDB", "Fabric Warehouse", "SQL analytics endpoint"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": ["shop"],
+  "size": "L",
+  "exercises": [
+    {
+      "id": "store-revenue-2026",
+      "prompt": "This query returns each store's revenue from completed 2026 orders, but slowly. Make it at least twice as fast without changing its answer.",
+      "engine": "duckdb",
+      "starter": "baseline.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "Look at the WHERE clause. What does the engine have to do to every one of the two million rows before it can compare them?",
+        "CAST(order_date AS VARCHAR) turns two million dates into text before any of them is compared. A date range compares order_date as it is, which is cheaper, and on a table sorted by date it lets the engine skip whole blocks of rows.",
+        "The IN subquery reads the whole orders table again to find one status. Which status counts as a sale?"
+      ],
+      "checks": [
+        {"kind": "result_matches", "ordered": true},
+        {"kind": "no_findings", "rules": ["SQ002"]},
+        {"kind": "faster_than", "baseline": "baseline.sql", "factor": 2, "runs": 5}
+      ]
+    }
+  ],
+  "rules": ["SQ002"],
+  "docs": ["sql-best-practices.md#sq002"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-29"
+}

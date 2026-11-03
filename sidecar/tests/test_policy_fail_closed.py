@@ -292,3 +292,25 @@ def test_register_link_scheme_is_a_setting_the_shell_reads(files):
     assert app_settings.policy_problems() == []
     files({"register_link_scheme": "false"})
     assert app_settings.policy_problems()[0].startswith("register_link_scheme should be bool")
+
+
+GATES = ("allow_replay_samples", "allow_optimize_lakehouse", "allow_notebook_packages")
+
+
+def test_a_file_that_cant_be_read_turns_off_every_gate(files):
+    files("{broken")
+    s = app_settings.load()
+    for key in GATES:
+        assert s[key] == {"value": False, "source": "policy"}, key
+
+
+@pytest.mark.parametrize("key", GATES)
+def test_a_wrongly_typed_gate_is_off(files, key):
+    files({key: "false"})
+    assert app_settings.load()[key] == {"value": False, "source": "policy"}
+    assert f"{key} should be bool, not str, so it takes its most restrictive value" in app_settings.policy_problems()
+
+
+def test_every_allow_key_fails_closed():
+    """A new allow_* switch is a restriction, so it needs a most restrictive value too."""
+    assert {k for k in app_settings.DEFAULTS if k.startswith("allow_")} <= set(app_settings.RESTRICTED)

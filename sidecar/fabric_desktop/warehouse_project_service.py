@@ -34,7 +34,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.sax.saxutils import escape
 
-from . import warehouse_compare
+from . import jsonfile, warehouse_compare
 from .redact import describe as describe_error
 from .git.repo import Repository
 
@@ -308,7 +308,7 @@ class WarehouseProjectMixin:
         try:
             with open(tmp, "x", encoding="utf-8", newline="\n") as out:
                 out.write(text)
-            os.replace(tmp, f)
+            jsonfile.replace(tmp, f)
         except BaseException:
             tmp.unlink(missing_ok=True)  # a locked file (Windows) mustn't leave a .tmp for Git to show
             raise

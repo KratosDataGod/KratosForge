@@ -371,3 +371,21 @@ def test_cells_that_import_pandas_or_check_stdin_run_while_the_worker_waits(sess
     # On Windows a read left waiting on stdin blocks these calls; the worker never leaves one waiting.
     r = session.execute(CellRequest("import os, sys, pandas\n(os.isatty(0), sys.stdin.isatty())", "python"))
     assert r.status == "ok" and r.outputs == [{"type": "text", "text": "(False, False)"}]
+
+
+def test_a_cells_input_gets_end_of_file_not_the_engines_messages(session):
+    r = session.execute(CellRequest("input()", "python"))
+    assert r.status == "error" and r.outputs[-1]["ename"] == "EOFError"
+    assert session.execute(CellRequest("1 + 1", "python")).outputs == [{"type": "text", "text": "2"}]
+
+
+def test_the_session_reports_the_installed_clients_version(runtimes, monkeypatch):
+    # databricks.connect has no __version__ in the real package; the distribution's metadata says.
+    meta = runtimes.folder("16.4") / "databricks_connect-16.4.2.dist-info" / "METADATA"
+    meta.write_text("Metadata-Version: 2.1\nName: databricks-connect\nVersion: 16.4.23\n")
+    monkeypatch.setattr(dbc, "RUNTIME_PYTHON", {16: PY})
+    s = adapter(runtimes).open_session(SessionConfig("nb", options={"connection": CONN}), ok())
+    try:
+        assert s.client == "16.4.23"
+    finally:
+        s.close()

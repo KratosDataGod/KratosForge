@@ -151,7 +151,7 @@ async function runFabricStep(cell, nb) {
   if (res.output?.error) out.push({ type: "error", ename: "Error on Fabric", evalue: res.output.error.trim().split("\n").pop(), traceback: res.output.error });
   else if (res.status !== "Completed") out.push({ type: "error", ename: `Fabric step ${res.status.toLowerCase()}`, evalue: res.message || "Open the run in Fabric to see why." });
   cell.outputs = out;
-  cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.finishedAt = timeText(new Date());
   if (state.notebook?.cells.includes(cell)) {
     updateResults(cell);
     // Fabric's word on the step: the label glows once when it completed, the ember when it failed;

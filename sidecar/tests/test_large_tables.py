@@ -173,13 +173,13 @@ def test_null_keys_and_keyless_tables_behave_as_before(tmp_path):
 
 def test_repeated_keys_or_changed_types_fall_back_to_a_rewrite_and_say_why(tmp_path):
     new, old = both(tmp_path)
+    results = {}
     for s in (new, old):
         s.source(rows(range(3), DAY1))
         s.run()
         s.source(pl.concat([rows([1], DAY2, amount=2), rows([1], DAY2, amount=3)]))  # no unique check
-        res = s.run(day=DAY2)
-        first = res if s is new else first
-    assert "rewrote the table because new rows repeat a key (id)" in new.write_step(first)
+        results[s.merge] = s.run(day=DAY2)
+    assert "rewrote the table because new rows repeat a key (id)" in new.write_step(results[True])
     assert new.table().equals(old.table())
 
 

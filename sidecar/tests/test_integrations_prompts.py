@@ -105,3 +105,17 @@ def test_agent_instructions_name_every_prompt_and_only_real_tools():
     tools = {c.id for c in default_registry().all()}
     for name in re.findall(r"fabric_desktop_[a-z_]+", page):
         assert name in tools, name
+
+
+def test_kratosforge_skill_names_only_real_tools_and_every_prompt_and_matches_its_page():
+    skill = (DOCS.parents[1] / "deploy" / "ai" / "kratosforge" / "SKILL.md").read_text(encoding="utf-8")
+    head = re.match(r"---\nname: kratosforge\ndescription: \"([^\"\n]+)\"\n---\n", skill)
+    assert head and len(head.group(1)) <= 1024
+    tools = {c.id for c in default_registry().all()}
+    for name in re.findall(r"fabric_desktop_[a-z_]+", skill):
+        assert name in tools, name
+    for p in prompts.PROMPTS:
+        assert f"`{p.name}`" in skill, p.name
+    assert "```" not in skill
+    page = (DOCS / "microsoft-fabric-skills.md").read_text(encoding="utf-8")
+    assert re.search(r"## The skill\n.*?```markdown\n(.*?)```", page, re.S).group(1) == skill

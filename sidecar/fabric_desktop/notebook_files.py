@@ -18,13 +18,12 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import uuid
 from pathlib import Path
 from typing import Any
 
-from . import notebook_resources
+from . import jsonfile, notebook_resources
 from .fabric_run import SHIM_MARKER, uses_spark
 from .meta import diff as diff_mod
 from .notebook import NotebookShelf, NotebookStore, check_notebook_name, from_ipynb
@@ -275,11 +274,8 @@ def remember_published(folder: Path, item_id: str, workspace_id: str, nb: dict[s
     (``name``, without its folders), so the next publish can tell a rename here from one in Fabric."""
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{_safe_id(item_id)}.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
-                               "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}),
-                   encoding="utf-8")
-    os.replace(tmp, path)
+    jsonfile.write_text(path, json.dumps({"workspace_id": workspace_id, "item_id": item_id, "at": _now().isoformat(),
+                                          "hash": cells_hash(nb), "cells": _plain(nb), **({"name": name} if name else {})}))
 
 
 def published(folder: Path, item_id: str) -> dict[str, Any] | None:
@@ -356,9 +352,8 @@ def delete(shelf: NotebookShelf, name: str, schedules_off: list[str]) -> dict[st
         raise OSError(f"Couldn't keep a copy of {name} in Recently deleted, so it wasn't deleted.")
     place = shelf.place_of(name)
     kept_until = (now + dt.timedelta(days=KEEP_DAYS)).isoformat()
-    (trash / f"{tid}.json").write_text(json.dumps({"id": tid, "name": name, "place": place, "deleted_at": now.isoformat(),
-                                                   "kept_until": kept_until, "schedules": schedules_off}),
-                                       encoding="utf-8")
+    jsonfile.write_text(trash / f"{tid}.json", json.dumps({"id": tid, "name": name, "place": place, "deleted_at": now.isoformat(),
+                                                                "kept_until": kept_until, "schedules": schedules_off}))
     src.unlink()
     # Its resources folder (notebook_resources) isn't moved or deleted: it stays beside where the
     # notebook was, and the notebook restored under its name, or a new one, picks it up again.

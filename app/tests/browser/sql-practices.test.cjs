@@ -17,7 +17,7 @@ const panel = () => page().locator(".sql-compat");
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_compat_profiles", "sql_practices", "governance_practice_settings"],
+    engine: ["sql_format", "sql_analyze", "sql_practices", "governance_practice_settings"],
     storage: { "fabric-desktop.sql.lh1": JSON.stringify([{ name: "Views", sql: "SELECT 1", dialect: "warehouse" }]) },
     mocks: {
       list_tables: () => ({ dbo: ["sales"] }),
@@ -53,6 +53,12 @@ test("T-SQL gets a Best practices chip with the count, and its tab lists the fin
   assert.match(text, /never changes the compatibility result/);
   assert.match(text, /No policy for this project names a SQL rule/);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "sql-practices.png") });
+});
+
+test("About SQ002 opens the rule's section of the docs (LX-01)", { skip }, async () => {
+  await panel().locator("[data-rule=SQ002] .learn-more").click();
+  const opened = await page().evaluate(() => window.__fdShellCalls.filter((c) => c.cmd === "open_doc").map((c) => c.args.page));
+  assert.deepStrictEqual(opened, ["sql-best-practices.md#sq002"]);
 });
 
 test("Line n selects the place in the editor", { skip }, async () => {

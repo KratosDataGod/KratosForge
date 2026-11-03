@@ -97,8 +97,9 @@ def test_describe_history_and_delta_tables(lake):
 
 
 @pytest.mark.parametrize("code", ["spark.sql('RESTORE TABLE dbo.sales TO VERSION AS OF 0')",
+                                  "spark.sql('/* undo */ RESTORE TABLE dbo.sales TO VERSION AS OF 0')",
                                   "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').restoreToVersion(0)",
-                                  "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').delete()"])
+                                  "from delta.tables import DeltaTable\nDeltaTable.forName(spark, 'dbo.sales').vacuum()"])
 def test_changes_through_time_travel_are_refused_and_the_table_is_untouched(lake, code):
     status, text = run(code)
     assert status == "error" and "Fabric" in text

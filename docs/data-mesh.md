@@ -71,7 +71,7 @@ It was Platform > Requests, and older links open it here. Approve does what was 
 | **Link** | A project's reference to another team's product port, read where it lives with no copy | `metadata/links/<alias>.toml` |
 | **Catalog text** | Descriptions, tags, classification, glossary terms and steward of tables and columns | The platform's catalog (starter text can live in the entity file) |
 
-Logic lives in Git and goes through review and promote. Catalog text lives in the platform, so anyone can describe a table without a pull request.
+Logic lives in Git and goes through review and promote. Catalog text lives in the platform, so a project's members describe its tables without a pull request.
 
 ## Join the mesh
 
@@ -121,7 +121,7 @@ How the import works:
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
 - Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
-- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Data mesh > Domains** once nothing uses it.
+- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Data mesh > Domains** once nothing uses it: no subdomain, project, landing zone, policy assignment or active exception, Entra group link or waiting request names it. Delete says which ones still do.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** on **Data mesh > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
 - Domains are created, imported and edited only on **Data mesh > Domains**, by platform admins. Everyone else sees the same list, read only, with each domain's owners, projects and published products. It was Platform > Set up > Domains; older links open it here.
@@ -260,7 +260,7 @@ When a table behind a product has an incident, the incident page lists the produ
 
 ## Catalog text (About)
 
-Every entity page has an **About** card: description, tags, classification (Public, Internal, Confidential, Restricted), glossary terms, steward, and a description and classification per column. **Save** writes them to the catalog; no Git change is needed.
+Every entity page has an **About** card: description, tags, classification (Public, Internal, Confidential, Restricted), glossary terms, steward, and a description and classification per column. **Save** writes them to the catalog; no Git change is needed. The project's members (and platform admins) change its catalog text, once the project is in the catalog ([Join the mesh](#join-the-mesh)). **Certified** is changed only by the owners of the project's domain or a platform admin; they don't need to be members to certify. A domain's owner who is also a member of a project can move it into their domain directly and then certify its tables: a domain's owners are trusted to vouch for what's in their domain, so give domain ownership to people you'd trust to certify.
 
 A team can keep starter text with the code, and it shows until someone writes their own:
 

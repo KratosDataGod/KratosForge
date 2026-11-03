@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any
 
-from .. import app_settings
+from .. import app_settings, jsonfile
 from .. import governance_notices as notices
 from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES, TENANT_WRITE_SCOPES
 from ..fabric_api import FabricClient, FabricError
@@ -32,7 +31,7 @@ from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .core import domain_id
 from .migrate import migrate
-from .requests_service import call_or_repair
+from .requests_service import DOMAIN_DESCRIPTION, call_or_repair, marked
 
 _log = logging.getLogger(__name__)
 
@@ -74,7 +73,8 @@ class PlatformMixin:
                                   cfg["workspace_id"], cfg["functions_id"])
         cached = getattr(self, "_local_platforms", None)
         if cached is None:
-            cached = self._local_platforms = {}
+            self._local_platforms: dict[str, LocalPlatform] = {}
+            cached = self._local_platforms
         if env not in cached:
             cached[env] = LocalPlatform(self.root / "platform" / f"platform-{env}.sqlite", self._user)
         return cached[env]
@@ -194,7 +194,8 @@ class PlatformMixin:
         admins = {a["user_name"] for a in shared.call("list_admins")}
         for _, client in sources:  # the platform admins come along, so they can still add key tables
             for admin in client.call("list_admins"):
-                if admin["user_name"] not in admins:
+                # An entry that isn't a sign-in name never matched anyone, so it stays behind.
+                if admin["user_name"] not in admins and core.is_sign_in_name(admin["user_name"]):
                     shared.call("add_admin", user=admin["user_name"])
                     admins.add(admin["user_name"])
         where = cfg.get("workspace_name") or "the keys database on this PC"
@@ -306,8 +307,16 @@ class PlatformMixin:
         """A new domain, created in Fabric first when ``in_fabric`` and then kept in the platform linked
         to it, as Import from Fabric would. Everything that could stop the platform's save is checked
         before Fabric is asked, so a refused domain is never left in Fabric alone."""
+        return self._create_domain(domain, in_fabric)[0]
+
+    def _create_domain(self, domain: dict[str, Any], in_fabric: bool = True,
+                       marker: str = "") -> tuple[list[dict[str, Any]], bool]:
+        """platform_create_domain, and whether the Fabric domain was adopted. A request's approval
+        passes its ``marker`` (never reachable from the app's calls): it goes in the Fabric domain's
+        description, and on Fabric's 409 a domain of this name and parent carrying exactly that marker
+        is one this request already made, whose answer was lost, so it is kept instead (#1042)."""
         if not in_fabric:
-            return self.platform_save_domain(domain)
+            return self.platform_save_domain(domain), False
         name = str(domain.get("name") or "").strip()
         if not name:
             raise ValueError("A domain needs a name")
@@ -326,22 +335,43 @@ class PlatformMixin:
                              f"{parent['name']} in Fabric first, or choose Import from Fabric.")
         if parent and parent.get("parent_id"):
             raise ValueError("Subdomains go one level deep: pick a top-level domain as the parent")
+        admin = self._fabric_admin(write=True)
+        parent_fid = str((parent or {}).get("fabric_domain") or "")
+        description = str(domain.get("description") or "")
+        if marker:  # cut to Fabric's 256 characters with the marker whole, and no marker words typed
+            description = marked(description, marker, DOMAIN_DESCRIPTION)
+        adopted = False
         try:
-            created = self._fabric_admin(write=True).create_admin_domain(
-                name, str(domain.get("description") or ""), (parent or {}).get("fabric_domain") or "")
+            created = admin.create_admin_domain(name, description, parent_fid)
         except FabricError as exc:
             if exc.status in (401, 403):
                 raise PermissionError("Only a Fabric administrator can create domains in Fabric, and Fabric refused "
                                       "this account. Nothing was changed.") from exc
             if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
-                raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to bring "
-                                 "it in.") from exc
-            raise
+                found = self._domain_made_by(admin, marker, name, parent_fid) if marker else None
+                if found is None:
+                    raise ValueError(f"Fabric already has a domain called {name}. Choose Import from Fabric to "
+                                     "bring it in.") from exc
+                created, adopted = found, True
+            else:
+                raise
         try:
-            return self.platform_save_domain(domain | {"id": did, "name": name, "fabric_domain": str(created["id"])})
+            saved = self.platform_save_domain(domain | {"id": did, "name": name, "fabric_domain": str(created["id"])})
+            return saved, adopted
         except Exception as exc:
             raise RuntimeError(f"{name} was created in Fabric but not saved in the platform ({exc}). Choose Import "
                                "from Fabric to bring it in.") from exc
+
+    @staticmethod
+    def _domain_made_by(admin: FabricClient, marker: str, name: str, parent_fid: str) -> dict[str, Any] | None:
+        """The Fabric domain of this name and parent whose description carries exactly ``marker``, or
+        None. A domain someone else made, or that another request made, has no such marker."""
+        for d in admin.list_admin_domains():
+            if (str(d.get("displayName") or "").strip().lower() == name.lower()
+                    and str(d.get("parentDomainId") or "") == parent_fid
+                    and marker in str(d.get("description") or "")):
+                return d
+        return None
 
     def platform_delete_domain(self, id: str) -> list[dict[str, Any]]:
         self._catalog().call("delete_domain", did=id)
@@ -362,7 +392,7 @@ class PlatformMixin:
             admin = self._fabric_admin()
             fabric = admin.list_admin_domains()
         except FabricError as exc:
-            if re.search(r"failed with 40[13]\b", str(exc)):
+            if exc.status in (401, 403):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
                                       "Data mesh > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
@@ -395,7 +425,8 @@ class PlatformMixin:
         project = self._project()  # type: ignore[attr-defined]
         domains = self._catalog().call("list_domains")
         linked = {d["fabric_domain"]: d for d in domains if d.get("fabric_domain")}
-        rows, seen = [], set()
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for env in ENVIRONMENTS:
             cfg = project.environments.get(env, {})
             spaces = [("", cfg.get("workspace_id"), cfg.get("workspace_name", ""))]
@@ -855,7 +886,7 @@ class PlatformMixin:
         """The central team's home: counts, what needs a decision, the landing zone and each
         environment's platform."""
         catalog = self._catalog()
-        problems = []
+        problems: list[str] = []
         me = self.platform_whoami()
         domains = catalog.call("list_domains")
         projects = catalog.call("list_projects")
@@ -977,7 +1008,7 @@ class PlatformMixin:
             else:
                 p["can_link"] = False
                 p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
-            p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
+            p["linked"] = any(c["consumer_project"] == me["name"] for c in p.get("consumers", [])) if me else False
         follows = self._my_follows()
         for p in products:
             p["following"] = p["id"] in (follows or [])
@@ -1090,7 +1121,7 @@ class PlatformMixin:
             if old is None:
                 new_path.unlink()
             else:
-                new_path.write_text(old, encoding="utf-8")
+                jsonfile.write_text(new_path, old)
             raise GateError("save", problems)
         if original and original != product.get("name"):
             (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
@@ -1125,7 +1156,10 @@ class PlatformMixin:
             raise GateError("promote", problems)
         name = mesh.project_name(project)
         before = self._published_before(catalog, project)
-        done, problems, events, tell = [], [], [], []
+        done: list[str] = []
+        problems = []
+        events: list[dict[str, Any]] = []
+        tell: list[dict[str, Any]] = []
         old_function = False
         try:
             for p in project.products.values():

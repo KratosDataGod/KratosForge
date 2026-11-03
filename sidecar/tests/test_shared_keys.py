@@ -9,6 +9,7 @@ from fabric_desktop.central.client import PlatformKeys
 from fabric_desktop.meta import keys as K
 from fabric_desktop.meta.project import GateError
 from fabric_desktop.service import Service
+from tests.fabric_refusals import check_item
 
 
 @pytest.fixture
@@ -126,6 +127,7 @@ class FakeFabric:
         return self.items
 
     def save_item(self, ws, kind, name, definition=None, description=""):
+        check_item(kind, definition)
         self.saved.append((ws, kind, name, definition))
         return {"id": f"{kind}-id", "created": True}
 
@@ -288,3 +290,16 @@ def test_a_second_admin_who_joins_uses_the_live_keys_and_can_never_clear_them(sv
     with pytest.raises(Exception, match="these keys are in use"):
         live.call("clear_keys")
     assert [t["name"] for t in live.call("list_key_tables")] == ["customer"]
+
+
+def test_moving_keys_brings_the_admins_but_not_an_entry_that_was_never_a_sign_in_name(svc):
+    """An admin entry like "ana" (saved before add_admin checked names) matched no one, so it stays behind
+    instead of failing the move (#1098)."""
+    from fabric_desktop.central import core
+    dev = svc._platform("dev")
+    with dev._db() as db:
+        for name in ("lee@example.com", "ana"):
+            core._upsert(db, "catalog", "admin", "user_name", {"user_name": name, "added_at": core._now(), "added_by": ""})
+        db.commit()
+    svc.platform_share_keys(approve=True)
+    assert [a["user_name"] for a in svc._shared_keys().call("list_admins")] == ["lee@example.com"]

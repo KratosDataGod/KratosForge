@@ -93,7 +93,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
     billed_rows = _latest(r for r in rows if r.get("level") == "capacity")
     rows = [r for r in rows if r.get("level") != "capacity"]
 
-    app_runs = []
+    app_runs: list[dict[str, Any]] = []
     for run in runs:
         w = _window(run, now)
         if not w or not since <= w[0] < until or not run.get("job_id"):
@@ -117,16 +117,19 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
     # What the imports cover: a workspace name, over the time span of that import's timed rows.
     cover: list[tuple[str, dt.datetime, dt.datetime]] = []
     for imp in imports:
-        timed = [r for r in imp.get("rows", []) if r.get("start") and r.get("level") != "capacity"]
+        # A start that can't be read covers nothing (it isn't compared with the times that can).
+        timed = [(r, t) for r in imp.get("rows", []) if r.get("start") and r.get("level") != "capacity"
+                 if (t := ms.parse_time(r["start"])) is not None]
         if timed:
-            first = min(ms.parse_time(r["start"]) for r in timed)
-            last = max(ms.parse_time(r.get("end") or r["start"]) for r in timed)
-            cover += [(w, first, last) for w in {_name(r["workspace"]) for r in timed}]
+            first = min(t for _, t in timed)
+            last = max(ms.parse_time(r.get("end")) or t for r, t in timed)
+            cover += [(w, first, last) for w in {_name(r["workspace"]) for r, _ in timed}]
 
     def covered(a: dict[str, Any]) -> bool:
         return any(w == a["ws"] and first - tol <= a["start"] <= last + tol for w, first, last in cover)
 
-    by_run, counts = [], {"total": len(app_runs), "matched": 0, "no_row": 0, "not_covered": 0, "no_item_name": 0}
+    by_run: list[dict[str, Any]] = []
+    counts = {"total": len(app_runs), "matched": 0, "no_row": 0, "not_covered": 0, "no_item_name": 0}
     matched_measured, matched_estimates = [], []
     for a in app_runs:
         run = a["run"]
@@ -157,7 +160,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
             measured, state = None, "not_covered"
         by_run.append({"job_id": run["job_id"], "kind": run.get("kind"), "name": run.get("name"), "env": run.get("env"),
                        "workspace": run.get("workspace_name") or ws_names.get(run.get("workspace_id") or ""),
-                       "item": item_name(run), "started_at": ms.parse_time(run.get("started_at")).isoformat(timespec="seconds"),
+                       "item": item_name(run), "started_at": a["start"].isoformat(timespec="seconds"),
                        "state": state, "rows": len(a["rows"]), "measured": measured, "estimated": est})
 
     def tot(parts: list[dict[str, Any]], metric: str) -> dict[str, Any] | None:

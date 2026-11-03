@@ -290,6 +290,38 @@ def test_approving_workspace_access_adds_the_role_as_the_approver(svc, who):
     assert {r["status"] for r in svc.platform_requests()} >= {"approved"}
 
 
+@pytest.mark.parametrize("kind", ["user", "group"])
+@pytest.mark.parametrize("have, asked, after, note", [
+    ("Admin", "Viewer", "Admin", "already had Admin, so it was kept"),
+    ("Member", "Contributor", "Member", "already had Member, so it was kept"),
+    ("Contributor", "Contributor", "Contributor", "has Contributor there"),
+    ("Viewer", "Member", "Member", None),
+], ids=["admin kept", "member kept", "same role", "lower raised"])
+def test_approving_workspace_access_never_lowers_a_role(svc, who, kind, have, asked, after, note):
+    """A request asks for access, so approving one never takes any away: a higher role is kept."""
+    principal = {"id": GROUP, "type": "Group"} if kind == "group" else {
+        "id": DEV, "type": "User", "userDetails": {"userPrincipalName": DEV}}
+    svc.api.roles[WS] = [{"id": "r1", "role": have, "principal": principal}]
+    as_user(who, DEV)
+    ask = {"workspace_id": WS, "role": asked} | (
+        {"who": "group", "group_id": GROUP, "group_name": "Sales Engineers"} if kind == "group" else {})
+    req = svc.platform_request("workspace_access", "", "", ask)
+    as_user(who, ADMIN)
+    out = svc.platform_decide(req["id"], True)
+    assert [r["role"] for r in svc.api.roles[WS]] == [after]
+    assert out["status"] == "approved"
+    changed = [c for c in svc.api.calls if c[0] in ("update_role_assignment", "add_role_assignment", "add_by_email")]
+    if note is None:
+        assert changed == [("update_role_assignment", ADMIN, WS, "r1", asked)]
+        assert "next" not in out and "kept" not in out["made"]
+    else:
+        assert changed == []
+        whom = "the group Sales Engineers" if kind == "group" else DEV
+        assert out["next"] == [f"{whom} {note}"] and out["made"]["kept"] == have
+    change = "raised" if note is None else "same" if have == asked else "kept"
+    assert out["detail"]["made"] == {"assigned": True, "change": change, "from": have}  # recorded for the audit trail (#1207)
+
+
 class FabricDomains:
     """Fabric's admin domains API: refuses with ``status`` when set, as Fabric would."""
 
@@ -301,6 +333,10 @@ class FabricDomains:
             raise FabricError(f"POST /admin/domains failed with {self.status}", status=self.status)
         self.created.append((self.me(), name, parent_id))
         return {"id": f"f-{name.lower()}", "displayName": name}
+
+    def list_admin_domains(self):
+        # what a 409 meets: a domain of that name someone made by hand, with no request's marker
+        return [{"id": "f-hr", "displayName": "HR", "description": "", "parentDomainId": ""}]
 
 
 @pytest.fixture

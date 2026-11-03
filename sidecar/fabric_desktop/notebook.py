@@ -33,6 +33,7 @@ import tempfile
 import threading
 import time
 import traceback
+import weakref
 import types
 import uuid
 import warnings
@@ -66,6 +67,11 @@ _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_
                 "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
+
+
+def _change_runs_here(query: str) -> bool:
+    from . import spark_local
+    return spark_local.change_runs_here(query)
 # The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
 # them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
 SPILL_CHARS = 100_000_000
@@ -177,7 +183,11 @@ def display(value: Any) -> dict[str, Any]:
     """The output a value shows as: a table, an image, HTML or text."""
     table = as_table(value)
     if table is not None:
-        rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
+        shown = table.slice(0, PREVIEW_ROWS)
+        # Column by column, not to_pylist: its dicts keep one of two columns that share a name.
+        columns = [[_json_value(v) for v in column.to_pylist()] for column in shown.columns]
+        rows = [list(row) for row in zip(*columns, strict=True)] if columns else \
+            [[] for _ in range(min(table.num_rows, PREVIEW_ROWS))]   # slicing a table with no columns says 1000
         total = _total_rows(value, table)
         return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
@@ -616,6 +626,7 @@ class Kernel:
         self._widget_lock = threading.Lock()
         self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
+        self._duckdb_connections: weakref.WeakSet[Any] = weakref.WeakSet()  # opened by this kernel's cells (EA-016)
         self._display_sinks: OrderedDict[str, list[Any]] = OrderedDict()  # display id -> where it was shown
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -952,7 +963,9 @@ class Kernel:
         return run.snapshot(known_version)
 
     def interrupt(self) -> dict[str, Any]:
-        """Stop the running cell, keeping the namespace. Native code (a DuckDB query) is asked to stop too."""
+        """Stop the running cell, keeping the namespace. Native code is asked to stop too: a query on
+        ``spark``, on DuckDB's default connection, or on a connection the notebook's cells opened with
+        duckdb.connect (EA-016). Other native code (a Polars query) finishes before the cell stops."""
         run = self._current
         if run is None or run.done.is_set() or run.thread is None or run.guest != getattr(self._local, "guest", None):
             return {"interrupted": False}
@@ -962,7 +975,7 @@ class Kernel:
             return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
-            spark_local.interrupt()
+            spark_local.interrupt(self._duckdb_connections)
         # A cell that was just started may not be in _execute yet: an interrupt raised there (in the
         # thread's start-up, or before the handlers) would end the thread without finishing the run.
         # Such a cell stops itself as soon as it gets there.
@@ -998,6 +1011,9 @@ class Kernel:
         out, err = _routers()
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
+        with contextlib.suppress(Exception):
+            from . import spark_local
+            spark_local.watch_connections(ident, self._duckdb_connections)
         self._local.run = run
         self._local.guest = run.guest  # this thread is the cell's: its namespace is its notebook's
         status = "error"
@@ -1048,6 +1064,9 @@ class Kernel:
             write_queue.cell_writes.stats = None
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
+            with contextlib.suppress(Exception):
+                from . import spark_local
+                spark_local.watch_connections(ident, None)
             self._local.run = None
             if restart and run.guest:
                 self._guests.pop(run.guest, None)  # a guest restarts only its own variables
@@ -1077,6 +1096,8 @@ class Kernel:
         except KeyboardInterrupt:
             failed = writes.flush(cancel=True)
             cancelled = True
+        for warning in getattr(writes, "warnings", []):
+            run.add({"type": "text", "text": f"Warning: {warning}\n"})
         if not failed:
             return "cancelled" if cancelled else status
         if not cancelled:
@@ -1108,7 +1129,6 @@ class Kernel:
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
         code compiled here (not %run notebooks), so its line numbers are the cell's own."""
-        from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
             return self._run_sql(cell.body, run, namespace)
@@ -1351,9 +1371,10 @@ class Kernel:
         """A %%sql cell: Spark SQL on this PC, through the notebook's spark session.
 
         It reads lakehouse tables and the session's temp views; CREATE TABLE AS and INSERT INTO
-        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric. A query's result stays in
+        write lakehouse tables, and MERGE INTO, UPDATE and DELETE change one (Preview). A change to
+        another lakehouse, or with Preview features off, runs in Fabric. A query's result stays in
         ``_sqldf`` as a spark DataFrame, as in Databricks, so the next Python cell can use it."""
-        if _SQL_IN_PLACE.search(query):
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
                     "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
@@ -1488,8 +1509,9 @@ class Kernel:
         """``%sql SELECT ...`` inside Python: the query's result as a spark DataFrame."""
         if not query.strip():
             raise ValueError("%sql needs a query after it, like: df = %sql SELECT * FROM sales")
-        if _SQL_IN_PLACE.search(query):
-            raise ValueError("MERGE, UPDATE and DELETE change rows in place, which runs in Fabric only. "
+        if _SQL_IN_PLACE.search(query) and not _change_runs_here(query):
+            raise ValueError("This MERGE, UPDATE or DELETE runs in Fabric only: on this PC they change tables of the "
+                             "attached lakehouse, with Preview features on. "
                              "Put the statement in a %%sql cell; it runs once the notebook is published.")
         from . import spark_local
         return spark_local.session().sql(query)
@@ -1517,7 +1539,7 @@ class Kernel:
         if not self.resources_dir:
             raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
                                     "under Resources (Built-in) first.")
-        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        path = notebook_resources.real_path(f"builtin/{file}", self.resources_dir)
         if path is None or not os.path.isfile(path):
             raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
         text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM
@@ -1536,7 +1558,6 @@ class Kernel:
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
-        from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
         depth = getattr(self._local, "depth", 0)
@@ -1627,9 +1648,14 @@ class Kernel:
         """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
         memory it holds and whether variable_detail can open it."""
         hidden = self._hidden(name, value)
-        return {"name": name, "type": type(value).__name__, "size": _size(value),
-                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
-                "expandable": not hidden and _expandable(value)}
+        kind = type(value).__name__
+        try:
+            return {"name": name, "type": kind, "size": _size(value),
+                    "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                    "expandable": not hidden and _expandable(value)}
+        except Exception:  # noqa: BLE001  # silent-ok: a value that can't be described (a DuckDB relation over a dropped view) is listed by its type, so the rest of the pane still shows
+            return {"name": name, "type": kind, "size": "", "value": "hidden" if hidden else "?",
+                    "memory": None, "expandable": False}
 
     def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
         """A paused frame's local: never expandable, since variable_detail reads the namespace,
@@ -2167,7 +2193,9 @@ def _count(n: Any) -> str:
 
 def _preview(value: Any) -> str:
     module = type(value).__module__
-    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")):
+    # A LazyFrame's columns come from resolving its plan, which reads its files (or fails when they're
+    # gone), so it shows as its repr, as _columns leaves it unexpanded.
+    if module.startswith(("polars", "pandas", "pyarrow", "duckdb")) and type(value).__name__ != "LazyFrame":
         cols = getattr(value, "columns", None)
         if cols is not None:
             names = list(cols)
@@ -2459,7 +2487,7 @@ def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
              compute: str = "default", workspace: dict[str, Any] | None = None) -> dict[str, Any]:
     nb_cells = []
     ids = assign_cell_ids([dict(c) for c in cells], _derived_id)
-    for c, cid in zip(cells, ids):
+    for c, cid in zip(cells, ids, strict=True):
         cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code", "id": cid,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":
@@ -2525,7 +2553,10 @@ def _write_atomic(path: Path, text: str) -> None:
     has it open, so a refused replace is tried a few more times before giving up."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
         with _path_write_lock(path):
             for attempt in range(6):
                 try:

@@ -120,7 +120,7 @@ function renderChartBuilder(o, numeric, cell, i = 0, onRemove = null) {
     const idx = (c) => (c === null || c === undefined ? null : o.columns.indexOf(c));
     rpc("notebook_frame_chart", { frame: o.frame, kind: cfg.kind, x: needsX ? idx(cfg.x) : null, y: idx(cfg.y),
       agg: cfg.y ? cfg.agg : "count", series: usesSeries ? idx(cfg.series) : null })
-      .then((d) => { if (!d.gone) held.data = d; draw(d); }, (err) => { area.textContent = `Could not draw the chart: ${friendlyError(err)}`; });
+      .then((d) => { if (!d.gone) held.data = d; draw(d); }, (err) => { area.textContent = `Could not draw the chart: ${friendlyError(err).text}`; });
   }
   return box;
 }

@@ -23,6 +23,7 @@ from .rules import _calls, _close, _is_name, _name_at, _verbs
 
 SEVERITIES = ("Error", "Warning", "Info")
 TARGETS = ("warehouse", "endpoint", "sqldb")
+DOCS = "sql-best-practices.md"   # each rule has a section there, anchored by its id: #sq001
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,12 @@ _NOT_TABLES = {"SELECT", "VALUES", "STATISTICS", "OPENROWSET", "OPENJSON", "STRI
 def rules() -> list[dict[str, Any]]:
     """Every SQL best-practice rule, as a governance template lists them."""
     return [{"id": r.id, "kind": "sql", "severity": r.severity, "category": r.category, "name": r.name,
-             "description": r.description} for r in RULES]
+             "description": r.description, "url": url(r.id)} for r in RULES]
+
+
+def url(rule_id: str) -> str:
+    """The docs section that explains a rule (open_doc opens it)."""
+    return f"{DOCS}#{rule_id.lower()}"
 
 
 def check(query: str, target: str = "warehouse", settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -113,7 +119,7 @@ def _finding(rule_id: str, at: int, statement: int, lines: list[int], settings: 
     line, col = _pos(lines, at)
     return {"rule_id": rule_id, "severity": severity, "rule": rule.name, "category": rule.category,
             "object_type": "Statement", "object": f"statement {statement}, line {line}", "statement": statement,
-            "line": line, "col": col, "description": rule.description, "url": ""}
+            "line": line, "col": col, "description": rule.description, "url": url(rule_id)}
 
 
 def _statement(s: Stmt) -> Iterator[tuple[str, int]]:

@@ -11,6 +11,11 @@ const BADGE_GLYPHS = {
   check: "M3 11.5l4.5 4.5L17 6l-1.6-1.6L7.5 12.8 4.6 9.9z",
   proof: "M3 4h9l5 5v9H3zM11 4v5h6",
   lock: "M6 9V7a4 4 0 0 1 8 0v2h1v10H5V9zm2 0h4V7a2 2 0 0 0-4 0z",
+  spark: "M10 1l2 6 6 1-5 4 2 7-5-4-5 4 2-7-5-4 6-1z",
+  anvil: "M2 5h12l4 3h-5v3l3 5H4l3-5V8H2z",
+  bolt: "M11 1L4 11h5l-1 8 8-11h-5z",
+  eye: "M10 4c5 0 8 6 8 6s-3 6-8 6-8-6-8-6 3-6 8-6zm0 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  shield: "M10 1l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V4z",
 };
 
 async function loadProfile() {
@@ -29,6 +34,7 @@ function profileTabs(p) {
     "aria-selected": profilePage.tab === id ? "true" : "false", onclick: () => { profilePage.tab = id; render(); } }, label);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Profile" },
     tab("overview", "Overview"), p.settings.progression ? tab("journey", "Journey") : null,
+    p.settings.progression ? tab("ranks", "Ranks") : null,
     p.settings.progression ? tab("achievements", "Achievements") : null,
     tab("report", "Professional report"), tab("settings", "Settings"));
 }
@@ -44,14 +50,14 @@ async function renderProfile() {
   const who = p.identity;
   const head = h("div", { class: "page-head" },
     h("div", { class: "profile-id" },
-      h("div", { class: "profile-avatar", "aria-hidden": "true" }, (who.display_name || state.user || "?")[0].toUpperCase()),
+      profileAvatar(p, "profile-avatar"),
       h("div", {}, previewMarked("profile", h("h1", {}, who.display_name || "Your profile")),
         h("p", { class: "sub" }, [who.role, who.technologies, state.user ? `Signed in as ${state.user}` : "Not signed in: this profile is kept for this PC"]
           .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
   // Journey and Achievements are progression: with it off they aren't shown.
-  if (!p.settings.progression && ["journey", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
-  const body = { overview: profileOverview, journey: profileJourney, achievements: profileAchievements, report: profileReport,
+  if (!p.settings.progression && ["journey", "ranks", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
+  const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, report: profileReport,
     settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
@@ -64,7 +70,17 @@ function editProfileIdentity() {
     h("input", { value: who[key] || "", placeholder, "data-key": key, maxlength: 200 }));
   const fields = [field("Display name", "display_name", state.user || ""), field("Role or specialization", "role", "Data engineer"),
     field("Preferred technologies", "technologies", "Python, SQL, Delta Lake")];
-  showDialog("Edit profile", h("div", { class: "profile-form" }, ...fields), [
+  const picture = h("div", { class: "field" }, "Profile picture",
+    h("div", { class: "row" }, profileAvatar(profilePage.data, "profile-avatar"),
+      btn("Choose picture", null, () => { closeDialog(); profileChoosePicture(); }, "tool outline small"),
+      profilePage.data.avatar ? btn("Remove picture", null, async () => {
+        closeDialog();
+        const out = await attempt(() => rpc("profile_avatar_remove", {}), "Could not remove your picture");
+        if (out) { profilePage.data = out; state.avatar = null; toast("Picture removed"); render(); }
+      }, "tool outline small") : null),
+    h("span", { class: "muted-text small" }, "PNG, JPEG or WebP up to 5 MB. Kept only on this PC, cropped to a square. "
+      + "Each rank on Profile > Ranks has a prompt you can copy into your own image tool."));
+  showDialog("Edit profile", h("div", { class: "profile-form" }, picture, ...fields), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Save", null, async () => {
       const identity = Object.fromEntries(fields.map((f) => { const i = f.querySelector("input"); return [i.dataset.key, i.value.trim()]; }));
@@ -99,6 +115,7 @@ function profileOverview(p) {
         h("span", { class: "muted-text small" }, s.state === "Insufficient evidence" ? `Insufficient evidence (${s.rows} of 3)` : s.state)))),
       h("p", { class: "muted-text small" }, "Insufficient evidence means KratosForge hasn't seen enough yet. It is not a rating.")));
   const right = h("div", { class: "profile-col" },
+    p.settings.progression ? profileRankCard(p.ranks) : null,
     p.settings.progression ? profileLevelCard(pr) : null,
     p.settings.progression ? profileAchievementsCard(pr) : null,
     h("section", { class: "card pad" }, h("h2", {}, "Professional report"),
@@ -107,9 +124,38 @@ function profileOverview(p) {
   return h("div", { class: "profile-grid" }, left, right);
 }
 
+// A Learn row (rules v2): an exercise passed, or a lesson or lab finished, on this PC.
+function profileLearnRow(r) {
+  const d = r.detail || {};
+  const m = r.measurement || {};
+  const what = r.artifact.kind === "lab" ? "lab" : "lesson";
+  const title = `${r.artifact.name}${r.artifact.title ? ` · ${r.artifact.title}` : ""}`;
+  const done = r.type === "module.complete";
+  const n = d.exercises || 0;
+  const text = done
+    ? (n === 1 ? "Its exercise passed on this PC." : `All ${n} exercises of the ${what} passed on this PC.`)
+    : `Every check passed on this PC: ${(d.checks || []).map((k) => LEARN_CHECKS[k] || k).join(", ")}.${typeof m.speedup === "number"
+      ? ` Measured ${m.speedup}× faster than the starting query on this PC (${m.seconds} s against ${m.baseline_seconds} s).` : ""}`;
+  return [done ? `Finished ${what} ${title}` : `Passed exercise ${r.artifact.number || r.artifact.exercise} in ${title}`, text,
+    `Learn ${r.ref.id} · ${what} version ${String(r.ref.revision).replace(/^v/, "")}`];
+}
+
+// A best-practice fix applied after Compare found the same rows (GD-06, rules v3).
+function profileFixRow(r) {
+  const d = r.detail || {};
+  const m = r.measurement || {};
+  const rows = typeof d.rows === "number" ? `${d.rows.toLocaleString()} row${d.rows === 1 ? "" : "s"}` : "rows";
+  const times = typeof m.before_seconds === "number" && typeof m.after_seconds === "number"
+    ? ` Measured, one run each: ${m.before_seconds} s as written, ${m.after_seconds} s fixed.` : "";
+  return [`Fixed ${r.artifact.name}${r.artifact.where ? ` on ${r.artifact.where}` : ""}, and checked it`,
+    `Compare ran the query as written and as fixed: the same ${rows}${d.level === "complete" ? ", every row compared" : ""}.${times}`,
+    `Compare · runs ${String(r.ref.revision).slice(0, 12)} and ${String(r.ref.id).slice(0, 12)}`];
+}
+
 function profileRow(r) {
   const d = r.detail || {};
   const proved = r.type === "prove.match";
+  const learned = r.ref?.source === "learn" ? profileLearnRow(r) : r.type === "fix.checked" ? profileFixRow(r) : null;
   const m = r.measurement || {};
   const times = [["this PC", m.pc_seconds], ["Fabric", m.fabric_seconds]].filter(([, v]) => typeof v === "number")
     .map(([where, v]) => `${where} ${v} s`).join(", ");
@@ -119,11 +165,12 @@ function profileRow(r) {
   const ref = proved ? `Run receipt ${String(r.ref.id).slice(0, 12)}` : `Validate ${r.ref.id}`;
   return h("div", { class: `profile-row${r.excluded ? " excluded" : ""}` },
     h("div", { class: "grow" },
-      h("div", { class: "row wrap" }, h("b", {}, `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
+      h("div", { class: "row wrap" }, h("b", {}, learned ? learned[0] : `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
         r.excluded ? h("span", { class: "pill-s neu" }, "Excluded") : h("span", { class: "pill-s pass" }, "Verified"),
         r.origin === "backfill" ? h("span", { class: "pill-s neu" }, "Added from history") : null),
-      h("div", {}, text),
-      h("div", { class: "muted-text small mono" }, `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${new Date(r.at).toLocaleString()}`),
+      h("div", {}, learned ? learned[1] : text),
+      h("div", { class: "muted-text small mono" }, learned ? `${learned[2]} · ${dateTimeText(r.at)}`
+        : `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${dateTimeText(r.at)}`),
       h("div", { class: "muted-text small" }, `Skills: ${r.dimensions.join(", ")}${profilePage.data.settings.progression && r.xp ? ` · +${r.xp} XP` : ""}`)),
     btn(r.excluded ? "Include" : "Exclude", null, async () => {
       const out = await attempt(() => rpc("profile_exclude", { id: r.id, excluded: !r.excluded }), "Could not change the accomplishment");
@@ -137,7 +184,7 @@ function profileLevelCard(pr) {
   return h("section", { class: "card pad" },
     h("h2", {}, "KratosForge level"),
     h("div", { class: "row" }, h("img", { src: "wolf-forge-emblem.png", alt: "", width: 48, height: 48 }),
-      h("div", {}, h("b", { class: "profile-level" }, `Level ${pr.level} · ${pr.title}`),
+      h("div", {}, h("b", { class: "profile-level" }, `Level ${pr.level}`),
         h("div", { class: "muted-text" }, `${pr.xp} XP · ${pr.next_level_xp - pr.xp} to level ${pr.level + 1}`))),
     h("div", { class: "profile-bar", role: "progressbar", "aria-label": `XP to level ${pr.level + 1}`,
       "aria-valuemin": "0", "aria-valuemax": String(span), "aria-valuenow": String(into) },
@@ -150,7 +197,7 @@ function profileAchievementsCard(pr) {
     h("h2", {}, "Achievements"),
     pr.achievements.length ? pr.achievements.map((a) => h("div", { class: "profile-badge-row" },
       h("div", { class: "profile-badge", "aria-hidden": "true" }, profileGlyph(a.badge, true)),
-      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${new Date(a.at).toLocaleDateString()} · +${a.xp} XP`))))
+      h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${dateText(a.at)} · +${a.xp} XP`))))
       : h("p", { class: "muted-text" }, "None yet."),
     pr.next.length ? h("div", { class: "profile-next" }, h("div", { class: "muted-text small" }, "Next"),
       pr.next.map((n) => h("div", { class: "profile-skill" }, h("span", {}, n.name), h("span", { class: "muted-text small" }, n.progress)))) : null);
@@ -166,6 +213,96 @@ function profileGlyph(badge, earned) {
   return svg;
 }
 
+// ---------- Profile picture (PB-125) ----------
+
+// The picture, or the first letter of the name when there isn't one.
+function profileAvatar(p, cls) {
+  const who = p.identity || {};
+  const letter = (who.display_name || state.user || "?")[0].toUpperCase();
+  return profilePicture(p.avatar, `${cls} has-picture`) || h("div", { class: cls, "aria-hidden": "true" }, letter);
+}
+
+// Only the engine's own picture: a base64 PNG data URL, which <img> decodes as an image and never runs.
+function profilePicture(url, cls) {
+  const ok = /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(url || "");
+  return ok ? h("img", { class: cls, src: url, alt: "" }) : null;
+}
+
+const PROFILE_PICTURE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const PROFILE_PICTURE_MAX = 5 * 1024 * 1024;
+const PROFILE_PICTURE_SIZE = 256;
+
+function profileChoosePicture() {
+  const input = h("input", { type: "file", accept: PROFILE_PICTURE_TYPES.join(",") });
+  input.addEventListener("change", () => input.files?.[0] && profileSetPicture(input.files[0]));
+  input.click();
+}
+
+// Crop the middle square, scale it to 256 px and save it again as PNG here, so only pixels reach the
+// engine: no photo metadata such as location, and nothing but an image to decode.
+async function profileSetPicture(file) {
+  if (!PROFILE_PICTURE_TYPES.includes(file.type)) { toast("Choose a PNG, JPEG or WebP picture.", true); return; }
+  if (file.size > PROFILE_PICTURE_MAX) { toast("Choose a picture of 5 MB or less.", true); return; }
+  let png;
+  try {
+    const image = await createImageBitmap(file);
+    const side = Math.min(image.width, image.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = PROFILE_PICTURE_SIZE;
+    canvas.getContext("2d").drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side,
+      0, 0, PROFILE_PICTURE_SIZE, PROFILE_PICTURE_SIZE);
+    image.close?.();
+    png = canvas.toDataURL("image/png").split(",")[1];
+  } catch {
+    toast("That picture couldn't be read. Try a PNG or JPEG.", true);
+    return;
+  }
+  const out = await attempt(() => rpc("profile_avatar_set", { png_base64: png }), "Could not save your picture");
+  if (out) { profilePage.data = out; state.avatar = out.avatar; toast("Picture saved"); render(); }
+}
+
+// The account button shows the picture too; read once the engine is up (app.js).
+async function profileLoadAvatar() {
+  if (!previewShown()) return;
+  const out = await rpc("profile_avatar", {}).catch(() => null);
+  state.avatar = out?.avatar || null;
+  renderChrome();
+}
+
+// ---------- Ranks (PB-125) ----------
+
+function profileRankCard(r) {
+  const nxt = r.next;
+  return h("section", { class: "card pad" },
+    h("h2", {}, "Rank", h("span", { class: "muted-text small" }, ` ${r.number} of ${r.of}`)),
+    h("div", { class: "row" }, h("img", { src: "wolf-forge-emblem.png", alt: "", width: 48, height: 48 }),
+      h("div", {}, h("b", { class: "profile-level" }, r.rank),
+        h("div", { class: "muted-text" }, r.ladder[r.number - 1].tier))),
+    nxt ? h("div", { class: "profile-next" }, h("div", { class: "muted-text small" }, `Next: ${nxt.name}${nxt.coming_soon ? " (coming soon)" : ""}`),
+      nxt.checks.map(profileRankCheck)) : h("p", { class: "muted-text" }, "You hold every rank there is."),
+    h("div", { class: "row" }, btn("See all ranks", null, () => { profilePage.tab = "ranks"; render(); }, "tool link small")));
+}
+
+function profileRankCheck(c) {
+  return h("div", { class: "profile-skill" }, h("span", {}, `${c.met ? "\u2713 " : ""}${c.text}`),
+    h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
+}
+
+function profileRanks(p) {
+  const r = p.ranks;
+  const tiers = [...new Set(r.ladder.map((x) => x.tier))];
+  return h("div", { class: "profile-col" },
+    h("p", { class: "muted-text" }, `Ranks come only from work KratosForge verified on this PC (ladder v${r.ladder_version}). `
+      + "Each rank needs every rank below it. Copy a rank's picture prompt into your own image tool to make a profile picture; KratosForge doesn't make images."),
+    tiers.map((tier) => h("section", { class: "card pad" }, h("h2", {}, tier),
+      r.ladder.filter((x) => x.tier === tier).map((x) => h("div", { class: `profile-rank${x.held ? " held" : ""}` },
+        h("div", { class: "row wrap" }, h("b", {}, x.name),
+          h("span", { class: `pill-s ${x.held ? "pass" : "neu"}` }, x.held ? "Held" : x.coming_soon ? "Coming soon" : r.next?.id === x.id ? "Next" : "Not yet"),
+          h("span", { class: "grow" }),
+          btn("Copy picture prompt", null, () => copyText(x.prompt, "Picture prompt"), "tool link small")),
+        x.checks.length ? x.checks.map(profileRankCheck) : h("div", { class: "muted-text small" }, "Everyone starts here."))))));
+}
+
 // ---------- Journey ----------
 
 function profileJourney(p) {
@@ -173,7 +310,7 @@ function profileJourney(p) {
   const span = pr.next_level_xp - pr.level_xp;
   const into = pr.xp - pr.level_xp;
   const got = new Set(pr.achievements.map((a) => a.id));
-  const when = (at) => (at ? new Date(at).toLocaleDateString() : "");
+  const when = (at) => dateText(at);
   const ring = h("div", { class: "profile-ring", style: `--profile-ring:${Math.round((100 * into) / span)}%`, "aria-hidden": "true" },
     h("img", { src: "wolf-forge-emblem.png", alt: "", width: 96, height: 96 }));
   const level = h("section", { class: "card pad profile-journey-level" }, ring,
@@ -216,7 +353,7 @@ function profileAchievements(p) {
         h("div", { class: `profile-shield${earned ? "" : " locked"}` }, profileGlyph(a.badge, Boolean(earned))),
         h("div", { class: "grow" },
           h("div", { class: "row wrap" }, h("b", {}, a.name), h("span", { class: `pill-s ${earned ? "pass" : "neu"}` },
-            earned ? `Earned ${new Date(earned.at).toLocaleDateString()}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
+            earned ? `Earned ${dateText(earned.at)}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
           h("div", {}, a.description),
           h("div", { class: "muted-text small" }, `How to earn it: ${a.criteria}`),
           h("div", { class: "muted-text small" }, `Evidence: ${a.evidence}`))));
@@ -329,10 +466,11 @@ function profileSettings(p) {
         if (out) toast(`Saved ${out.path}`);
       }, "tool outline"),
       btn("Delete my profile data", "delete", async () => {
-        if (!(await confirmDialog("Delete your profile data?", "This deletes your recorded accomplishments, profile details and report summary on this PC. "
+        if (!(await confirmDialog("Delete your profile data?", "This deletes your recorded accomplishments, profile details, picture and report summary on this PC. "
           + "Validate history and run receipts stay as they are. It can't be undone.", "Delete", { danger: true, typeToConfirm: "DELETE" }))) return;
         if (await attempt(() => rpc("profile_delete", {}), "Could not delete your profile data")) {
           profileForget();
+          state.avatar = null; renderChrome();
           toast("Your profile data was deleted"); profilePage.tab = "overview"; render();
         }
       }, "tool outline danger")));

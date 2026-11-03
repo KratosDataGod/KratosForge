@@ -9,19 +9,24 @@ these makes what was asked for first, as the person approving, and only then app
     workspace_access  gives the person or group the role in that workspace
     domain            creates the domain (or subdomain) in Fabric and keeps it in the platform linked to
                       it (platform_create_domain); one whose parent isn't in Fabric is saved in the
-                      platform only. A retry finds a domain the platform already has.
+                      platform only. A retry finds a domain the platform already has, or one in
+                      Fabric whose description carries this request's marker (#1042).
     exception         records the exception in the platform's catalog (core, through policy.py)
     data              nothing to make: accepting says the producing team will build the product or
                       change, and the note says how and when
 
 If a step fails, the request stays waiting and the error names the step. What a workspace request
 made is recorded on the request (record_request_progress) and in the workspace's description, so a
-retry finds it instead of making it twice. Nothing here posts anything but governance's own notices.
+retry finds it instead of making it twice. Declining or withdrawing a request whose approval made
+something before a later step failed changes nothing in Fabric: the answer's ``next`` says what is
+still there, for the person to remove if it isn't wanted (left_in_fabric). Nothing here posts anything
+but governance's own notices.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from .. import access as access_mod
@@ -32,11 +37,44 @@ from . import core
 _log = logging.getLogger(__name__)
 
 NEW_KINDS = ("workspace", "workspace_access", "domain", "exception", "data")
+
+# Fabric's longest description for what an approval makes: a workspace, and a domain or an item (Copy job)
+WORKSPACE_DESCRIPTION, DOMAIN_DESCRIPTION, ITEM_DESCRIPTION = 4000, 256, 256
+_MARKER_WORDS = re.compile(r"kratosforge\s*request", re.I)
+
+
+def request_marker(req: dict[str, Any]) -> str:
+    """What an approval puts in the description of what it makes, so approving again finds it."""
+    return f"(KratosForge request {req['id']})"
+
+
+def marked(typed: str, mark: str, limit: int) -> str:
+    """A description for Fabric: the typed text, cut to fit ``limit`` with ``mark`` kept whole at its end.
+    The typed text never keeps marker words, so no request's marker can be planted in it (#1069)."""
+    while _MARKER_WORDS.search(typed):  # until none is left, so removing one can't leave another behind
+        typed = _MARKER_WORDS.sub("", typed)
+    typed = typed.strip()[:max(0, limit - len(mark) - 1)].rstrip()
+    return f"{typed} {mark}".strip()
 REPAIR = "After an update, a platform admin runs Platform > Settings > Finish or repair once."
 
 
 class StepError(RuntimeError):
     """A step of carrying out a request failed: the request is still waiting."""
+
+
+def _rank(role: str) -> int:
+    return core.WORKSPACE_ROLES.index(role)
+
+
+def _assigned(assignments: Any, who: dict[str, Any]) -> dict[str, Any] | None:
+    """The role assignment given directly to ``who`` (a request's principal), if any."""
+    found = None
+    for r in assignments:
+        p = access_mod.principal(r.get("principal") or {})
+        if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
+                who.get("email") and str(p["email"]).lower() == who["email"]):
+            found = r
+    return found
 
 
 def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
@@ -57,6 +95,61 @@ def call_or_repair(catalog: Any, op: str, what: str, **kwargs: Any) -> Any:
             _log.info("%s: %s", op, describe(exc))
             raise LookupError(missing) from exc
         raise
+
+
+def left_in_fabric(req: dict[str, Any]) -> list[str]:
+    """What approving this request made in Fabric before a later step failed (its ``detail.made``), as
+    sentences saying it is still there. Declining or withdrawing deletes nothing: that stays the person's call."""
+    d = req.get("detail") or {}
+    made = d.get("made") or {}
+    kind, out = req.get("kind"), []
+    if kind == "workspace" and made.get("workspace_id"):
+        name = d.get("name") or req.get("target") or made["workspace_id"]
+        out.append(f"The workspace {name}, made by this request, is still in Fabric on its capacity: "
+                   "delete it there if it isn't wanted")
+    elif kind == "workspace_access" and made.get("assigned") and made.get("change") != "kept":
+        who = d.get("principal") or {}
+        label = who.get("name") or who.get("email") or who.get("id") or "They"
+        whom = f"The group {label}" if who.get("type") == "Group" else label
+        ws = d.get("workspace_name") or d.get("workspace_id") or "the workspace"
+        role = d.get("role") or "role"
+        if made.get("change") == "gave":
+            out.append(f"{whom} keeps the {role} role in {ws} that approving this request gave: remove it in the "
+                       "workspace's Manage access in Fabric if it isn't wanted")
+        elif made.get("change") == "raised" and made.get("from"):
+            out.append(f"{whom} keeps the {role} role in {ws} that approving this request raised from "
+                       f"{made['from']}: set it back in the workspace's Manage access in Fabric if it isn't wanted")
+        else:
+            # The same role was there (they had it, or a retry found what this approval gave), or a request
+            # recorded before #1207: say both, so no one removes access a person had before asking.
+            higher = " or a higher one" if made.get("change") != "same" else ""
+            out.append(f"{whom} has the {role} role{higher} in {ws}: they had it before this request, or approving it "
+                       "gave it. Check which before removing it in the workspace's Manage access in Fabric")
+    elif kind == "source" and made.get("copy_job_id"):
+        name = made.get("copy_job_name") or made["copy_job_id"]
+        runs = " and its daily schedule still runs it" if made.get("schedule_id") else ""
+        out.append(f"The Copy job {name}, made by this request, is still in the landing workspace{runs}: "
+                   "delete it there if it isn't wanted")
+    elif kind == "shortcut" and made.get("shortcut_id"):
+        name, lakehouse = d.get("name") or req.get("target"), d.get("lakehouse_name") or "its lakehouse"
+        if made.get("found"):  # it was there already: possibly someone else's, so no removal advice
+            out.append(f"The shortcut {name} in {lakehouse} is in OneLake: it was there before this request, or "
+                       "approving it made it. Check which before removing it on OneLake > Shortcuts")
+        else:
+            out.append(f"The shortcut {name} in {lakehouse}, made by this request, is still in OneLake: remove it on "
+                       "OneLake > Shortcuts if it isn't wanted")
+    elif kind == "domain" and made.get("domain_id"):
+        name = d.get("name") or req.get("target") or made["domain_id"]
+        if made.get("found"):  # possibly someone else's: no removal advice
+            out.append(f"The domain {name} is in the platform{' and Fabric' if made.get('fabric_domain_id') else ''}: "
+                       "it was there before this request, or approving it made it. Check which before deleting it")
+        elif made.get("fabric_domain_id"):
+            out.append(f"The domain {name}, made by this request, is still in Fabric and the platform: delete it in "
+                       "Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted")
+        else:
+            out.append(f"The domain {name}, made by this request, is still in the platform: delete it on "
+                       "Data mesh > Domains if it isn't wanted")
+    return out
 
 
 class RequestsMixin:
@@ -81,6 +174,32 @@ class RequestsMixin:
                                   f"than this app. {REPAIR}") from exc
             raise
 
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        """Each waiting workspace access request the viewer can decide says the role its person or group
+        has in that workspace today (``today``: ``{"role": "Admin"}``, ``{"role": ""}`` for none of its
+        own, or ``{"checked": False}``), read from Fabric as the viewer once per workspace and never
+        stored, so the approver sees whether approving changes anything (#1108)."""
+        out = super().platform_requests(status)  # type: ignore[misc]
+        asks = [r for r in out if r.get("kind") == "workspace_access" and r.get("status") == "waiting"
+                and r.get("can_decide")]
+        roles: dict[str, list[Any] | None] = {}
+        for r in asks:
+            d = r.get("detail") or {}
+            wid = str(d.get("workspace_id") or "")
+            if wid not in roles:
+                try:
+                    roles[wid] = list(self._rq_fabric().list_role_assignments(wid))
+                except Exception as exc:  # noqa: BLE001 - the row says it couldn't check; approving still works
+                    _log.info("Couldn't read the roles in %s: %s", wid, describe(exc))
+                    roles[wid] = None
+            have = roles[wid]
+            if have is None:
+                r["today"] = {"checked": False}
+            else:
+                found = _assigned(have, d.get("principal") or {})
+                r["today"] = {"role": str((found or {}).get("role") or "")}
+        return out
+
     def _rq_name_free(self, name: str) -> None:
         """Refuse a new workspace whose name is taken, as far as the person asking can see."""
         try:
@@ -96,7 +215,7 @@ class RequestsMixin:
         """Approving a workspace, workspace access or domain request makes it first, as the person
         approving. ``capacity_id`` is for a workspace request sent without one: the approver picks it."""
         if not approve:
-            return super().platform_decide(id, approve, note)  # type: ignore[misc]
+            return self._rq_closed(super().platform_decide(id, approve, note))  # type: ignore[misc]
         req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
                     if r["id"] == id), None)
         if req is None or req["kind"] not in NEW_KINDS:
@@ -114,6 +233,29 @@ class RequestsMixin:
         if made.get("next"):
             out["next"] = made["next"]
         out["made"] = {k: v for k, v in made.items() if k != "next"}
+        return out
+
+    def platform_withdraw(self, id: str) -> dict[str, Any]:
+        return self._rq_closed(super().platform_withdraw(id))  # type: ignore[misc]
+
+    def _rq_closed(self, out: dict[str, Any]) -> dict[str, Any]:
+        """A declined or withdrawn request says what its approval already made in Fabric. A domain
+        request whose domain is saved but wasn't recorded on it (its progress record failed, or someone
+        made it since) says it is there, with the careful wording: whose it is isn't known (#1270)."""
+        made, view = (out.get("detail") or {}).get("made") or {}, out
+        if out.get("kind") == "domain" and not made.get("domain_id"):
+            try:
+                have = next((x for x in self.platform_domains() if x.get("id") == out.get("target")), None)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - the request is closed either way; this only adds a note
+                _log.info("Couldn't read the domains after closing %s: %s", out.get("id"), describe(exc))
+                have = None
+            if have:  # what the request records is left as it is: this only words the note
+                view = dict(out, detail=dict(out.get("detail") or {}, made={
+                    "domain_id": have["id"], "found": True,
+                    **({"fabric_domain_id": have["fabric_domain"]} if have.get("fabric_domain") else {})}))
+        left = left_in_fabric(view)
+        if left:
+            out["next"] = [*(out.get("next") or []), *left]
         return out
 
     # ---- carrying out each kind
@@ -139,6 +281,8 @@ class RequestsMixin:
         name = str(d.get("name") or req["target"])
         known = {x["id"]: x for x in self.platform_domains()}  # type: ignore[attr-defined]
         if req["target"] in known:
+            if not (d.get("made") or {}).get("domain_id"):
+                self._rq_domain_found(req, known[req["target"]], known)
             return {}
         parent = known.get(str(d.get("parent_id") or ""))
         in_fabric = not parent or bool(parent.get("fabric_domain"))
@@ -147,18 +291,49 @@ class RequestsMixin:
 
         def create() -> Any:
             try:
-                return self.platform_create_domain(domain, in_fabric=in_fabric)  # type: ignore[attr-defined]
+                return self._create_domain(domain, in_fabric, marker)  # type: ignore[attr-defined]
             except PermissionError as exc:
                 raise PermissionError(f"{exc} A Fabric administrator can approve this request, or you can create "
                                       f"{name} in the platform only (New domain on Data mesh > Domains, without Also "
                                       "create it in Fabric) and approve it again.") from exc
 
         step = f"Create the domain {name} in Fabric" if in_fabric else f"Save the domain {name}"
-        self._rq_step(step, create)
+        marker = request_marker(req)
+        saved, adopted = self._rq_step(step, create)
+        fabric_id = next((str(x.get("fabric_domain") or "") for x in saved or [] if x.get("id") == req["target"]), "")
+        self._rq_progress(req, {"domain_id": req["target"], **({"fabric_domain_id": fabric_id} if fabric_id else {})})
+        if adopted:
+            return {"next": [f"{name} already existed in Fabric from this request, so it was kept"]}
         if in_fabric or parent is None:
             return {}
         return {"next": [f"{parent['name']} isn't in Fabric, so {name} was saved in the platform only. Create "
                          f"{parent['name']} and {name} in Fabric's admin portal, then choose Import from Fabric"]}
+
+    def _rq_domain_found(self, req: dict[str, Any], have: dict[str, Any], known: dict[str, Any]) -> None:
+        """A retry finds the domain already saved but not recorded on the request: its progress record
+        failed, or someone made it since the request was sent (#1270). It's this request's when Fabric's
+        domain carries the request's marker, or, for one in the platform only, the approver saved it
+        after the request; otherwise it is recorded as found, so a decline says to check before deleting."""
+        name = str(req["detail"].get("name") or req["target"])
+        fid = str(have.get("fabric_domain") or "")
+        if fid:
+            parent_fid = str((known.get(str(have.get("parent_id") or "")) or {}).get("fabric_domain") or "")
+            try:
+                ours = self._domain_made_by(self._fabric_admin(), request_marker(req), name,  # type: ignore[attr-defined]
+                                            parent_fid) is not None
+            except Exception as exc:  # noqa: BLE001 - unread is recorded as found: the careful wording
+                _log.info("Couldn't read Fabric's domains to tell who made %s: %s", name, describe(exc))
+                ours = False
+        else:
+            try:
+                me = str(self._catalog().call("whoami").get("user") or "").lower()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - unread is recorded as found, as for Fabric above
+                _log.info("Couldn't tell who is approving %s: %s", name, describe(exc))
+                me = ""
+            ours = bool(me) and str(have.get("updated_by") or "").lower() == me \
+                and str(have.get("updated_at") or "") >= str(req.get("requested_at") or "")
+        self._rq_progress(req, {"domain_id": req["target"], **({"fabric_domain_id": fid} if fid else {}),
+                                **({} if ours else {"found": True})})
 
     def _rq_make_workspace(self, req: dict[str, Any], capacity_id: str = "") -> dict[str, Any]:
         d, api = req["detail"], self._rq_fabric()
@@ -167,7 +342,7 @@ class RequestsMixin:
         capacity = (d.get("capacity_id") or capacity_id or "").strip()
         if not capacity:
             raise core.PlatformError("Pick a capacity for the workspace: the request didn't name one")
-        marker = f"(KratosForge request {req['id']})"
+        marker = request_marker(req)
 
         def find_or_create() -> tuple[dict[str, Any], bool]:
             same = [w for w in api.list_workspaces() if str(w.get("displayName") or "").lower() == name.lower()]
@@ -179,7 +354,7 @@ class RequestsMixin:
                 raise core.PlatformError(f"A workspace named {name} already exists and this request didn't make "
                                          "it. Decline the request, or ask for another name.")
             why = str(req.get("reason") or "").strip()
-            return api.create_workspace(name, capacity, f"{why} {marker}".strip()[:4000]), True
+            return api.create_workspace(name, capacity, marked(why, marker, WORKSPACE_DESCRIPTION)), True
 
         ws, created = self._rq_step(f"Create the workspace {name}", find_or_create)
         wid = ws["id"]
@@ -231,18 +406,31 @@ class RequestsMixin:
         who, role, wid = d["principal"], d["role"], d["workspace_id"]
         label = who.get("name") or who.get("email") or who.get("id")
 
-        def give() -> None:
-            current = None
-            for r in api.list_role_assignments(wid):
-                p = access_mod.principal(r.get("principal") or {})
-                if (who.get("id") and str(p["id"]).lower() == who["id"]) or (
-                        who.get("email") and str(p["email"]).lower() == who["email"]):
-                    current = r
+        def give() -> tuple[str, str]:
+            """What approving did (gave, raised, kept a higher role, or found the same one) and the role before."""
+            current = _assigned(api.list_role_assignments(wid), who)
             if current is None:
                 self._rq_add(api, wid, who, role)
-            elif current.get("role") != role:
-                api.update_role_assignment(wid, current["id"], role)
+                return "gave", ""
+            have = str(current.get("role") or "")
+            # A request asks for access, so approving one never lowers a role: a higher one is kept.
+            if have == role:
+                return "same", have
+            if have in core.WORKSPACE_ROLES and _rank(have) > _rank(role):
+                return "kept", have
+            api.update_role_assignment(wid, current["id"], role)
+            return "raised", have
 
-        self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
-        self._rq_progress(req, {"assigned": True})
-        return {"assigned": True}
+        change, before = self._rq_step(f"Give {label} the {role} role in {d.get('workspace_name') or wid}", give)
+        earlier = (d.get("made") or {}).get("change")
+        # A retry finds the role this approval already gave or raised: what it recorded then still holds.
+        record = ({"change": earlier, "from": (d.get("made") or {}).get("from", "")} if earlier in ("gave", "raised")
+                  else {"change": change, "from": before})
+        self._rq_progress(req, {"assigned": True} | record)
+        kept = before if change in ("kept", "same") else ""
+        if not kept:
+            return {"assigned": True}
+        whom = f"the group {label}" if who.get("type") == "Group" else label
+        # The same role may be this approval's own work on a retry, so that only says where things stand.
+        note = f"{whom} has {kept} there" if kept == role else f"{whom} already had {kept}, so it was kept"
+        return {"assigned": True, "kept": kept, "next": [note]}

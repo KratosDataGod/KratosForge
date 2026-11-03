@@ -152,9 +152,11 @@ test("a copy job Workloads doesn't list yet offers to pin its workspace, and sta
   await page().locator(".df-detail-head button", { hasText: "Run in Fabric…" }).click();
   await page().locator(".dialog", { hasText: "doesn't list cj_erp_customers yet" }).waitFor();
   await page().locator(".dialog button", { hasText: "Pin and read again" }).click();
-  await until(() => app.calls.some((c) => c.method === "workloads_list"));
+  // Earlier tests already listed the workloads, so wait for the read this pin starts (refresh), not any read.
+  const reread = () => app.calls.some((c) => c.method === "workloads_list" && c.params.refresh === true);
+  await until(reread);
   assert.deepStrictEqual(pinned, [{ workspace_id: WS, mark: "pins", on: true }]);
-  assert.ok(app.calls.some((c) => c.method === "workloads_list" && c.params.refresh === true), "it reads the items again");
+  assert.ok(reread(), "it reads the items again");
   assert.strictEqual(acted.length, 1, "nothing more started");
 });
 

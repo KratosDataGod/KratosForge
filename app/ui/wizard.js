@@ -51,8 +51,13 @@ function wizardTemplates() {
   const drawCards = () => {
     const shown = wizardShown(all, w.group, w.search);
     cards.replaceChildren(...(shown.length ? shown.map((t) => h("button", { class: "wizard-template",
-      onclick: () => { w.template = t; w.values = Object.fromEntries(t.fields.filter((f) => w.templates.choices[f])
-        .map((f) => [f, w.templates.choices[f][0][0]])); w.step = 2; w.problem = ""; drawWizard(); } },
+      onclick: () => {
+        // The same template again (after Back) keeps what was typed; another one starts from its defaults.
+        if (w.template?.id !== t.id) {
+          w.values = Object.fromEntries(t.fields.filter((f) => w.templates.choices[f]).map((f) => [f, w.templates.choices[f][0][0]]));
+        }
+        w.template = t; w.step = 2; w.problem = ""; drawWizard();
+      } },
     h("b", {}, t.title), h("span", { class: "muted small" }, t.text))) : [h("p", { class: "muted" }, "No template matches.")]));
   };
   drawCards();
@@ -109,7 +114,7 @@ async function wizardToReview() {
     w.problem = "";
     w.step = 3;
   } catch (e) {
-    w.problem = String(e?.message || e);
+    w.problem = friendlyError(e).text;
   }
   drawWizard();
 }
@@ -126,7 +131,8 @@ function wizardContract(tables) {
 function wizardReview() {
   const p = wizardState.preview;
   return [h("p", { class: "dialog-text" }, "The notebook will have these cells. Change anything once it opens."),
-    h("div", { class: "wizard-cells" }, p.cells.map((c) => (c.type === "markdown"
+    // Scrolls on its own, so it takes focus for the keyboard to scroll it.
+    h("div", { class: "wizard-cells", tabindex: "0", role: "region", "aria-label": "Cells the notebook will have" }, p.cells.map((c) => (c.type === "markdown"
       ? h("div", { class: "wizard-md" }, c.source.split("\n")[0].replace(/^#\s*/, ""))
       : h("pre", { class: "mono" }, c.source)))),
     h("p", { class: "muted small" }, wizardContract(p.proof.tables))];
@@ -141,7 +147,7 @@ async function wizardCreate() {
     go("notebook");
     toast(`Created ${nb.name}. Run it here, or open Prove to run it on this PC and in Fabric and compare.`);
   } catch (e) {
-    w.problem = String(e?.message || e);
+    w.problem = friendlyError(e).text;
     drawWizard();
   }
 }

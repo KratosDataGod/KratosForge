@@ -5,7 +5,6 @@ import sys
 
 import pytest
 
-from fabric_desktop import notebook
 from fabric_desktop.notebook import Kernel, display
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")

@@ -128,7 +128,7 @@ function mfDomain(m, p, draw) {
   const productName = (pid) => m.products.find((x) => x.id === pid)?.name || pid;
   const tables = (project) => {
     if (project !== m.me || !p?.layers) return h("span", { class: "muted-text small" }, "Open this project's folder on this PC to see its tables");
-    return h("div", { class: "flow mf-layers" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+    return h("div", { class: "flow mf-layers" }, p.layers.map((l, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
       h("button", { class: "layer-chip big", style: `background:${layerColor(l.name)}`, title: `Open ${l.name}'s tables`,
         onclick: () => { Object.assign(meshFlow, { layer: l.name, table: null }); draw(); } }, l.name, h("span", { class: "count" }, l.entities))]));
   };

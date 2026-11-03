@@ -1,0 +1,39 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-08",
+  "kind": "module",
+  "title": "Notebooks: let the engine do the work",
+  "path": "microsoft-fabric",
+  "level": "beginner",
+  "minutes": 15,
+  "objectives": [
+    "Use Spark SQL and PySpark cells in a Fabric notebook on the same tables",
+    "Say why collect() and toPandas() on a whole table can fail",
+    "Aggregate in the query so only the answer comes back"
+  ],
+  "prerequisites": ["LM-04", "LM-06"],
+  "platforms": ["DuckDB", "Fabric notebooks (Spark SQL)"],
+  "engines": ["duckdb"],
+  "lesson": "lesson.md",
+  "datasets": ["shop"],
+  "size": "S",
+  "exercises": [
+    {
+      "id": "region-revenue",
+      "prompt": "Revenue per store region from complete orders: region, orders (how many) and revenue, largest revenue first. Aggregate in the query, so four rows come back.",
+      "engine": "duckdb",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter brings back every order. Which three columns does the question ask for?",
+        "Join orders to stores on store_id for the region, keep status = 'complete', then GROUP BY region with count(*) and sum(amount)."
+      ],
+      "checks": [{"kind": "result_matches", "ordered": true}]
+    }
+  ],
+  "rules": ["NB003"],
+  "docs": ["https://learn.microsoft.com/fabric/data-engineering/how-to-use-notebook"],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-10-30"
+}

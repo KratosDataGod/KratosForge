@@ -1,7 +1,7 @@
 // #192: coming back to Home doesn't read everything again (see harness.cjs for how to run it).
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, startupReads } = require("./harness.cjs");
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -13,6 +13,7 @@ before(async () => {
   app = await openApp({ mocks: { list_notebooks: () => [{ name: "Orders", modified: 1760000000 }], readiness_check: () => [] } });
   await page().evaluate(() => go("home"));
   await homeLoaded();
+  await startupReads(app);
 });
 after(async () => { if (app) await app.close(); });
 

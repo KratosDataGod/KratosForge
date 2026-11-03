@@ -65,7 +65,7 @@ const FABRIC_RUN_KIND = { pipeline: ["Pipeline", "Pipeline run in Fabric"], "cop
 function fabricPipelineRunRows(result, cloud) {
   const ours = new Set((cloud || []).map((r) => r.job_id).filter(Boolean));
   const read = result?.scanned ? new Date(result.scanned) : null;
-  const asOf = read ? `as of ${read.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+  const asOf = read ? `as of ${timeText(read)}` : "";
   const old = !read || Date.now() - read > FABRIC_STALE_MINUTES * 60000;
   return (result?.runs || []).filter((run) => run.job_id && !ours.has(run.job_id)).map((run) => {
     const going = run.state === "running" || run.state === "pending";

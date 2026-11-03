@@ -33,6 +33,7 @@ from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
 from ..jsonfile import write_text
+from ..redact import one_line
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -64,6 +65,9 @@ ENVIRONMENTS = ("dev", "test", "prod")
 # An approved exception that ends inside this window raises a notice before the save gate fails.
 EXCEPTION_WARN_DAYS = 14
 _LAYER_NAME = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
+# An entity's name is its file's name and, part by part, its table's folders: none may be empty or
+# hold a path separator or a drive colon.
+_PATH_CHARS = re.compile(r"[/\\:]")
 _IGNORED = {".git", ".local", "__pycache__", ".pytest_cache"}
 # Where each environment writes and runs is deployment settings, not logic: changing it
 # mustn't make an environment look out of date and ask for another promote.
@@ -332,7 +336,7 @@ class Project:
                 continue
             name = spec.get("name") or p.stem
             if p.stem != name:
-                self.load_errors.append(f"{p.name}: file name must match its name ({name})")
+                self.load_errors.append(f"{p.name}: file name must match its name ({one_line(name, 80)})")
             self.entities[name] = Entity(name, spec, p)
         exc_file = self.root / "exceptions.toml"
         self.exceptions = tomllib.loads(exc_file.read_text(encoding="utf-8")).get("exception", []) \
@@ -613,6 +617,16 @@ def _late_and_delete_problems(e: Entity) -> list[str]:
     return errors
 
 
+
+def entity_name_problem(name: str) -> str | None:
+    """Why ``name`` can't name an entity, or None."""
+    parts = str(name).split(".")
+    if len(parts) not in (2, 3):
+        return "name must be <layer>.<table> or <layer>.<schema>.<table>"
+    if not all(parts) or _PATH_CHARS.search(name):
+        return "each part of the name needs at least one character, and none can hold / \\ or :"
+    return None
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -626,8 +640,9 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
 
     for e in project.entities.values():
         s = e.spec
-        if len(e.name.split(".")) not in (2, 3):
-            errors.append(f"{e.name}: name must be <layer>.<table> or <layer>.<schema>.<table>")
+        problem = entity_name_problem(e.name)
+        if problem:
+            errors.append(f"{e.name}: {problem}")
             continue
         if e.layer not in names:
             errors.append(f"{e.name}: layer {e.layer} does not exist")

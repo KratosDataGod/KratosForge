@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-28",
+  "updated": "2026-10-30",
   "about": "Machine-readable work queues for the six workstreams. GitHub Issues hold each story; this file says which story each workstream is on, what comes next and what blocks it. The orchestrator thread updates it at the weekly review and when a lead reports a story done. Check and render with: python docs/product/operations/tools/queues.py all",
   "rules": {
     "ready_minimum": 2,
@@ -12,7 +12,13 @@
       "pillar:<fabric|databricks|snowflake|shared>",
       "status:<active|ready|blocked|review>"
     ],
-    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers."
+    "needs_chris": "New user-facing features need a mockup and Chris's typed go; Fabric capacity or cloud spend needs his typed yes. Such stories are blocked, never ready, until he answers.",
+    "side_program_statuses": [
+      "active",
+      "ready",
+      "blocked",
+      "review"
+    ]
   },
   "workstreams": [
     {
@@ -25,31 +31,27 @@
         "Local TPC-H run slowdown"
       ],
       "active": {
-        "story": "PB-094",
-        "issue": 846
+        "issue": 1664,
+        "title": "[EA-029] CI runs the start-up, notebook-start and SQL benchmark and flags a regression"
       },
       "ready": [
         {
-          "story": "PB-068",
-          "issue": 847
-        },
-        {
-          "story": "PB-015",
-          "issue": 848
+          "issue": 1665,
+          "title": "[EA-001 follow-up] Every append path has a test that a value-changing append stops"
         }
       ],
       "backlog": [
         "PB-073",
-        "PB-067",
-        "PB-016",
         "PB-085"
       ],
       "dependencies": [
         "PB-015 needs PB-012 accepted (Spark API matrix, In review)"
       ],
-      "blockers": [],
-      "last_completed": "#829 Cores on this PC (core cap), merged 2026-10-28",
-      "next_action": "Measure CPU and memory from the kernel process, not the engine (PB-094)."
+      "blockers": [
+        "PB-015 live Prove run waits on Chris's yes (state kept in the backlog; its issue is closed until approved)"
+      ],
+      "last_completed": "#1324 (#1314) useRootDefaultLakehouse Unknown; #1333 (#1316) Until and policy timeouts; #1305 (#1288); #1300 (#1286)",
+      "next_action": "#1664 then #1665; file the next engine hardening stories."
     },
     {
       "key": "fabric",
@@ -67,36 +69,28 @@
         "Sync pinned workspaces with Fabric"
       ],
       "active": {
-        "story": "PB-002",
-        "issue": 849,
-        "note": "Prepare first: the ten flows, the harness and a run plan in the throwaway kf_tenant_test workspace on Trial capacity (never the capacity that hosts Prod). The live run waits for Chris's typed yes because it spends capacity."
+        "issue": 1666,
+        "title": "[T-SQL] Every characterized T-SQL gap either runs or is refused by name"
       },
       "ready": [
         {
-          "story": "PB-043",
-          "issue": 850
-        },
-        {
-          "story": "PB-013",
-          "issue": 851,
-          "note": "Only the session, warehouse and connections message is left (product check 2026-10-25)."
+          "issue": 1667,
+          "title": "[EA-028] Hand-written retry loops in Fabric paths move to retrying.py"
         }
       ],
       "backlog": [
+        "PB-003",
+        "PB-052",
         "PB-040",
-        "PB-041",
-        "PB-048",
-        "PB-049",
-        "PB-036"
+        "PB-041"
       ],
       "dependencies": [],
       "blockers": [
-        "PB-002 live run waits on Chris's yes for Trial capacity; the plan and harness are prepared first",
-        "#755 WH-16 draft waits on Chris",
+        "PB-002, PB-003, PB-049 and PB-052 live runs wait on Chris's yes (issues closed until approved)",
         "#799 staging cleaner held"
       ],
-      "last_completed": "#823 Warehouse full screen and Open in KratosForge",
-      "next_action": "Prepare the ten-flow tenant smoke test (PB-002) so it runs the moment Chris says yes."
+      "last_completed": "#1377 (#1366) Key Vault secret errors; #1378 (#1367) mailbox listing errors; #1326 (#1313); #1327 (#1315)",
+      "next_action": "#1666 by function family; #1667 one module per PR."
     },
     {
       "key": "dbx-snow",
@@ -108,19 +102,13 @@
         "Snowflake local-first development (to be opened)"
       ],
       "active": {
-        "story": "KF-FABRIC-SPARK",
-        "issue": 852,
-        "note": "The built work is a saved patch in the project files (databricks/fabric-spark-wip). #782 has merged, so restart from main and apply it."
+        "issue": 1668,
+        "title": "[DBX-COVERAGE] A generated Spark function coverage list says, for every built-in, runs, refused or differs"
       },
       "ready": [
         {
-          "story": "KF-SNOWFLAKE-RESEARCH",
-          "issue": 853,
-          "note": "Research only. Output goes to docs and the project files; no Snowflake account or code without Chris's go."
-        },
-        {
-          "story": "KF-DBX-LOSS-REPORT",
-          "issue": 854
+          "issue": 1669,
+          "title": "[EA-013 follow-up] spark.read.json and spark.read.parquet honour Spark's options or refuse them"
         }
       ],
       "backlog": [],
@@ -129,10 +117,11 @@
         "Engine picker UI waits on Chris's mockup review"
       ],
       "blockers": [
-        "Engine picker mockup waits on Chris"
+        "Databricks live runs need a workspace and Chris's yes",
+        "Snowflake sign-in and engine wait on Chris's D4 decision"
       ],
-      "last_completed": "#782 Databricks Connect (Preview)",
-      "next_action": "Open the Fabric Spark (Livy) draft PR from the saved patch, restarted from main."
+      "last_completed": "#1380 (#1369) Fabric Spark previews; #1385 (#1371) higher-order functions; #1388 (#1372) Snowflake TYPEOF; #1329 (#1325)",
+      "next_action": "#1668 and #1669 in parallel."
     },
     {
       "key": "enterprise",
@@ -145,35 +134,28 @@
         "Workload management workspace"
       ],
       "active": {
-        "story": "PB-057",
-        "issue": 855
+        "issue": 1670,
+        "title": "[HD] A policy file changed outside IT's channel is recorded and shown to an admin"
       },
       "ready": [
         {
-          "story": "PB-083",
-          "issue": 856
-        },
-        {
-          "story": "PB-053",
-          "issue": 857
+          "issue": 1671,
+          "title": "[Docs] One IT deployment checklist, checked against the code"
         }
       ],
       "backlog": [
-        "PB-052",
         "PB-060",
-        "PB-092",
-        "PB-019",
-        "PB-031"
+        "PB-092"
       ],
       "dependencies": [
         "PB-057 builds on PB-056 (policy registry, In review)"
       ],
       "blockers": [
-        "PB-052 tenant verification needs Chris's yes",
-        "Workload pipelines mockup waits on Chris"
+        "MSI or MSIX packaging is a new capability: needs Chris's go",
+        "PB-062 Save a support bundle button waits on Chris's mockup reaction"
       ],
-      "last_completed": "#844 governance review follow-ups; #828 product groups",
-      "next_action": "Offline policy validation (PB-057), engine and CLI first, no new screen."
+      "last_completed": "#1387 (#1386) internal hosts left out of support bundles; #1351, #1353, #1354 audit trail",
+      "next_action": "#1670 then #1671."
     },
     {
       "key": "devex",
@@ -187,29 +169,26 @@
         "Run continuous product management"
       ],
       "active": {
-        "story": "PB-078",
-        "issue": 858
+        "issue": 1672,
+        "title": "Keyboard-only pass over every page as an automated browser check"
       },
       "ready": [
         {
-          "story": "PB-077",
-          "issue": 859
-        },
-        {
-          "story": "PB-070",
-          "issue": 860
+          "issue": 1673,
+          "title": "Axe audit: a guard test fails when a page or dialog has no accessibility case"
         }
       ],
       "backlog": [
         "PB-087",
-        "PB-062",
-        "PB-034",
-        "PB-027"
+        "PB-034"
       ],
       "dependencies": [],
-      "blockers": [],
-      "last_completed": "#827 one page layout for Platform, Optimize and Monitor",
-      "next_action": "Every feature the docs call Preview gets a Preview id, with a UI test (PB-078)."
+      "blockers": [
+        "EA-030 Narrator pass needs a Windows PC",
+        "#1136 Embed Studio screen held for Chris's live report test"
+      ],
+      "last_completed": "#1390 (#1374), #1394 (#1373), #1395 (#1375), #1403 (#1398): 59 browser tests and real focus and error-text fixes",
+      "next_action": "#1672 then #1673; land the Learn PRs."
     },
     {
       "key": "platform",
@@ -224,78 +203,27 @@
         "Enterprise readiness program"
       ],
       "active": {
-        "story": "PB-074",
-        "issue": 861,
-        "note": "On main d0747a6 every third-party action is already pinned by commit SHA and zensical is pinned, so what remains is that the release job in ci.yml doesn't list the audit job in needs."
+        "issue": 1674,
+        "title": "[EA-028] SQLite stores open through one helper that handles a corrupt file"
       },
       "ready": [
         {
-          "story": "PB-072",
-          "issue": 862,
-          "note": "On main the engine already runs QUICK calls in their own lane (server.py, watchdog.rs), so a long call no longer blocks the quick list. Check what still lacks a limit or a Stop and finish only that, or show the item is done."
-        },
-        {
-          "story": "PB-051",
-          "issue": 863,
-          "note": "retrying.py already retries 408, 429 and 5xx. Check the 401 refresh-once rule, the 300-second long-running-operation limit and the no-duplicate-write test."
+          "issue": 1675,
+          "title": "[EA-027] Ruff BLE rules on (second slice), with each reviewed exception listed"
         }
       ],
       "backlog": [
-        "PB-010",
-        "PB-063",
-        "PB-003",
         "PB-061"
       ],
       "dependencies": [],
       "blockers": [
-        "PB-001 code signing waits on Microsoft identity validation",
+        "PB-001 / EA-009 code signing waits on Microsoft identity validation (Chris)",
         "#744 HD-030 waits on Chris's fail-closed decision"
       ],
-      "last_completed": "#843 links off by policy start no listener",
-      "next_action": "Make the release job wait for the audit job (PB-074 remainder)."
+      "last_completed": "#1359 (#1358) format_number; #1339 (#1337) axe waits; #1349, #1356, #1363 (parts of #1341)",
+      "next_action": "#1674 one store per PR; #1675."
     }
   ],
-  "new_stories": {
-    "KF-FABRIC-SPARK": {
-      "title": "Fabric Spark interactive sessions (Livy) as a Preview engine",
-      "pillar": "fabric",
-      "priority": "P2",
-      "problem": "Notebooks that need real Spark can only run as a whole Fabric job; there is no interactive Fabric Spark session from the app.",
-      "capability": "A Preview engine that runs cells in a Fabric Spark session through the Livy API, with remote-compute confirmation.",
-      "acceptance": [
-        "The saved patch is rebased onto main and opened as a draft PR",
-        "Every remote session start goes through the remote compute confirmation and risk check",
-        "Tests with Fabric faked cover start, run, cancel and stop",
-        "Docs say it uses Fabric capacity and is Preview"
-      ],
-      "effort": "M"
-    },
-    "KF-SNOWFLAKE-RESEARCH": {
-      "title": "Snowflake pillar: audit, ADRs and parity matrix",
-      "pillar": "snowflake",
-      "priority": "P4",
-      "problem": "Snowflake is one of the three target platforms and has no work at all.",
-      "capability": "An evidence-based plan: what Snowflake development can run on the PC (DuckDB with a Snowflake SQL dialect, SQLGlot transpiling, Snowpark local testing), what needs a live account, and how it fits the existing engine registry and connection profiles.",
-      "acceptance": [
-        "A parity matrix like databricks/parity-matrix.md, with official sources for each row",
-        "ADRs for sign-in, the engine adapter and what never runs inside the engine process",
-        "A sliced plan of independently reviewable PRs",
-        "No code and no Snowflake account spend before Chris's go"
-      ],
-      "effort": "M"
-    },
-    "KF-DBX-LOSS-REPORT": {
-      "title": "Databricks notebook conversion says what it could not carry over",
-      "pillar": "databricks",
-      "priority": "P3",
-      "problem": "Importing or exporting Databricks notebooks drops widgets, magics and dbutils calls without telling the developer.",
-      "capability": "A loss report on every Databricks import and export, extending the existing converter (no second converter).",
-      "acceptance": [
-        "Each dropped or changed construct is listed with its cell",
-        "Round-trip tests cover widgets, %sh, %fs and dbutils",
-        "Docs list what converts and what doesn't"
-      ],
-      "effort": "S"
-    }
-  }
+  "new_stories": {},
+  "side_programs": []
 }

@@ -17,8 +17,13 @@ async function historyDialog(name) {
   const overlay = showDialog(`History of ${name} in ${ENV_LABEL[env]}`, body, [btn("Close", null, closeDialog, "tool outline")]);
   overlay.querySelector(".dialog").classList.add("wide");
   if (env !== "dev" && !state.user && !(await signIn())) return;
-  const hist = await attempt(() => rpc("meta_table_history", { name, env }), "Could not read the history");
-  if (!hist || !body.isConnected) return;
+  // A refusal says why in the dialog, which otherwise kept saying it was reading.
+  let hist;
+  try { hist = await rpc("meta_table_history", { name, env }); } catch (err) {
+    if (body.isConnected) fill(body, errorPanel(err, { label: "Could not read the history", retry: () => historyDialog(name) }));
+    return;
+  }
+  if (!body.isConnected) return;
   if (!hist.versions.length) {
     fill(body, h("p", { class: "muted-text" }, `${name} hasn't been written in ${ENV_LABEL[env]} yet.`));
     return;
@@ -65,7 +70,7 @@ function restoreDialog(name, env, v, hist) {
       downstream.length ? btn("Run downstream", "play", () => { closeDialog(); runEntities(downstream); }, "tool primary") : null].filter(Boolean));
   };
   showDialog(`Restore ${name} to version ${v.version}?`, h("div", { class: "scroll" },
-    h("p", { class: "text" }, `${name} in ${ENV_LABEL[env]} goes back to how it was ${v.at ? new Date(v.at).toLocaleString() : `at version ${v.version}`}. `,
+    h("p", { class: "text" }, `${name} in ${ENV_LABEL[env]} goes back to how it was ${dateTimeText(v.at, { empty: `at version ${v.version}` })}. `,
       "Later versions stay in its history, so you can restore one of them again."),
     hist.incremental ? h("p", { class: "text" }, "It loads incrementally, so its watermark moves back too and the next run picks up what came after.") : null,
     hist.downstream.length ? h("p", { class: "muted-text" }, `Tables that read it aren't changed: ${hist.downstream.join(", ")}.`) : null,
@@ -156,7 +161,7 @@ function varlibBody(v, reload) {
         const ws = v.environments[env];
         return btn(`Publish to ${ENV_LABEL[env]}`, "publish", () => publish(env), "tool outline small",
           { disabled: ws.workspace_id ? null : true,
-            title: ws.workspace_id ? `${ws.workspace_name || ws.workspace_id}, with ${ws.value_set} active${v.published[env] ? ` · last published ${new Date(v.published[env]).toLocaleString()}` : ""}`
+            title: ws.workspace_id ? `${ws.workspace_name || ws.workspace_id}, with ${ws.value_set} active${v.published[env] ? ` · last published ${dateTimeText(v.published[env])}` : ""}`
               : `Assign a workspace to ${ENV_LABEL[env]} first` });
       })),
     h("p", { class: "muted-text small" }, "One Fabric variable library per environment workspace, with that environment's connection values active. ",
@@ -231,7 +236,7 @@ function measureDialog(title, m, cur) {
   const sources = m.sources || (m.source ? [m.source] : []);
   const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
   const period = m.period && (m.period.start || m.period.end)
-    ? `${m.period.start ? new Date(m.period.start).toLocaleString() : "?"} to ${m.period.end ? new Date(m.period.end).toLocaleString() : "now"}` : "";
+    ? `${dateTimeText(m.period.start, { empty: "?" })} to ${dateTimeText(m.period.end, { empty: "now" })}` : "";
   showDialog(title, h("div", { class: "scroll" },
     h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
     h("table", { class: "list compact" }, h("tbody", {},
@@ -359,7 +364,7 @@ function usageImportsList(imports) {
   return h("details", { class: "usage-imports" }, h("summary", { class: "small" }, `${plural(imports.length, "import")} on this PC`),
     h("table", { class: "list compact" }, h("tbody", {}, imports.map((i) => h("tr", {},
       h("td", {}, h("b", {}, i.file_name), h("div", { class: "muted-text small" }, `${i.provider_label} · ${i.layout_label}`)),
-      h("td", { class: "small" }, i.period?.start ? `${new Date(i.period.start).toLocaleDateString()} to ${new Date(Math.max(Date.parse(i.period.start), Date.parse(i.period.end || i.period.start) - 1)).toLocaleDateString()}` : ""),
+      h("td", { class: "small" }, i.period?.start ? `${dateText(i.period.start)} to ${dateText(Math.max(Date.parse(i.period.start), Date.parse(i.period.end || i.period.start) - 1))}` : ""),
       h("td", { class: "n" }, plural(i.rows, "row")),
       h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
       h("td", {}, btn("Remove", "delete", async () => {
@@ -372,7 +377,7 @@ function usageImportsList(imports) {
 function usageBilled(billed, cur) {
   if (!billed?.length) return null;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC" });
+  const day = (d) => dateText(`${d}T00:00:00Z`, { utc: true });
   return h("div", { class: "usage-billed" },
     h("p", { class: "text" }, h("b", {}, "Billed per capacity"), h("span", { class: "muted-text small" }, " · from Azure Cost Management, for the whole capacity")),
     h("table", { class: "list compact" },
@@ -390,8 +395,9 @@ function usageImportDialog() {
   const out = h("div", { class: "usage-preview" });
   const input = h("input", { type: "file", accept: ".csv,text/csv" });
   const tz = h("input", { value: "UTC", size: 8, title: "The export doesn't say its time zone. UTC, or an offset such as +02:00." });
+  let shown = null, seq = 0;  // the options of the preview the dialog shows, which Import sends
   const go = btn("Import", "save", async () => {
-    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: state.options }), "Not imported");
+    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: shown }), "Not imported");
     if (res) { closeDialog(); toast(`Imported ${res.rows} row${res.rows === 1 ? "" : "s"} of measured usage`); render(); }
   }, "tool primary");
   go.disabled = true;
@@ -400,7 +406,10 @@ function usageImportDialog() {
     if (!state.text) return;
     state.options.tz = tz.value.trim() || "UTC";
     fill(out, h("p", { class: "muted-text" }, "Checking the file..."));
-    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options: state.options }), "Not read");
+    const n = ++seq, options = { ...state.options };
+    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options }), "Not read");
+    if (n !== seq) return;  // a newer preview, of the options chosen since, answers instead
+    shown = options;
     if (!p) { fill(out); return; }
     fill(out, ...usagePreview(p, (opt, value) => { Object.assign(state.options, opt === "period" ? value : { [opt]: value }); check(); }));
     go.disabled = !p.ready;
@@ -445,7 +454,7 @@ function usagePreview(p, choose) {
       p.rows_read !== undefined ? row("Rows", `${p.rows_read} read · ${p.to_import} to import` +
         (p.already_imported ? ` · ${p.already_imported} already imported` : "")
           + (p.replaces_earlier ? ` · ${p.replaces_earlier} for days an earlier import also has (the export that reaches the later day counts)` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
-      p.period?.start ? row("Period", `${new Date(p.period.start).toLocaleString()} to ${new Date(p.period.end || p.period.start).toLocaleString()}`) : null,
+      p.period?.start ? row("Period", `${dateTimeText(p.period.start)} to ${dateTimeText(p.period.end || p.period.start)}`) : null,
       p.workspaces?.length ? row("Workspaces", p.workspaces.join(", ")) : null,
       p.capacities?.length ? row("Capacities", p.capacities.join(", ")) : null,
       p.total && p.to_import ? row(p.provider.id === "cost_management" ? "Compute billed" : "Measured CU", measureFigure("Measured CU in this file", p.total)) : null,
@@ -595,7 +604,8 @@ function accessTable(d) {
     sel.addEventListener("change", async () => {
       const role = sel.value;
       const what = role ? `${cur ? "change" : "give"} ${p.name} ${role} on` : `remove ${p.name} from`;
-      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change"))) { sel.value = cur?.role || ""; return; }
+      // No access takes the person's access away: a danger confirm, which starts on Cancel.
+      if (!(await confirmDialog("Change access?", `This will ${what} ${w.workspace_name || w.label} in Fabric now.`, "Change", { danger: !role }))) { sel.value = cur?.role || ""; return; }
       const ok = await attempt(() => rpc("access_set_role", { workspace_id: w.workspace_id, role, assignment_id: cur?.assignment_id || "",
         principal_id: p.id, principal_type: p.type || "User" }), "Access not changed");
       if (ok) { toast(`Access changed for ${p.name}`, false, { log: true }); accessPage.data = null; render(); } else sel.value = cur?.role || "";
@@ -668,7 +678,7 @@ function lakehouseAccessBody(a, lh, redraw) {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
     const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (!res) return;
+    if (!res) { fill(who); return; }
     const list = res.readers;
     // Without the data access roles the list misses everyone they let in: say so (QA-005).
     const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;

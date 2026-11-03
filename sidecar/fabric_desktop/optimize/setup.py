@@ -47,7 +47,7 @@ MESSAGES = {
 }
 
 
-def _type_ok(have: pl.DataType, want: pl.DataType) -> bool:
+def _type_ok(have: pl.DataType, want: schema.Dtype) -> bool:
     if have == want:
         return True
     # Strings may come back as large strings or views, depending on the writer.

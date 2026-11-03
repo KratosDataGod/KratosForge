@@ -38,7 +38,7 @@ A health check lists one entry of the shortcut's folder through OneLake, with yo
 | **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or **Remove** it. When you can't open the lakehouse at all, see [A lakehouse you can't open](#a-lakehouse-you-cant-open) |
 | **Broken**, storage refused the connection | An ADLS Gen2, S3 or other storage shortcut whose connection was refused: an expired key or secret, or the account lost its rights | The connection's owner updates it in Fabric (**Settings > Manage connections and gateways**), then **Check now** |
 | **Unreachable** | You have no access to a OneLake target, so the check can't tell whether it works for others | Ask for access to the target, or ask someone who has it to check |
-| **Not checked** | Not checked yet, or you can't read the lakehouse it's in | **Check all now** |
+| **Not checked** | Not checked yet, you can't read the lakehouse it's in, or OneLake was busy (it throttled the check, or failed it for a OneLake target, after a few tries; for an ADLS, S3 or other storage target a 500, 502 or 504 shows as broken, since the storage itself may be down) | **Check all now**, or wait for the next check |
 
 Every shortcut is checked when the page opens. To stop that, untick **Check every shortcut when this page opens** on the Health view.
 
@@ -127,9 +127,11 @@ New shortcut and Repoint check the rules as you fill in the dialog. When a rule 
 
 A change made in KratosForge says who made it, and why when it came from a request. Fabric doesn't record who changes a shortcut, so KratosForge compares what it sees with what it saw last time each time it reads the shortcuts. Changes made in Fabric, or by other tools, show as **Seen at scan**. The first time a lakehouse is read sets the starting point, so shortcuts already there aren't listed as added.
 
+Anyone's scan adds new shortcuts, and anyone's health check can mark one broken. A change that could hide a problem (a shortcut removed or repointed, or one no longer broken) changes the inventory only when a platform admin or a member of a project with a data product in that lakehouse sees it. From anyone else, a repoint (seen at scan or made in KratosForge) is listed as *reported* and the shortcut, its health and its accepted risks stay as they were, a removal waits, a health check records only a break, and the page says what wasn't recorded. A lakehouse no project has a product in is a platform admin's to update. Each scan and check is recorded with who made it on **Platform > Govern > Audit**.
+
 Every change keeps the shortcut's full definition:
 
-- **Undo** on a repointed shortcut points it back; on an added one, removes it.
+- **Undo** on a repointed shortcut points it back; on an added one, removes it. It first checks the shortcut in Fabric is still as that change left it (pointing at the same target, or for a removed one, nothing in its place). If it has changed again since, Undo says so and changes nothing. Undo and Recreate show only on a change that was applied and made by a platform admin or a member of a project with a product in that lakehouse; a reported change, or one logged by someone else, has neither.
 - **Recreate** on a removed shortcut makes it again, with the same name, place and target.
 
 Both ask first, follow the shortcut rules, and never touch the data the shortcut points at. The history is kept by the platform, so the whole team shares one history.
@@ -146,6 +148,7 @@ Shortcut requests are the [platform's requests](platform.md#requests), next to k
 
 - A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
 - **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.
+- If an approval stopped after Fabric made the shortcut (a timeout, or the platform couldn't be reached), approving again finds it. If it points exactly where the request asks, the request is approved and the shortcut is recorded once. If a shortcut there points anywhere else, the request stays waiting and the error names its target.
 - The person who sent it can withdraw it while it waits.
 
 **Shortcut needs** lists shortcuts that need changing:

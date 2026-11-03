@@ -271,6 +271,34 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   }
 });
 
+test("Help and about shows the policy file's SHA-256 and whether its last change came the way IT pushes it (#1670)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, text: kids.flat().join("") }), dateTimeText: () => "2 Nov 2026, 17:00" };
+  vm.runInNewContext(`${src.match(/function policyRecordRows\([\s\S]*?\n}\n/)[0]}; this.f = policyRecordRows;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ sha256: null, state: "none" }), null);
+  const managed = ctx.f({ sha256: "ab12", managed: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.strictEqual(managed[1].text, "ab12");
+  assert.strictEqual(managed[3].text, "Last changed 2 Nov 2026, 17:00. The audit log has each change.");
+  const unmanaged = ctx.f({ sha256: "ab12", managed: false, first: true, changed_at: "2026-11-02T17:00:00+00:00" });
+  assert.match(unmanaged[3].text, /^First seen .*could change the file: not the way IT pushes it\. Compare the SHA-256/);
+  assert.match(src, /h\("dd", \{ class: "mono" \}, s\.policy_file\),\n\s+policyRecordRows\(s\.policy_record\),/);
+});
+
+// friendlyError returns { text, details, cancelled }, so a call used as text shows "[object Object]".
+test("friendlyError's result is never used as text", () => {
+  const misused = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const m of src.matchAll(/friendlyError\([^()]*\)(?![.\w])/g)) {
+      const start = src.lastIndexOf("\n", m.index) + 1;
+      if (/(?:const|let) \w+ = $/.test(src.slice(start, m.index)) || /function $/.test(src.slice(start, m.index))) continue;
+      misused.push(`${name}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  assert.deepStrictEqual(misused, []);
+});
+
 // Accessibility (FD-139): checks that need no browser.
 test("every icon-only button has a name a screen reader can say", () => {
   const missing = [];
@@ -349,6 +377,8 @@ test("the branch pill shows the branch and what's ahead or behind", () => {
   assert.strictEqual(gitPillText(gitStatus({ branch: null })), "abc1234", "a detached head shows the commit");
   assert.strictEqual(gitPillText(gitStatus({ branch: null, commit: null })), "No commits");
   assert.strictEqual(gitPillText(null), "");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 3 })), "main · 3 unsaved changes", "changes are said in words");
+  assert.strictEqual(gitPillText(gitStatus({ changed: 1, ahead: 2 })), "main ↑2 · 1 unsaved change");
 });
 
 test("the commit button says what it will commit, and refuses with conflicts", () => {
@@ -463,7 +493,7 @@ test("billed capacity totals show each currency on its own and say which environ
     h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
     measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
   };
-  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  vm.runInNewContext(`${dateHelpers()}${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
   assert.strictEqual(ctx.usageBilled([], "USD"), null);
   const out = text(ctx.usageBilled([
     { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
@@ -983,6 +1013,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.match(say("SignInError: broker_error: Status_IncorrectConfiguration, error code 3399614466"), /for this service/);  // #1079
+  assert.match(say("SignInError: AADSTS65002: Consent between first party application and first party resource"), /for this service/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
   assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -1257,7 +1289,7 @@ test("attempt() stays quiet only for a cancelled sign-in, never for an empty err
 test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${dateHelpers()}${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
   const now = Date.parse("2026-10-20T12:00:00Z");
   const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
   assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
@@ -1508,6 +1540,27 @@ test("Workspaces, the catalog and data products have a How this works panel that
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
 
+// #856 (PB-083): the catalog's Endorsed items filter is off, and its reason (the button's title) says
+// where endorsement really shows. There is no embedded Fabric catalog to point at.
+test("the Endorsed items filter's reason names the admin tenant scan, data products and Open Fabric's catalog", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "service.py"), "utf8");
+  const reason = py.match(/ENDORSED_FILTER_REASON = \(([\s\S]*?)\)\n/)?.[1].replace(/"\s*"/g, "") || "";
+  assert.match(reason, /admin tenant scan/);
+  assert.match(reason, /Data mesh > Products/);
+  assert.match(reason, /Scan now/);
+  assert.match(reason, /Fabric administrator/);
+  assert.match(reason, /Open Fabric's catalog/);
+  assert.match(app, /btn\("Open Fabric's catalog"/, "the button the reason names is on the catalog page");
+  assert.doesNotMatch(py + app, /catalog below|embedded on the same page/i);
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "troubleshooting.md"), "utf8");
+  const row = docs.split("\n").find((l) => l.includes("**Endorsed items** is greyed out")) || "";
+  assert.match(row, /admin tenant scan/);
+  assert.match(row, /Scan now/);
+  assert.match(row, /Open Fabric's catalog/);
+  assert.doesNotMatch(row, /embedded/);
+});
+
 test("repositories are grouped by what they hold, unsorted ones last", () => {
   const { gitGroupRepos } = gitHelpers();
   const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
@@ -1603,6 +1656,9 @@ test("no URL sinks built from data in app/ui outside the reviewed list", () => {
     "notebook.js: return h(\"div\", { class: \"output\" }, h(\"img\", { class: \"out-img\", alt: \"Chart from this cell\", src: `data:${o.mime};base64,${o.data}` }));",
     // HTML output frame: the shell's fixed frame URL, no data (HD-020).
     "notebook.js: src: window.__TAURI__.core.convertFileSrc(\"frame\", \"nbout\") });",
+    // Profile picture (PB-125): only a base64 PNG data URL passes profilePicture()'s test; the engine checks it is a
+    // 256 px square PNG, and <img> only decodes it.
+    "profile.js: return ok ? h(\"img\", { class: cls, src: url, alt: \"\" }) : null;",
     // Vega charts: a fixed file in vendor/.
     "notebook.js: script.src = \"vendor/vega/vega-frame.js\";",
   ]);
@@ -2445,22 +2501,23 @@ test("the update splash lists the build's notes and each change since the build 
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
-test("removing a schedule asks first, in red, and says what stops", () => {
+test("removing a schedule asks first, in red, and says what stops", async () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
   assert.strictEqual(removes.length, 3);
   for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
-  ctx.confirmDialog = (...args) => args;
-  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  vm.runInContext(/(?:async )?function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = async (...args) => args;
+  ctx.document = { getElementById: () => ({ firstElementChild: null }) };  // asked with no dialog open
+  const [title, text, ok, opts] = await ctx.f("nb_sales", "Daily at 06:00 UTC", false);
   assert.strictEqual(title, "Remove the schedule for nb_sales?");
   assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
-  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true))[1], /Fabric deletes the schedule/);
+  assert.match((await ctx.f("Dev runs", "Every 30 minutes", true, false))[1], /turn it Off in Monitor > Fabric > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
@@ -3053,6 +3110,10 @@ test("the command bar offers Go back and Go forward only when there is somewhere
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
   assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+  // The arrows stay hidden until there is a page to go back or forward to.
+  assert.match(html, /<div class="nav-buttons" hidden>/);
+  const appSrc = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(appSrc, /wrap\.hidden = !canBack && !canFwd/);
 });
 
 // UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).
@@ -3251,6 +3312,63 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// The attributes object an h(...) call opens with "{" just before index i: its text, read up to the
+// brace that closes it, past strings, template literals and nested objects (#1061).
+function attrsAt(src, i) {
+  const open = src.lastIndexOf("{", i);
+  if (open < 0 || !/^\{\s*$/.test(src.slice(open, i))) return null;
+  const stack = ["{"];
+  for (let j = open + 1; j < src.length; j++) {
+    const c = src[j];
+    const top = stack[stack.length - 1];
+    if (top === '"' || top === "'") {
+      if (c === "\\") j++;
+      else if (c === top) stack.pop();
+    } else if (top === "`") {
+      if (c === "\\") j++;
+      else if (c === "`") stack.pop();
+      else if (c === "$" && src[j + 1] === "{") { stack.push("{"); j++; }
+    } else if (c === '"' || c === "'" || c === "`" || c === "{") stack.push(c);
+    else if (c === "}") {
+      stack.pop();
+      if (!stack.length) return src.slice(open, j + 1);
+    }
+  }
+  return null;
+}
+
+// UX-012 (#961): every row of tabs is a tablist of tabs, so the shared handler gives it Left, Right,
+// Home and End and a screen reader says which tab is selected.
+test("every row of tabs is a tablist with selected state", () => {
+  // A row whose tablist is its first child, so a jump button can sit after the list (OneLake, #961).
+  const firstChild = (src, attrs, at) => {
+    const rest = src.slice(at + attrs.length);
+    const m = rest.match(/^\s*,\s*h\("\w+",\s*\{/);
+    return m ? attrsAt(rest, m[0].length) : null;
+  };
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    for (const [re, role] of [[/class: "(subtabs|explorer-tabs)\b/g, 'role: "tablist"'], [/class: (`tab\$\{|"tab")/g, 'role: "tab"']]) {
+      for (const m of src.matchAll(re)) {
+        const line = src.slice(0, m.index).split("\n").length;
+        const attrs = attrsAt(src, m.index);
+        assert.ok(attrs, `${file}:${line}: a tab row or tab whose attributes object can't be read`);
+        if (role === 'role: "tab"') {
+          assert.ok(attrs.includes(role), `${file}:${line}: a tab without ${role}`);
+          assert.ok(attrs.includes('"aria-selected"'), `${file}:${line}: a tab without aria-selected`);
+        } else {
+          const child = attrs.includes(role) ? null : firstChild(src, attrs, src.lastIndexOf("{", m.index));
+          assert.ok(attrs.includes(role) || (child && child.includes(role)), `${file}:${line}: a tab row without ${role}`);
+        }
+      }
+    }
+  }
+  // The reader itself: a role just past the object's closing brace doesn't count.
+  const near = 'h("div", { class: "subtabs", onclick: () => { go(`x${y}`); } }, h("b", {}, \'role: "tablist"\'))';
+  assert.ok(!attrsAt(near, near.indexOf("class:")).includes('role: "tablist"'));
+  assert.strictEqual(attrsAt(near, near.indexOf("class:")), '{ class: "subtabs", onclick: () => { go(`x${y}`); } }');
+});
+
 // One size formatter for every page (#929): no page keeps its own copy, and a byte count reads the same everywhere.
 test("sizes read the same on every page", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -3264,6 +3382,50 @@ test("sizes read the same on every page", () => {
   for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const src = fs.readFileSync(path.join(ui, file), "utf8").replace(/function sizeText\([\s\S]*?\n}\n/, "");
     assert.doesNotMatch(src, /\[\s*"(B|bytes)",\s*"KB"/, `${file} keeps its own size units: use sizeText`);
+  }
+});
+
+// The shared date and time helpers (activity.js), for tests that run a page's code on its own.
+function dateHelpers(names = ["readDate", "dateText", "timeText", "dateTimeText"]) {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  return names.map((name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0]).join("\n");
+}
+
+test("dates and times read the same on every page", () => {
+  const ctx = {};
+  vm.runInNewContext(`${dateHelpers(["readDate", "dateText", "timeText", "dateTimeText", "relTime"])}
+this.f = { dateText, timeText, dateTimeText, relTime };`, ctx);
+  const { dateText, timeText, dateTimeText, relTime } = ctx.f;
+  const at = "2026-10-28T19:03:07Z";
+  const d = new Date(at);
+  assert.strictEqual(dateText(at), d.toLocaleDateString(undefined, { dateStyle: "medium" }));
+  assert.strictEqual(dateText(d), dateText(at), "a Date reads the same as its ISO string");
+  assert.strictEqual(dateText(d.getTime()), dateText(at), "and as milliseconds");
+  assert.ok(dateTimeText(at).startsWith(dateText(at)), dateTimeText(at));
+  assert.strictEqual(timeText(at), d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+  assert.notStrictEqual(timeText(at, { seconds: true }), timeText(at), "seconds only when asked");
+  assert.strictEqual(dateText("2026-10-28T00:00:00Z", { utc: true }), new Date(Date.UTC(2026, 9, 28)).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" }));
+  for (const f of [dateText, timeText, dateTimeText, relTime]) {
+    for (const bad of [null, undefined, "", "not a date", NaN]) {
+      const out = f(bad);
+      assert.strictEqual(out, "", `${f.name}(${String(bad)})`);
+    }
+  }
+  assert.strictEqual(dateTimeText(null, { empty: "never" }), "never");
+  assert.ok(dateText(at, { weekday: true }).includes(d.toLocaleDateString(undefined, { weekday: "short" })), "weekday when asked");
+  assert.strictEqual(dateText("soon", { empty: "?" }), "?");
+  const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
+  assert.strictEqual(relTime(ago(5)), "just now");
+  assert.strictEqual(relTime(ago(600)), "10 min ago");
+  assert.strictEqual(relTime(ago(7200)), "2 h ago");
+  assert.strictEqual(relTime(ago(90000)), "yesterday");
+  const lastYear = new Date(Date.now() - 400 * 86400000);
+  assert.strictEqual(relTime(lastYear.toISOString()), dateText(lastYear));
+  // Every page uses these: no page formats a date or time itself.
+  for (const file of fs.readdirSync(ui).filter((f) => f.endsWith(".js") && f !== "activity.js")) {
+    const page = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.doesNotMatch(page, /\.toLocale(Date|Time)String\(|dateStyle|timeStyle|new Date\([^()]*\)\.toLocaleString\(/,
+      `${file} formats a date itself: use dateText, timeText, dateTimeText or relTime`);
   }
 });
 
@@ -3324,7 +3486,7 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
   const root = path.join(__dirname, "..", "..");
-  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+  for (const [file, link] of [["docs/README.md", "(notebook-magics.md)"],
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
@@ -3507,7 +3669,7 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -3849,6 +4011,29 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
 });
 
+// #854: what a Databricks import or export didn't carry over, one row per note with its cell.
+test("Databricks conversion notes show each construct with its cell, on import and after export", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`const h = (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k != null) });
+${src.match(/const NBF_NOTE_KINDS = [^\n]*/)[0]}
+${src.match(/function nbfPlural\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfNotesTable\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfCheckNotes\([\s\S]*?\n}\n/)[0]}
+this.table = nbfNotesTable; this.check = nbfCheckNotes;`, ctx);
+  const text = (n) => (typeof n === "string" ? n : (n.kids || []).map(text).join("|"));
+  const rows = ctx.table([{ cell: null, kind: "dropped", what: "Outputs" }, { cell: 3, kind: "check", what: "dbfs:/ path" },
+    { cell: 4, kind: "fabric", what: "widgets" }]).kids[1].kids;
+  assert.deepStrictEqual(Array.from(rows, text), ["Whole notebook|Not carried over|Outputs", "3|Check before running|dbfs:/ path",
+    "4|Before running in Fabric|widgets"]);
+  const blocks = ctx.check({ notebooks: [{ name: "Load", notes: [{ cell: 1, kind: "changed", what: "%sh" }] }, { name: "Clean", notes: [] }] });
+  assert.strictEqual(blocks.length, 1);
+  assert.match(text(blocks[0]), /^Load: 1 thing to know about the conversion/);
+  assert.match(src, /\.\.\.nbfCheckNotes\(check\)\);/);
+  assert.match(src, /showDialog\("What Databricks source doesn't hold"/);
+});
+
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
 function notebookVersionsHelpers() {
   const ctx = { registerFeature: () => {} };
@@ -4177,6 +4362,21 @@ test("Markdown and JSON cell outputs render without new HTML sinks", () => {
   assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
 });
 
+// Snowflake SQL on DuckDB (SF-04): the translation report is plain text in a <pre>, never HTML.
+test("The Snowflake translation output renders as text", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = /function renderOutput\([\s\S]*?\n}\n/.exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined) });
+  const ctx = { h: el };
+  vm.createContext(ctx);
+  vm.runInContext(fn + "this.r = renderOutput;", ctx);
+  const evil = "Statement 1: <img src=x onerror=alert(1)>";
+  const out = ctx.r({ type: "translation", text: evil, statements: [] }, null);
+  assert.strictEqual(out.attrs.class, "output translation-output");
+  assert.strictEqual(out.kids[0].tag, "pre");
+  assert.deepStrictEqual(out.kids[0].kids, [evil]);
+});
+
 // IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
 // completions carry lazy docs; other languages get none of it.
 test("Python cells get hover, signature help, syntax errors and completion docs", () => {
@@ -4342,7 +4542,7 @@ function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
   const { node } = chartsHarness(null);
   const calls = [];
-  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: (e) => ({ text: String(e?.message ?? e), details: "" }), previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
     renderOutput: (o) => node("pre", {}, o.text || o.type),
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -4488,7 +4688,7 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
   const root = path.join(__dirname, "..", "..");
-  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+  for (const f of ["docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
     assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
   }
 });
@@ -4678,7 +4878,7 @@ test("the query profile runs only when asked, warns about capacity and lists eac
     { depth: 0, name: "ORDER_BY", rows: 6, seconds: 0.001, share: 0.001, details: { "Order By": "revenue DESC" } },
     { depth: 1, name: "HASH_GROUP_BY", rows: 6, seconds: 0.29, share: 0.21, details: { Groups: "region" } },
     { depth: 2, name: "SEQ_SCAN", rows: 12480113, seconds: 0.97, share: 0.71, details: { Table: "silver.orders", Filters: "status='shipped'" } }] };
-  const ctx = { h: node, friendlyError: (e) => `failed: ${e.message}`, toast: () => {}, attempt: (fn) => fn(),
+  const ctx = { h: node, friendlyError: (e) => ({ text: `failed: ${e.message}`, details: "" }), toast: () => {}, attempt: (fn) => fn(),
     btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label),
     navigator: { clipboard: { writeText: async (t) => { copied = t; } } },
     rpc: async (m, a) => { calls.push([m, a]); if (answer instanceof Error) throw answer; return answer; } };
@@ -5048,7 +5248,7 @@ test("Profile shows proofs, and Journey and Achievements only while progression 
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /p\.settings\.progression \? tab\("journey", "Journey"\) : null/);
   assert.match(p, /p\.settings\.progression \? tab\("achievements", "Achievements"\) : null/);
-  assert.match(p, /if \(!p\.settings\.progression && \["journey", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
+  assert.match(p, /if \(!p\.settings\.progression && \["journey", "ranks", "achievements"\]\.includes\(profilePage\.tab\)\) profilePage\.tab = "overview";/);
   assert.match(p, /const proved = r\.type === "prove\.match";/);
   const v = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   assert.match(v, /toast\(`\$\{nb\.name\}: \$\{text\}`, r\.state === "failed"\);\n  if \(r\.state === "done"\) profileEarned\(r\.earned\);/);
@@ -5277,6 +5477,38 @@ test("a source request can ask for a Copy job, and approving says what it makes"
   assert.match(fn("landsIn"), /secure \? "secure " : ""\}zone \$\{where\.zone_name\}/);
 });
 
+
+// Engine picker (Preview): Engine replaces Runs on beside Run all, remote engines ask first and
+// never start on their own, a switch that loses variables is a red confirm, and a cell the engine
+// can't run is flagged with "Run this cell on Python" for that cell only.
+test("the engine picker is a Preview feature that asks before remote compute", () => {
+  const src = fs.readFileSync(path.join(ui, "engines.js"), "utf8");
+  const nbsrc = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="nbnext\.js"><\/script>\n  <script src="engines\.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /engines: "Notebook engine picker",/);
+  assert.match(src, /registerFeature\(\{ id: "engines", preview: true/);
+  assert.match(nbsrc, /const engineCtl = \(\) => previewShown\(\) \? engineToolbar\(nb\) : \[computeBtn\];/, "Preview hidden keeps Runs on");
+  assert.strictEqual((nbsrc.match(/\.\.\.engineCtl\(\)/g) || []).length, 2, "Home and Run toolbars both carry it");
+  assert.match(fn("openEngineMenu"), /if \(!previewShown\(\)\) return showMenu\(anchor, computeMenu\(nb\)\);/);
+  assert.match(fn("openEngineMenu"), /planned\.map\(\(e\) => \(\{ info:/, "planned engines are info rows, never choices");
+  const choose = fn("chooseEngine");
+  assert.match(choose, /rpc\("engine_prepare"[\s\S]*engineSwitchDialog[\s\S]*engineRemoteDialog[\s\S]*rpc\("engine_select"/, "prepare, switch, confirm, then select");
+  assert.match(choose, /if \(e\.location === "remote" && plan\.confirm\) \{\n\s*confirmed = await engineRemoteDialog\(nb, e, plan\);\n\s*if \(!confirmed\) return;/);
+  const confirm = fn("engineRemoteDialog");
+  assert.match(confirm, /\["Risk check"/);
+  assert.match(confirm, /Each start bills DBUs until its auto-stop/);
+  assert.match(confirm, /It uses Fabric capacity until it closes/);
+  assert.match(confirm, /never falls back to remote compute on its own/);
+  assert.match(fn("engineSwitchDialog"), /btn\("Switch and close session", null, \(\) => done\("close"\), "tool danger-solid"\)/);
+  assert.match(fn("engineSwitchDialog"), /"Keep both"/);
+  assert.match(fn("chooseKernel"), /confirmDialog\([\s\S]*"Switch and close session", \{ danger: true \}\)/);
+  assert.match(fn("engineFlagPanel"), /btn\("Run this cell on Python", "play", \(\) => runCellOnKernel\(cell\)/);
+  assert.match(nbsrc, /if \(!kernel && nbOnEngine\(nb\) && !cell\.meta\?\.frozen\) return runEngineCell\(cell, nb\);/);
+  for (const name of ["engines.js", "notebook.js"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ui, name), "utf8"), /no Fabric capacity/i, `${name}: local engines still use capacity for OneLake`);
+  }
+});
 // PB-078: every feature the docs call Preview is one Settings > Preview features knows (an id in
 // PREVIEW_FEATURES), or the docs say why it has none: it has no screen yet, or it's a setting in a
 // file rather than a screen, which show_preview can't hide.
@@ -5286,6 +5518,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
   const ids = new Set([...features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1].matchAll(/^ {2}(\w+): "/gm)].map(([, id]) => id));
   // A "(Preview)" heading's text (without the tag) and the id that hides its screens.
   const BY_ID = {
+    runSeveral: ["Run several notebooks"], itemPins: ["Pinned items"],
     validate: ["Validate a notebook"], sqlPractices: ["SQL best practices"], nbFormats: ["Fabric and Databricks notebook formats"],
     sessions: ["Notebook sessions"], environments: ["Notebook environments"], deps: ["Cell dependencies and stale outputs"],
     debug: ["Variable history, watches and hidden state", "Breakpoints and stepping"], replay: ["Failure replay bundles"],
@@ -5293,7 +5526,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     sideBySide: ["Side by side"], prove: ["Prove this notebook"], fabricEdit: ["Edit a Fabric notebook on this PC", "When Publish finds changes made in Fabric"],
     notebookFolderPublish: ["Publishing a notebook from a folder"], practices: ["Notebook best practices"], fabricStep: ["Run the last cell on Fabric"],
     incidents: ["Incidents and your service desk", "Who's affected", "Incidents"],
-    agents: ["Agents", "Taking over from a lost agent"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
+    agents: ["Agents", "Taking over from a lost agent", "Which pipeline asked"], workloads: ["Workloads"], queue: ["Queue"], runAs: ["Run as"],
     warehouse: ["Warehouses", "Monitoring", "Queries on a warehouse", "Warehouse queries", "Warehouse monitoring"],
     pipelines: ["Pipeline definitions", "Pipeline activity compatibility", "Running pipelines on your PC", "Pipelines",
       "Data Factory copy jobs", "Data Factory dataflows", "Data Factory connections"],
@@ -5306,6 +5539,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
+    learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
+    engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5315,9 +5550,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Shared schedules": ["docs/agent.md", /a setting in the agents' schedules, not a screen/],
     "On a schedule": ["docs/shortcuts.md", /a setting in the agent's `agent\.toml`, not a screen/],
     "Local data projects": ["docs/local-data.md", /the screens for it come next/],
-    "Engines and connection profiles": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
-    "Databricks SQL warehouse": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
-    "Databricks Connect": ["docs/engines.md", /Nothing on this page has a screen in the app yet/],
+    "Databricks workspace discovery": ["docs/engines.md", /Discovery is a command, with no screen in the app yet/],
+    "Snowflake SQL on this PC": ["docs/engines.md", /No screen can pick Snowflake SQL yet/],
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
@@ -5341,4 +5575,196 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     /settings in your project files rather than screens, such as reading \*\*in batches\*\* \(`batch_by`\), \[reliability objectives\]/);
   for (const id of ["releases", "lineage", "promote"]) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);
   assert.match(fs.readFileSync(path.join(root, "docs", "metadata-guide.md"), "utf8"), /### Who can promote\n\n\*Preview\*, part of \*\*Promote\*\*/);
+});
+
+// #971: every box that asks for a folder on this PC has Browse… beside it (folderField in app.js),
+// so nobody has to type a path. A box is a folder box when its placeholder is a Windows path, its
+// name ends in "folder", or its field's label does (a folder name or a OneLake path is not one).
+test("every folder box on this PC has a Browse… button", () => {
+  const folderish = (text) => /(^|\s)folder$/i.test(text.trim());
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const inputs = new Map();
+    for (const m of src.matchAll(/const (\w+) = h\("input", \{([^}]*)\}/g)) inputs.set(m[1], m[2]);
+    const boxes = new Set();
+    for (const [v, attrs] of inputs) {
+      const label = attrs.match(/"aria-label": "([^"]*)"/)?.[1] || "";
+      if (/type: "file"/.test(attrs)) continue; // already the browser's own folder picker
+      if (/placeholder: "C:\\\\/.test(attrs) || folderish(label)) boxes.add(v);
+    }
+    for (const m of src.matchAll(/h\("label", \{ class: "field" \}, "([^"]*)", (\w+)\)/g)) {
+      if (folderish(m[1]) && inputs.has(m[2])) boxes.add(m[2]);
+    }
+    for (const v of boxes) if (!src.includes(`folderField(${v},`)) missing.push(`${name}: ${v}`);
+    // Inside a <label>, a box with no aria-label of its own would be named "Folder Browse for …".
+    for (const [, v] of src.matchAll(/(?<!function )folderField\((\w+),/g)) {
+      if (inputs.has(v) && !/"aria-label": /.test(inputs.get(v))) missing.push(`${name}: ${v} has no aria-label`);
+    }
+    // Field lists, such as gitPathDialog's: a folder field says which folder, so it gets Browse….
+    for (const m of src.matchAll(/\{ label: "([^"]*)",([^}]*)\}/g)) {
+      if ((folderish(m[1]) || /placeholder: "C:\\\\/.test(m[2])) && /placeholder:/.test(m[2]) && !/\bfolder: "/.test(m[2])) {
+        missing.push(`${name}: field "${m[1]}"`);
+      }
+    }
+  }
+  assert.deepStrictEqual(missing, [], "folder boxes without Browse… (wrap the input in folderField)");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const helper = app.match(/function folderField\(input, name = "a folder"\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(helper, /if \(input\.readOnly \|\| !window\.__TAURI__\?\.core\) return input;/, "a locked box gets no button");
+  assert.match(helper, /invoke\("pick_folder", \{ start: input\.value\.trim\(\) \|\| null \}\)/);
+  assert.match(helper, /if \(!chosen\) return;/, "Cancel leaves the box as it was");
+  assert.match(helper, /browse\.disabled = true;[\s\S]*\.finally\(\(\) => \{ browse\.disabled = false; \}\)/, "one dialog at a time");
+  const shell = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "src", "main.rs"), "utf8");
+  assert.match(shell, /generate_handler!\[[^\]]*\bpick_folder\b/, "the shell registers pick_folder");
+});
+
+// #1108: a waiting workspace access request says the role its person or group has today, as drawn.
+test("workspace access requests show today's role, and the confirm says what approving changes", async () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const seen = [];
+  const box = { WORKSPACE_ROLES: ["Viewer", "Contributor", "Member", "Admin"], h: (tag, attrs, text) => text,
+    confirmDialog: async (title, text, ok) => { seen.push({ title, text, ok }); return true; }, result: null };
+  vm.runInNewContext(`${fn("accessToday")}${fn("accessTodayLine")}${fn("confirmApproval")}
+    result = { accessTodayLine, confirmApproval };`, box);
+  const { accessTodayLine, confirmApproval } = box.result;
+  const req = (role, today) => ({ kind: "workspace_access", target: "Sales Prod", today,
+    detail: { role, principal: { type: "Group", name: "Sales Engineers", id: "g" } } });
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Admin" })), "Sales Engineers has Admin in Sales Prod today, so approving keeps Admin.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today, so approving keeps Viewer.");
+  assert.strictEqual(accessTodayLine(req("Contributor", { role: "Viewer" })), "Sales Engineers has Viewer in Sales Prod today; approving raises it to Contributor.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { role: "" })), "Sales Engineers has no role of its own in Sales Prod today. A role through another group isn't counted.");
+  assert.strictEqual(accessTodayLine(req("Viewer", { checked: false })), "Couldn't check today's role: Fabric didn't answer. Approving never lowers a role either way.");
+  assert.strictEqual(accessTodayLine(req("Viewer", undefined)), null, "nothing for a row the viewer can't decide");
+  for (const today of [{ role: "Admin" }, { role: "Viewer" }, { role: "" }, { checked: false }, undefined]) {
+    assert.strictEqual(JSON.stringify(await confirmApproval(req(today?.role === "Viewer" ? "Contributor" : "Viewer", today))), "{}");
+  }
+  const after = " Then the request is approved. If any step fails, it stays waiting and says which.";
+  assert.deepStrictEqual(seen.map((s) => [s.text, s.ok]), [
+    ["Sales Engineers already has Admin in Sales Prod, which is higher than Viewer. Approving keeps Admin and marks the request approved. Nothing changes in Fabric." + after, "Approve"],
+    ["As you, KratosForge raises the group Sales Engineers from Viewer to Contributor in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"],
+    ["As you, KratosForge gives the group Sales Engineers the Viewer role in Sales Prod. If they already have a higher role, they keep it." + after, "Add and approve"]]);
+  seen.length = 0;
+  await confirmApproval(req("Member", { role: "Member" }));
+  assert.deepStrictEqual([seen[0].text, seen[0].ok], ["Sales Engineers already has Member in Sales Prod, which is the role asked for. Approving keeps Member and marks the request approved. Nothing changes in Fabric." + after, "Approve"]);
+  assert.match(src, /r\.kind === "workspace_access" \? accessTodayLine\(r\) : null/, "the line sits under the reason");
+});
+
+// #1195: declining a request whose approval already made something says it stays in Fabric, before the click.
+test("declining or withdrawing a partly carried-out request says what is still in Fabric", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));  // out of the vm's realm
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "workspace", target: "Sales Forecasting - Dev", detail: { name: "Sales Forecasting - Dev", made: { workspace_id: "w1" } } }),
+    ["The workspace Sales Forecasting - Dev, made by this request, is still in Fabric on its capacity: delete it there if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "workspace_access", detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { type: "Group", name: "Sales Engineers" }, made: { assigned: true } } }),
+    ["The group Sales Engineers has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ kind: "source", detail: { made: { copy_job_id: "j1", copy_job_name: "CJ_Landing_crm", schedule_id: "s1" } } }),
+    ["The Copy job CJ_Landing_crm, made by this request, is still in the landing workspace and its daily schedule still runs it: delete it there if it isn't wanted"]);
+  for (const kind of ["workspace", "workspace_access", "source", "domain", "key_table"]) {
+    assert.strictEqual(left({ kind, detail: { made: {} } }).length, 0, `${kind} with nothing made declines as before`);
+    assert.strictEqual(left({ kind, detail: {} }).length, 0);
+  }
+  assert.match(src, /Declining deletes nothing in Fabric\. \$\{left\.join\("\. "\)\}\./, "the decline confirm says it");
+  assert.match(src, /if \(res\.next\?\.length\) toast\(`Withdrew \$\{r\.target\}; \$\{res\.next\.join\("; "\)\}`/, "withdrawing says it after");
+});
+
+// #1206: a domain request's decline says where the domain it made still is.
+test("declining a domain request whose domain was made says where it is", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr" } } }),
+    ["The domain HR, made by this request, is still in Fabric and the platform: delete it in Fabric's admin portal, then on Data mesh > Domains, if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr" } } }),
+    ["The domain HR, made by this request, is still in the platform: delete it on Data mesh > Domains if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "domain", target: "hr", detail: { name: "HR", made: { domain_id: "hr", fabric_domain_id: "f-hr", found: true } } }),
+    ["The domain HR is in the platform and Fabric: it was there before this request, or approving it made it. Check which before deleting it"], "#1270: possibly someone else's");
+});
+
+// #1207: a workspace access request records whether approving gave, raised or kept the role, and a decline says exactly that.
+test("declining a workspace access request says whether its approval gave, raised or kept the role", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (made) => JSON.parse(JSON.stringify(box.result({ kind: "workspace_access",
+    detail: { role: "Contributor", workspace_name: "Sales Prod", principal: { email: "dev@contoso.com" }, made } })));
+  // The same sentences as left_in_fabric in central/requests_service.py (test_request_left_in_fabric.py).
+  assert.deepStrictEqual(left({ assigned: true, change: "gave", from: "" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request gave: remove it in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "raised", from: "Viewer" }),
+    ["dev@contoso.com keeps the Contributor role in Sales Prod that approving this request raised from Viewer: set it back in the workspace's Manage access in Fabric if it isn't wanted"]);
+  assert.deepStrictEqual(left({ assigned: true, change: "kept", from: "Admin" }), [], "a higher role they had: nothing to remove");
+  assert.deepStrictEqual(left({ assigned: true, change: "same", from: "Contributor" }),
+    ["dev@contoso.com has the Contributor role in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"]);
+  assert.deepStrictEqual(left({ assigned: true }),
+    ["dev@contoso.com has the Contributor role or a higher one in Sales Prod: they had it before this request, or approving it gave it. Check which before removing it in the workspace's Manage access in Fabric"], "a request recorded before #1207");
+});
+
+// #1260: a shortcut request's decline says the shortcut its approval made is still in OneLake.
+test("declining a shortcut request whose shortcut was made says it is still in OneLake", () => {
+  const src = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const box = { result: null };
+  vm.runInNewContext(`${src.match(/function leftInFabric\([\s\S]*?\n}\n/)[0]} result = leftInFabric;`, box);
+  const left = (r) => JSON.parse(JSON.stringify(box.result(r)));
+  // The same sentence as left_in_fabric in central/requests_service.py (test_shortcut_request_retries.py).
+  assert.deepStrictEqual(left({ kind: "shortcut", target: "LH_Silver/Tables/dbo/supplier", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1" } } }),
+    ["The shortcut supplier in LH_Silver, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted"]);
+  assert.deepStrictEqual(left({ kind: "shortcut", detail: { name: "supplier", lakehouse_name: "LH_Silver", made: { shortcut_id: "s1", found: true } } }),
+    ["The shortcut supplier in LH_Silver is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts"]);
+  assert.strictEqual(left({ kind: "shortcut", detail: { name: "supplier", made: {} } }).length, 0);
+});
+
+test("browser tests run axe through the harness, which waits for animations to end (#1337)", () => {
+  // axe judges contrast on the colors as drawn; a check taken while a dialog fades in fails on
+  // faded text (#1297). harness.cjs axeFindings turns motion off and waits; the audit has its own runner.
+  const dir = path.join(__dirname, "browser");
+  const own = new Set(["harness.cjs", "a11y-audit.test.cjs"]);
+  const direct = fs.readdirSync(dir).filter((f) => f.endsWith(".cjs") && !own.has(f))
+    .filter((f) => /axe\.run\(|addScriptTag\(\{ content: axeSource/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+  assert.deepStrictEqual(direct, []);
+  assert.match(fs.readFileSync(path.join(dir, "a11y-audit.test.cjs"), "utf8"), /await animationsDone\(page\)/);
+});
+
+// The engine failing to start fails every call the pages make: Activity shows one entry with a count.
+test("the same problem again within ten minutes updates one Activity entry", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = { localStorage: { setItem() {} }, renderBell() {}, Date, Math, Set, JSON };
+  vm.runInNewContext(`const activity = { items: [], open: false };
+    ${src.match(/const REPEAT_MS[\s\S]*?\n}\n\nfunction logActivity\([\s\S]*?\n}\n/)[0]}
+    function saveActivity() {}
+    const PROBLEM = new Set(["error", "failed"]);
+    Object.assign(this, { activity, logActivity });`, ctx);
+  const stopped = { status: "error", text: "The local engine stopped while doing this.", details: "The Python sidecar stopped" };
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  ctx.logActivity({ ...stopped, title: "Could not start the Python sidecar" });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });
+  assert.strictEqual(ctx.activity.items.length, 1);
+  const one = ctx.activity.items[0];
+  assert.strictEqual(one.repeats, 3);
+  assert.strictEqual(one.title, "Ready to work");
+  assert.deepStrictEqual([...one.alsoIn], ["Could not start the Python sidecar"]);
+  ctx.logActivity({ ...stopped, details: "something else", title: "Ready to work" });  // a different failure
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });  // not a problem: never merged
+  ctx.logActivity({ status: "ok", title: "Saved", text: "" });
+  assert.strictEqual(ctx.activity.items.length, 4);
+  ctx.activity.items.forEach((i) => { i.at = new Date(Date.now() - 11 * 60 * 1000).toISOString(); });
+  ctx.logActivity({ ...stopped, title: "Ready to work" });  // ten minutes on, it's news again
+  assert.strictEqual(ctx.activity.items.length, 5);
+});
+
+test("a developer Python missing a package says the command that installs it", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /missing a package the engine needs\. In the sidecar folder, run: python -m pip install -e \. -c constraints\.txt/);
+  const re = /^ModuleNotFoundError: No module named '[^'.]+'$/;
+  assert.ok(app.includes(re.source));
+  assert.ok(re.test("ModuleNotFoundError: No module named 'yaml'"));
+  assert.ok(!re.test("ModuleNotFoundError: No module named 'fabric_desktop.meta'"));
 });

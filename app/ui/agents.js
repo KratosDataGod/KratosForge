@@ -20,7 +20,7 @@ function agAt(iso) {
   const ahead = Math.round((t.getTime() - Date.now()) / 1000);
   if (!iso || Number.isNaN(t.getTime()) || ahead < 45) return relTime(iso);
   if (ahead < 3600) return `in ${Math.round(ahead / 60)} min`;
-  return ahead < 86400 ? `at ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : t.toLocaleString();
+  return ahead < 86400 ? `at ${timeText(t)}` : dateTimeText(t);
 }
 
 function agStatePill(a) {
@@ -246,7 +246,7 @@ function agRuns(a, e) {
   const p = e.pipeline || {};
   const scheds = e.schedules || [];
   return h("div", { class: "inc-what" },
-    h("div", {}, p.enabled ? `Pipeline jobs for ${(p.entities || []).join(", ") || "every entity"} · ${e.concurrency || 1} at a time · backfill ${p.allow_backfill ? "allowed" : "not allowed"}`
+    h("div", {}, p.enabled ? `Pipeline jobs for ${(p.entities || []).join(", ") || "every entity"} · ${e.concurrency || 1} at a time · backfill ${p.allow_backfill ? "allowed" : "not allowed"}${p.require_run ? " · only runs it can check in Fabric" : ""}`
       : "Doesn't take pipeline jobs"),
     scheds.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Schedule", "Runs", "Next", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id, s.shared ? h("span", { class: "pill-s neu", title: "Shared with other agents through the mailbox: each due time runs once, on whichever claims it" }, "Shared") : null),

@@ -26,7 +26,7 @@ function renderWidgetOutput(o, cell) {
         o.events = r.outputs || [];
       }
       next();
-    }, (err) => { o.problem = friendlyError(err); next(); });
+    }, (err) => { o.problem = friendlyError(err).text; next(); });
   };
   wrap.append(h("div", { class: "out-bar" }, previewMarked("ipywidgets", h("span", { class: "muted-text" }, "Widgets"))));
   if (o.gone) {

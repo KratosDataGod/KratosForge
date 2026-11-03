@@ -185,7 +185,8 @@ class RiskMixin:
         if w["kind"] == "notebook":
             try:
                 nb = self.notebooks.load(w["name"])  # type: ignore[attr-defined]
-                facts["compatibility"] = compute_check(nb.get("cells") or [], nb.get("lakehouse"))
+                facts["compatibility"] = compute_check(nb.get("cells") or [], nb.get("lakehouse"),
+                                                          **self._checks(w["name"]))  # type: ignore[attr-defined]
             except (OSError, ValueError):
                 facts["compatibility"] = None
         elif w["kind"] == "meta_entity" and action == "run":
@@ -254,13 +255,18 @@ class RiskMixin:
             raise PermissionError("A blocked run can't be acknowledged: " + current["summary"])
         if current["id"] != risk_id:
             raise ValueError("The findings changed since you looked. Check them again before you go ahead.")
-        record = {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "risk_id": risk_id,
-                  "workload_id": id, "workload": current["workload"], "action": action, "env": env or "",
-                  "result": current["result"], "user": self._wl_user(),  # type: ignore[attr-defined]
-                  "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING],
-                  "note": str(note or "")[:500]}
+        record = self._risk_ack_record(current, risk_id, note)
         self._risk_ack_write(record)
         return record
+
+    def _risk_ack_record(self, current: dict[str, Any], risk_id: str, note: str = "") -> dict[str, Any]:
+        """The acknowledgement of ``current``, an assessment already checked to match ``risk_id``."""
+        return {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "risk_id": risk_id,
+                "workload_id": current["workload_id"], "workload": current["workload"], "action": current["action"],
+                "env": current.get("env") or "", "result": current["result"],
+                "user": self._wl_user(),  # type: ignore[attr-defined]
+                "warnings": [f["title"] for f in current["findings"] if f["outcome"] == risk.WARNING],
+                "note": str(note or "")[:500]}
 
     def _risk_ack_write(self, record: dict[str, Any]) -> None:
         path = self.root / _ACKS  # type: ignore[attr-defined]
@@ -286,6 +292,6 @@ class RiskMixin:
             if row.get("valid") and row.get("kind") == "proof":
                 proofs.append(self.receipt_get(row["id"]))  # type: ignore[attr-defined]
         done = [c for c in self.side_by_side_list(name, 10) if c.get("state") == "done"]  # type: ignore[attr-defined]
-        return advisor.advise(name, receipts_mod.code_revision(cells)["revision"], compute_check(cells, nb.get("lakehouse")),
-                              proofs, done)
+        compat = compute_check(cells, nb.get("lakehouse"), **self._checks(name))  # type: ignore[attr-defined]
+        return advisor.advise(name, receipts_mod.code_revision(cells)["revision"], compat, proofs, done)
 

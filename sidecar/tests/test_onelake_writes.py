@@ -61,9 +61,12 @@ def test_a_failed_write_fails_the_writes_after_it_to_the_same_table():
 
 
 def test_cancel_drops_writes_that_havent_started():
-    q, gate = Queue(workers=1), threading.Event()
-    q.submit("a", "dbo.a", 0, gate.wait)
+    q, gate, started = Queue(workers=1), threading.Event(), threading.Event()
+    q.submit("a", "dbo.a", 0, lambda: (started.set(), gate.wait()))
     q.submit("a", "dbo.a", 0, lambda: "never")
+    # The first write must be running before the cancel: on a busy runner its thread can start late,
+    # and a write that hasn't started is dropped too (two notices, not one).
+    assert started.wait(5)
     threading.Timer(0.2, gate.set).start()
     assert q.flush(cancel=True) == ["dbo.a: not written (the cell was cancelled)"]
 
@@ -162,8 +165,11 @@ def service(tmp_path, monkeypatch):
         if ref.table == "broken":
             raise OSError("connection reset by peer")
         time.sleep(0.2)
-        return publish.publish(data, Ref(str(tmp_path / "onelake" / ref.table)), mode, token, schema_mode,
-                               rows, skip_unchanged)
+        table = publish.publish(data, Ref(str(tmp_path / "onelake" / ref.table)), mode, token, schema_mode,
+                                rows, skip_unchanged)
+        if ref.table == "lapsed":  # committed, then the lease was found lapsed (EA-006)
+            table.lease_warning = "Wrote dbo.lapsed, but its write lease expired while writing. Don't run the write again."
+        return table
     monkeypatch.setattr(lakehouse, "publish", local_publish)
     monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "settings.json")
     svc = Service(client_id="x", root=tmp_path)
@@ -201,6 +207,16 @@ def test_a_failed_background_write_fails_its_cell(service):
     assert out["outputs"][0]["text"].strip() == "went on"
     assert out["outputs"][-1]["ename"] == "WriteFailed" and "connection reset by peer" in out["outputs"][-1]["evalue"]
     assert service.run_cell("1", LH)["status"] == "ok"  # the next cell starts clean
+
+
+@pytest.mark.parametrize("upload", [None, "direct"])
+def test_a_write_whose_lease_lapsed_after_its_commit_says_so_in_the_cell(service, upload):
+    code = ("import pyarrow as pa\nfrom fabric_desktop import lakehouse\n"
+            f"lakehouse.write_table(pa.table({{'id': [1]}}), 'lapsed', upload={upload!r})\nprint('went on')")
+    out = service.run_cell(code, LH)
+    assert out["status"] == "ok", out
+    text = "".join(o.get("text", "") for o in out["outputs"])
+    assert "went on" in text and text.count("Warning: Wrote dbo.lapsed") == 1 and "Don't run the write again." in text
 
 
 def test_a_read_waits_for_the_cells_own_writes(service, monkeypatch):

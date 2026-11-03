@@ -187,8 +187,8 @@ async function renderShortcuts() {
   // ---- one shortcut, in the panel on the right
 
   function drawPanel(panel, s) {
-    const tabs = h("div", { class: "subtabs" }, [["overview", "Overview"], ["readers", "Who can read"], ["history", "History"]].map(([id, label]) =>
-      h("button", { class: `tab${sp.panelTab === id ? " active" : ""}`, onclick: () => { sp.panelTab = id; drawPanel(panel, s); } }, label)));
+    const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Shortcut" }, [["overview", "Overview"], ["readers", "Who can read"], ["history", "History"]].map(([id, label]) =>
+      h("button", { class: `tab${sp.panelTab === id ? " active" : ""}`, role: "tab", "aria-selected": String(sp.panelTab === id), onclick: () => { sp.panelTab = id; drawPanel(panel, s); } }, label)));
     const inner = h("div", { class: "preview-body" }, tabs);
     const host = { type: "Lakehouse", workspace_id: s.host_workspace_id, item_id: s.lakehouse_id };
     fill(panel,
@@ -615,7 +615,9 @@ function scChangeList(changes, after, showWhere) {
   const undo = async (c) => {
     const what = { removed: `Recreate shortcut ${c.name} in ${c.lakehouse_name}, pointing at ${scDefText(c.before)}?`,
       repointed: `Point ${c.name} back at ${scDefText(c.before)}?`, added: `Remove shortcut ${c.name} from ${c.lakehouse_name}? The data it points at isn't touched.` }[c.kind];
-    if (!(await confirmDialog(c.kind === "removed" ? "Recreate shortcut" : "Undo change", what, c.kind === "removed" ? "Recreate" : "Undo"))) return;
+    // Undoing an added shortcut removes it from OneLake, and undoing a repoint removes it and makes it again.
+    if (!(await confirmDialog(c.kind === "removed" ? "Recreate shortcut" : "Undo change", what, c.kind === "removed" ? "Recreate" : "Undo",
+      { danger: c.kind !== "removed" }))) return;
     const res = await attempt(() => rpc("shortcut_undo", { change_id: c.id }), "Not undone");
     if (!res) return;
     toast(c.kind === "removed" ? `Recreated ${c.name}` : `Undid the change to ${c.name}`, !!res.problems?.length, { log: true });
@@ -624,11 +626,11 @@ function scChangeList(changes, after, showWhere) {
   let day = "";
   const out = [];
   for (const c of changes) {
-    const d = new Date(c.at).toLocaleDateString();
+    const d = dateText(c.at);
     if (d !== day) { day = d; out.push(h("div", { class: "sc-day" }, d)); }
     const [cls, label] = SC_CHANGE[c.kind] || ["neu", c.kind];
     out.push(h("div", { class: "sc-change" },
-      h("span", { class: "muted-text small" }, new Date(c.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+      h("span", { class: "muted-text small" }, timeText(c.at)),
       h("span", { class: `pill-s ${cls}` }, label),
       h("div", {}, h("b", {}, c.name), showWhere ? h("span", { class: "muted-text" }, ` in ${c.workspace_name} / ${c.lakehouse_name}`) : null,
         c.kind === "repointed" ? h("div", { class: "small mono" }, h("s", {}, scDefText(c.before)), " → ", scDefText(c.after))
@@ -637,7 +639,7 @@ function scChangeList(changes, after, showWhere) {
         c.note ? h("div", { class: "muted-text small" }, c.note) : null),
       h("span", { class: "small" }, c.how === "app" ? (c.by_user || "KratosForge") : c.how === "check" ? "Health check" : "Seen at scan",
         c.how === "scan" ? h("div", { class: "muted-text small" }, "made outside the app") : null),
-      ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
+      c.undoable && ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
         ? btn(c.kind === "removed" ? "Recreate" : "Undo", null, () => undo(c), "tool link small") : h("span", {})));
   }
   return h("div", { class: "sc-changes" }, out);
@@ -709,21 +711,28 @@ async function shortcutDialog(mode, opts = {}) {
   };
   const targetWs = () => lakehouses.find((x) => x.item_id === targetLh.value)?.workspace_name || "";
   let timer = null;
+  let checked = null;  // the rules check for what the dialog shows now, once it has started
+  let seq = 0;
+  const runPreflight = async () => {
+    const l = host();
+    if (!l) return;
+    const n = ++seq;
+    // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
+    const v = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
+      target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
+    if (n !== seq) return;  // a newer check, of what the dialog shows now, answers instead
+    verdict = v;
+    fill(notice,
+      verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
+        : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
+      verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
+    primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
+    primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
+  };
   const preflight = () => {
     clearTimeout(timer);
-    timer = setTimeout(async () => {
-      const l = host();
-      if (!l) return;
-      // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
-      verdict = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
-        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
-      fill(notice,
-        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
-          : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
-        verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
-      primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
-      primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
-    }, 250);
+    checked = null;
+    timer = setTimeout(() => { checked = runPreflight(); }, 250);
   };
   const sync = () => {
     folderField.hidden = where.value !== "Files";
@@ -761,6 +770,18 @@ async function shortcutDialog(mode, opts = {}) {
     if (scHere()) render();
   };
   const submit = async () => {
+    if (!host()) return;
+    // Nothing is made or asked for before the rules have answered for what the dialog shows: a click
+    // before the check answered waits for it, and stops when the answer changed what the button does.
+    // An edit while it waits starts a newer check, so it waits for that one too, and sends what the
+    // dialog shows once the last check has answered.
+    const shown = primary.lastChild.textContent;
+    for (let p = null; p !== checked || !checked;) {
+      if (!checked) { clearTimeout(timer); checked = runPreflight(); }
+      p = checked;
+      await p;
+    }
+    if (primary.disabled || primary.lastChild.textContent !== shown) return;
     const l = host();
     if (!l) return;
     const common = { workspace_id: l.workspace_id, item_id: l.item_id, source: src(), lakehouse_name: l.name,

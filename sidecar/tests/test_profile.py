@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from pathlib import Path
 
 import pytest
 
@@ -91,7 +92,7 @@ def test_the_same_code_validated_again_is_the_same_row():
 def test_first_flame_is_fifty_xp_and_level_one():
     p = progress.progression(profile_with(validation()))
     assert [a["id"] for a in p["achievements"]] == ["first-flame"]
-    assert (p["xp"], p["level"], p["title"], p["next_level_xp"]) == (50, 1, "Apprentice", 100)
+    assert (p["xp"], p["level"], p["next_level_xp"]) == (50, 1, 100) and "title" not in p
 
 
 def test_new_revisions_of_one_notebook_earn_no_xp():
@@ -108,10 +109,9 @@ def test_new_notebooks_earn_xp_up_to_a_daily_cap_and_five_earn_steady_hand():
     assert progress.progression(profile_with(*spread))["xp"] == 50 + 5 * progress.NEW_NOTEBOOK_XP + 100
 
 
-def test_the_level_curve_is_fixed_and_titles_follow_it():
+def test_the_level_curve_is_fixed():
     assert [progress.xp_for_level(n) for n in (2, 5, 10, 20, 50)] == [100, 800, 2700, 8282, 34300]
     assert progress.level_for(99) == 1 and progress.level_for(100) == 2 and progress.level_for(34300) == 50
-    assert progress.title_for(4) == "Apprentice" and progress.title_for(5) == "Forge Initiate" and progress.title_for(73) == "Legend of the Forge"
 
 
 def test_missing_evidence_is_not_a_low_score():
@@ -160,7 +160,7 @@ def test_the_journey_lists_achievements_and_levels_newest_first():
     p = profile_with(validation())
     progress.add(p, progress.from_proof(proof(), "a" * 64))
     got = progress.progression(p)["milestones"]
-    assert [m["text"] for m in got] == ["Reached level 2, Apprentice", "Earned Proof Forged (+150 XP)",
+    assert [m["text"] for m in got] == ["Reached level 2", "Earned Proof Forged (+150 XP)",
                                         "Earned First Flame (+50 XP)"]
     assert got[0]["at"] == "2026-10-20T12:00:00+00:00"
 
@@ -269,7 +269,7 @@ def test_report_and_export_are_new_files_and_delete_leaves_validate_history(plai
     (plain.root / "validations.json").write_text("[]")
     first = call(plain, "profile_report_save")["path"]
     second = call(plain, "profile_report_save")["path"]
-    assert first != second and "Validated notebook Orders" in open(first, encoding="utf-8").read()
+    assert first != second and "Validated notebook Orders" in Path(first).read_text(encoding="utf-8")
     assert call(plain, "profile_export")["path"].endswith(".json")
     assert call(plain, "profile_delete") == {"deleted": True}
     assert call(plain, "profile_get")["evidence"] == [] and (plain.root / "validations.json").exists()

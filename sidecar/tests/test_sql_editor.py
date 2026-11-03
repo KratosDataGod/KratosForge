@@ -144,7 +144,7 @@ def test_the_page_can_call_the_new_methods(tmp_path):
     service = server.Service(client_id="x", root=tmp_path)
     reply = server.handle(service, '{"id": 1, "method": "sql_format", "params": {"query": "select 1 a", "dialect": "spark"}}')
     assert reply == {"id": 1, "result": {"sql": "SELECT\n  1 AS a", "changed": True, "warning": ""}}
-    labels = server.handle(service, '{"id": 2, "method": "sql_dialects"}')["result"]
+    labels = service.sql_dialects()
     assert [d["label"] for d in labels] == ["Spark SQL (Lakehouse)", "Fabric Warehouse (T-SQL)",
                                               "Fabric SQL analytics endpoint (T-SQL)", "Fabric SQL database (T-SQL)",
                                               "DuckDB (this PC)"]

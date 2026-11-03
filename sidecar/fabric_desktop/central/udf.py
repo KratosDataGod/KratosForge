@@ -9,6 +9,7 @@ Catalog app (translytical task flows) call the save_* functions, which return te
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import re
@@ -404,9 +405,10 @@ def set_classification(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
     return f"{target} is now {classification}"
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcuts(sqlDB: fn.FabricSqlConnection, lakehouses: list, shortcuts: list) -> dict:
-    return _run(sqlDB, "record_shortcuts", lakehouses=lakehouses, shortcuts=shortcuts)
+def record_shortcuts(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, lakehouses: list, shortcuts: list) -> dict:
+    return _run(sqlDB, "record_shortcuts", ctx, lakehouses=lakehouses, shortcuts=shortcuts)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -418,9 +420,10 @@ def log_shortcut_change(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def record_shortcut_health(sqlDB: fn.FabricSqlConnection, results: list) -> list:
-    return _run(sqlDB, "record_shortcut_health", results=results)
+def record_shortcut_health(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, results: list) -> list:
+    return _run(sqlDB, "record_shortcut_health", ctx, results=results)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -845,6 +848,14 @@ def remove_product_item(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionC
                         item_id: str) -> list:
     return _run(sqlDB, "remove_product_item", ctx, product_id=product_id, item_id=item_id)
 
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def call_once(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, call_id: str, operation: str,
+              args: dict = None) -> dict:
+    return _run(sqlDB, "call_once", ctx, call_id=call_id, operation=operation, args=args or {})
+
 '''
 
 
@@ -867,8 +878,37 @@ def function_app() -> str:
             + _WRAPPERS)
 
 
+def _functions() -> list[dict]:
+    """Each function in _WRAPPERS, as resources/functions.json describes it: its parameters and
+    return type, and its bindings (the HTTP trigger, the SQL_Platform connection, Fabric's context)."""
+    out = []
+    for node in ast.parse(_WRAPPERS).body:
+        if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
+            continue
+        bindings: list[dict[str, object]] = [{"methods": ["POST"], "route": "", "authLevel": "Anonymous", "name": "req",
+                     "direction": "In", "type": "HttpTrigger"}]
+        params = []
+        for arg in node.args.args:
+            kind = ast.unparse(arg.annotation) if arg.annotation else "str"
+            if kind == "fn.FabricSqlConnection":
+                bindings.append({"itemType": None, "subType": "FabricSqlConnection", "alias": ALIAS,
+                                 "name": arg.arg, "direction": "In", "type": "FabricItem"})
+            elif kind == "fn.UserDataFunctionContext":
+                bindings.append({"name": arg.arg, "direction": "In", "type": "UserDataFunctionContext"})
+            else:
+                params.append({"dataType": kind, "name": arg.arg})
+        out.append({"name": node.name, "scriptFile": "function_app.py", "bindings": bindings,
+                    "fabricProperties": {"fabricMetadataSchemaVersion": "1.1.0", "fabricFunctionParameters": params,
+                                         "fabricFunctionReturnType": ast.unparse(node.returns) if node.returns else "str"}})
+    return out
+
+
 def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
-    """The item's definition files: the source, and its connection to SQL_Platform as alias "platform"."""
+    """The item's definition files: the source, its functions, and its connection to SQL_Platform as
+    alias "platform". Fabric refuses a definition that lists no functions ("Functions is null or empty").
+    Public endpoint on: the app calls each function at its invoke URL (client.py), which Fabric serves only
+    with public access enabled. Callers still need an Entra token and Execute on the item."""
+    functions = _functions()
     return {
         "function_app.py": function_app(),
         "definition.json": json.dumps({
@@ -876,7 +916,9 @@ def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
             "runtime": "PYTHON",
             "connectedDataSources": [{"alias": ALIAS, "artifactId": sql_database_id, "workspaceId": workspace_id,
                                       "sourceType": "SqlDatabase"}],
-            "functionsMetadata": []}, indent=2),
+            "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions]},
+            indent=2),
+        "resources/functions.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": functions}, indent=2),
     }
 
 

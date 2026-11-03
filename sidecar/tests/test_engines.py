@@ -75,14 +75,13 @@ def test_every_registered_engine_lists_every_capability():
 
 
 def test_planned_engines_claim_nothing_and_say_what_is_planned():
-    for eid in ("local-spark", "fabric-spark"):
+    for eid in ("local-spark",):
         d = registry.get(eid)
         assert not d.adapter and d.planned
         assert all(not d.capability(c).available for c in CAPABILITIES)
         with pytest.raises(ValueError, match="can't run cells"):
             registry.adapter(eid)
         assert check_cell(d, "python")["ok"] is False
-    assert registry.get("fabric-spark").billing == "fabric_capacity"
 
 
 def test_snowflake_engines_are_planned_and_claim_nothing():
@@ -213,6 +212,24 @@ def test_duckdb_runs_spark_sql_translated():
         with pytest.raises(Unsupported):
             s._sql("SELECT 1", "warehouse")
         assert "warehouse" in s.execute(sql("SELECT 1", "warehouse")).outputs[0]["evalue"]
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("dialect", ["spark", "databricks"])
+def test_spark_timestamps_read_in_utc_as_in_fabric_whatever_this_pcs_zone(dialect):
+    # Found by the live DuckDB vs Fabric Spark comparison: on a PC in America/Chicago the hour came
+    # back shifted by the PC's offset, where Fabric Spark (session time zone UTC) gives 02:00.
+    s = registry.adapter("local-duckdb").open_session(SessionConfig("nb"))
+    try:
+        s._con.execute("SET TimeZone = 'America/Chicago'")
+        r = s.execute(sql("SELECT CAST(date_trunc('HOUR', TIMESTAMP'2024-03-10 02:45:10') AS STRING) AS h", dialect))
+        assert r.status == "ok" and r.outputs[0]["rows"] == [["2024-03-10 02:00:00+00"]]
+        # DuckDB SQL cells keep the session's own zone.
+        assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
+        failed = s.execute(sql("SELECT * FROM no_such_table", dialect))
+        assert failed.status == "error"
+        assert s._con.execute("SELECT current_setting('TimeZone')").fetchone() == ("America/Chicago",)
     finally:
         s.close()
 

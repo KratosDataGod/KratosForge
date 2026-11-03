@@ -21,10 +21,17 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
-from .jsonfile import read_json, read_text, write_json
+from .jsonfile import read_json, read_text, write_json, write_text
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
+# The runs log is trimmed once it passes RUNS_TRIM_BYTES, to its newest RUNS_KEEP rows or RUNS_KEEP_BYTES,
+# whichever is smaller (a row is a few hundred bytes), so years of scheduled runs can't grow it, or every
+# read of it, without bound. Keeping half the trigger size means rows with long error text can't leave the
+# file over the cap and rewritten on every run.
+RUNS_KEEP = 10_000
+RUNS_TRIM_BYTES = 8 * 1024 * 1024
+RUNS_KEEP_BYTES = RUNS_TRIM_BYTES // 2
 SCHEDULES_FILE = "schedules.json"
 
 
@@ -160,6 +167,9 @@ def task_xml(schedule: dict[str, Any], executable: str, workdir: str) -> str:
 """
 
 
+SCHTASKS_SECONDS = 60
+
+
 class TaskScheduler:
     """``schtasks.exe``. On other systems schedules are saved but nothing starts them."""
 
@@ -167,7 +177,14 @@ class TaskScheduler:
 
     def _run(self, *args: str) -> None:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags)
+        try:
+            # schtasks answers in a second; one that doesn't (a hung Task Scheduler service) would
+            # otherwise hold every page's engine calls behind it, with no Stop to reach.
+            res = subprocess.run(["schtasks", *args], capture_output=True, text=True, creationflags=flags,
+                                 timeout=SCHTASKS_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Task Scheduler didn't answer in {SCHTASKS_SECONDS} seconds. Check that the "
+                               "Task Scheduler service is running, then try again.") from None
         if res.returncode != 0:
             raise RuntimeError(f"Task Scheduler: {(res.stderr or res.stdout).strip()}")
 
@@ -330,9 +347,21 @@ class LocalSchedules:
         return out[::-1]
 
     def log_run(self, row: dict[str, Any]) -> None:
+        from .leases import _file_lock  # scheduled runs and the app append at once: trimming waits its turn
         self.root.mkdir(parents=True, exist_ok=True)
-        with self.runs_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, default=str) + "\n")
+        with _file_lock(self.runs_file.with_name(RUNS_FILE + ".lock")):
+            with self.runs_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+            if self.runs_file.stat().st_size > RUNS_TRIM_BYTES:
+                lines = self.runs_file.read_text(encoding="utf-8").splitlines(keepends=True)
+                kept: list[str] = []
+                size = 0
+                for line in reversed(lines[-RUNS_KEEP:]):
+                    size += len(line.encode("utf-8"))
+                    if size > RUNS_KEEP_BYTES and kept:
+                        break
+                    kept.append(line)
+                write_text(self.runs_file, "".join(reversed(kept)))
 
     def listing(self, now: dt.datetime | None = None) -> list[dict[str, Any]]:
         """Every schedule with its next run and its latest result."""

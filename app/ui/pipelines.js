@@ -702,7 +702,7 @@ function plDrawRun(help) {
   setView(h("div", { class: "page pipelines" }, dfAreaTabs(),
     h("section", { class: "card pad pl-head" },
       h("div", { class: "pl-title" }, h("h1", {}, r.pipeline, " ", plStatePill(r.state, mocked.length), " ", previewTag()),
-        h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${new Date(r.started).toLocaleTimeString()}` : "",
+        h("p", { class: "muted-text" }, [`Run ${r.run_id.slice(0, 8)} on this PC`, r.started ? `started ${timeText(r.started)}` : "",
           took(r.seconds ?? (Date.now() - Date.parse(r.started)) / 1000) + (running ? " so far" : ""), params,
           mocked.length ? `${mocked.length} mock${mocked.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · "), " · ", help)),
       h("div", { class: "pl-actions" },

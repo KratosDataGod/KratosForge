@@ -1,15 +1,17 @@
 [build-system]
-requires = ["setuptools>=68"]
+# 77: the SPDX license expression below (PEP 639).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fabric-desktop"
 version = "0.20.0"
 description = "Run data jobs on your own machine and publish Delta tables to Microsoft Fabric OneLake."
-requires-python = ">=3.11"
+license = "Apache-2.0"
+requires-python = ">=3.12"  # the Python the app ships (ci.yml PYTHON_VERSION); constraints.txt needs it (bokeh 3.10). tests/test_python_version.py
 dependencies = [
-    "duckdb>=1.1",
-    "sqlglot>=30.12",  # 30.12: the Apache Ossie converter (_vendor/ossie_microsoft)
+    "duckdb>=1.1,<3",  # the engine suite runs on the pinned 1.x and on 2.0 in CI (#1341); tests/test_duckdb_version.py
+    "sqlglot>=30.22,<30.28",  # the versions the SQL tests pass on; CI runs them on both ends (tests/test_sqlglot_version.py)
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",
@@ -18,6 +20,9 @@ dependencies = [
     # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.
     "pymsalruntime>=0.20,<0.21; sys_platform == 'win32'",
     "requests>=2.31",
+    # HTTPS checks certificates against the Windows certificate store, so a network that inspects
+    # HTTPS with the company's root certificate works (net_trust.py). mcp's httpx brings it already.
+    "truststore>=0.10,<0.11; sys_platform == 'win32'",
     # Charts in notebook cells, as Fabric notebooks have.
     "matplotlib>=3.8",
     # pandas, as Fabric and Databricks notebooks have it: import pandas, df.toPandas() and
@@ -64,6 +69,42 @@ include = ["fabric_desktop*"]
 "fabric_desktop._vendor.ossie_microsoft" = ["LICENSE", "NOTICE", "README.md"]
 # Hash-pinned Databricks Connect requirements, one file per runtime line.
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
+# Learn lessons and labs (learn/content.py), one folder per module.
+"fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+
+[tool.ruff]
+extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it
+
+# CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
+# import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an
+# unused loop variable. The engine's Format cell runs ruff with --isolated, so nothing here changes how
+# cells are formatted.
+[tool.ruff.lint]
+select = ["E9", "F", "B"]
+# Bugbear rules still to roll out, a few at a time, each with its findings fixed or marked:
+# B017 (pytest.raises(Exception) in tests) and B023 (a closure using a loop variable: most hits are
+# reviewed false positives, called inside the loop). Blind excepts (BLE) stay off: tests/test_silent_except.py
+# already requires every broad handler to log, narrow or say why it is silent.
+ignore = ["B017", "B023"]
+
+[tool.ruff.lint.per-file-ignores]
+# A fixture imported from another test file and then taken as an argument looks like a redefinition.
+"tests/**" = ["F811"]
+
+# CI's type check (.github/scripts/mypy_ratchet.py): the errors from before it was added are counted
+# in mypy-baseline.json, and only new ones fail.
+[tool.mypy]
+files = ["fabric_desktop"]
+python_version = "3.12"  # CI's; the counts depend on it
+ignore_missing_imports = true  # several of the engine's packages ship no type information
+
+[[tool.mypy.overrides]]
+module = ["fabric_desktop._vendor.*"]  # vendored code stays as its authors wrote it
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# DuckDB 2.0 warns when Arrow is read from an executed (DB-API) result, which copies every row once
+# more; the engine reads relations there (duckdb_rows.for_arrow, #1489), and a new reader that doesn't
+# fails the 2.0 run.
+filterwarnings = ["error:Arrow output on a DB-API result:UserWarning"]

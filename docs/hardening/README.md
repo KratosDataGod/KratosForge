@@ -8,6 +8,7 @@ An evidence-based review of KratosForge's code, done to make it demonstrably ent
 | [Findings register](findings.md) | Every confirmed issue with file and line, evidence and fix |
 | [Hardening backlog](backlog.md) | PR-sized work items HD-001 to HD-057 in priority and dependency order |
 | [Readiness checklist](readiness-checklist.md) | Ten release gates with acceptance criteria and today's evidence |
+| [Engine call limits](engine-call-limits.md) | Which engine calls can hold the app up, what bounds each, and which still need a design decision (PB-072) |
 
 ## How the review was done
 

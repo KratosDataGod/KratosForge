@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | env-drift ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | governance check | agent ... | live-test ... | smoke-test ... | live-test-databricks ... | env-drift ... | databricks-discover ... | support-bundle | audit | backup | restore | mcp | capabilities | integrations serve`."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from .service import Service
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import net_trust
+    net_trust.use_system_store()  # before any HTTPS: a network that inspects HTTPS signs with a root Windows trusts
     parser = argparse.ArgumentParser(prog="fabric-desktop")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="run the JSON-lines server for the desktop app")
@@ -24,6 +26,11 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run-schedule", help="run one of this PC's schedules (Windows Task Scheduler calls this)")
     p.add_argument("schedule_id")
     p.add_argument("--manual", action="store_true", help="started with Run now, not by the schedule")
+    p = sub.add_parser("run-notebooks", help="run a batch of notebooks started from Home (the app starts this)")
+    p.add_argument("batch_id")
+    p = sub.add_parser("run-notebook", help="run one notebook of a batch started from Home (run-notebooks starts this)")
+    p.add_argument("batch_id")
+    p.add_argument("index", type=int)
     agent = sub.add_parser("agent", help="the headless agent: run, check, enqueue, status, requeue, prune")
     agent.add_argument("--config", help="agent.toml (default: FABRIC_DESKTOP_AGENT_CONFIG, then "
                                         "%%ProgramData%%\\FabricDesktop\\agent.toml or /etc/fabric-desktop/agent.toml)")
@@ -62,22 +69,59 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
     live.add_argument("--all", action="store_true", help="also run the opt-in checks (concurrent Delta writers, "
-                      "notebook publish, pipeline definition); they create items and use capacity")
+                      "notebook publish, pipeline definition, pipeline mailbox, OneLake lease, MERGE profile); they "
+                      "create items and use capacity")
     live.add_argument("--check", action="append", default=[], metavar="ID",
-                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition"],
+                      choices=["delta.concurrent", "notebook.publish", "pipeline.definition", "pipeline.mailbox",
+                               "lease.onelake", "delta.merge_profile"],
                       help="also run this opt-in check (repeat for more)")
     live.add_argument("--run-in-fabric", action="store_true",
                       help="also run the published test notebook in Fabric; spends Spark capacity")
+    dbx = sub.add_parser("live-test-databricks", help="check sign-in, Unity Catalog, a SQL warehouse and Databricks "
+                         "Connect against a test warehouse and cluster")
+    dbx.add_argument("--profile", help="the Databricks CLI profile to sign in with (in ~/.databrickscfg)")
+    dbx.add_argument("--host", help="the workspace address, signing in with databricks auth login instead of a profile")
+    dbx.add_argument("--warehouse", help="the test SQL warehouse's id; it needs the fabric-desktop-live-test tag")
+    dbx.add_argument("--cluster", default="", help="also test Databricks Connect on this cluster; it needs the tag too")
+    dbx.add_argument("--stop-compute", action="store_true",
+                     help="afterwards, stop the warehouse and terminate the cluster if they were stopped before the run")
+    dbx.add_argument("--dry-run", action="store_true", help="say what it would do; signs in to nothing")
+    dbx.add_argument("--yes", action="store_true", help="run without asking first (it may start billable compute)")
+    dbx.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
+    smoke = sub.add_parser("smoke-test", help="the ten-flow tenant smoke test (PB-002): its automated parts, "
+                           "and a checklist for the rest")
+    smoke.add_argument("--workspace", required=True,
+                       help="the test workspace's id; its description must contain fabric-desktop-live-test")
+    smoke.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
+    smoke.add_argument("--yes", action="store_true", help="run without asking first")
+    smoke.add_argument("--out", default="smoke-test-results", help="folder for results (default: smoke-test-results)")
+    smoke.add_argument("--run-in-fabric", action="store_true",
+                       help="also run the published test notebook in Fabric (flow 6); spends Spark capacity")
+    smoke.add_argument("--platform", action="store_true",
+                       help="also run the central platform flows 11-16 (PB-052): make a platform in the test workspace, "
+                            "use it and delete it again")
+    smoke.add_argument("--platform-upgrade", action="store_true",
+                       help="with --platform: start from the platform a previous build made in the test workspace; "
+                            "its items are taken over and deleted at the end, unless --platform-keep")
+    smoke.add_argument("--platform-keep", action="store_true",
+                       help="with --platform: leave the platform in place to look at; delete it by hand afterwards")
     drift = sub.add_parser("env-drift", help="compare a Fabric Environment item's published libraries and runtime "
                                             "with this PC's packages (read only)")
     drift.add_argument("--workspace", required=True, help="the workspace id")
     drift.add_argument("--environment", required=True, help="the Environment item's id")
     drift.add_argument("--notebook", help="also count this notebook's environment on this PC")
     drift.add_argument("--json", action="store_true", help="print the result as JSON")
+    disc = sub.add_parser("databricks-discover", help="list an Azure Databricks workspace's SQL warehouses, clusters "
+                                                   "and Unity Catalog catalogs (read only: nothing starts)")
+    disc.add_argument("--profile", help="the Databricks CLI profile to sign in with")
+    disc.add_argument("--host", help="or the workspace URL, signing in with the Databricks CLI (databricks auth login)")
+    disc.add_argument("--no-catalogs", action="store_true", help="leave out the Unity Catalog catalogs")
+    disc.add_argument("--json", action="store_true", help="print the result as JSON")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
     bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
+    bundle.add_argument("--preview", action="store_true", help="say what the bundle would hold, without saving it")
     trail = sub.add_parser("audit", help="show this PC's audit trail, or check that no line was changed or removed")
     trail.add_argument("--verify", action="store_true", help="check the hash chain and exit 1 if it is broken")
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
@@ -212,13 +256,26 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "env-drift":
         raise SystemExit(_env_drift(args))
+    if args.command == "databricks-discover":
+        raise SystemExit(_databricks_discover(args))
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
+    if args.command == "live-test-databricks":
+        raise SystemExit(_live_test_databricks(args))
+    if args.command == "smoke-test":
+        raise SystemExit(_smoke_test(args))
     if args.command == "support-bundle":
         from pathlib import Path
 
-        from .support_bundle import create
-        print(create(Path(args.out), agent_home=Path(args.agent_home) if args.agent_home else None))
+        from .support_bundle import create, preview
+        agent_home = Path(args.agent_home) if args.agent_home else None
+        if args.preview:
+            shown = preview(agent_home=agent_home)
+            print("\n".join(f"{f['name']}  {f['bytes']:,} bytes" for f in shown["files"]))
+            print()
+            print(shown["contents"], end="")
+            return
+        print(create(Path(args.out), agent_home=agent_home))
         return
     if args.command == "audit":
         raise SystemExit(_audit(args))
@@ -226,6 +283,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_backup(args))
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
+        return
+    if args.command in ("run-notebooks", "run-notebook"):
+        _run_notebooks(args)
         return
     service = Service()
     result = {
@@ -309,12 +369,96 @@ def _backup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _smoke_test(args: argparse.Namespace) -> int:
+    """0 every automated step passed, 1 one failed, 2 not started."""
+    from pathlib import Path
+
+    from . import app_settings, livetest, platformtest, smoketest
+    from .auth import Authenticator
+    from .fabric_api import FabricClient
+    from .onelake import FileStore
+
+    if args.dry_run:
+        print("The smoke test will:")
+        dry_platform = (lambda out: None) if args.platform else None
+        dry = smoketest.SmokeTest(args.workspace, None, None, Path(args.out), run_in_fabric=args.run_in_fabric,
+                                  platform_test=dry_platform)
+        for step in dry.plan():
+            print(f"  - {step}")
+        if args.platform:
+            print("The platform flows will:")
+            for step in platformtest.PlatformTest(args.workspace, None, lambda: "", dry.dir / "platform",
+                                                  client=lambda ws, fid: None, run_id=dry.run_id,
+                                                  upgrade=args.platform_upgrade, keep=args.platform_keep).plan():
+                print(f"  - {step}")
+        print("The live test it runs will:")
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object(),
+                                      extra=set(livetest.ALL_CHECKS), run_in_fabric=args.run_in_fabric).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, created or written.")
+        return 0
+    client_id = app_settings.value("client_id")
+    credential = Authenticator(client_id)
+    fabric = FabricClient(credential.fabric_token)
+
+    def live(out: Path) -> livetest.LiveTest:
+        return livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, out,
+                                 protected_ids=livetest.policy_workspace_ids(), extra=set(livetest.ALL_CHECKS),
+                                 run_in_fabric=args.run_in_fabric)
+
+    def platform(out: Path) -> platformtest.PlatformTest:
+        from .auth import EXECUTE_SCOPES
+        from .central.client import FabricPlatform
+        execute = lambda: credential._token(EXECUTE_SCOPES)  # noqa: E731 - UDF_Platform runs as the signed-in person
+        return platformtest.PlatformTest(args.workspace, fabric, execute, out,
+                                         client=lambda ws, fid: FabricPlatform(execute, ws, fid),
+                                         user=lambda: credential.signed_in_user() or "",
+                                         protected_ids=livetest.policy_workspace_ids(), upgrade=args.platform_upgrade,
+                                         keep=args.platform_keep,
+                                         pause=None if args.yes else lambda text: input(f"{text}\n"))
+
+    test = smoketest.SmokeTest(args.workspace, credential, fabric, Path(args.out), live_test=live,
+                               run_in_fabric=args.run_in_fabric, client_id=client_id,
+                               platform_test=platform if args.platform else None)
+    print("The smoke test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(smoketest.summary(result))
+    print("\n".join(result["files"]))
+    return 1 if result["outcome"] == "failed" else 0
+
+
 def _env_drift(args: argparse.Namespace) -> int:
     """0 no drift, 1 drift, 2 the item couldn't be read."""
     from . import fabric_environment
     result = Service().environment_fabric_drift(args.workspace, args.environment, args.notebook)
     print(json.dumps(result, indent=2) if args.json else fabric_environment.summary(result))
     return 2 if result["status"] != "read" else 1 if result["drifted"] else 0
+
+
+def _databricks_discover(args: argparse.Namespace) -> int:
+    """0 every part read, 1 a part couldn't be read, 2 refused or not signed in."""
+    from .engines import databricks_auth, databricks_discovery, databricks_sql
+
+    if bool(args.profile) == bool(args.host):
+        print("Name the workspace with either --profile <cli profile> or --host <url>.")
+        return 2
+    credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
+    connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    try:
+        client = databricks_sql.Client(databricks_auth.provider_for(connection))
+    except databricks_auth.DatabricksAuthError as exc:
+        print(exc)
+        return 2
+    result = databricks_discovery.Discovery(client, catalogs=not args.no_catalogs).run()
+    print(json.dumps(result, indent=2) if args.json else "\n".join(databricks_discovery.summary_lines(result)))
+    if not result["signed_in"]:
+        return 2
+    return 0 if all(p["ok"] or p.get("skipped") for p in result["parts"].values()) else 1
 
 
 def _live_test(args: argparse.Namespace) -> int:
@@ -359,6 +503,58 @@ def _live_test(args: argparse.Namespace) -> int:
         return 2
     result = test.run()
     print(livetest.summary(result))
+    print("\n".join(result["files"]))
+    return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
+def _live_test_databricks(args: argparse.Namespace) -> int:
+    """0 every check passed, 1 a check failed, 2 refused or not started."""
+    from pathlib import Path
+
+    from . import dbx_livetest
+    from .engines import databricks_auth, databricks_sql, dbconnect
+
+    if not args.warehouse or bool(args.profile) == bool(args.host):
+        print("Name the test SQL warehouse with --warehouse <id>, and either --profile <cli profile> or --host <url>.")
+        return 2
+    credential = {"method": "cli-profile", "profile": args.profile} if args.profile else {"method": "oauth-u2m"}
+    connection = {"platform": "databricks", "host": args.host or "", "credential": credential}
+    checks = dbx_livetest.pc_checks(connection)
+    print("This PC:")
+    for ok, what in checks:
+        print(f"  {'ok ' if ok else 'NO '} {what}")
+    if args.dry_run:
+        print("The Databricks live test will:")
+        for step in dbx_livetest.DatabricksLiveTest(connection, args.warehouse, None, None, None, Path(args.out),
+                                                    cluster_id=args.cluster, stop_compute=args.stop_compute,
+                                                    bad_token_client=object()).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, started or written.")
+        return 0
+    if not all(ok for ok, _ in checks):
+        print("Not run: fix the lines marked NO above first. Nothing was signed in to or started.")
+        return 2
+    try:
+        tokens = databricks_auth.provider_for(connection)
+    except databricks_auth.DatabricksAuthError as exc:
+        print(exc)
+        return 2
+    connection["host"] = tokens.host
+    client = databricks_sql.Client(tokens)
+    sql = databricks_sql.DatabricksSqlAdapter(client_for=lambda conn: databricks_sql.Client(tokens))
+    connect = dbconnect.DatabricksConnectAdapter() if args.cluster else None
+    test = dbx_livetest.DatabricksLiveTest(connection, args.warehouse, tokens, client, sql, Path(args.out),
+                                           cluster_id=args.cluster, connect_adapter=connect,
+                                           stop_compute=args.stop_compute)
+    print("The Databricks live test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? It may start the warehouse or cluster, which bills DBUs. [y/N] ").strip().lower() \
+            not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(dbx_livetest.summary(result))
     print("\n".join(result["files"]))
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
 
@@ -422,7 +618,17 @@ def _nb_validate(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         observed = {}
     runs_on = args.runs_on or {"local": "pc", "fabric": "fabric"}.get(nb["compute"])
-    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed)
+    from .notebook import check_notebook_name
+
+    from .notebook_resources import folder_for
+
+    def sibling(name: str) -> dict:  # %run Name: the notebook next to this file, as in the app's folder
+        other = from_ipynb(json.loads((path.parent / f"{check_notebook_name(name)}.ipynb").read_text(encoding="utf-8")))
+        return {"cells": other["cells"], "lakehouse": other["lakehouse"]}
+
+    resources = folder_for(path)  # <name>.resources beside the file, where %run -b finds its files
+    result = validate.check(nb["cells"], nb["lakehouse"], runs_on, observed, load=sibling,
+                            resources=str(resources) if resources.is_dir() else None)
     if args.json:
         print(json.dumps({"path": str(path), "runs_on": runs_on} | result, indent=2, default=str))
     else:
@@ -540,6 +746,8 @@ def _pipeline(args: argparse.Namespace) -> int:
             if s["needs_fabric_capacity"]:
                 print("these can't run on this PC yet, and Fabric meters every activity run"
                       + (f"; Fabric only: {', '.join(s['fabric_only'])}" if s["fabric_only"] else ""))
+            from .orchestration.gotchas import CODES
+            _print_fabric_differences([d for d in result["diagnostics"] if d["code"] in CODES])
             c = result["counts"]
             print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
             return 0 if result["ok"] else 1
@@ -556,11 +764,20 @@ def _pipeline(args: argparse.Namespace) -> int:
 
 
 def _pipeline_schedule(args: argparse.Namespace) -> int:
-    pairs = lambda items: dict(item.partition("=")[::2] for item in items)  # noqa: E731
+    def pairs(items: list[str], flag: str) -> dict[str, str]:
+        bad = [item for item in items if "=" not in item]
+        if bad:
+            raise ValueError(f"{flag} takes NAME=VALUE (got {bad[0]!r})")
+        return dict(item.partition("=")[::2] for item in items)
+
     try:
-        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else {}
-        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param),
-                  "mocks": mocks, "notebooks": pairs(args.notebook), "sql_projects": pairs(args.sql_project),
+        mocks = {}
+        if args.mocks:
+            with open(args.mocks, encoding="utf-8") as f:
+                mocks = json.load(f)
+        target = {"kind": "pipeline", "path": os.path.abspath(args.path), "parameters": pairs(args.param, "--param"),
+                  "mocks": mocks, "notebooks": pairs(args.notebook, "--notebook"),
+                  "sql_projects": pairs(args.sql_project, "--sql-project"),
                   "read_lakehouses": args.read_lakehouse, "workspace_id": args.workspace or ""}
         schedule = ({"kind": "cron", "every_minutes": args.every_minutes} if args.every_minutes else
                     {"kind": "weekly" if args.weekday else "daily", "times": args.at, "weekdays": args.weekday})
@@ -575,7 +792,14 @@ def _pipeline_schedule(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_fabric_differences(found: list[dict]) -> None:
+    for d in found:
+        print(f"in Fabric: {d['message']} {d['hint']}".rstrip())
+
+
 def _pipeline_run(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
     from .orchestration import load
     from .orchestration.definition import DefinitionError
     from .orchestration.runner import PipelineRun, RunRefused
@@ -586,7 +810,7 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         for item in args.child:
             key, _, path = item.partition("=")
             children[key] = load(path)
-        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else None
+        mocks = json.loads(Path(args.mocks).read_text(encoding="utf-8")) if args.mocks else None
     except (DefinitionError, OSError, ValueError) as exc:
         print(f"error: {exc}")
         return 2
@@ -605,6 +829,9 @@ def _pipeline_run(args: argparse.Namespace) -> int:
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
                       wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks,
                       data=data)
+    if not args.json:
+        from .orchestration.gotchas import check as fabric_differences
+        _print_fabric_differences(fabric_differences(imp))
     try:
         problems = run.check()
         acts = imp.pipeline.all_activities()
@@ -672,6 +899,22 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
         print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))
     raise SystemExit(0 if result["status"] != "failed" else 1)
+
+
+def _run_notebooks(args: argparse.Namespace) -> None:
+    """Home's Run several: the batch's background process, or one notebook of it. No console and no
+    one watching, so never a sign-in window; one notebook's result is the last line it prints."""
+    from .server import _log_file
+    if args.command == "run-notebooks" and (sys.stdout is None or sys.executable.lower().endswith("pythonw.exe")):
+        sys.stdout = sys.stderr = _log_file()
+    service = Service(headless=True)
+    if args.command == "run-notebooks":
+        service.run_notebook_batch(args.batch_id)
+        return
+    row = service.run_batch_notebook(args.batch_id, args.index)
+    sys.stdout.write("\n" + json.dumps(row, default=str) + "\n")
+    sys.stdout.flush()
+    raise SystemExit(0 if row.get("status") != "failed" else 1)
 
 
 if __name__ == "__main__":

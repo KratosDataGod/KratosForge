@@ -403,9 +403,11 @@ def test_service_calls():
 
 
 def test_server_and_audit_know_the_calls():
-    names = {"pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export"}
+    names = {"pipeline_import", "pipeline_export"}
     assert names <= server.METHODS
     assert not any(audit.audited(n) for n in names)  # read-only: nothing is written
+    # Validate and inspect are MCP tools only, called in-process (HD-050 slice 4).
+    assert not {"pipeline_validate", "pipeline_inspect"} & server.METHODS
 
 
 def test_registered_for_external_tools():

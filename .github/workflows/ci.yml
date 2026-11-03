@@ -10,26 +10,81 @@ permissions:
   contents: read
 
 # A newer push to a pull request cancels that pull request's older run, so the
-# queue holds only current heads. Pushes to main each get their own group and
-# are never cancelled, so every main batch still publishes a Preview.
+# queue holds only current heads. Pushes to main share one group: a running main
+# build is never cancelled, and GitHub keeps at most one main run waiting, the
+# newest, so a burst of merges builds the running commit and then main's tip
+# (only the newest commit's build publishes a Preview anyway). A merge that lands
+# mid-burst gets no main build of its own; its pull request was tested.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    # What a pull request touches decides which of the slower jobs it needs. Pushes to main run every
+    # job, because the release needs them all and every main batch publishes a Preview. A job left
+    # out here ends as skipped, never failed. On main this job only prints its answers, so it can't
+    # fail and leave the release without the jobs it needs.
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
+      browser: ${{ steps.paths.outputs.browser }}
+      windows: ${{ steps.paths.outputs.windows }}
+      ubuntu: ${{ steps.paths.outputs.ubuntu }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: paths
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            printf 'docs_only=false\nbrowser=true\nwindows=true\nubuntu=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The checkout is the pull request merged into its base (HEAD^1), so this is exactly what
+          # it changes against the base it will merge into. -z lists every path as itself: without it, git
+          # quotes and escapes a path with non-ASCII letters, a quote or a tab, and the patterns below
+          # would miss it. A newline in a name splits it in two, and its first part still matches.
+          files="$(git diff --name-only -z HEAD^1 HEAD | tr '\0' '\n')"
+          printf 'Changed:\n%s\n' "$files"
+          has() { grep -qE "$1" <<< "$files"; }
+          # Nothing changed (or the diff failed to list anything): run everything.
+          if [ -z "$files" ]; then has() { true; }; fi
+          # Docs only: the docs site, Markdown at the top level and the site config.
+          if [ -n "$files" ] && ! grep -qvE '^(docs/|[^/]+\.md$|zensical\.toml$)' <<< "$files"; then docs_only=true; else docs_only=false; fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          if has '^(app/|sidecar/|\.github/workflows/)'; then echo "browser=true"; else echo "browser=false"; fi >> "$GITHUB_OUTPUT"
+          # The app is Windows only, so every pull request but a docs-only one runs its engine tests.
+          if [ "$docs_only" = true ]; then echo "windows=false"; else echo "windows=true"; fi >> "$GITHUB_OUTPUT"
+          # Linux runs the engine for the headless agent. Engine tests also read the docs (policy keys,
+          # host list, links), so a docs change runs them here too.
+          if has '^(sidecar/|deploy/|examples/|\.github/workflows/|docs/|[^/]+\.md$|zensical\.toml$)'; then echo "ubuntu=true"; else echo "ubuntu=false"; fi >> "$GITHUB_OUTPUT"
+
   sidecar:
+    needs: changes
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
+    # Both entries always exist, so each check always reports; one the pull request doesn't need
+    # skips its steps and passes.
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUN_TESTS: ${{ matrix.os == 'windows-latest' && needs.changes.outputs.windows || needs.changes.outputs.ubuntu }}
     defaults:
       run:
         working-directory: sidecar
     steps:
+      - if: env.RUN_TESTS != 'true'
+        working-directory: .
+        run: echo "This pull request changes nothing these tests cover on ${{ matrix.os }}; skipped."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.RUN_TESTS == 'true'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: env.RUN_TESTS == 'true'
         with:
           python-version: "3.12"
           cache: pip
@@ -37,15 +92,38 @@ jobs:
             sidecar/constraints.txt
             sidecar/pyproject.toml
       - run: python -m pip install -e ".[dev]" -c constraints.txt
+        if: env.RUN_TESTS == 'true'
       # One worker per core (pytest-xdist); loadfile keeps each test file in one worker, since some
       # files share module-level state. --durations lists the slowest tests, so slow ones stay visible.
       - run: python -m pytest -q -n auto --dist loadfile --durations=25
+        if: env.RUN_TESTS == 'true'
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
+        if: env.RUN_TESTS == 'true'
         shell: bash
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
+      # pyproject allows a range of sqlglot and the suite above runs the pin, so the SQL tests also
+      # run on the oldest and newest version of that range (#1252).
+      - name: SQL tests on both ends of the sqlglot range
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          for v in $(python tests/test_sqlglot_version.py); do
+            python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/sqlglot-$v" "sqlglot==$v"
+            PYTHONPATH="$RUNNER_TEMP/sqlglot-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider \
+              -k "sql or spark or sqlglot or ossie or databricks or tsql or snowflake"
+          done
+      # pyproject allows DuckDB 1.x and 2.x (#1401) but installs the pinned 1.x; the whole engine suite
+      # also runs on 2.0 here, so a change that breaks it there shows before anyone moves the pin (#1341).
+      - name: Engine tests on the next DuckDB major
+        if: env.RUN_TESTS == 'true' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          v=$(python tests/test_duckdb_version.py)
+          python -m pip install --quiet --no-deps --target "$RUNNER_TEMP/duckdb-$v" "duckdb==$v"
+          PYTHONPATH="$RUNNER_TEMP/duckdb-$v:$PWD" python -m pytest -q -n auto --dist loadfile -p no:cacheprovider
 
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
@@ -57,9 +135,30 @@ jobs:
           node-version: "22"
       - run: node --test app/tests/ui.test.cjs
 
+  lint:
+    # Mistakes rather than style in the engine's Python: syntax errors, names that are unused or
+    # undefined, likely bugs (bugbear) (sidecar/pyproject.toml [tool.ruff]; ruff is one of the engine's pinned packages),
+    # and new type errors. The engine's packages are installed so mypy sees their types.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sidecar
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . mypy -c constraints.txt -c ci-constraints.txt
+      - run: python -m ruff check --output-format github .
+      # mypy, as a ratchet: fails only when a file has more type errors of a kind than
+      # sidecar/mypy-baseline.json records (hundreds predate the check).
+      - run: python ../.github/scripts/mypy_ratchet.py
+
   vscode-extension:
     # vscode/: the KratosForge extension compiles, and its client pairs and runs cells through the
     # real engine's editor channel (vscode/test). No VS Code is downloaded.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -83,6 +182,8 @@ jobs:
   ui-browser:
     # app/tests/browser: the real UI in headless Chromium with the shell stubbed; SQL and Optimize
     # pages call the real Python engine. Fakes only: no Fabric tenant, no secrets.
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     env:
       # Playwright and its Chromium build move together; change this in its own pull request.
@@ -120,6 +221,8 @@ jobs:
     # job waits for it, so Preview doesn't publish a build with it until the package is moved (in
     # its own pull request, per CONTRIBUTING) or an exception with a lapse date is recorded in
     # .github/audit-exceptions.txt (.github/scripts/audit_exceptions.py).
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -135,6 +238,11 @@ jobs:
             --format json --output "$RUNNER_TEMP/pip-audit.json" || status=$?
           [ "$status" -eq 0 ] || python .github/scripts/audit_exceptions.py hint pip "$RUNNER_TEMP/pip-audit.json"
           exit $status
+      # CI's own tools (sidecar/ci-constraints.txt) never ship, so an advisory against one is
+      # reported in the log but doesn't hold Preview back.
+      - name: CI tools (sidecar/ci-constraints.txt, advisory only)
+        continue-on-error: true
+        run: pip-audit -r sidecar/ci-constraints.txt --no-deps --disable-pip --progress-spinner off
       # Keeps the cargo-audit binary between runs (~/.cargo/bin); only main writes the cache.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2, the same pin as the shell job
         with:
@@ -154,6 +262,8 @@ jobs:
   sbom-app:
     # The shell's software bill of materials (every Rust crate in Cargo.lock), attached to releases
     # next to the engine's (built in the engine job from the engine itself).
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -176,6 +286,8 @@ jobs:
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -187,6 +299,8 @@ jobs:
     # Python (signed by the PSF) plus the sidecar and every package it needs. Windows
     # Smart App Control blocks those packages' DLLs unless they are signed, so they are
     # signed here once a Trusted Signing account is set up (see README, "Code signing").
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     # The shell bakes these into the exe, so it installs only this engine (main.rs check_pinned_engine).
     outputs:
@@ -195,7 +309,10 @@ jobs:
     env:
       PYTHON_VERSION: "3.12.10"
       # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
+      # python.org lists only MD5 for 3.12 files, so the build checks that, and SHA-256 is pinned
+      # too: MD5 alone no longer stops a deliberately made file with the same hash.
       PYTHON_EMBED_MD5: "fe8ef205f2e9c3ba44d0cf9954e1abd3"
+      PYTHON_EMBED_SHA256: "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -210,16 +327,26 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dir = "$env:RUNNER_TEMP\engine"
           Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\embed.zip"
-          # The engine's Python must be exactly the file python.org published (MD5 from its release page).
+          # The engine's Python must be exactly the file python.org published: its MD5 from the release
+          # page, and the SHA-256 of that same file pinned above. Bumping PYTHON_VERSION means updating both.
           $md5 = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm MD5).Hash.ToLower()
           $sha = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm SHA256).Hash.ToLower()
           "Embeddable Python sha256 $sha md5 $md5"
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
+          if ($sha -ne $env:PYTHON_EMBED_SHA256) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the pinned file (sha256 $sha)" }
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          # Every package comes from its hashed pin (sidecar/engine-requirements.txt), so a file that
+          # changed on PyPI after it was pinned stops the build. The engine's own wheel, built just
+          # above, goes in after with --no-deps, and pip check proves the pinned set is complete.
+          python -m pip install --only-binary=:all: --require-hashes --no-deps -r sidecar\engine-requirements.txt --target "$dir\Lib\site-packages"
+          if ($LASTEXITCODE) { throw "The engine's packages did not match their pinned hashes" }
+          python -m pip install --no-deps --target "$dir\Lib\site-packages" (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          if ($LASTEXITCODE) { throw "Could not install the engine's own package" }
+          & "$dir\python.exe" -m pip check
+          if ($LASTEXITCODE) { throw "The engine's packages are missing a dependency: regenerate sidecar/engine-requirements.txt" }
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
           # runtime names Python and the packages, so the app can update an engine with the same ones from the update zip.
@@ -371,6 +498,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [sidecar, ui, engine, shell, sbom-app, audit]
     runs-on: ubuntu-latest
+    # The Preview publish runs in its own environment, as Stable's does (promote.yml), so its rules
+    # live in Settings > Environments > preview: allow only the main branch to deploy, and add
+    # required reviewers there if every Preview build should wait for an approval.
+    environment: preview
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
     concurrency:
@@ -403,6 +534,9 @@ jobs:
       # The exe is kratosforge.exe. Builds from before it download only fabric-desktop.exe, so every
       # release also carries the same file under that name (app/src-tauri/src/exe_name.rs).
       - run: cp kratosforge.exe fabric-desktop.exe
+      # The engine's source, for PCs that install the engine into their own Python
+      # (updater.py download_sidecar): published with this build, its SHA-256 in version.json.
+      - run: git archive --format=zip --prefix="KratosForge-$GITHUB_SHA/" -o sidecar-source.zip "$GITHUB_SHA" sidecar
       # Signed proof that these exact files were built by this workflow from this commit.
       # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -412,6 +546,7 @@ jobs:
             fabric-desktop.exe
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
+            sidecar-source.zip
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -435,16 +570,18 @@ jobs:
             --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
+            --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine,
-              engine_runtime: $runtime, engine_update_sha256: $update, published: $published, signed: $signed}' > version.json
+              engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
+              published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then

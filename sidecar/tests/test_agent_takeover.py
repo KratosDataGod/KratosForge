@@ -253,11 +253,14 @@ def test_take_over_is_checked_in_agent_toml(tmp_path, project):
 
 def test_a_request_past_its_deadline_expires_rather_than_starting_again(tmp_path, project):
     a = make(tmp_path, project, "etl-01")
-    write(project, "requests/r1.json", {"env": "dev", "entities": ["bronze.orders"], "deadline": iso(time.time() + 2)})
+    # A deadline well ahead, so etl-01's poll can't miss it however slow the runner; etl-02's clock is then
+    # set past it. A real two-second deadline, cut to whole seconds by iso(), failed whenever etl-01's
+    # poll ended after the second it named: etl-01 expired the request itself.
+    write(project, "requests/r1.json", {"env": "dev", "entities": ["bronze.orders"], "deadline": iso(time.time() + 60)})
     a.mailbox.poll()
     lost(project, "etl-01")
-    time.sleep(2.1)
     b = make(tmp_path, project, "etl-02")
+    b.clock = lambda: time.time() + 120  # what the mailbox reads
     b.mailbox.poll()
     s = status(project, "r1")
     assert s["agent"] == "etl-02" and s["state"] == "expired"

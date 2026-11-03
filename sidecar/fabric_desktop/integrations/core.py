@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import describe, secret_key
+from ..redact import describe, walk
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
 
@@ -79,13 +79,7 @@ def redact_result(value: Any) -> Any:
     secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
     every capability's result, so a token that slipped into a notebook, a log line or a receipt
     doesn't leave through a tool."""
-    if isinstance(value, str):
-        return redact_secrets(value)
-    if isinstance(value, dict):
-        return {k: "[removed]" if secret_key(k) and isinstance(v, str) else redact_result(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [redact_result(v) for v in value]
-    return value
+    return walk(value)
 
 
 def error_from(exc: BaseException) -> IntegrationError:
@@ -223,6 +217,7 @@ class CallContext:
     progress: Callable[[float, float | None, str], None] | None = None
     seconds: float = 0.0  # how long the handler ran, set by Registry.invoke
     decision: str = ""  # "allowed" or "approved", set by the authorizer; for the audit line
+    approval_id: str = ""  # the approval this call used, set by the authorizer; for the audit lines
     # The workspaces the caller is limited to, set by the authorizer; None is no limit (scope.keep).
     workspaces: frozenset[str] | None = None
 

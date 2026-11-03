@@ -49,6 +49,7 @@ def run(job: dict[str, Any]) -> None:
     import pyarrow.ipc as ipc
 
     from . import lakehouse, sql, sql_policy
+    from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
     lh = job["lakehouse"]
     lakehouse.attach(lakehouse.Attached(
@@ -69,7 +70,7 @@ def run(job: dict[str, Any]) -> None:
                      + _advice(stop.kind))
         return
 
-    con = duckdb.connect()
+    con = keep_try_cast(duckdb.connect())
     con.execute("SET TimeZone = 'UTC'")  # as in sql.run: Fabric's Spark sessions are UTC
     if job.get("memory_mb"):
         con.execute(f"SET memory_limit = '{int(job['memory_mb'])}MB'")
@@ -84,15 +85,19 @@ def run(job: dict[str, Any]) -> None:
 
     views: dict[str, str] = {}
     result = None
-    for statement in statements:
+    for i, statement in enumerate(statements):
         sql.bind_tables(statement, con, views, lambda name: sql.is_local(con, name))
-        result = con.execute(statement.sql("duckdb"))
+        text = sql.duckdb_sql(statement)
+        if i == len(statements) - 1:
+            result = for_arrow(con, text)
+        else:
+            run_through(con, text)
 
     out = Path(job["out"])
     rows, batches, last = 0, [], time.monotonic()
     reader = None
     if result is not None and result.description:
-        reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(BATCH_ROWS)
+        reader = arrow_reader(result, BATCH_ROWS)
         schema = reader.schema
     else:
         schema = pa.schema([])
@@ -155,7 +160,24 @@ def _listen() -> None:
             _replies.put(json.loads(line))
         except ValueError:
             continue
-    os._exit(3)
+    _end_now(3)
+
+
+def _end_now(code: int) -> None:
+    """End the process at once, while the query may still be running on every core.
+
+    On Windows os._exit is ExitProcess: it stops the other threads wherever they are, then runs
+    each loaded library's shutdown code. A DuckDB thread stopped while holding one of its locks
+    can leave that shutdown code waiting for good, and the run never ends (an inferred cause of a
+    flaky Windows test, not reproduced). TerminateProcess ends the process without running it.
+    Nothing is lost: this run's result is abandoned and nothing is left to write."""
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code)
+    os._exit(code)  # elsewhere, or if TerminateProcess returned
 
 
 def _take_stdin() -> Any:

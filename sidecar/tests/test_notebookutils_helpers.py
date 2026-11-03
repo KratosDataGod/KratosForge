@@ -135,7 +135,9 @@ def test_where_it_runs_knows_notebook_item_changes():
     reads = compute_check([{"type": "code", "source": "notebookutils.notebook.getDefinition('x')"}], {"id": "lh"})
     changes = compute_check([{"type": "code", "source": "notebookutils.notebook.updateDefinition('x', d)"}], {"id": "lh"})
     runs = compute_check([{"type": "code", "source": "notebookutils.notebook.run('x')"}], {"id": "lh"})
-    assert reads["local"]["ok"] and runs["local"]["ok"] and not changes["local"]["ok"]
+    assert reads["local"]["ok"] and changes["local"]["status"] == "blocked"
+    # notebook.run runs here, but the notebook it runs isn't checked: Unknown, not blocked (#1226).
+    assert runs["local"]["status"] == "unknown" and not runs["local"]["reasons"]
 
 
 def test_negative_max_results_lists_everything():

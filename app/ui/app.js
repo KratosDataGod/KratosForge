@@ -60,6 +60,25 @@ function btn(label, iconName, onClick, cls = "tool", attrs = {}) {
   return h("button", { class: cls, onclick: onClick, ...attrs }, iconName ? icon(iconName, 16) : null, label);
 }
 
+// A folder box with Browse… beside it (#971): the Windows folder dialog (pick_folder in the shell)
+// fills the box, which stays editable for pasting. A box policy locks gets no button. `name` says
+// which folder, for a page with more than one box. The box needs its own aria-label: inside a
+// <label>, its name would otherwise take in the button's.
+function folderField(input, name = "a folder") {
+  if (input.readOnly || !window.__TAURI__?.core) return input;
+  const browse = btn("Browse…", "folderOpen", async () => {
+    browse.disabled = true; // one dialog at a time
+    const chosen = await invoke("pick_folder", { start: input.value.trim() || null })
+      .catch((e) => { toast(friendlyError(e).text, true); return null; })
+      .finally(() => { browse.disabled = false; });
+    if (!chosen) return;
+    input.value = chosen;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  }, "tool outline", { type: "button", "aria-label": `Browse for ${name}` });
+  return h("div", { class: "folder-field" }, input, browse);
+}
+
 function hydrateIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((el) => {
     el.replaceWith(icon(el.dataset.icon, Number(el.dataset.size || 20)));
@@ -335,10 +354,23 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
   const label = tab.textContent;
+  const list = el.closest("[role=tablist]")?.getAttribute("aria-label");
   tab.click();
-  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
-  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
-  (now || (tab.isConnected ? tab : null))?.focus();
+  // Selecting a tab often re-renders the tab list, sometimes after an engine call: focus the new copy
+  // of the selected tab, in the same tablist when it's named (a count in the label may have changed),
+  // for up to a second, while focus is still nowhere else (#961).
+  const selected = () => (list
+    ? [...document.querySelectorAll("[role=tablist]")].find((l) => l.getAttribute("aria-label") === list)?.querySelector("[role=tab][aria-selected=true]")
+    : [...document.querySelectorAll("[role=tab]")].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true"));
+  const refocus = (tries) => {
+    const found = selected();
+    const now = found === el ? null : found;  // a page that redraws later still shows the old selection
+    const lost = [document.body, el, tab].includes(document.activeElement) || !document.activeElement?.isConnected;
+    if (now && lost) now.focus();
+    else if (!now && tab.isConnected && lost) tab.focus();
+    if (tries > 0 && (!now || document.activeElement !== now) && lost) setTimeout(() => refocus(tries - 1), 50);
+  };
+  refocus(20);
 });
 
 // ---------- account and data ----------
@@ -535,8 +567,12 @@ function navKey(e) {
 function renderNavButtons() {
   const back = document.getElementById("nav-back");
   const fwd = document.getElementById("nav-forward");
-  if (back) back.disabled = !navCan(-1);
-  if (fwd) fwd.disabled = !navCan(1);
+  const canBack = navCan(-1), canFwd = navCan(1);
+  if (back) back.disabled = !canBack;
+  if (fwd) fwd.disabled = !canFwd;
+  // Hidden until there is somewhere to go: two faint arrows on a fresh start read as broken.
+  const wrap = back?.parentElement;
+  if (wrap) wrap.hidden = !canBack && !canFwd;
 }
 
 function go(view) {
@@ -554,7 +590,10 @@ function renderChrome() {
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
-  account.textContent = state.user ? state.user[0].toUpperCase() : "?";
+  // The profile picture when there is one (profile.js, PB-125), else the first letter.
+  const picture = state.user && state.avatar && typeof profilePicture === "function" ? profilePicture(state.avatar) : null;
+  if (picture) account.replaceChildren(picture);
+  else account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
@@ -750,6 +789,7 @@ async function renderHome() {
   const recent = foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
     btn("All notebooks", "notebook", () => go("notebooks"), "tool link small")));
   const ready = readinessCard();
+  const started = gettingStarted();
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
@@ -758,6 +798,8 @@ async function renderHome() {
     // What people come to Home for first (AF-2, docs/ux/action-first.md): pick up the last notebook or
     // start something; then readiness, problems and what is running.
     start,
+    started.el,
+    homePinnedCard(),
     recent,
     ready,
     ready ? null : signInCallout(),  // the readiness card asks to sign in; only one place asks
@@ -789,13 +831,11 @@ async function renderHome() {
     const last = (notebooks || []).reduce((a, n) => (!a || n.modified > a.modified ? n : a), null);
     if (last) resume.replaceWith(btn(`Continue: ${last.name}`, "notebook", () => openNotebook(last.name), "tool primary"));
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
-    list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
-      h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
-        h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
-        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
-        h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
+    // Each notebook's workspace, lakehouse, Runs on and last run, and Run several (home-notebooks.js).
+    const recentList = shown.length ? homeRecentList(shown) : null;
+    list.replaceWith(recentList ? recentList.el : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
+    return recentList?.done;
   });
   const projectCall = rpc("meta_project").catch(() => null);
   const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
@@ -838,12 +878,10 @@ async function renderHome() {
     if (!onHome()) return;
     if (project) state.meta.project = project;
     const hasProject = !!project?.path;
-    // Environments mean nothing before there's a metadata project: show the first steps instead.
-    if (!hasProject) {
-      await notebooksDone;
-      if (!onHome()) return;
-      envSection.replaceWith(getStarted(project, notebookCount) || "");
-    }
+    // Environments mean nothing before there's a metadata project; Getting started says where to begin.
+    if (!hasProject) envSection.remove();
+    // A notebook list that failed to draw (allSettled below) still ticks what it can, with no stray rejection.
+    notebooksDone.catch(() => {}).then(() => onHome() && started.mark(project, notebookCount));
 
     // The latest run of each table in each environment says how that table stands now.
     const latest = new Map();
@@ -1007,8 +1045,8 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
-    h("button", { class: `tab${source === id ? " active" : ""}`, "aria-current": source === id ? "page" : null, onclick: show(first) }, label)));
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+    h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
   const pages = source === "fabric"
     ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
@@ -1108,10 +1146,10 @@ async function renderMonitor() {
     })),
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
-      kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
+      kind: r.trigger === "home" ? "Run from Home" : r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
       rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
       reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
-      open: () => { monitorPage.panel = "schedules"; render(); },
+      open: r.trigger === "home" ? () => openNotebook(r.label) : () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...pipelineRunRows(pipelines.runs),
     ...fabricPipelineRunRows(fabricPipelines, cloud),
@@ -1246,7 +1284,8 @@ async function renderWorkspaces() {
     }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
-    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
+    wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] })),
+    PREVIEW_FEATURES.itemPins && previewShown() ? itemPinsLoaded() : null]);
   if (state.view !== "workspaces") return;
   wp.marks = marks;
   const here = () => state.view === "workspaces";
@@ -1282,12 +1321,14 @@ async function renderWorkspaces() {
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
-        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
+        title: previewing ? `Preview ${it.displayName}` : null, "data-preview": previewing ? previewKey(target) : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
           whRef && whOpensHere()
             ? h("button", { class: "name-link", title: "Open on the Warehouse page", onclick: stop(() => openWarehouseQuery(whRef)) }, it.displayName)
             : h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
+        PREVIEW_FEATURES.itemPins && previewShown() ? h("td", { class: "tick" }, itemPinButton({ kind: it.type, id: it.id,
+          name: it.displayName, workspace_id: ws.id, workspace_name: ws.displayName }, () => draw())) : null,
         h("td", { class: "actions" },
           lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
           lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
@@ -1557,12 +1598,13 @@ const TYPE_GROUP_LABEL = { ...Object.fromEntries(TYPE_GROUPS.map(([id, label]) =
 
 // The OneLake page's tabs: the catalog here; Shortcuts and Access are in estate.js.
 function onelakeTabs() {
-  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
-    onclick: () => { catalogPage.tab = id; render(); } }, label);
-  return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
-    // Data products moved to Data mesh > Products; this tab takes you there.
-    preview("mesh", h("button", { class: "tab", onclick: () => openProducts() }, "Data products")),
-    preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
+  const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`, role: "tab",
+    "aria-selected": String(catalogPage.tab === id), onclick: () => { catalogPage.tab = id; render(); } }, label);
+  // The tablist holds only this page's tabs (#961). Data products moved to Data mesh > Products: it
+  // looks like a tab but opens that page, so it sits after the list, where arrows don't reach it.
+  return h("div", { class: "subtabs onelake-tabs" }, h("div", { class: "tab-group", role: "tablist", "aria-label": "OneLake" },
+    tab("catalog", "Catalog"), preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access"))),
+    preview("mesh", h("button", { class: "tab tab-jump", title: "Opens Data mesh > Products", onclick: () => openProducts() }, "Data products")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
 
@@ -1697,13 +1739,18 @@ async function renderOneLake() {
   function drawGroups(groups, body, itemRow, depth = 0) {
     groups.forEach((g, i) => {
       const open = cp.groupOpen.has(g.key) ? cp.groupOpen.get(g.key) : depth > 0 || i === 0;
-      const toggle = () => { cp.groupOpen.set(g.key, !open); draw(); };
+      // The table is drawn afresh, so focus goes back to this header (a keyboard user stays put).
+      const toggle = () => {
+        cp.groupOpen.set(g.key, !open);
+        draw();
+        [...list.querySelectorAll(".group-head")].find((b) => b.dataset.group === g.key)?.focus();
+      };
       const wsCount = new Set(g.rows.map((r) => r.workspace_id)).size;
       const bits = [`${g.rows.length} item${g.rows.length === 1 ? "" : "s"}`];
       if (!g.env) bits.unshift(`${wsCount} workspace${wsCount === 1 ? "" : "s"}`);
       if (g.children && g.children.every((c) => c.env === "none")) bits.push("no environment");
       body.push(h("tr", { class: `group-row depth-${depth}` }, h("td", { colspan: 8 },
-        h("button", { class: "group-head", "aria-expanded": String(open), onclick: toggle },
+        h("button", { class: "group-head", "aria-expanded": String(open), "data-group": g.key, onclick: toggle },
           icon(open ? "chevronDown" : "chevronRight", 14),
           g.env ? envPill(g.env, true) : null,
           h("span", { class: "group-label" }, g.env && depth > 0 ? (g.workspaces || []).join(", ") : g.env ? "" : g.label),
@@ -1939,6 +1986,7 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
             title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
             onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
             ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
@@ -1967,6 +2015,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        "data-preview": onPick ? previewKey({ ...pick, ref }) : null,
         title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
         onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
         ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
@@ -2351,15 +2400,26 @@ function computeNote(nb) {
   const check = nb.check;
   const here = check?.[where.fabric ? "fabric" : "local"];
   const other = check?.[where.fabric ? "local" : "fabric"];
-  if (here && !here.ok) {
+  const unknown = here?.unknown || [];
+  const place = where.fabric ? "in Fabric" : "on this PC";
+  const cells = (n) => `${n} cell${n === 1 ? "" : "s"}`;
+  if (here?.reasons?.length) {
     const switchTo = where.fabric ? "local" : "fabric";
     slot.append(h("div", { class: "problems" },
       h("div", { class: "row" }, icon("warning", 16),
         h("b", { class: "grow" }, where.fabric ? "This notebook can't run in Fabric yet" : "This notebook only runs in Fabric"),
         other?.ok ? btn(where.fabric ? "Run on this PC" : "Run in Fabric", where.fabric ? "desktop" : "cloud",
           () => setNotebookCompute(switchTo), "tool small") : null),
-      computeReasons(here.reasons)));
-  } else if (where.fabric) {
+      computeReasons(here.reasons),
+      unknown.length ? [h("p", { class: "compute-unknown-head" }, `The check also can't tell for ${cells(unknown.length)}:`), computeReasons(unknown)] : null));
+  } else if (unknown.length) {
+    slot.append(h("div", { class: "compute-unknown" },
+      h("div", { class: "row" }, icon("help", 16),
+        h("b", { class: "grow" }, `The check can't tell whether ${cells(unknown.length)} run${unknown.length === 1 ? "s" : ""} ${place}`)),
+      computeReasons(unknown),
+      h("p", { class: "muted-text" }, "Prove and the risk check count these cells as not checked. Run them to find out, or write the names they use in the code.")));
+  }
+  if (!here?.reasons?.length && where.fabric) {
     const run = nb.fabricRun;
     slot.append(h("div", { class: "callout compute-callout" }, icon("cloud", 18),
       h("span", { class: "grow" }, `Run all publishes this notebook and runs it on ${publishWorkspaceName(nb)}'s Fabric capacity. `,
@@ -2883,7 +2943,7 @@ async function checkComponents(afterInstall = false) {
     report = await invoke("check_components");
   } catch (err) {
     set("app", "skip", "Needs Python");
-    set("python", "error", `${err} Install Python 3.11 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
+    set("python", "error", `${err} Install Python 3.12 or later from python.org, or set FABRIC_DESKTOP_PYTHON to its full path.`);
     set("sidecar", "skip", "Needs Python");
     if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
     return closeDialog();
@@ -2897,7 +2957,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.12 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2943,10 +3003,14 @@ async function checkComponents(afterInstall = false) {
     help.hidden = false;
   };
 
-  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.11 or later");
+  if (!report.python_ok) set("sidecar", "skip", "Needs Python 3.12 or later");
   else if (sidecar.editable || !app.commit) {
     const kind = sidecar.editable ? "developer install (not managed)" : "not checked in a local build";
-    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}`);
+    // A developer's own Python that lacks a package a newer engine needs (PyYAML, for the Ossie converter): say
+    // the command that installs what's missing rather than only the import error.
+    const missing = /^ModuleNotFoundError: No module named '[^'.]+'$/.exec(sidecar.error || "");
+    if (sidecar.version && sidecar.error) set("sidecar", "error", `${sidecar.version} does not start: ${sidecar.error}` + (missing
+      ? `. This Python (${report.python}) is missing a package the engine needs. In the sidecar folder, run: python -m pip install -e . -c constraints.txt` : ""));
     else if (sidecar.version) set("sidecar", "ok", `${sidecar.version}, ${kind}`);
     else set("sidecar", "error", "Not installed. In the sidecar folder, run: python -m pip install -e .");
   } else if (sidecar.commit === app.commit && !sidecar.error) {
@@ -2977,7 +3041,8 @@ async function checkComponents(afterInstall = false) {
       const result = await invoke("update_sidecar");
       if (result?.engine) {
         // Check again with the new engine: it may be a newer build than this exe, and
-        // it may be blocked from loading.
+        // it may be blocked from loading. Its first start is slow (Windows scans each new file).
+        set("sidecar", "busy", "Starting the new engine for the first time…");
         return checkComponents(true);
       }
       set("sidecar", "ok", `Updated to build ${short(app.commit)}`);
@@ -3025,6 +3090,7 @@ function startMain() {
       state.user = env.user;
       state.tenant = env.tenant;
       await loadSettings();
+      if (typeof profileLoadAvatar === "function") profileLoadAvatar();  // profile.js; the account button's picture
       if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
       showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
       // The environment pill needs the metadata project; there may not be one yet.

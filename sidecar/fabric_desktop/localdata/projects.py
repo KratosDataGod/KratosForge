@@ -17,13 +17,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .discovery import Source
+from .. import jsonfile
 
 SCHEMA = "local-project@1"
 STORAGE = ("persistent", "memory")
@@ -101,16 +101,17 @@ class ProjectStore:
 
     def _index(self) -> dict[str, str]:
         try:
-            return json.loads(self.index_file.read_text(encoding="utf-8"))
+            index = jsonfile.read_json(self.index_file, {})
+            return index if isinstance(index, dict) else {}
         except (OSError, ValueError):
             return {}
 
     def _save_index(self, index: dict[str, str]) -> None:
-        _write_json(self.index_file, index)
+        jsonfile.write_json(self.index_file, index)
 
     def list(self) -> list[Project]:
         projects = []
-        for pid, folder in sorted(self._index().items()):
+        for pid in sorted(self._index()):
             try:
                 projects.append(self.load(pid))
             except (OSError, ValueError, KeyError):
@@ -131,7 +132,7 @@ class ProjectStore:
     def save(self, project: Project) -> None:
         data = asdict(project)
         data.pop("folder")
-        _write_json(project.root / "project.json", {"schema": SCHEMA, **data})
+        jsonfile.write_json(project.root / "project.json", {"schema": SCHEMA, **data})
 
     def create(self, name: str, storage: str = "persistent", folder: str = "",
                settings: dict[str, Any] | None = None) -> Project:
@@ -165,16 +166,3 @@ class ProjectStore:
         index.pop(pid, None)
         self._save_index(index)
 
-
-def _write_json(path: Path, data: Any) -> None:
-    """Write through a temporary file, so a crash never leaves half a file behind."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise

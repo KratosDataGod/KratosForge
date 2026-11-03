@@ -27,12 +27,26 @@ function selectPreview(target, parent = null) {
   return true;
 }
 
+// Focus goes back to the row that opened the preview, or to its lakehouse's row for a table or file
+// picked inside a lakehouse's preview. The page draws its rows again, so the row is found by its key.
 function closePreview() {
+  const back = [itemPreview.target, itemPreview.parent].filter(Boolean).map(previewKey);
   itemPreview.target = null;
   itemPreview.parent = null;
   itemPreview.onChange?.();
   placeFabricView();
+  back.map((k) => document.querySelector(`[data-preview="${CSS.escape(k)}"]`)).find(Boolean)?.focus();
 }
+
+// Escape closes the panel, unless a dialog, menu, the command bar, the activity tray or the How it
+// works drawer is open: that Escape is theirs. Capture phase, so it sees them before they close.
+document.addEventListener("keydown", (e) => {
+  if (!isShortcut(e, "close") || e.defaultPrevented || !itemPreview.target || !itemPreview.host?.isConnected) return;
+  if (document.getElementById("dialog-root")?.childElementCount || document.querySelector(".overlay, #menu, #palette")
+    || activity.open || howView.open || document.body.classList.contains("fabric-full")) return;
+  e.preventDefault();
+  closePreview();
+}, true);
 
 function isPreviewed(target) {
   return !!itemPreview.target && previewKey(itemPreview.target) === previewKey(target);
@@ -137,9 +151,9 @@ function drawRowsPreview(panel, body, d) {
   const meta = panel.querySelector(".preview-meta");
   const count = d.row_count == null ? "" : `${Number(d.row_count).toLocaleString()} rows  ·  `;
   if (meta) meta.textContent = `${count}${d.columns.length} columns  ·  read on this PC`;
-  const tab = (id, label) => h("button", { class: `tab${itemPreview.tab === id ? " active" : ""}`,
+  const tab = (id, label) => h("button", { class: `tab${itemPreview.tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(itemPreview.tab === id),
     onclick: () => { itemPreview.tab = id; drawRowsPreview(panel, body, d); } }, label);
-  const tabs = h("div", { class: "subtabs" }, tab("data", "Data"), tab("schema", "Schema"));
+  const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Preview" }, tab("data", "Data"), tab("schema", "Schema"));
   if (itemPreview.tab === "schema") {
     body.replaceChildren(tabs, h("table", { class: "list preview-grid" },
       h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Type"))),

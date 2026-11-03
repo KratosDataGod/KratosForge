@@ -218,3 +218,18 @@ def test_the_open_task_passes_the_file_outside_the_command_line(tmp_path):
                          text=True, env=env, timeout=120)
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip().endswith("a%26b.ipynb")
+
+
+def test_validate_reads_a_notebook_it_runs_from_the_same_folder(tmp_path):
+    def write(name, source):
+        nb = {"cells": [{"cell_type": "code", "source": [source], "metadata": {}, "outputs": []}],
+              "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+        (tmp_path / f"{name}.ipynb").write_text(json.dumps(nb), encoding="utf-8")
+    write("Helpers", "import notebookutils as nu\nnu.fs.mount('abfss://c@a', '/m')\n")
+    write("Main", "%run Helpers\n")
+    out = json.loads(_validate(tmp_path / "Main.ipynb", tmp_path, "--json", "--runs-on", "pc").stdout)
+    assert [f["text"] for f in out["findings"] if f["code"] == "runs_on_pc"] == [
+        "It runs Helpers (%run), whose cell 1 uses Fabric notebook utilities that need Fabric."]
+    (tmp_path / "Helpers.ipynb").unlink()
+    out = json.loads(_validate(tmp_path / "Main.ipynb", tmp_path, "--json", "--runs-on", "pc").stdout)
+    assert [f["code"] for f in out["findings"] if f["code"].startswith("runs_on_pc")] == ["runs_on_pc_unknown"]

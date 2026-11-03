@@ -331,6 +331,8 @@ def render_backlog() -> None:
                 out.append("- **Merged duplicates:** " + "; ".join(i["duplicates"]))
             if i.get("prs"):
                 out.append("- **Pull requests:** " + ", ".join(_pr(p) for p in i["prs"]))
+            if i.get("issues"):
+                out.append("- **Story issues:** " + ", ".join(f"[#{n}](https://github.com/KratosDataGod/KratosForge/issues/{n})" for n in i["issues"]))
             if i.get("package"):
                 rel = Path(i["package"]).relative_to("docs/product").as_posix()
                 out.append(f"- **Implementation package:** [{rel}]({rel})")

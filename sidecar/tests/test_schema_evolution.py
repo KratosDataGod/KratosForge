@@ -9,6 +9,7 @@ is recorded in meta.schema_history with the Delta version that made it and a sch
 """
 
 import json
+from contextlib import contextmanager
 
 import polars as pl
 import pyarrow as pa
@@ -302,3 +303,129 @@ def test_a_full_load_with_no_rows_still_refuses_a_declared_narrowing(tmp_path):
     s.source(qty_rows([], DAY2), mode="overwrite")
     res = s.engine(DAY2).run("bronze.events")
     assert res.status == "failed" and "qty int64 to int32 would narrow" in res.message, res.message
+
+
+# --------------------------------------------------------------------------- schema versions (#1008)
+
+
+def test_a_run_that_takes_the_table_as_soon_as_another_lets_go_numbers_its_change_after_it(tmp_path):
+    """The schema version is fixed while the table is still locked: a run that starts the moment the
+    lock is let go reads it, so two quick changes never share a version."""
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+
+    @contextmanager
+    def then_another_run(e):
+        yield
+        s.source(rows([20], DAY3).with_columns(pl.lit("eu").alias("region"), pl.lit("web").alias("channel")))
+        s.run(day=DAY3)
+
+    s.source(rows([10], DAY2).with_columns(pl.lit("eu").alias("region")))
+    first = Engine(Project(s.root), s.store, DAY2, merge_writes=True, table_lock=then_another_run).run("bronze.events")
+    assert first.status == "ok", first.message
+    assert [(r["change"], r["columns"], r["schema_version"]) for r in history(s)][1:] == [
+        ("added", "region", 2), ("added", "channel", 3)]
+
+
+def test_history_rows_from_before_schema_versions_count_so_the_numbering_continues(tmp_path):
+    s = Setup(tmp_path, True)
+    s.store.meta_append("schema_history", [{"entity": "bronze.events", "run_id": run, "change": "added", "columns": c}
+                                           for run, c in (("old-1", "a"), ("old-1", "b"), ("old-2", "c"))])
+    s.source(rows(range(3), DAY1))
+    s.run()
+    s.source(rows([10], DAY2).with_columns(pl.lit("eu").alias("region")))
+    s.run(day=DAY2)
+    assert [r["schema_version"] for r in history(s)] == [None, None, None, 3, 4]
+
+
+def test_a_schema_history_that_cant_be_saved_leaves_the_run_ok_and_says_so(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    append = s.store.meta_append
+
+    def no_history(table, rows, metadata=None):
+        if table == "schema_history":
+            raise OSError("the meta lakehouse is read only")
+        append(table, rows, metadata=metadata)
+    monkeypatch.setattr(s.store, "meta_append", no_history)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda _: None, raising=False)
+    res = s.run()
+    assert "couldn't save the schema history (OSError: the meta lakehouse is read only)" in res.message
+    assert s.table().height == 3
+
+
+def test_a_failure_after_the_commit_keeps_the_note_that_the_schema_history_wasnt_saved(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    append = s.store.meta_append
+
+    def no_history(table, rows, metadata=None):
+        if table == "schema_history":
+            raise OSError("the meta lakehouse is read only")
+        append(table, rows, metadata=metadata)
+    monkeypatch.setattr(s.store, "meta_append", no_history)
+    engine = s.engine()
+    monkeypatch.setattr(engine, "_record_files", lambda e, res: (_ for _ in ()).throw(OSError("files not recorded")))
+    res = engine.run("bronze.events")
+    assert res.status == "failed" and res.delta_version is not None
+    assert res.message == ("OSError: files not recorded; "
+                           "couldn't save the schema history (OSError: the meta lakehouse is read only)")
+
+
+# --------------------------------------------------------------------------- reads per run (#1009)
+
+
+def counted(s: Setup, monkeypatch) -> dict:
+    """Counts what a run reads for the schema history: the table's log at a version, and the history."""
+    seen = {"versioned scans": 0, "whole history": 0, "history where": []}
+    scan, meta, where = s.store.scan, s.store.meta, s.store.read_where
+
+    def scan_(lakehouse, schema, table, version=None):
+        if (lakehouse, table, version is not None) == ("LH_Bronze", "events", True):
+            seen["versioned scans"] += 1
+        return scan(lakehouse, schema, table, version)
+
+    def meta_(table):
+        seen["whole history"] += table == "schema_history"
+        return meta(table)
+
+    def where_(lakehouse, schema, table, cond, columns=None, version=None):
+        if table == "schema_history":
+            seen["history where"].append(str(cond))
+        return where(lakehouse, schema, table, cond, columns, version)
+    monkeypatch.setattr(s.store, "scan", scan_)
+    monkeypatch.setattr(s.store, "meta", meta_)
+    monkeypatch.setattr(s.store, "read_where", where_)
+    return seen
+
+
+@pytest.mark.parametrize("change", [False, True], ids=["same schema", "added column"])
+def test_a_run_reads_the_schema_once_and_only_its_own_history(tmp_path, monkeypatch, change):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+    new = rows([10], DAY2)
+    s.source(new.with_columns(pl.lit("eu").alias("region")) if change else new)
+    seen = counted(s, monkeypatch)
+    res = s.run(day=DAY2)
+    assert seen["versioned scans"] == 0 and seen["whole history"] == 0
+    assert seen["history where"] == ([str(pl.col("entity") == "bronze.events")] if change else [])
+    monkeypatch.undo()
+    if change:
+        assert history(s)[-1] == {"change": "added", "columns": "region", "detail": "region string", "breaking": False,
+                                  "delta_version": res.delta_version, "schema_version": 2}
+    else:
+        assert len(history(s)) == 1
+
+
+def test_the_kept_schema_is_the_one_the_log_gives(tmp_path):
+    """The schema a write keeps is read the same way as one read from the log, so the history
+    never records a change that is only a difference in how it was read."""
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1).with_columns(pl.lit("eu").alias("region")))
+    res = s.run()
+    kept = s.store.written_schema("LH_Bronze", "dbo", "events", res.delta_version)
+    assert kept is not None
+    assert kept == s.store.scan("LH_Bronze", "dbo", "events", res.delta_version).collect_schema()
+    assert s.store.written_schema("LH_Bronze", "dbo", "events", res.delta_version - 1) is None

@@ -4,21 +4,50 @@
 
 // ---------- times ----------
 
-function relTime(iso) {
-  if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return String(iso);
+// Dates and times, the same on every page (#956), in the person's own Windows format. Each takes
+// an ISO string, a Date or milliseconds (callers turn epoch seconds into milliseconds), and gives
+// opts.empty ("" unless the page names a word such as "never") for a missing or unreadable value,
+// never "Invalid Date". opts.seconds adds seconds; opts.weekday adds the day of the week; opts.utc reads a
+// plain day ("2026-10-28") as it is.
+function readDate(at) {
+  if (at === null || at === undefined || at === "") return null;
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateText(at, opts = {}) {
+  const d = readDate(at);
+  if (!d) return opts.empty ?? "";
+  const zone = opts.utc ? { timeZone: "UTC" } : {};
+  return opts.weekday ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", ...zone })
+    : d.toLocaleDateString(undefined, { dateStyle: "medium", ...zone });
+}
+
+function timeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(opts.seconds ? { second: "2-digit" } : {}) }) : (opts.empty ?? "");
+}
+
+function dateTimeText(at, opts = {}) {
+  const d = readDate(at);
+  return d ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: opts.seconds ? "medium" : "short" }) : (opts.empty ?? "");
+}
+
+// How long ago, then the date once it's two days back.
+function relTime(at) {
+  const t = readDate(at);
+  if (!t) return "";
   const s = Math.round((Date.now() - t.getTime()) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   if (s < 172800) return "yesterday";
-  return t.toLocaleDateString();
+  return dateText(t);
 }
 
 // A relative time with the exact time on hover.
 function when(iso) {
-  return h("span", { title: iso ? new Date(iso).toLocaleString() : "" }, relTime(iso));
+  return h("span", { title: dateTimeText(iso, { seconds: true }) }, relTime(iso));
 }
 
 function took(seconds) {
@@ -78,6 +107,8 @@ function friendlyError(err) {
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
     [/AADSTS50076|AADSTS50079|AADSTS50074|AADSTS50072/, "Your organization needs an extra sign-in step (multi-factor authentication). Sign in again and finish the step in the Microsoft window."],
     [/AADSTS50020|AADSTS50034|AADSTS90072/, "That account doesn't belong to your organization's Fabric tenant. Sign in with your work account."],
+    // #1079: Windows sign-in refused a token for one service (seen for Azure SQL and Kusto); the rest still works
+    [/IncorrectConfiguration|AADSTS65002/i, "Windows sign-in wouldn't give KratosForge's built-in sign-in a token for this service (warehouse queries or warehouse Monitoring often need one). The rest of the app keeps working. docs/troubleshooting.md says what IT can check."],
     [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
     [/^SignInError: (AADSTS\d+)/, "Microsoft sign-in didn't finish. Sign in again; if it happens again, ask IT and quote the code in the details below."],
     [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
@@ -96,7 +127,9 @@ function friendlyError(err) {
   if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
-  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
+  // PlatformError is the platform refusing in words a person can act on (central/core.py), like "Only platform admins can ...".
+  // NotInInventory is a LookupError (workload_service.py) whose name ends in neither Error nor Exception.
+  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|PlatformError|NotSetUp|NoMetadataProject|KernelGone|FileNotFoundError|GateError|GitError|Conflict|NotInInventory): ([\s\S]*)$/.exec(raw);
   if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" || m[1] === "GitError" ? "" : raw };
   if (/^[A-Z][A-Za-z]*(Error|Exception): /.test(raw)) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };
@@ -149,7 +182,26 @@ function saveActivity() {
   } catch { /* storage full or blocked: the tray still works for this session */ }
 }
 
+// The same problem again within ten minutes (the engine failing to start fails every call the pages
+// make) updates the entry already there, with a count and the other places it happened, instead of
+// adding one per call: 34 copies of one failure hide the problem that's actually new.
+const REPEAT_MS = 10 * 60 * 1000;
+
+function repeatOf(item) {
+  if (item.id || !PROBLEM.has(item.status)) return -1;
+  const now = Date.now();
+  return activity.items.findIndex((x) => x.status === item.status && (x.text || "") === (item.text || "")
+    && (x.details || "") === (item.details || "") && now - new Date(x.at).getTime() < REPEAT_MS);
+}
+
 function logActivity(item) {
+  const r = repeatOf(item);
+  if (r >= 0) {
+    const was = activity.items[r];
+    const titles = [...new Set([was.title, ...(was.alsoIn || []), item.title].filter(Boolean))];
+    item = { ...item, id: was.id, repeats: (was.repeats || 1) + 1, title: item.title || was.title,
+      alsoIn: titles.filter((t) => t !== (item.title || was.title)).slice(-5), at: new Date().toISOString() };
+  }
   const id = item.id || `a${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const i = activity.items.findIndex((x) => x.id === id);
   const next = { at: new Date().toISOString(), ...(i >= 0 ? activity.items[i] : {}), ...item, id, stale: false };
@@ -229,6 +281,8 @@ function trayItem(i) {
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
     i.status === "running" && !i.stale ? runningBar(i) : null,
     i.text ? h("div", { class: "tray-text" }, i.text) : null,
+    i.repeats > 1 ? h("div", { class: "muted-text small" }, `Happened ${i.repeats} times`
+      + (i.alsoIn?.length ? `, also in: ${i.alsoIn.join(", ")}` : "")) : null,
     i.stale ? h("div", { class: "muted-text small" }, "The app was closed while this ran. Monitor has its final state.") : null,
     i.details ? h("details", {}, h("summary", {}, "Details"), h("pre", {}, i.details)) : null,
     links.length ? h("div", { class: "row wrap" }, links) : null);

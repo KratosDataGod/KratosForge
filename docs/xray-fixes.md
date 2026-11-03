@@ -15,6 +15,8 @@ Each finding links here. Every section says what the finding means, why it matte
 | [Leftover staging lakehouses](#leftover-staging-lakehouses) | Good to know | **Remove** |
 | [Empty lakehouses](#empty-lakehouses) | Good to know | **Open in Fabric** |
 
+How these thresholds compare with Microsoft's guidance is in [Health thresholds](health-thresholds.md).
+
 The scan reads at most 500 tables. Scans run when you press **Scan now** or **Scan again** (the very first one on a PC starts by itself), and **Pause** holds a scan where it is.
 
 ## After you press a fix

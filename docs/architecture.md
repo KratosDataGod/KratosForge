@@ -14,7 +14,7 @@ KratosForge does Microsoft Fabric data engineering work on your own Windows PC a
 | --- | --- | --- |
 | **App UI** | The Fabric-style pages: Home, Create, Workspaces, OneLake catalog, Fabric, notebooks, SQL query, Metadata and Monitor. Plain HTML and JavaScript with no build step. `activity.js` holds the environment picker, the activity tray and plain-language errors. Each data action is one `rpc` command to the shell. | `app/ui/` |
 | **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Only Fabric and Microsoft sign-in pages open in it (the host list is in [security](security.md)); other links open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
-| **Startup check** | Before the engine starts: if GitHub Releases has a newer build, it downloads it, checks the file is that build, swaps the exe and restarts. It then checks Python 3.11 or later, and installs the sidecar from the commit the exe was built from, so the exe and the engine always match. | `check_components`, `app/src-tauri/src/updater.py` |
+| **Startup check** | Before the engine starts: if GitHub Releases has a newer build, it downloads it, checks the file is that build, swaps the exe and restarts. It then checks Python 3.12 or later, and installs the sidecar from the commit the exe was built from, so the exe and the engine always match. | `check_components`, `app/src-tauri/src/updater.py` |
 
 ### Local engine (`sidecar/`)
 
@@ -34,7 +34,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 | **Job runner** (`jobs.py`, `publish.py`) | TOML job files that run DuckDB SQL or a Polars script and publish the result. |
 | **Auth** (`auth.py`) | MSAL public-client sign-in as you (delegated, no service principal). Tokens for Fabric, Azure Storage and, when consented, the Power BI admin API. The token cache is on the PC. |
 | **OneLake I/O** (`onelake.py`, `publish.py`, `delta_profile.py`) | Builds OneLake paths, lists files and tables, and reads and writes Delta with delta-rs. |
-| **Fabric REST client** (`fabric_api.py`) | Workspaces, items, lakehouses, notebook publish, job instances and schedules, table maintenance, semantic models, SQL endpoint metadata refresh, and the admin workspace scan used for endorsement. It and the OneLake, Power BI and platform clients share one pooled session from `http_session.py`; reads retry through `retrying.py`, writes are sent once. Telemetry, the Teams webhook and the managed identity token client keep their own connections. |
+| **Fabric REST client** (`fabric_api.py`) | Workspaces, items, lakehouses, notebook publish, job instances and schedules, table maintenance, semantic models, SQL endpoint metadata refresh, and the admin workspace scan used for endorsement. It and the OneLake, Power BI and platform clients share one pooled session from `http_session.py`; reads retry through `retrying.py`, writes are sent once, except platform changes: those carry a call id through UDF_Platform's `call_once`, so a retried change is applied once and its first answer is replayed. Telemetry, the Teams webhook and the managed identity token client keep their own connections. |
 | **Workloads** (`workloads/`, `workload_service.py`) | One inventory of what runs where: metadata entities per environment, notebooks on this PC and their Fabric items, and pipelines, notebooks and Spark jobs in the workspaces the app works in. Reads existing records only (run logs, `fabric_runs.jsonl`, PC and Fabric schedules) and says how fresh each reading is. Ownership, links and actions taken from the app are kept in `workloads.sqlite`. |
 
 ### On this PC
@@ -48,7 +48,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - catalog favorites
 - the list of repositories opened in Source control (`git_repos.json`; the repositories themselves stay where you put them)
 - the Fabric view's profile and its saved, encrypted sign-in
-- `sidecar.log`
+- `sidecar.log`, and `sidecar.prev.log` from the run before
 
 A metadata project is a folder you choose and keep in Git.
 

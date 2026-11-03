@@ -149,7 +149,7 @@ async function whMonitorBuild(ref) {
 
 const whMonCell = (v, type) => {
   if (v === null || v === undefined || v === "") return "";
-  if (/datetime/i.test(type || "")) { const d = new Date(v); return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString(); }
+  if (/datetime/i.test(type || "")) return dateTimeText(v, { seconds: true, empty: String(v) });
   if (typeof v === "number") return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 };
@@ -206,7 +206,7 @@ function whMonitorView(ref, actions) {
   };
   return h("div", { class: "wh-mon" }, head,
     h("p", { class: "wh-mon-on", role: "status" }, `Workspace monitoring is on. Read from `, h("code", {}, s.database.name),
-      s.database.last_seen ? `, last query seen ${new Date(s.database.last_seen).toLocaleString()}` : "", `. Completed queries on ${ref.name}, ${windowName}.`),
+      s.database.last_seen ? `, last query seen ${dateTimeText(s.database.last_seen)}` : "", `. Completed queries on ${ref.name}, ${windowName}.`),
     h("div", { class: "wh-mon-tiles" },
       tile("Queries", queries.toLocaleString(), `completed, ${windowName}`),
       tile("Typical time (P50)", whMonSecs(col("P50DurationMs")), `P95 ${whMonSecs(col("P95DurationMs"))}`),

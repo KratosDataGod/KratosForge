@@ -56,7 +56,7 @@ def svc(tmp_path, monkeypatch):
 def test_calls_are_registered_and_audited_as_they_should_be():
     from fabric_desktop.optimize_service import METHODS
     assert METHODS <= server.METHODS
-    assert not audit.audited("optimize_status") and not audit.audited("optimize_inspect")
+    assert not audit.audited("optimize_status")
     assert not audit.audited("optimize_discover")
     assert not audit.audited("optimize_findings") and not audit.audited("optimize_recommendations")
     assert audit.audited("optimize_set_recommendation")

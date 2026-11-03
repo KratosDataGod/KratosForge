@@ -262,6 +262,13 @@
             "type": "integer"
           }
         },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "GitHub story issues that track it (never security findings)"
+        },
         "package": {
           "type": "string",
           "description": "Path of its PR-ready specification under docs/product/pr-ready/, when one exists"

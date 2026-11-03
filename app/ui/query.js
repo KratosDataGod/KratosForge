@@ -130,7 +130,7 @@ async function warehouseRunOk(ref) {
 // WH-08: the Messages view: what the last run did, from its status. Never the SQL.
 function sqlMessages(ex, tab, target) {
   if (!ex) return h("p", { class: "muted-text", style: "padding:12px 16px" }, tab.error ? tab.error.replace(/^Error: /, "") : "No query has run in this tab yet.");
-  const time = (s) => (s ? new Date(s * 1000).toLocaleTimeString() : "");
+  const time = (s) => (s ? timeText(s * 1000, { seconds: true }) : "");
   const lines = [`Target: ${target}`];
   if (ex.created) lines.push(`Queued at ${time(ex.created)}`);
   if (ex.started) lines.push(`Started at ${time(ex.started)}`);
@@ -208,10 +208,11 @@ function renderQuery() {
 
   const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
   p.editor?.destroy();
+  const provider = wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); });
   const editor = p.editor = createSqlEditor({
     doc: tab.sql,
     dialect: tab.dialect,
-    provider: wh ? warehouseSqlProvider(ref) : lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
+    provider,
     on: {
       change: setSql,
       run: () => run(),
@@ -242,7 +243,9 @@ function renderQuery() {
       const pol = await sqlPracticeSettings();
       try {
         const out = await rpc("sql_practices", { query: text, target: dialect, settings: pol.settings || {} });
-        return { ...out, policies: pol.policies || [], note: pol.note || "" };
+        await learnPrepareFindings(out.findings, (f) => text.split("\n")[f.line - 1]);  // learn.js: for Dismiss
+        await learnPrepareFixes(out.findings, text, dialect, provider);  // learn.js: Try the fix
+        return { ...out, settings: pol.settings || {}, policies: pol.policies || [], note: pol.note || "" };
       } catch (err) {
         return failed(err);
       }
@@ -440,7 +443,7 @@ function renderQuery() {
       toast(out.message);
       delete state.tree[treeKey(ref, "tables")];
       p.tables = null;
-      if (here()) drawTables();
+      loadTables();  // read again, so the explorer lists the new table instead of "Loading tables..."
     }
   }
 
@@ -485,6 +488,14 @@ function renderQuery() {
     }
     if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
   }
+  function loadTables() {
+    drawTables();
+    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
+      .then((t) => { p.tables = t; })
+      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${friendlyError(err).text}`, true); })
+      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) { editor.refresh(); editor.recheck(); } } });
+  }
+
   function drawTables() {
     if (!p.tables) {
       tablesBox.replaceChildren(h("div", { class: "tree-row muted" }, "Loading tables..."));
@@ -602,6 +613,7 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
+  const closeTab = (i) => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); };
   const addTab = () => { p.whCompareShown = p.whMonitorShown = false; p.tabs.push({ name: nextTabName(), sql: wh ? WAREHOUSE_HINT : QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   // WH-12: the compare view, when one was made for this warehouse, has a tab of its own.
   const compare = wh && p.whCompare?.key === sqlRefKey(ref) ? p.whCompare : null;
@@ -609,24 +621,40 @@ function renderQuery() {
   // WH-19: the Monitoring tab, once opened for this warehouse.
   const monitor = wh && p.whMonitor?.key === sqlRefKey(ref) ? p.whMonitor : null;
   const monitorOn = !!(monitor && p.whMonitorShown);
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active && !compareOn && !monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active && !compareOn && !monitorOn),
-        onclick: () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
-        ondblclick: async () => {
+  // A tablist holds only tabs (#905): each wrapper is presentational, and its × is for the mouse; with the
+  // keyboard, Delete on the tab closes it. New query sits beside the list, not in it.
+  // Delete and × ask first when the query has SQL of its own (keyClose); after Delete, focus goes to the tab now selected.
+  const sqlTab = (cls, on, label, iconName, select, close, extra = {}, keyClose = close) => h("div", { class: `sql-tab${cls}${on ? " on" : ""}`, role: "none" },
+    h("button", { class: "name", role: "tab", "aria-selected": String(on), onclick: select,
+      ...(close ? { "aria-keyshortcuts": "Delete", onkeydown: async (e) => {
+        if (e.key !== "Delete") return;
+        e.preventDefault();
+        if (await keyClose() === false) return;
+        document.querySelector(".sql-tabs [aria-selected=true]")?.focus();
+      } } : {}),
+      ...extra }, icon(iconName, 14), label),
+    close ? h("button", { class: "close", "aria-hidden": "true", tabindex: "-1", title: `Close ${label} (Delete)`, onclick: () => keyClose() }, "×") : null);
+  const tabs = h("div", { class: "sql-tabbar" },
+    h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
+      p.tabs.map((t, i) => sqlTab("", i === p.active && !compareOn && !monitorOn, t.name, "code",
+        () => { p.active = i; p.whCompareShown = p.whMonitorShown = false; renderQuery(); },
+        p.tabs.length > 1 ? () => closeTab(i) : null,
+        { ondblclick: async () => {
           const name = await askText("Rename query", "Name", t.name, "Rename");
           if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    compare ? h("div", { class: `sql-tab wh-cmp-tab${compareOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(compareOn), onclick: () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); } },
-        icon("branchCompare", 14), "Compare"),
-      h("button", { class: "close", "aria-label": "Close Compare", onclick: () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); } }, "×")) : null,
-    monitor ? h("div", { class: `sql-tab wh-mon-tab${monitorOn ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(monitorOn), onclick: () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); } },
-        icon("monitor", 14), "Monitoring"),
-      h("button", { class: "close", "aria-label": "Close Monitoring", onclick: () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); } }, "×")) : null,
+        } },
+        async () => {
+          const sql = (t.sql || "").trim();
+          if (sql && sql !== QUERY_HINT.trim() && sql !== WAREHOUSE_HINT.trim()
+            && !(await confirmDialog(`Close ${t.name}?`, "Its SQL is discarded. It isn't saved anywhere else.", "Close query", { danger: true }))) return false;
+          closeTab(i);
+        })),
+      compare ? sqlTab(" wh-cmp-tab", compareOn, "Compare", "branchCompare",
+        () => { p.whCompareShown = true; p.whMonitorShown = false; renderQuery(); },
+        () => { p.whCompare = null; p.whCompareShown = false; renderQuery(); }) : null,
+      monitor ? sqlTab(" wh-mon-tab", monitorOn, "Monitoring", "monitor",
+        () => { p.whMonitorShown = true; p.whCompareShown = false; renderQuery(); },
+        () => { p.whMonitor = null; p.whMonitorShown = false; renderQuery(); }) : null),
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
@@ -649,13 +677,79 @@ function renderQuery() {
   const practicesChip = h("button", { class: "sql-practices-chip", "aria-controls": "sql-compat", "data-practices": true,
     title: "Best practices: what may be slow or fragile even when it runs. Read on this PC; nothing runs.",
     onclick: () => showPane("practices") });
+  // The findings to show (learn.js): dismissed ones leave the list and the counts; a rule a policy names stays.
+  function practiceSplit(r) {
+    const ctx = { subject: "sql", where: tab.file ? `${tab.file.place}/${tab.file.name}` : `${ref?.lakehouse_id || ref?.name || ""}/${tab.name}`, required: (id) => !!r?.settings?.[id]?.enabled, redraw: () => drawCompat(), fix: fixActions };
+    const { shown, hidden } = learnSplitFindings(r?.findings, ctx.where, ctx.required);
+    const counts = Object.fromEntries(["Error", "Warning", "Info"].map((s) => [s, shown.filter((f) => f.severity === s).length]));
+    return { ctx, shown, hidden, counts };
+  }
+  // Try the fix (learn.js, GD-02). Apply is one edit in the editor, undone with Ctrl+Z. Compare runs
+  // the statement as written and as fixed on the warehouse or SQL analytics endpoint, one after the
+  // other, after a confirm each time: both only read, and both use capacity. A lakehouse tab's T-SQL
+  // doesn't run on this PC, so it has no Compare.
+  const fixActions = {
+    where: "in Fabric",
+    apply(f) {
+      const text = editor.text();
+      if (text !== tab.compatText) { toast("The SQL changed since this check. The findings update in a moment."); return false; }
+      editor.view.dispatch({ changes: { from: sqlUtf16Offset(text, f.fix.start), to: sqlUtf16Offset(text, f.fix.end), insert: f.fix.text } });
+      editor.view.focus();
+      toast(`Applied the fix for ${f.rule_id}. Ctrl+Z undoes it.`);
+      return true;
+    },
+    canCompare: (f) => wh && !!f.fix.compare,
+    whyNoCompare: (f) => (!wh ? "Compare runs on a warehouse or SQL analytics endpoint's page; T-SQL doesn't run on this PC."
+      : "Compare needs a statement that only reads, such as a SELECT or a view's query."),
+    async compare(f) {
+      const text = editor.text();
+      if (text !== tab.compatText) throw new Error("The SQL changed since this check. Try the fix again once the findings update.");
+      const ok = await confirmDialog(`Run both versions in Fabric on ${ref.name}?`,
+        `Compare runs the query as written, then as fixed, on the ${ref.kind === "endpoint" ? "SQL analytics endpoint" : "warehouse"}. ` +
+        "Both only read, and both use capacity. Nothing in the editor changes until you Apply.", "Run both");
+      if (!ok) return null;
+      const job = fixActions.job = { id: null, stopped: false };
+      // Stop, or leaving this tab, ends the run in Fabric (both use capacity) and polls no more.
+      const one = async (query) => {
+        let st = await rpc("sql_start", { query, target: "warehouse", dialect: "tsql",
+          warehouse_ref: { workspace_id: ref.workspace_id, item_id: ref.item_id, kind: ref.kind } });
+        job.id = st.id;
+        let wait = 150;
+        while (["queued", "running", "cancelling"].includes(st.state)) {
+          if (!job.stopped && !here()) fixActions.stop();
+          if (job.stopped) { rpc("sql_cancel", { execution: st.id }).catch(() => {}); return null; }
+          await new Promise((r) => setTimeout(r, wait));
+          wait = Math.min(1000, wait * 1.5);
+          st = await rpc("sql_status", { execution: st.id });
+        }
+        if (job.stopped) return null;
+        if (st.state !== "completed") throw new Error(st.error || `The query ${SQL_STATE[st.state]?.[1].toLowerCase() || st.state}.`);
+        return st;
+      };
+      try {
+        const before = await one(f.fix.compare.before);
+        const after = before && await one(f.fix.compare.after);
+        return after ? await rpc("learn_fix_compare", { before: before.id, after: after.id }) : null;
+      } finally {
+        if (fixActions.job === job) fixActions.job = null;
+      }
+    },
+    stop() {
+      const job = fixActions.job;
+      if (!job || job.stopped) return;
+      job.stopped = true;
+      if (job.id) rpc("sql_cancel", { execution: job.id }).catch(() => {});
+    },
+    job: null,
+  };
   function drawPracticesChip() {
     const r = tab.practices;
     practicesChip.hidden = !SQL_PRACTICE_TARGETS.includes(tab.dialect) || !previewShown();  // Preview: hidden with the previews
-    const worst = r?.counts?.Error ? "error" : r?.counts?.Warning ? "warning" : "";
+    const { shown, counts } = practiceSplit(r);
+    const worst = counts.Error ? "error" : counts.Warning ? "warning" : "";
     practicesChip.className = `sql-practices-chip${worst ? ` ${worst}` : ""}`;
     practicesChip.setAttribute("aria-expanded", String(compatOpen() && tab.sqlPane === "practices"));
-    practicesChip.replaceChildren(r?.failed ? "Best practices: check failed" : sqlPracticeLabel(r), previewTag(), icon("chevronDown", 14));
+    practicesChip.replaceChildren(r?.failed ? "Best practices: check failed" : sqlPracticeLabel({ findings: shown }), previewTag(), icon("chevronDown", 14));
   }
   // The engine's outcome decides the chip, so SQL it couldn't verify or didn't check never reads as clean.
   const compatStatus = () => {
@@ -816,7 +910,8 @@ function renderQuery() {
       return;
     }
     const chip = (n, label, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${label}${n === 1 || label === "info" ? "" : "s"}`);
-    const list = r.findings.map((f) => h("div", { class: "sql-practice", "data-rule": f.rule_id },
+    const { ctx, shown, hidden, counts } = practiceSplit(r);
+    const list = shown.map((f) => h("div", { class: "sql-practice", "data-rule": f.rule_id },
       h("div", {}, h("b", { class: `sql-practice-sev ${f.severity.toLowerCase()}` }, f.severity), ` · ${f.rule}`),
       h("div", { class: "muted-text" }, f.description),
       h("div", {}, h("button", { class: "link-btn", onclick: () => {
@@ -824,11 +919,13 @@ function renderQuery() {
         if (text !== tab.compatText) { toast("The SQL changed since this check. The findings update in a moment."); return; }
         const at = sqlPracticeOffset(text, f.line, f.col);
         editor.reveal(sqlUtf16Offset(text, at), sqlUtf16Offset(text, at + 1));
-      } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}`))));
+      } }, `Line ${f.line}`), h("span", { class: "muted-text" }, ` · ${f.rule_id} · ${f.category}${f.url ? " · " : ""}`),
+      f.url ? docLink(f.url, `About ${f.rule_id}`) : null), learnFindingActions(f, ctx)));
     compatBody.replaceChildren(...[head, intro,
-      h("div", { class: "sql-chips" }, chip(r.counts.Error, "error", "error"), chip(r.counts.Warning, "warning", "warning"), chip(r.counts.Info, "info", "information")),
+      h("div", { class: "sql-chips" }, chip(counts.Error, "error", "error"), chip(counts.Warning, "warning", "warning"), chip(counts.Info, "info", "information")),
       r.note ? h("p", { class: "muted-text" }, r.note) : null,
       list.length ? h("div", { class: "sql-findings" }, list) : h("p", { class: "muted-text" }, "Nothing to look at. Every rule that's on passes."),
+      learnDismissedBlock(hidden, ctx),
       h("p", { class: "muted-text sql-compat-note" }, r.policies.length
         ? `Tuned by ${r.policies.join(", ")}: a rule a policy turns off isn't shown.`
         : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by.")]
@@ -848,7 +945,11 @@ function renderQuery() {
   };
   // WH-02: the object explorer, from the warehouse's catalog. It lists by itself once runs on this
   // warehouse are confirmed this session; before that it waits for List objects.
-  const loadCatalog = () => whLoadCatalog(ref, () => { if (state.view === "query" && p.ref === ref) p.whRedraw?.(); });
+  // Once the catalog is in, check again: Try the fix needs column types (learnPrepareFixes).
+  const loadCatalog = () => whLoadCatalog(ref, () => {
+    if (state.view === "query" && p.ref === ref) p.whRedraw?.();
+    if (here() && p.catalog?.state === "done") editor.recheck();
+  });
   const whTree = wh ? whExplorer(ref, {
     load: async () => { if (await warehouseRunOk(ref)) loadCatalog(); },
     query: (name) => queryTable(name),
@@ -969,11 +1070,11 @@ function renderQuery() {
   if (wh && !p.catalog && sqlWarehouseOk.has(sqlRefKey(ref))) loadCatalog();
   if (wh) whMonitorAutoCheck(ref);
   if (wh && !p.envRead) { p.envRead = true; whEnvRead(); }
-  if (!p.tables && !wh) {
-    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
-      .then((t) => { p.tables = t; })
-      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); } });
-  }
+  if (!p.tables && !wh) loadTables();
   editor.focus();
 }
+
+// The query tabs' own key, listed in the Keyboard shortcuts dialog while the SQL page is open (sqlTab above).
+registerShortcuts("SQL query", [
+  { keys: ["Delete"], label: "On a query tab: close it (asks first when it has SQL of its own)", when: () => !!document.querySelector(".sql-tabs") },
+]);

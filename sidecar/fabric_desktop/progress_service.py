@@ -1,27 +1,38 @@
 """Profile (progress.py has the rules): what the app calls, and the one place evidence comes in.
 
-``_progress_observe`` runs when a validation finishes (validate_service). It records a row unless
+``_progress_observe`` runs when a validation finishes (validate_service), ``_progress_observe_proof``
+when a proof does, and ``_progress_observe_lab`` when a Learn exercise passes. Each records a row unless
 the signed-in person has turned off Record my accomplishments (on by default) or preview features
 are hidden (Profile is one), and it never changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
 import shutil
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import app_settings, progress
+from . import app_settings, jsonfile, progress, ranks
+from .learn import content as learn_content
 from .redact import describe
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report",
-           "profile_report_save", "profile_export", "profile_delete"}
+           "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set",
+           "profile_avatar_remove"}
+
+# The picture the app made: a 256 px square PNG, re-encoded in the app from what the person chose, so
+# photo metadata such as location never reaches the file (PB-125).
+AVATAR_SIZE = 256
+AVATAR_MAX_BYTES = 512 * 1024
+_PNG = b"\x89PNG\r\n\x1a\n"
 
 _LOCK = threading.Lock()
 
@@ -43,7 +54,9 @@ class ProgressMixin:
         rows = [{**r, "excluded": r["id"] in excluded, "xp": p["xp_by_row"].get(r["id"], 0)}
                 for r in sorted(profile["evidence"], key=lambda r: r.get("at") or "", reverse=True)]
         progression = {k: v for k, v in p.items() if k != "xp_by_row"}
-        return {"settings": profile["settings"], "identity": profile["identity"], "notice": profile["notice"], "evidence": rows,
+        standing = ranks.standing(profile, learn_content.modules(include_drafts=False))
+        progression["title"] = standing["rank"]  # the rank is the title; the level stays a number (PB-125)
+        return {"ranks": standing, "avatar": self._avatar_url(), "settings": profile["settings"], "identity": profile["identity"], "notice": profile["notice"], "evidence": rows,
                 "progression": progression, "skills": progress.coverage(profile), "report": profile["report"],
                 "catalog": [{"id": k, **v} for k, v in progress.ACHIEVEMENTS.items()],
                 "signed_in": self._profile_user() is not None}
@@ -58,7 +71,14 @@ class ProgressMixin:
         """Record a finished proof whose tables all matched. Returns achievements it earned."""
         return self._progress_record(progress.from_proof(record, record.get("receipt_id")))
 
-    def _progress_record(self, row: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def _progress_observe_lab(self, result: dict[str, Any], module: dict[str, Any]) -> list[dict[str, Any]]:
+        """Record a Learn exercise whose checks all passed, and the lesson finished when it was its last
+        exercise. Returns achievements they earned."""
+        return self._progress_record(progress.from_lab(result, module), then=lambda p: progress.module_complete(p, module))
+
+    def _progress_record(self, row: dict[str, Any] | None,
+                         then: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None) -> list[dict[str, Any]]:
+        """Add ``row``, then the row ``then`` makes from the profile with it (if any), in one write."""
         if row is None or not app_settings.value("show_preview"):
             return []  # Profile is a Preview feature: nothing is recorded while it's hidden
         path = self._profile_path()
@@ -69,6 +89,9 @@ class ProgressMixin:
             before = {a["id"] for a in progress.progression(profile)["achievements"]}
             if not progress.add(profile, row):
                 return []  # the same code verified again: nothing new
+            follow = then(profile) if then else None
+            if follow:
+                progress.add(profile, follow)
             progress.save(path, profile)
         p = progress.progression(profile)
         if not profile["settings"]["progression"] or not profile["settings"]["notifications"]:
@@ -145,6 +168,38 @@ class ProgressMixin:
         profile = progress.load(self._profile_path())
         return {"path": str(_save_new("kratosforge-profile", "json", json.dumps(profile, indent=1)))}
 
+    # ---- the profile picture (PB-125): stays in this account's profile folder on this PC
+
+    def _avatar_path(self) -> Path:
+        return self._profile_path().parent / "avatar.png"
+
+    def _avatar_url(self) -> str | None:
+        try:
+            data = self._avatar_path().read_bytes()
+        except FileNotFoundError:
+            return None
+        return "data:image/png;base64," + base64.b64encode(data).decode("ascii") if _avatar_ok(data) else None
+
+    def profile_avatar(self) -> dict[str, Any]:
+        return {"avatar": self._avatar_url()}
+
+    def profile_avatar_set(self, png_base64: str) -> dict[str, Any]:
+        """Keep the picture the app cropped and re-encoded: a 256 px square PNG, at most 512 KB."""
+        try:
+            data = base64.b64decode(str(png_base64), validate=True)
+        except ValueError:
+            raise ValueError("That picture couldn't be read.") from None
+        if not _avatar_ok(data):
+            raise ValueError(f"The picture must be a {AVATAR_SIZE} px square PNG of at most {AVATAR_MAX_BYTES // 1024} KB.")
+        with _LOCK:
+            jsonfile.write_bytes(self._avatar_path(), data)
+        return self.profile_get()
+
+    def profile_avatar_remove(self) -> dict[str, Any]:
+        with _LOCK:
+            self._avatar_path().unlink(missing_ok=True)
+        return self.profile_get()
+
     def profile_delete(self) -> dict[str, Any]:
         """Delete this account's profile folder. Validate history and receipts are left alone."""
         folder = self._profile_path().parent
@@ -153,6 +208,15 @@ class ProgressMixin:
             if existed:
                 shutil.rmtree(folder)
         return {"deleted": existed}
+
+
+def _avatar_ok(data: bytes) -> bool:
+    """A PNG whose header says AVATAR_SIZE square, within the size limit. The webview decodes it as an
+    image only (img src), so nothing in it runs."""
+    if len(data) > AVATAR_MAX_BYTES or len(data) < 33 or not data.startswith(_PNG) or data[12:16] != b"IHDR":
+        return False
+    width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    return width == height == AVATAR_SIZE
 
 
 def _save_new(stem: str, ext: str, text: str) -> Path:

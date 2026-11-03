@@ -22,7 +22,7 @@ from .errors import NotSetUp
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
-from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
+from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, entity_name_problem, validate
 from .meta import diff as diff_mod
 from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
@@ -91,6 +91,15 @@ def _days(value: Any) -> Any:
         return value
 
 
+def _project_folder(path: str) -> Path:
+    """A project's folder as the app's folder picker gives it: a full path. A relative one would be
+    taken from wherever the engine happened to start (#1173)."""
+    folder = Path(path)
+    if not folder.is_absolute():
+        raise ValueError(f"Choose the project's folder by its full path, such as C:\\Users\\you\\Documents\\metadata, not {path!r}")
+    return folder
+
+
 class NoMetadataProject(NotSetUp):
     """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
 
@@ -127,14 +136,14 @@ class MetaMixin:
 
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
+        if path and not Path(path).is_absolute():  # saved before full paths were required: where it points depends on the start folder
+            raise NoMetadataProject(f"The metadata project was saved as {path!r}, not a full path. Open its folder again.")
         if not path or not (Path(path) / "layers.toml").exists():
             raise NoMetadataProject("No metadata project is open. Create one or open its folder.")
-        project = getattr(self, "_meta_project", None)
-        if project is None or str(project.root) != path:
-            project = Project(path)
-            self._meta_project = project
-        else:
-            project.reload()
+        # A new Project each call, never a reload of the last one: a job thread may still be reading
+        # that one (the agent validates and runs it while its loop asks for the project again), and a
+        # reload empties its entities before refilling them.
+        project = Project(path)
         self._install_guard(project)
         return project
 
@@ -175,12 +184,12 @@ class MetaMixin:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # not signed in: the owner can be filled in later
             _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
-        init_project(Path(path), preset, owner, sample)
+        init_project(_project_folder(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
 
     def meta_open(self, path: str) -> dict[str, Any]:
-        if not (Path(path) / "layers.toml").exists():
+        if not (_project_folder(path) / "layers.toml").exists():
             raise FileNotFoundError(f"{path} isn't a metadata project (it has no layers.toml)")
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -354,7 +363,7 @@ class MetaMixin:
         preview: dict[str, Any] | None = None
         try:
             store = self._store(project, env)
-            log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
+            log = store.meta_where("run_log", pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
             if e.layer in project.layer_names():
                 preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
@@ -378,6 +387,9 @@ class MetaMixin:
         new_name = spec.get("name")
         if not new_name:
             raise ValueError("Not saved: the file needs a name, like name = \"silver.orders\"")
+        for n in (name, new_name):
+            if problem := entity_name_problem(n):
+                raise ValueError(f"Not saved: {n}: {problem}")
         path = project.entities_dir / f"{new_name}.toml"
         if new_name != name:
             if path.exists():
@@ -397,6 +409,8 @@ class MetaMixin:
             raise ValueError(f"template must be one of {', '.join(TEMPLATES)}")
         if name in project.entities:
             raise ValueError(f"{name} already exists")
+        if problem := entity_name_problem(name):
+            raise ValueError(f"{name}: {problem}")
         layer = name.split(".")[0]
         if layer not in project.layer_names():
             raise ValueError(f"{layer} is not a layer; use one of {', '.join(project.layer_names())}")
@@ -535,13 +549,13 @@ class MetaMixin:
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
         store = self._store(project, env)
-        run = store.meta("run_log").filter(pl.col("run_id") == run_id)
+        run = store.meta_where("run_log", pl.col("run_id") == run_id)
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
         row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
-        row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
+        row["dq"] = _json_rows(store.meta_where("dq_results", pl.col("run_id") == run_id), 100)
         return row
 
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:

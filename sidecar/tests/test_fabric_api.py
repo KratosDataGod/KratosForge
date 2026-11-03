@@ -187,6 +187,43 @@ def test_an_operation_that_never_finishes_times_out_naming_it():
     assert exc.value.code == "OperationTimedOut" and "op1" in str(exc.value) and "Running" in str(exc.value)
 
 
+# ---- error messages (#922): Fabric's code, message and request id; never the raw body or a query string
+
+@pytest.mark.parametrize("resp, says, code", [
+    (Resp(403, {"errorCode": "InsufficientPrivileges", "message": "The caller does not have permission.",
+                "requestId": "req-1"}),
+     "GET /workspaces/ws1/items failed with 403 InsufficientPrivileges: The caller does not have permission. "
+     "Your account doesn't have permission for this in Fabric. Ask a workspace admin for access. Request id req-1.",
+     "InsufficientPrivileges"),
+    (Resp(409, {"errorCode": "ItemDisplayNameAlreadyInUse", "message": "Name in use",
+                "moreDetails": [{"errorCode": "X", "message": "Sales exists."}]}),
+     "failed with 409 ItemDisplayNameAlreadyInUse: Name in use. Sales exists. Pick a name", "ItemDisplayNameAlreadyInUse"),
+    (Resp(404, {"error": {"code": "ItemNotFound", "message": "Not found"}}), "failed with 404 ItemNotFound: Not found.",
+     "ItemNotFound"),
+    (Resp(500, {}, headers={"x-ms-request-id": "req-2"}), "failed with 500: Fabric had a problem on its side", None),
+    (Resp(401, {}), "failed with 401: Fabric didn't accept your sign-in", None),
+])
+def test_a_fabric_error_reads_as_fabrics_words_with_the_request_id(resp, says, code):
+    c, _ = client([resp] * 5)  # a 5xx read is tried five times
+    with pytest.raises(FabricError) as exc:
+        c._request("GET", "/workspaces/ws1/items?continuationToken=secret")
+    text = str(exc.value)
+    assert says in text and exc.value.code == code and exc.value.status == resp.status_code
+    assert "{" not in text and "continuationToken" not in text and "api.fabric.microsoft.com" not in text
+    assert exc.value.request_id == (resp._body.get("requestId") or resp.headers.get("x-ms-request-id") or "")
+
+
+def test_a_body_that_isnt_json_isnt_shown():
+    class Html(Resp):
+        def json(self):
+            raise ValueError("not json")
+    c, _ = client([Html(502, None)] * 5)
+    with pytest.raises(FabricError) as exc:
+        c._request("GET", "/workspaces")
+    assert str(exc.value) == ("GET /workspaces failed with 502: Fabric had a problem on its side. Try again, "
+                              "and give the request id to support if it keeps happening.")
+
+
 def test_a_lakehouse_created_without_a_result_is_looked_up_by_name():
     listed = Resp(200, {"value": [{"id": "lh9", "displayName": "Sales"}]})
     c, s = client(started(Resp(200, {"status": "Succeeded"}), Resp(404, {"errorCode": "NotFound"}), listed))
@@ -208,3 +245,39 @@ def test_a_definition_with_no_result_is_a_clear_error():
 def test_more_details_that_isnt_a_list_is_ignored():
     err = _operation_failed("op1", {"status": "Failed", "error": {"message": "Bad", "moreDetails": "oops"}})
     assert str(err) == "Fabric's operation op1 failed: Bad."
+
+
+class _Answer:
+    def __init__(self, status, body):
+        self.status_code, self._body, self.headers = status, body, {}
+
+    def json(self):
+        return self._body
+
+
+def test_a_long_fabric_message_is_one_bounded_line():
+    from fabric_desktop.fabric_api import _error
+    body = {"errorCode": "InvalidRequest", "message": "x" * 5000 + "\nsecond line",
+            "moreDetails": [{"message": "detail\r\nwith\tbreaks"}], "requestId": "abc-123"}
+    err = _error("POST", "https://api.fabric.microsoft.com/v1/workspaces/w/items", _Answer(400, body))
+    text = str(err)
+    assert "\n" not in text and "\r" not in text and "\t" not in text
+    assert text.startswith("POST /workspaces/w/items failed with 400 InvalidRequest: " + "x" * 299 + "…")
+    assert "detail with breaks" in text and text.endswith("Request id abc-123.")
+    assert len(text) < 500 and err.code == "InvalidRequest" and err.request_id == "abc-123"
+
+
+@pytest.mark.parametrize("code", ["has space", "x" * 65, "<html>", "line\nbreak"])
+def test_an_odd_fabric_code_or_request_id_is_left_out(code):
+    from fabric_desktop.fabric_api import _error
+    err = _error("GET", "https://api.fabric.microsoft.com/v1/workspaces", _Answer(400, {
+        "errorCode": code, "message": "Bad", "requestId": "id with spaces"}))
+    assert err.code is None and str(err) == "GET /workspaces failed with 400: Bad." and not err.request_id
+
+
+def test_a_failed_operation_is_one_bounded_line_too():
+    err = _operation_failed("op1", {"status": "Failed", "error": {
+        "errorCode": "Bad code!", "message": "a\nb" + "y" * 1000, "requestId": "r1"}})
+    text = str(err)
+    assert "\n" not in text and err.code is None and "(Bad code!)" not in text and len(text) < 400
+    assert text.startswith("Fabric's operation op1 failed: a b") and text.endswith("Request id r1.")

@@ -16,7 +16,7 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["sql_format", "sql_dialects", "sql_analyze", "sql_queries_list", "sql_query_save", "sql_query_delete"],
+    engine: ["sql_format", "sql_analyze", "sql_queries_list", "sql_query_save", "sql_query_delete"],
     mocks: { ...sqlRunMocks(() => ({ columns: [{ name: "x", type: "int" }], rows: [[1]] })) },
   });
   await page().evaluate((wh) => openWarehouseQuery(wh), WH);
@@ -88,6 +88,19 @@ test("a saved query opens in the tab that holds it, or in a new tab", { skip }, 
   await page().waitForFunction(() => sqlPage.tabs[sqlPage.active].name === "Revenue by region");
   assert.match(await page().evaluate(() => sqlPage.editor.text()), /Year = 2026/);
   if (SHOTS) { await page().waitForTimeout(800); await page().screenshot({ path: path.join(SHOTS, "wh-06-queries.png") }); }
+});
+
+test("the filter keeps the focus while a person types and the list redraws", { skip }, async () => {
+  const filter = aside().getByLabel("Filter queries");
+  await filter.click();
+  await page().keyboard.type("by reg");
+  await page().evaluate(() => sqlPage.whRedraw());
+  await page().keyboard.type("ion");
+  assert.strictEqual(await filter.inputValue(), "by region");
+  assert.ok(await filter.evaluate((el) => el === document.activeElement), "the filter keeps the focus");
+  assert.deepStrictEqual(await aside().locator(".wh-q-row .label").allTextContents(), ["Revenue by region"]);
+  await filter.fill("");
+  await aside().locator(".wh-q-row", { hasText: "Revenue 2026" }).waitFor();
 });
 
 test("delete asks first and removes the file; the open tab keeps its SQL", { skip }, async () => {

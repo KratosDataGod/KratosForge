@@ -558,3 +558,56 @@ def test_a_kept_column_a_load_leaves_empty_keeps_its_type_next_to_marked_rows(tm
         t = s.table()
         assert t.schema["score"] == pl.Int64 and t["is_deleted"].to_list() == [False, True, False]
         assert t["score"].to_list() == [None, 7, None]  # the marked row keeps its value
+
+
+# ----------------------------------------------------------------------------- #964: deletes nits
+
+
+def test_a_retry_after_a_commit_conflict_shows_one_deletes_step(tmp_path, monkeypatch):
+    from deltalake.exceptions import CommitFailedError
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
+    for s in both(tmp_path, load='deletes = "hard"\nmax_deletes = "50%"'):
+        s.source(rows([1, 2, 3], at(10)))
+        s.run()
+        s.source(rows([1, 3], at(10)), mode="overwrite")
+        eng = s.engine(DAY2)
+        real, tries = eng._write_once, []
+
+        def lost_race(e, df, res, backfill):
+            tries.append(1)
+            if len(tries) == 1:  # compares, then another writer commits first
+                eng._gone_keys(e, df, backfill, res)
+                raise CommitFailedError("another writer committed first")
+            return real(e, df, res, backfill)
+        monkeypatch.setattr(eng, "_write_once", lost_race)
+        res = eng.run("bronze.events")
+        assert res.status == "ok", res.message
+        assert len(tries) == 2 and [st.name for st in res.steps].count("deletes") == 1
+        assert "1 key gone from the source to remove" in s.step(res, "deletes")
+        assert s.table()["id"].to_list() == [1, 3]
+
+
+def test_a_batched_first_load_with_deletes_never_reads_the_source_keys(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True, load='deletes = "hard"\nmax_deletes = "50%"\nbatch_by = "id"')
+    assert validate(Project(s.root)) == []
+    s.source(rows(range(1, 7), at(10)))
+    eng = s.engine()
+    eng.batch_rows = 2
+    reads = []
+    real = eng._source_keys
+    monkeypatch.setattr(eng, "_source_keys", lambda e: reads.append(1) or real(e))
+    res = eng.run("bronze.events")
+    assert res.status == "ok", res.message
+    assert "batches by id" in s.step(res, "plan batches") and reads == []
+    assert s.table()["id"].to_list() == [1, 2, 3, 4, 5, 6]
+
+
+@pytest.mark.parametrize("gone,said", [([3], "1 key of 3 live keys in bronze.events is gone"),
+                                       ([2, 3], "2 keys of 3 live keys in bronze.events are gone")])
+def test_the_max_deletes_stop_reads_right_for_one_key_and_for_several(tmp_path, gone, said):
+    s = Setup(tmp_path, True, load='deletes = "hard"\nmax_deletes = 0')
+    s.source(rows([1, 2, 3], at(10)))
+    s.run()
+    s.source(rows([i for i in (1, 2, 3) if i not in gone], at(10)), mode="overwrite")
+    res = s.engine(DAY2).run("bronze.events")
+    assert res.status == "failed" and said in res.message, res.message

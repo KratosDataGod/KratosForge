@@ -1,0 +1,13 @@
+{
+  "name": "kratosforge-powerbi-client",
+  "private": true,
+  "description": "Microsoft's powerbi-client SDK for the Power BI embed host frame (embed-host/host.html, PBE-03). powerbi.min.js is dist/powerbi.min.js from the npm tarball below, unchanged (it carries Microsoft's own signature block). To update: npm pack powerbi-client@<version>, check the tarball against `npm view powerbi-client@<version> dist.integrity`, copy dist/powerbi.min.js, LICENSE.txt and dist/powerbi.js.LICENSE.min.txt here, and update these fields and POWERBI_CLIENT_SHA256 in app/tests/browser/embed-host.test.cjs.",
+  "vendored": {
+    "package": "powerbi-client",
+    "version": "2.25.0",
+    "license": "MIT",
+    "tarball_integrity": "sha512-h6jMorFGRiptWiuJ8O0ZCavLf3d1IaBdxEFP34YTx830yiUPnOJWGJrUbdY0fnyAPFO3GJz1BhqjkN9Q3CB7hg==",
+    "file": "dist/powerbi.min.js",
+    "file_sha256": "30c97c2a4c02b857e76711369344cb9a7efdb39ed1d66d819b7289dbc8f8c5fa"
+  }
+}

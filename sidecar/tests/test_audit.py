@@ -27,7 +27,7 @@ class Service:
     def poll_cell(self, run_id):
         return {}
 
-    def run_sql(self, query, lakehouse_ref=None):  # the real RPC's parameter name
+    def sql_start(self, query, lakehouse_ref=None):  # the real RPC's parameter names
         return {"rows": []}
 
     def meta_promote(self, env, target, entities=None):
@@ -42,10 +42,10 @@ def test_calls_that_change_or_run_something_are_recorded_with_who_and_outcome(tm
     s = Service(tmp_path)
     call(s, "list_workspaces")
     call(s, "poll_cell", run_id="r1")
-    call(s, "run_sql", query="SELECT secret_col FROM customers", lakehouse_ref={"workspace_id": "ws1", "lakehouse_id": "lh1"})
+    call(s, "sql_start", query="SELECT secret_col FROM customers", lakehouse_ref={"workspace_id": "ws1", "lakehouse_id": "lh1"})
     call(s, "meta_promote", env="test", target="prod", entities=["sales"])
     rows = s.audit.recent()
-    assert [r["action"] for r in rows] == ["meta_promote", "run_sql"]  # newest first; reads not recorded
+    assert [r["action"] for r in rows] == ["meta_promote", "sql_start"]  # newest first; reads not recorded
     promote, sql = rows
     assert promote["outcome"] == "error" and JWT not in promote["error"] and "[removed]" in promote["error"]
     assert promote["target"] == {"env": "test", "target": "prod", "entities": ["sales"]}
@@ -58,10 +58,10 @@ def test_calls_that_change_or_run_something_are_recorded_with_who_and_outcome(tm
 def test_every_method_is_either_read_only_or_audited_on_purpose():
     unknown = audit.READ_ONLY - server.METHODS
     assert not unknown, f"READ_ONLY names methods that don't exist: {unknown}"
-    for writer in ("run_cell", "start_cell", "run_sql", "meta_run", "meta_promote", "publish_notebook", "save_notebook",
-                   "delete_notebook", "create_lakehouse", "xray_vacuum", "save_app_settings", "run_notebook_in_fabric"):
+    for writer in ("start_cell", "sql_start", "meta_run", "meta_promote", "publish_notebook", "save_notebook",
+                   "notebook_delete", "create_lakehouse", "xray_vacuum", "save_app_settings", "run_notebook_in_fabric"):
         assert audit.audited(writer), writer
-    for reader in ("poll_cell", "list_workspaces", "audit_log", "preview_table", "kernel_complete"):
+    for reader in ("poll_cell", "list_workspaces", "preview_table", "kernel_complete"):
         assert not audit.audited(reader), reader
 
 
@@ -94,9 +94,9 @@ def test_an_audit_problem_never_fails_the_call(tmp_path, capsys):
         def record(self, *a, **k):
             raise OSError("disk full")
     s.audit = Broken()
-    reply = call(s, "run_sql", query="SELECT 1")
+    reply = call(s, "sql_start", query="SELECT 1")
     assert reply["result"] == {"rows": []}
-    assert "could not record run_sql" in capsys.readouterr().err
+    assert "could not record sql_start" in capsys.readouterr().err
 
 
 def test_cli_shows_and_verifies_the_trail(tmp_path, capsys):

@@ -1,7 +1,6 @@
 """Estate X-ray over local folders laid out like OneLake, and adopting a lakehouse into metadata."""
 
 import datetime as dt
-import os
 import re
 from pathlib import Path
 
@@ -79,6 +78,29 @@ def test_scan_finds_what_needs_attention(tmp_path):
     raw = next(r for r in out["lakehouse_rows"] if r["lakehouse_name"] == "LH_Raw")
     assert raw["tables"] == 3 and raw["issues"] >= 3
     assert {p["phase"] for p in seen} >= {"Finding lakehouses", "Reading table logs"}
+
+
+def test_a_lakehouse_or_workspace_the_scan_skips_is_logged_with_why(tmp_path, caplog):
+    """Skipped parts are listed in the report; the log says why, so a support case can be traced."""
+    _lake(tmp_path)
+
+    class Patchy(FakeFabric):
+        def list_lakehouses(self, ws):
+            if ws == "ws-fin":
+                raise RuntimeError("capacity paused")
+            return super().list_lakehouses(ws)
+
+    def files(ws, lh, directory):
+        if lh == "lh-flat":
+            raise RuntimeError("403 from OneLake")
+        return _files(tmp_path)(ws, lh, directory)
+
+    with caplog.at_level("WARNING", logger="fabric_desktop.xray"):
+        out = xray.Scanner(Patchy(), files, _health(tmp_path), lambda _: None).scan()
+    assert "Finance" in out["skipped"] and "Sales / LH_Flat" in out["skipped"]
+    logged = [r.getMessage() for r in caplog.records]
+    assert any("Finance" in m and "capacity paused" in m for m in logged), logged
+    assert any("LH_Flat" in m and "403 from OneLake" in m for m in logged), logged
 
 
 def test_cost_findings_point_at_local_notebooks():
@@ -242,8 +264,9 @@ def vacuum_svc(tmp_path, monkeypatch):
     return svc, uri, jobs
 
 
-def test_vacuum_keeps_the_history_the_layer_promises(vacuum_svc):
+def test_vacuum_keeps_the_history_the_layer_promises(vacuum_svc, monkeypatch):
     svc, uri, jobs = vacuum_svc
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)  # Optimize's risk check: not blocked
     assert svc._xray_keep_days("ws-dev", "LH_Silver", None) == (30, "Keep history on the silver layer")
     assert svc._xray_keep_days("ws-other", "LH_Silver", None)[0] == 7  # not a metadata workspace
     assert svc._xray_keep_days("ws-other", "LH_X", 45) == (45, "the table's own retention setting")
@@ -294,3 +317,59 @@ def test_optimize_check_reads_only_and_carries_the_risk_check(vacuum_svc, monkey
     monkeypatch.setattr(svc, "_risk_capacity", lambda *a: (_ for _ in ()).throw(RuntimeError("no network")), raising=False)
     broken = svc.xray_optimize_check("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver")["risk"]
     assert broken["result"] == "unknown" and "no network" in broken["summary"]
+
+
+def _optimize_capacity(status, cached=False):
+    """A capacity reading shaped like _risk_capacity's (capacity.observe_env + freshness)."""
+    return {"access": "ok", "status": status, "workspace_id": "ws-dev", "workspace_name": "Dev", "capacity_id": "cap1",
+            "capacity": {"name": "fabcapdev", "sku": "F8"}, "age_seconds": 60, "stale": False, "cached": cached,
+            "observed_at": "2026-11-01T00:00:00+00:00"}
+
+
+def test_optimize_checks_the_risk_again_and_records_going_ahead_past_warnings(vacuum_svc, monkeypatch):
+    """#1453: Optimize past warnings is recorded like risk_acknowledge; blocked and changed are refused."""
+    from fabric_desktop import app_settings
+    svc, uri, jobs = vacuum_svc
+    args = ("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
+    acks = svc.root / "risk_acknowledgements.jsonl"
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)
+    # risk_acknowledge can't re-check it: the X-ray id isn't a workload id, so the UI can't use it.
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("running"), raising=False)
+    passed = svc.xray_optimize_check(*args)["risk"]
+    assert passed["result"] == "pass"
+    with pytest.raises(ValueError, match="isn't a workload id"):
+        svc.risk_acknowledge(passed["workload_id"], "run_in_fabric", passed["id"])
+    svc.xray_optimize(*args)  # a pass needs no risk id and records nothing
+    assert len(jobs) == 1 and not acks.exists()
+
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: _optimize_capacity("not_running", cached=True), raising=False)
+    warned = svc.xray_optimize_check(*args)["risk"]
+    assert warned["result"] == "warning"
+    with pytest.raises(ValueError, match="Check the risks first"):
+        svc.xray_optimize(*args)  # no risk id: going ahead past warnings must name the ones seen
+    with pytest.raises(ValueError, match="findings changed"):
+        svc.xray_optimize(*args, risk_id=passed["id"])  # an assessment that isn't the current one
+    assert len(jobs) == 1 and not acks.exists()
+    real_write = svc._risk_ack_write
+
+    def broken_write(_record):
+        raise OSError("disk full")
+    monkeypatch.setattr(svc, "_risk_ack_write", broken_write)
+    with pytest.raises(OSError, match="disk full"):  # the record is written first: a failed write starts nothing
+        svc.xray_optimize(*args, risk_id=warned["id"])
+    assert len(jobs) == 1
+    monkeypatch.setattr(svc, "_risk_ack_write", real_write)
+    svc.xray_optimize(*args, risk_id=warned["id"])
+    assert len(jobs) == 2
+    (rec,) = svc.risk_acknowledgements()
+    assert rec["risk_id"] == warned["id"] and rec["workload_id"] == "xray:ws-dev/lh-silver/dbo.orders"
+    assert rec["workload"] == "LH_Silver dbo.orders" and rec["action"] == "run_in_fabric" and rec["env"] == ""
+    assert rec["result"] == "warning" and rec["warnings"] == ["fabcapdev was paused when last read"]
+    assert set(rec) == {"at", "risk_id", "workload_id", "workload", "action", "env", "result", "user", "warnings", "note"}
+
+    monkeypatch.setattr(app_settings, "value", lambda k: False if k == "allow_fabric_runs" else None)
+    blocked = svc.xray_optimize_check(*args)["risk"]
+    assert blocked["result"] == "blocked"
+    with pytest.raises(PermissionError, match="can't be started"):
+        svc.xray_optimize(*args, risk_id=blocked["id"])
+    assert len(jobs) == 2 and len(svc.risk_acknowledgements()) == 1

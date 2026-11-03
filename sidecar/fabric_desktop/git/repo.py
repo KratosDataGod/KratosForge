@@ -411,7 +411,7 @@ class Repository:
         if not self.head():
             return {"commits": [], "more": False}
         limit = max(1, min(int(limit), LOG_LIMIT))
-        args = ["log", f"--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%P%x00%D%x00%s%x1e",
+        args = ["log", "--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%P%x00%D%x00%s%x1e",
                 f"--max-count={limit + 1}", f"--skip={max(0, int(skip))}"]
         args += ["--end-of-options", self.resolve(ref)] if ref else []
         if path:

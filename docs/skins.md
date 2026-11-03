@@ -26,5 +26,5 @@ nothing on screen. Some near-duplicates (`--surface-3` and `--surface-3b`, three
 are kept apart for that reason; they can be merged when a design review agrees the difference doesn't
 matter.
 
-About 155 colors are still written straight into rules (rarely used shades). A test in
+157 colors are still written straight into rules (rarely used shades). A test in
 `app/tests/ui.test.cjs` lets that number only go down: a new rule uses a token, or adds one to `:root`.

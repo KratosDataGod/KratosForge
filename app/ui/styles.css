@@ -1060,7 +1060,7 @@ table.vars tr.click:hover td { background: var(--hover); }
 .vars-sort:hover { color: var(--text); }
 .vars-open, .vars-open-space { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 2px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--muted); vertical-align: -3px; cursor: pointer; }
 .vars-open:hover { background: var(--hover); color: var(--text); }
-table.vars tr.vars-detail td { padding: 0 0 6px 18px; white-space: normal; background: var(--surface-2, var(--surface-2)); }
+table.vars tr.vars-detail td { padding: 0 0 6px 18px; white-space: normal; background: var(--surface-2); }
 table.vars.inner { margin-top: 2px; }
 table.vars.inner td { padding: 3px 4px; }
 .vars-note { padding: 4px 4px 2px; font-size: 12px; }
@@ -1204,7 +1204,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .setting-source { font-size: 12px; color: var(--warn-2); }
 .advanced-group { padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .advanced-group h3 { margin: 0 0 4px; font-size: 14px; }
-.setting-control input[readonly] { background: var(--surface-2, var(--surface-3)); color: var(--text-2); }
+.setting-control input[readonly] { background: var(--surface-3); color: var(--text-2); }
 .choices { display: flex; flex-direction: column; gap: 8px; }
 .choice-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; }
 .choice-row > span { display: flex; flex-direction: column; gap: 2px; }
@@ -1431,7 +1431,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .ag-overlap p { margin: 4px 0 0; }
 /* Queue (queue.js) */
 .qu-chips { gap: 6px; margin: 8px 0; }
-.qu-group td { background: var(--surface-2, var(--surface-2)); font-size: 12px; font-weight: 600; color: var(--muted); }
+.qu-group td { background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--muted); }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }
@@ -1617,7 +1617,7 @@ button.git-name { padding: 0; border: 0; background: none; font: inherit; color:
 .git-platform { display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
 .git-platform h2 { margin: 0 0 4px; font-size: 15px; }
 .git-platform-item { padding: 6px 0; border-top: 1px solid var(--border, #f0f0f0); }
-.git-platform-changes { margin-top: 4px; padding: 6px 8px; border-radius: 4px; background: var(--surface-2, var(--surface-2)); overflow-wrap: anywhere; }
+.git-platform-changes { margin-top: 4px; padding: 6px 8px; border-radius: 4px; background: var(--surface-2); overflow-wrap: anywhere; }
 .git-deploy { max-width: 640px; max-height: 60vh; overflow: auto; }
 .git-deploy h3 { margin: 10px 0 4px; font-size: 14px; }
 .git-branches, .git-settings { display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
@@ -2140,7 +2140,7 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .nbf-file { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
 .nbf-h { margin: 4px 0 0; font-size: 14px; }
 .nbf-change { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.nbf-diff { margin: 0; padding: 4px 8px; border-radius: 4px; background: var(--surface-2, #f6f6f6); font: 12px/1.5 var(--mono); white-space: pre; overflow-x: auto; max-height: 180px; }
+.nbf-diff { margin: 0; padding: 4px 8px; border-radius: 4px; background: #f6f6f6; font: 12px/1.5 var(--mono); white-space: pre; overflow-x: auto; max-height: 180px; }
 .nbf-diff span { display: block; }
 .nbf-diff .add { color: #14532d; background: #eef6ee; }
 .nbf-diff .del { color: #8a0b16; background: var(--danger-soft); }

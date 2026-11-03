@@ -40,8 +40,10 @@ def test_a_cell_cant_claim_more_than_its_evidence(cell, message):
 
 def test_familiar_looks_need_a_skin_and_equivalence_needs_a_comparison():
     built = parity.Cell("built", ("test_x.py",))
-    with pytest.raises(ValueError, match="needs a built-in skin"):
-        parity.Area("fabric", "x", "X", {"visual": built})
+    # Snowflake has no built-in skin yet; Fabric has one (Fabric-familiar), so its look may be claimed.
+    with pytest.raises(ValueError, match="needs a built-in skin that targets snowflake"):
+        parity.Area("snowflake", "x", "X", {"visual": built})
+    assert parity.Area("fabric", "x", "X", {"visual": built}).cell("visual").status == "built"
     with pytest.raises(ValueError, match="recorded comparison"):
         parity.Area("fabric", "x", "X", {"equivalence": built})
 

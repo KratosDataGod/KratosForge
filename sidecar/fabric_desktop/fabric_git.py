@@ -305,7 +305,12 @@ def update_plan(st: dict[str, Any], policy: str = "") -> dict[str, Any]:
     """What Update from Git would do to each item of a ``status()`` answer, with ``policy`` for
     conflicts ("PreferWorkspace" keeps the workspace's version, "PreferRemote" takes Git's; Fabric
     applies one choice to every conflict). ``changes`` are items the workspace takes from Git,
-    ``overwrites`` those where a change made in the workspace is lost, ``kept`` the rest."""
+    ``overwrites`` those where a change made in the workspace is lost or may be, ``kept`` the rest.
+
+    Microsoft Learn says only that the update "only affects items in the workspace that were changed in
+    those commits" (Core > Git > Update From Git, checked 2026-11-03); it doesn't say what happens to an
+    uncommitted change in the workspace. So a change made only in the workspace counts as at risk, and
+    the person is told to commit it in Fabric first to be sure of keeping it."""
     if policy not in POLICIES:
         raise GitError("Choose Keep the workspace version or Take the Git version.", kind="invalid")
     changes, overwrites, kept = [], [], []
@@ -321,10 +326,12 @@ def update_plan(st: dict[str, Any], policy: str = "") -> dict[str, Any]:
                 overwrites.append({**i, "why": "Takes the Git version; the workspace's change is lost"})
             elif policy == "PreferWorkspace":
                 kept.append({**i, "why": "Keeps the workspace version; Git's change isn't applied"})
+        elif i["state"] == "outgoing":
+            overwrites.append({**i, "why": "Changed only in the workspace and not committed; Microsoft doesn't "
+                               "say Update from Git keeps it, so commit it in Fabric first to be sure"})
         else:
-            kept.append({**i, "why": "Changed only in the workspace; stays as it is" if i["state"] == "outgoing"
-                         else "Same on both sides"})
+            kept.append({**i, "why": "Same on both sides"})
     return {"from": st.get("workspace_head", ""), "to": st.get("remote_commit", ""), "policy": policy,
             "needs_policy": bool(conflicts) and not policy, "conflicts": len(conflicts),
             "changes": changes, "overwrites": overwrites, "kept": kept,
-            "nothing": not changes and not overwrites and not conflicts}
+            "nothing": not changes and not conflicts}  # workspace-only changes give Fabric nothing to update

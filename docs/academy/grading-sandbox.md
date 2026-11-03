@@ -170,7 +170,10 @@ Also:
   connecting (the configuration is locked; pass settings to `duckdb.connect(config=...)`); load
   ICU or another extension (extensions aren't installed or autoloaded, and `HOME` is the workspace);
   read a Delta table with `DeltaTable.to_pyarrow_table()` or `to_pyarrow_dataset()` (they go
-  through `PyFileSystem`, which is refused; use `deltalake.QueryBuilder`).
+  through `PyFileSystem`, which is refused; use `deltalake.QueryBuilder`). `deltalake.QueryBuilder`
+  runs one `SELECT` or `WITH ... SELECT` over the Delta tables registered with it: DataFusion's
+  `CREATE EXTERNAL TABLE ... LOCATION` and `COPY ... TO` read and write files from native code, so
+  they, other statements and session settings outside `datafusion.execution.*` are refused.
 - On Windows, `workspace.links()` opens each file the validators read to get its link count, so
   opening a OneDrive cloud-only placeholder in an exercise folder downloads it first.
 - The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a

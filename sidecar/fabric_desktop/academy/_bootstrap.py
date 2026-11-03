@@ -226,6 +226,7 @@ def _wrap_native(work):
     if dl is not None:
         dl.write_deltalake = guard(dl.write_deltalake, "a Delta write")
         _guard_init(dl.DeltaTable, check, "a Delta table")
+        _lock_query_builder()
     for modname in ("pyarrow.parquet", "pyarrow.dataset", "pyarrow.csv", "pyarrow.feather", "pyarrow.orc",
                     "pyarrow.json"):
         mod = maybe(modname)
@@ -343,6 +344,46 @@ def _guard_init(cls, check, what):
         original(self, table_uri, *args, **kwargs)
 
     cls.__init__ = __init__
+
+
+def _lock_query_builder():
+    """deltalake's QueryBuilder runs DataFusion SQL, which reads and writes files from native code
+    (CREATE EXTERNAL TABLE ... LOCATION, COPY ... TO). It runs one SELECT or WITH statement over the
+    Delta tables registered with it, and its session settings are limited to execution ones."""
+    import re
+    import sys as _sys
+    query = _sys.modules.get("deltalake.query")
+    qb = getattr(query, "QueryBuilder", None)
+    real = getattr(query, "PyQueryBuilder", None)
+    if qb is None or real is None:
+        return
+    comments = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+    strings = re.compile(r"'(?:[^']|'')*'")
+    banned = re.compile(r"\b(copy|create|location|insert|delete|update|drop|alter|set|external|merge|load|install|"
+                        r"attach|prepare|execute|explain\s+analyze)\b", re.I)
+
+    def __init__(self, session_config=None):
+        for key in (session_config or {}):
+            if not str(key).startswith("datafusion.execution."):
+                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
+        self._query_builder = real(session_config)
+
+    original = qb.execute
+
+    def execute(self, sql):
+        text = comments.sub(" ", str(sql))
+        bare = strings.sub("''", text).strip().rstrip(";").strip()
+        if ";" in bare or not re.match(r"(?is)\s*(select|with)\b", bare) or banned.search(bare):
+            raise PermissionError("An Academy exercise runs one SELECT (or WITH ... SELECT) over the tables "
+                                  "registered with the QueryBuilder.")
+        return original(self, sql)
+
+    qb.__init__, qb.execute = __init__, execute
+    refuse = _refused("deltalake's PyQueryBuilder; use deltalake.QueryBuilder")
+    for modname in ("deltalake.query", "deltalake._internal", "deltalake"):
+        mod = _sys.modules.get(modname)
+        if mod is not None and getattr(mod, "PyQueryBuilder", None) is real:
+            mod.PyQueryBuilder = refuse
 
 
 def _lock_duckdb(db, work, guard):

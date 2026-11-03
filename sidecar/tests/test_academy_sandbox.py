@@ -316,6 +316,48 @@ def test_the_command_line_stays_short(lab: tuple[Path, Path], monkeypatch: pytes
     assert len(" ".join(seen[0])) < 8_000 and "def _main" not in " ".join(seen[0])   # Windows' limit is 32,767
 
 
+QB = ("import deltalake, polars as pl\n"
+      "deltalake.write_deltalake('t', pl.DataFrame({'a': [1, 2]}).to_arrow())\n"
+      "qb = deltalake.QueryBuilder().register('t', deltalake.DeltaTable('t'))\n")
+
+
+@pytest.mark.parametrize("sql", [
+    "CREATE EXTERNAL TABLE e STORED AS CSV LOCATION '{outside}'",
+    "COPY (SELECT 1 AS a) TO '{outside}' STORED AS CSV",
+    "SELECT * FROM t; COPY (SELECT 1 AS a) TO '{outside}' STORED AS CSV",
+    "SELECT * FROM t /* ; */ ; COPY (SELECT 1) TO '{outside}'",
+    "WITH x AS (SELECT 1) COPY (SELECT 1) TO '{outside}'",
+    "SET datafusion.catalog.location = '{outside}'",
+])
+def test_query_builder_runs_only_a_select(lab: tuple[Path, Path], tmp_path: Path, sql: str) -> None:
+    pytest.importorskip("deltalake")
+    outside = tmp_path / "qb-out.csv"
+    outside.write_text("a\n1\n")
+    res = run(lab, QB + f"qb.execute({sql.format(outside=outside.as_posix())!r}).read_all()\n")
+    assert res["status"] == "error" and "runs one SELECT" in res["stderr"], res["stderr"]
+    assert outside.read_text() == "a\n1\n"
+
+
+@pytest.mark.parametrize("code", [
+    "deltalake.QueryBuilder({'datafusion.catalog.location': '/', 'datafusion.catalog.format': 'csv'})",
+    "from deltalake._internal import PyQueryBuilder; PyQueryBuilder(None)",
+    "import deltalake.query as q; q.PyQueryBuilder(None)",
+])
+def test_query_builder_settings_and_internals_are_refused(lab: tuple[Path, Path], code: str) -> None:
+    pytest.importorskip("deltalake")
+    res = run(lab, QB + code + "\n")
+    assert res["status"] == "error" and "PermissionError" in res["stderr"], res["stderr"]
+
+
+def test_query_builder_still_selects_from_registered_tables(lab: tuple[Path, Path]) -> None:
+    pytest.importorskip("deltalake")
+    code = QB + ("print(qb.execute(\"-- the total\\nWITH s AS (SELECT sum(a) AS n, 'copy; drop' AS note FROM t) "
+                 "SELECT n FROM s;\").read_all().column(0).to_pylist())\n")
+    res = run(lab, code)
+    assert res["status"] == "ok", res["stderr"]
+    assert res["stdout"].strip() == "[3]"
+
+
 def test_a_linked_temp_folder_is_refused(lab: tuple[Path, Path], tmp_path: Path) -> None:
     root, work = lab
     (work / "answer.py").write_text("print(1)")

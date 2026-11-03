@@ -43,7 +43,7 @@ from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
-from . import chart_output, notebook_cells
+from . import chart_output, jsonfile, notebook_cells
 from . import notebook_resources
 from . import magics
 from . import history
@@ -2550,7 +2550,7 @@ def _write_atomic(path: Path, text: str) -> None:
 
     Saves of one notebook take turns: Windows refuses a second os.replace onto a file
     another replace is still finishing, and briefly while a reader (or a virus scanner)
-    has it open, so a refused replace is tried a few more times before giving up."""
+    has it open, so a refused replace is waited out by the shared jsonfile.replace."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -2558,14 +2558,7 @@ def _write_atomic(path: Path, text: str) -> None:
             f.flush()
             os.fsync(f.fileno())  # on disk before the swap: a power cut leaves the old or the new notebook
         with _path_write_lock(path):
-            for attempt in range(6):
-                try:
-                    os.replace(tmp, path)
-                    break
-                except PermissionError:
-                    if attempt == 5:
-                        raise
-                    time.sleep(0.05 * (attempt + 1))
+            jsonfile.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 

@@ -136,11 +136,12 @@ class MailServer:
 
 def email(sender: str, to: list[str], title: str, lines: list[str]) -> EmailMessage:
     """The message: the title as its subject, one paragraph per line. Every part is one line with
-    credential-shaped text removed, so nothing in a title can add a header."""
+    credential-shaped text removed, so nothing in a title can add a header. ``To`` names only the
+    sender: recipients are in the envelope alone, so they don't see each other's addresses."""
     msg = EmailMessage()
     msg["Subject"] = one_line(title, 200)
     msg["From"] = sender
-    msg["To"] = ", ".join(to)
+    msg["To"] = sender  # the recipients go in the envelope only (send_message's to_addrs)
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[1])
     body = [one_line(line, LINE_MAX) for line in lines[:20]]
@@ -180,13 +181,18 @@ def send_email(mail: MailServer, password: str | None, to: list[str], title: str
     except smtplib.SMTPAuthenticationError as exc:
         raise RuntimeError(f"{mail.host} didn't accept the user name and password ({exc.smtp_code})") from None
     except smtplib.SMTPResponseException as exc:
-        raise RuntimeError(f"{mail.host} answered {exc.smtp_code}: {one_line(_text(exc.smtp_error), 200)}") from None
+        # Only the codes: a server's own text often repeats an address ("550 5.1.1 <bob@...> unknown").
+        status = _STATUS.search(_text(exc.smtp_error))
+        raise RuntimeError(f"{mail.host} answered {exc.smtp_code}{f' ({status.group(0)})' if status else ''}") from None
     except ssl.SSLCertVerificationError:
         raise RuntimeError(f"{mail.host}'s certificate isn't trusted by Windows, so nothing was sent") from None
     except (OSError, smtplib.SMTPException) as exc:
         raise RuntimeError(f"Couldn't reach {mail.host}:{mail.port} ({type(exc).__name__})") from None
     if refused:
         raise RuntimeError(f"{mail.host} refused {len(refused)} of {len(to)} addresses")
+
+
+_STATUS = re.compile(r"\b[245]\.\d{1,3}\.\d{1,3}\b")  # an enhanced status code (RFC 3463), such as 5.1.1
 
 
 def _text(value: Any) -> str:

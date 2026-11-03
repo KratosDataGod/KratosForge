@@ -1384,7 +1384,7 @@ function productStatusView(shown, total, redraw) {
             : h("span", { class: "muted-text" }, "None")));
       })))
       : h("p", { class: "muted-text" }, total ? "Nothing matches." : "No team has published a data product yet."),
-    h("p", { class: "muted-text small" }, "Red: an open incident stops the load (a failed load, or an agent offline). Amber: late, or a broken promise. ",
+    h("p", { class: "muted-text small" }, "Red: an open incident stops the load (a failed load, or an agent offline with no other agent live). Amber: late, a broken promise, or an agent offline while another carries on. ",
       "Green: nothing open. Follow a product to hear about its changes."));
 }
 

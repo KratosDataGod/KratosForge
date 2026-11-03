@@ -231,8 +231,13 @@ class IncidentMixin:
             return
         try:
             self._catalog().call("report_product_status", project=name, env=env, statuses=statuses)  # type: ignore[attr-defined]
-        except (LookupError, PermissionError, ValueError, PlatformError) as exc:  # older platform, or not a member: not again
-            refused.add((name, env))
+        except (LookupError, PermissionError, ValueError, PlatformError) as exc:
+            # Not asked again this session only when the platform said it never will: it's older than the Status
+            # view, or this person isn't one of the project's members. Anything else is tried next check.
+            text = str(exc)
+            if isinstance(exc, (LookupError, PermissionError)) or "report_product_status" in text \
+                    or "no operation" in text or "members or a platform admin" in text or "has no owner yet" in text:
+                refused.add((name, env))
             _log.info("The platform won't take %s's product status in %s; not asking again: %s", name, env, describe(exc))
             return
         except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again

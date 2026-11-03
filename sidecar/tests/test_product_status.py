@@ -203,8 +203,9 @@ def test_two_agents_one_offline_reports_amber(svc, monkeypatch):
     assert row["status"] == "amber"
 
 
-@pytest.mark.parametrize("refusal", [LookupError("no such function"), core.PlatformError("Only crm's members"),
-                                     PermissionError("refused")])
+@pytest.mark.parametrize("refusal", [LookupError("no such function"),
+                                     core.PlatformError("Only crm's members or a platform admin can report"),
+                                     PermissionError("refused"), ValueError("the platform has no operation 'report_product_status'")])
 def test_a_refusal_isnt_asked_again_this_session_but_a_network_error_is(svc, monkeypatch, refusal):
     calls = []
 
@@ -233,3 +234,21 @@ def test_a_refusal_isnt_asked_again_this_session_but_a_network_error_is(svc, mon
     svc._report_product_status("dev", [_inc("run_failed")])
     svc._report_product_status("dev", [_inc("run_failed")])
     assert len(refusal_free) == 2, "a network error is tried again on the next check"
+
+
+@pytest.mark.parametrize("glitch", [core.PlatformError("The platform couldn't run it: UDF_Platform answered 400 with something that isn't JSON"),
+                                    ValueError("Expecting value: line 1 column 1")])
+def test_a_one_off_platform_error_is_tried_again(svc, monkeypatch, glitch):
+    calls = []
+
+    def answer(self, op, **kw):
+        if op == "report_product_status":
+            calls.append(op)
+            raise glitch
+        return real(self, op, **kw)
+
+    real = type(svc._catalog()).call
+    monkeypatch.setattr(type(svc._catalog()), "call", answer)
+    svc._report_product_status("dev", [_inc("run_failed")])
+    svc._report_product_status("dev", [_inc("run_failed")])
+    assert len(calls) == 2

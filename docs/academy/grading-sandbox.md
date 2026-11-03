@@ -104,6 +104,62 @@ Learner outputs are untrusted input to the engine (`academy/workspace.py`):
 - Validators never import, `exec` or `eval` anything from the workspace. Pipeline JSON and
   settings documents are parsed, never run.
 
+## The learner process as built (ACD-005)
+
+`academy/sandbox.py` runs one script: `sandbox.run(work, script, data_root, time_limit=60,
+memory_limit=1 GB, cpu_limit=120, lib_roots=None)`. It returns `status` (`ok`, `error`,
+`time_limit`, `memory_limit` or `refused`), the exit code, stdout and stderr (each capped at
+1 MB), the seconds taken and the limits, and `runs_as`, the sentence the UI shows: "you on this
+PC, without your sign-in, with time and memory limits".
+
+How each Security condition is met:
+
+1. **Job before code.** On Windows the process starts with `CREATE_SUSPENDED`, goes into a Job
+   Object (one active process, job memory, job CPU time, kill on close, die on unhandled
+   exception, no breakaway flags), and is resumed only then (`NtResumeProcess`). The bootstrap
+   also checks `IsProcessInJob` and exits with code 3 before reading the script if it isn't in
+   one. Tests: a child process fails as the first statement with plain Python and no hook; the
+   bootstrap won't run outside a job. On Linux (CI only), the process gets its own session and
+   `RLIMIT_DATA`, `RLIMIT_CPU`, `RLIMIT_FSIZE`, `RLIMIT_NOFILE` and no core file.
+2. **No engine imports, no grading reads.** The interpreter runs as `python -I -c <bootstrap>`,
+   so the script's folder is never on `sys.path`. A meta path finder and the `import` audit event
+   refuse `fabric_desktop`, `msal`, `msal_extensions`, `pymsalruntime`, `azure`, `keyring`,
+   `win32cred`, `mssql_python` and `mcp`. Reads and listings under the `fabric_desktop` package
+   (which holds `grading/`), under those packages, and under the data folder outside the workspace
+   are refused.
+3. **No network claim.** Python sockets, `urllib`, `http`, `ssl` and similar are refused, but
+   that is not a network boundary. Polars `read_*`, `scan_*`, `write_*` and `sink_*`;
+   `deltalake.write_deltalake` and `DeltaTable`; pyarrow parquet, dataset, csv, feather, orc and
+   json readers and writers; remote pyarrow file systems; pandas parquet, feather, orc, csv, json
+   and Excel I/O; and every DuckDB connection (`allowed_directories` = the workspace, external
+   access off, locked) all refuse URLs, `storage_options` and paths outside the workspace. These
+   libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
+   native code through ctypes, which the hook then refuses. Learner code that deliberately
+   re-imports a module or reaches its internals can get past the wrappers; that is the accepted
+   limit until ACD-005b.
+4. **Wording.** The process holds no tokens and gets none from the app. It runs as the same
+   Windows user, so the person's own sign-in cache on disk is theirs to read; only ACD-005b
+   changes that.
+5. **Validators after the Job.** `run` returns only after the job is terminated and reports no
+   active process (Windows), or the process group is killed (Linux). A test checks that nothing
+   writes to the workspace after `run` returns. Because of this ordering, the check-then-read gap
+   in `workspace.py` is acceptable. That includes Windows `scandir` entries, which carry no inode,
+   so `links()` can't detect a swap there.
+
+Also:
+
+- The environment is built from scratch: `PATH`, `PATHEXT`, `SYSTEMROOT`, `WINDIR`, `COMSPEC`,
+  processor and locale variables, with `TEMP`, `TMP`, `HOME`, `USERPROFILE`, `APPDATA` and
+  `LOCALAPPDATA` set to `<workspace>/.tmp`. No proxy, `FABRIC_*`, `AZURE_*` or `PYTHON*` variable from the engine
+  reaches it.
+- `lib_roots`: read-only folders put first on `sys.path`, for learner libraries the engine builds
+  (the Databricks path's generated PySpark package). A folder is refused if it is a link, holds or
+  sits in the engine package, or holds the workspace or the data folder.
+- On Windows, `workspace.links()` opens each file the validators read to get its link count, so
+  opening a OneDrive cloud-only placeholder in an exercise folder downloads it first.
+- The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a
+  link, a path outside the workspace or a device name is refused before anything runs.
+
 ## `pipeline_lab` (ACD-012)
 
 Runs in the engine process on `orchestration/runner.py` with only local activity adapters and the

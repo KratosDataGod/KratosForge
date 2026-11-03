@@ -1,0 +1,274 @@
+"""The first code in an Academy learner process (ACD-005). Not imported by the engine: sandbox.py
+reads this file's text and runs it with ``python -I -c``, so the learner process never has the
+engine package on its path. Everything it needs comes in one JSON argument.
+
+It guards against accidents, it is not a security boundary (docs/academy/grading-sandbox.md): a
+Python audit hook can't see what native code does, so the native readers and writers learners use
+(Polars, DuckDB, delta-rs, pyarrow, pandas) are wrapped to refuse URLs and paths outside the
+workspace as well. Order matters: the job check, then the import guard and audit hook, then the
+wrappers, then the learner's script.
+"""
+
+import json
+import os
+import sys
+
+
+def _main() -> None:
+    cfg = json.loads(sys.argv[1])
+    norm = os.path.normcase   # Windows paths compare without case
+    work = os.path.realpath(cfg["workspace"])
+    reads = tuple(norm(os.path.realpath(p)) for p in cfg["read_roots"])
+    denied = tuple(norm(os.path.realpath(p)) for p in cfg["denied_roots"])
+    blocked = frozenset(cfg["blocked_modules"])
+    libs = tuple(norm(os.path.realpath(p)) for p in cfg.get("lib_roots", []))
+    sys.path[:0] = [os.path.realpath(p) for p in cfg.get("lib_roots", [])]   # read-only learner libraries
+
+    if sys.platform == "win32" and cfg.get("require_job", True):
+        # The engine assigns the Job Object while this process is suspended; refuse to run without it.
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        inside_job = wintypes.BOOL(False)
+        if not k.IsProcessInJob(k.GetCurrentProcess(), None, ctypes.byref(inside_job)) or not inside_job.value:
+            sys.stderr.write("academy: the learner process isn't in its job; nothing was run.\n")
+            os._exit(3)
+
+    _guard_imports(blocked)
+    _wrap_native(work)       # imports the data libraries first: some load native code through ctypes
+    _install(norm(work), reads, denied, blocked, libs)
+    os.chdir(work)
+    script = os.path.join(work, cfg["script"])
+    with open(script, encoding="utf-8") as fh:
+        source = fh.read()
+    code = compile(source, script, "exec")
+    sys.argv = [script]
+    scope = {"__name__": "__main__", "__file__": script, "__builtins__": __builtins__}
+    exec(code, scope)  # noqa: S102 - the learner's own exercise script, in this guarded process
+
+
+def _guard_imports(blocked):
+    """The engine package and sign-in libraries can't be imported, from here on."""
+    import importlib.abc
+
+    class _Guard(importlib.abc.MetaPathFinder):
+        def find_spec(self, name, path=None, target=None, _blocked=blocked):
+            if name.partition(".")[0] in _blocked:
+                raise ImportError(f"{name} isn't available in an Academy exercise.")
+            return None
+
+    for name in list(sys.modules):
+        if name.partition(".")[0] in blocked:
+            del sys.modules[name]
+    sys.meta_path.insert(0, _Guard())
+
+
+def _install(work, reads, denied, blocked, libs=()):
+    """The audit hook. Its state is bound as default arguments of immutable values, and the
+    function is kept nowhere the learner's code can name."""
+    refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
+                    "os.fork", "os.forkpty", "os.startfile", "os.kill", "os.killpg", "signal.pthread_kill",
+                    "pty.", "ctypes.", "winreg.", "_winapi.", "msvcrt.", "gc.get_objects", "gc.get_referrers",
+                    "gc.get_referents", "sys._current_frames", "os.link", "os.symlink", "webbrowser.", "urllib.",
+                    "http.", "ftplib.", "smtplib.", "poplib.", "imaplib.", "nntplib.", "telnetlib.", "_ssl.",
+                    "ssl.", "os.add_dll_directory")
+    write_names = ("os.remove", "os.rename", "os.replace", "os.mkdir", "os.rmdir", "os.chmod", "os.chown",
+                   "os.truncate", "os.utime", "os.chflags", "os.mkfifo", "os.mknod", "os.removexattr",
+                   "os.setxattr", "shutil.", "os.chdir", "os.putenv", "os.unsetenv")
+    list_names = ("os.listdir", "os.scandir", "os.walk", "glob.glob", "os.getxattr", "os.listxattr", "pathlib.Path.glob",
+                  "pathlib.Path.rglob")
+
+    def _paths(args):
+        for a in args:
+            if isinstance(a, (str, bytes, os.PathLike)):
+                yield a
+
+    def hook(event, args, _work=work, _libs=libs, _reads=reads, _denied=denied, _blocked=blocked, _refuse=refuse_names,
+             _write=write_names, _list=list_names, _real=os.path.realpath, _fspath=os.fsdecode, _norm=os.path.normcase,
+             _sep=os.sep, _paths=_paths, _err=PermissionError):
+        def under(path, roots):
+            return any(path == r or path.startswith(r.rstrip(_sep) + _sep) for r in roots)
+
+        def where(p):
+            return _norm(_real(_fspath(p)))
+
+        if event == "import":
+            if str(args[0]).partition(".")[0] in _blocked:
+                raise _err(f"{args[0]} isn't available in an Academy exercise.")
+            return
+        if event == "open":
+            path, mode, flags = args[0], args[1], args[2]
+            if path is None or isinstance(path, int):
+                return
+            full = where(path)
+            writing = (mode is not None and any(c in str(mode) for c in "wax+")) or (flags or 0) & (
+                os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC)
+            if under(full, (_work,)):
+                return   # its own folder, which may sit inside the app's data folder
+            if not writing and under(full, _libs):
+                return   # a learner library the engine built and checked (sandbox.run lib_roots)
+            if under(full, _denied):
+                raise _err("An Academy exercise can't open files of the app or its grading.")
+            if writing:
+                raise _err("An Academy exercise can write only in its own folder.")
+            if not under(full, _reads):
+                raise _err("An Academy exercise can read only its own folder.")
+            return
+        if event in _refuse or any(r.endswith(".") and event.startswith(r) for r in _refuse):
+            raise _err(f"An Academy exercise can't do that ({event}).")
+        if event in _write or any(r.endswith(".") and event.startswith(r) for r in _write):
+            for p in _paths(args):
+                if not under(where(p), (_work,)):
+                    raise _err("An Academy exercise can change files only in its own folder.")
+            return
+        if event in _list:
+            for p in _paths(args):
+                full = where(p)
+                if under(full, _denied) and not under(full, (_work,)):
+                    raise _err("An Academy exercise can't look in the app's folders.")
+            return
+
+    sys.addaudithook(hook)
+
+
+def _wrap_native(work):
+    """Polars, DuckDB, delta-rs, pyarrow and pandas read and write files from native code the audit
+    hook never sees. Their entry points refuse a URL, ``storage_options`` and a path outside the
+    workspace. Only modules that are installed are wrapped; each import is checked by the hook."""
+    import functools
+    import importlib
+
+    real, sep, norm = os.path.realpath, os.sep, os.path.normcase
+    work = norm(work)
+
+    def check(value, what):
+        if isinstance(value, (list, tuple)):
+            for v in value:
+                check(v, what)
+            return
+        if isinstance(value, os.PathLike):
+            value = os.fspath(value)
+        if isinstance(value, bytes):
+            value = os.fsdecode(value)
+        if not isinstance(value, str):
+            return  # an open file, a buffer or a data object: Python's own open was checked
+        if "://" in value or value.startswith(("\\\\", "//")):
+            raise PermissionError(f"An Academy exercise works on files in its own folder, not {what} at a URL.")
+        full = norm(real(os.path.join(work, value)))
+        if full != work and not full.startswith(work.rstrip(sep) + sep):
+            raise PermissionError(f"An Academy exercise can use only files in its own folder ({what}).")
+
+    def guard(fn, what, arg_names=("source", "file", "path", "target", "table_or_uri", "table_uri", "where",
+                                    "database", "base_dir", "path_or_paths", "uri")):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            if kwargs.get("storage_options") or kwargs.get("filesystem"):
+                raise PermissionError("An Academy exercise can't use remote storage options.")
+            first = args[0] if args else None
+            if first is not None and not _is_frame(first):
+                check(first, what)
+            elif len(args) > 1 and _is_frame(first):
+                check(args[1], what)
+            for name in arg_names:
+                if name in kwargs:
+                    check(kwargs[name], what)
+            return fn(*args, **kwargs)
+        return wrapper
+
+    def wrap_all(module, prefixes, what):
+        for name in dir(module):
+            if name.startswith(prefixes) and callable(getattr(module, name, None)):
+                try:
+                    setattr(module, name, guard(getattr(module, name), what))
+                except (AttributeError, TypeError):
+                    pass
+
+    def maybe(name):
+        try:
+            return importlib.import_module(name)
+        except ImportError:
+            return None
+
+    pl = maybe("polars")
+    if pl is not None:
+        wrap_all(pl, ("read_", "scan_"), "a Polars read")
+        for cls in (pl.DataFrame, pl.LazyFrame):
+            wrap_all(cls, ("write_", "sink_"), "a Polars write")
+    dl = maybe("deltalake")
+    if dl is not None:
+        dl.write_deltalake = guard(dl.write_deltalake, "a Delta write")
+        _guard_init(dl.DeltaTable, check, "a Delta table")
+    for modname in ("pyarrow.parquet", "pyarrow.dataset", "pyarrow.csv", "pyarrow.feather", "pyarrow.orc",
+                    "pyarrow.json"):
+        mod = maybe(modname)
+        if mod is not None:
+            wrap_all(mod, ("read_", "write_", "dataset", "ParquetFile", "ParquetDataset"), "a pyarrow file")
+    pa_fs = maybe("pyarrow.fs")
+    if pa_fs is not None:
+        for name in dir(pa_fs):
+            if name.endswith("FileSystem") and name not in ("LocalFileSystem", "FileSystem", "SubTreeFileSystem"):
+                setattr(pa_fs, name, _refused(name))
+    pd = maybe("pandas")
+    if pd is not None:
+        wrap_all(pd, ("read_parquet", "read_feather", "read_orc", "read_csv", "read_json", "read_excel"), "a pandas read")
+        wrap_all(pd.DataFrame, ("to_parquet", "to_feather", "to_orc"), "a pandas write")
+    db = maybe("duckdb")
+    if db is not None:
+        _lock_duckdb(db, work, guard)
+
+
+def _is_frame(value):
+    return type(value).__name__ in ("DataFrame", "LazyFrame", "Table", "RecordBatch")
+
+
+def _refused(name):
+    def refuse(*_a, **_k):
+        raise PermissionError(f"An Academy exercise can't use {name}.")
+    return refuse
+
+
+def _guard_init(cls, check, what):
+    original = cls.__init__
+
+    def __init__(self, table_uri, *args, **kwargs):
+        if kwargs.get("storage_options"):
+            raise PermissionError("An Academy exercise can't use remote storage options.")
+        check(table_uri, what)
+        original(self, table_uri, *args, **kwargs)
+
+    cls.__init__ = __init__
+
+
+def _lock_duckdb(db, work, guard):
+    """Every DuckDB connection, the module's default one included, reads only the workspace."""
+    settings = ("SET allowed_directories = ['" + work.replace("'", "''") + "']",
+                "SET enable_external_access = false", "SET memory_limit = '1GB'", "SET lock_configuration = true")
+    connect = db.connect
+
+    def locked(database=":memory:", *args, **kwargs):
+        if database not in (":memory:", "", None) and not str(database).startswith(":memory:"):
+            guard(lambda d: d, "a DuckDB database")(database)
+        con = connect(database, *args, **kwargs)
+        for s in settings:
+            con.execute(s)
+        return con
+
+    db.connect = locked
+    try:
+        default = db.default_connection() if callable(getattr(db, "default_connection", None)) else db.default_connection
+        for s in settings:
+            default.execute(s)
+    except Exception:  # noqa: BLE001  # silent-ok: no default connection in this DuckDB; module-level calls use connect
+        pass
+
+
+try:
+    _main()
+except SystemExit:
+    raise
+except BaseException:  # noqa: BLE001 - the learner's error, shown as Python would, then a non-zero exit
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)

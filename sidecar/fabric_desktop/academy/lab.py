@@ -130,17 +130,31 @@ def _connect(folder: Path) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def _fresh(setup: str | None) -> duckdb.DuckDBPyConnection:
+    """A new in-memory database built from the exercise's setup, locked down like ``_connect``. Validation
+    runs here, never on ``lab.duckdb``, so a stale or edited workspace can't make a wrong answer pass."""
+    con = duckdb.connect(":memory:")
+    if setup:
+        con.execute(setup)
+    con.execute("SET enable_external_access = false")
+    con.execute(f"SET memory_limit = '{learn_labs.MEMORY_LIMIT}'")
+    con.execute("SET lock_configuration = true")
+    return con
+
+
 def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
-    """Run the exercise's validation on the learner's answer (the saved one when ``answer`` is None).
+    """Run the exercise's validation on the learner's answer (the saved one when ``answer`` is None), in a
+    fresh copy of the exercise's data rather than the workspace database.
     Returns the results, the verification label (what a pass proves and doesn't), and the hints and
     explanation use the evidence row needs."""
     ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     if answer is None:
         answer = (folder / ANSWER_FILE).read_text(encoding="utf-8")
-    solution = exercises.reference(pack_id, exercise_id)["solution"]
+    ref = exercises.reference(pack_id, exercise_id)
+    solution = ref["solution"]
     results = []
-    con = _connect(folder)
+    con = _fresh(ref["setup"])
     try:
         for c in ex["validation"]:
             with learn_labs._time_limit(con) as stop:

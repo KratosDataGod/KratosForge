@@ -155,3 +155,14 @@ def test_readiness_reads_the_profile(svc):
     assert out["label"] == "KratosForge readiness estimate"
     progress.save(svc._profile_path(), progress.empty())
     assert svc.academy_readiness(PACK)["earlier_version_rows"] == 0
+
+
+def test_validation_ignores_an_edited_workspace_database(svc, tmp_path):
+    import duckdb
+    svc.academy_start(PACK, "E37")
+    con = duckdb.connect(str(lab.workspace(tmp_path, PACK, "E37") / lab.DB_FILE))   # edited with another tool
+    con.execute("DELETE FROM silver_orders")
+    con.close()
+    wrong = exercises.reference(PACK, "E37")["wrong"]["wrong-distinct.sql"]
+    assert not svc.academy_validate(PACK, "E37", wrong)["passed"]
+    assert svc.academy_validate(PACK, "E37", _solution("E37"))["passed"]

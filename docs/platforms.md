@@ -38,7 +38,7 @@ Manifest 1.
 | Snowflake | 0 Discovered | 0 Discovered | 0 Discovered | sign in, list what the platform holds |
 | This PC | 4 Optimized | 4 Optimized | 4 Optimized | checked for an enterprise rollout |
 
-Fabric is verified to level 2 by one recorded live run (below). Level 3 also needs publishing
+Fabric is verified to level 2 by two recorded live runs (below). Level 3 also needs publishing
 or deploying verified live. The Fabric live test (`fabric-desktop live-test`), the tenant smoke
 test and the Databricks live test are built, and each run needs a test workspace and the owner's go.
 Snowflake has connection profiles and Snowflake SQL tried on this PC (see [Engines](engines.md)), but
@@ -64,6 +64,21 @@ session. That is run time only, not cost.
 
 It verifies, for Fabric: signing in, listing workspaces and lakehouses, running SQL in a Spark
 session, and comparing an answer from this PC with Fabric's.
+
+**2026-11-03, the KUDP comparison again, after #1144.** Approved by the owner in writing for the
+same throwaway Trial workspace (the script checks the capacity is a Trial one before it starts). The
+same 10 queries, run the same way. The session ran for 26 seconds and was closed, and nothing was
+written to the lakehouse.
+
+| Query | Result |
+| --- | --- |
+| Literals, GROUP BY, integer division, dates, strings, NULLs, a window, `explode(sequence())` | Match |
+| `date_trunc` on a Spark `TIMESTAMP` literal | Match: the #1144 fix holds live. |
+| Decimal division (`CAST(1 AS DECIMAL(10,2)) / 3`) | Differs, as before: Spark gives 0.333333 (6 places), DuckDB 0.333333333. A real difference between the engines, reported and never hidden. The comparison runs the translated SQL on DuckDB directly, not through the local `spark.sql`, which gives Spark's decimal types since #1731. |
+
+So 9 of 10 match. On Fabric Spark each query took 1.4 to 2.8 s, after 6 s to start the session. A
+second run of the same queries adds evidence but doesn't raise the level: level 3 needs publishing
+or deploying verified live.
 
 ## What each level rests on
 

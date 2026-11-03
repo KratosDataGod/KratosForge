@@ -532,3 +532,56 @@ def deprecated_links(project: Project, published: list[dict[str, Any]],
             notes.append(f"links/{l.alias}: {l.product} is deprecated and stops on {stops.isoformat()}; "
                          "move the link to what replaces it before then")
     return errors, notes
+
+
+_DAY_NAMES = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
+_WEEK = tuple(_DAY_NAMES)
+
+
+def _days_text(days: list[str]) -> str:
+    """mon..thu as "Mon to Thu" when they run on, else "Mon, Wed, Fri"."""
+    idx = [_WEEK.index(d) for d in days if d in _WEEK]
+    if len(idx) > 2 and idx == list(range(idx[0], idx[-1] + 1)):
+        return f"{_DAY_NAMES[_WEEK[idx[0]]]} to {_DAY_NAMES[_WEEK[idx[-1]]]}"
+    return ", ".join(_DAY_NAMES[_WEEK[i]] for i in idx)
+
+
+def window_readers(project: Project, published: list[dict[str, Any]], env: str) -> list[str]:
+    """Other projects whose links read this project's (non-draft) products in ``env``, by name."""
+    mine = project_name(project)
+    ids = {f"{mine}/{p.name}" for p in project.products.values() if p.status != "draft"}
+    readers = set()
+    for prod in published:
+        if prod.get("id") not in ids:
+            continue
+        for link in prod.get("consumers") or []:
+            reads = link.get("reads") or {}
+            who = str(link.get("consumer_project") or "")
+            if who and who != mine and (env in reads.values() or not reads):
+                readers.add(who)
+    return sorted(readers)
+
+
+def change_window_notes(window: dict[str, Any] | None, project: Project, published: list[dict[str, Any]],
+                        env: str, now: dt.datetime) -> list[str]:
+    """A warning when a promote to ``env`` changes products other projects read, outside the platform's
+    agreed change window (central/core.checked_change_window). Advice only: it never blocks. ``now`` is aware."""
+    if not window or env not in (window.get("envs") or ["prod"]):
+        return []
+    readers = window_readers(project, published, env)
+    if not readers:
+        return []
+    zone = str(window.get("time_zone") or "UTC")
+    try:
+        from zoneinfo import ZoneInfo
+        local = now.astimezone(ZoneInfo(zone))
+    except Exception:  # noqa: BLE001 - an unknown zone on this PC: say so rather than guess
+        return [f"couldn't check the change window: this PC doesn't know the time zone {zone}"]
+    day = _WEEK[local.weekday()]
+    hhmm = local.strftime("%H:%M")
+    if day in (window.get("days") or []) and str(window.get("start")) <= hhmm < str(window.get("end")):
+        return []
+    agreed = f"{_days_text(window.get('days') or [])}, {window.get('start')} to {window.get('end')} ({zone})"
+    return [f"Outside the change window: {env.title()} changes to products other projects read are agreed for {agreed}, "
+            f"and it's {_DAY_NAMES[day]} {hhmm} there. {len(readers)} {_plural(len(readers), 'project reads', 'projects read')} "
+            f"what's changing: {', '.join(readers)}. You can still promote."]

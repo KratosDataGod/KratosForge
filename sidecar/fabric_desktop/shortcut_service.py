@@ -586,12 +586,120 @@ class ShortcutMixin:
                         raise
                     ours = self._sc_made_before(req, why, exc)
                     self._sc_progress(req, found=not ours)
+                    others = self._sc_make_twins(req, why)
                     out = super().platform_decide(id, approve, note)  # type: ignore[misc]
                     return out | {"next": [*(out.get("next") or []), f"{d['name']} was already in "
                                            f"{d.get('lakehouse_name') or 'the lakehouse'}, pointing where this request "
-                                           "asks, so it was kept"]}
+                                           "asks, so it was kept", *others]}
                 self._sc_progress(req)
+                others = self._sc_make_twins(req, why)
+                out = super().platform_decide(id, approve, note)  # type: ignore[misc]
+                return out | {"next": [*(out.get("next") or []), *others]}
         return super().platform_decide(id, approve, note)  # type: ignore[misc]
+
+    # ---- the same shortcut in Dev, Test and Prod
+
+    def _sc_env_groups(self) -> list[dict[str, str]]:
+        """The metadata project's workspaces as {env: workspace id} groups: one for its main workspaces,
+        one per layer that has its own."""
+        groups: dict[str, dict[str, str]] = {}
+        try:
+            for env, cfg in self._project().environments.items():  # type: ignore[attr-defined]
+                if cfg.get("workspace_id"):
+                    groups.setdefault("", {})[env] = cfg["workspace_id"]
+                for layer, ws in (cfg.get("workspaces") or {}).items():
+                    if isinstance(ws, dict) and ws.get("id"):
+                        groups.setdefault(str(layer), {})[env] = ws["id"]
+        except Exception as exc:  # noqa: BLE001 - no metadata project: workspace names decide
+            _log.info("No metadata project; workspace names pair the environments: %s", describe(exc))
+        return [g for g in groups.values() if len(g) > 1]
+
+    def _sc_twin_plan(self, req: dict[str, Any]) -> dict[str, Any]:
+        return center.env_twins(req["detail"], self._sc_envs(), self._sc_lakehouses(), self._sc_env_groups())
+
+    def shortcut_request_envs(self, id: str) -> dict[str, Any]:
+        """Where approving a waiting shortcut request also makes its shortcut: the matching lakehouse in each
+        other environment, pointing at that environment's match of its target. Reads only."""
+        req = next((r for r in self._catalog().call("list_requests", status="waiting")  # type: ignore[attr-defined]
+                    if r["id"] == id and r["kind"] == "shortcut"), None)
+        if req is None:
+            raise ValueError("That shortcut request isn't waiting any more")
+        return self._sc_twin_plan(req)
+
+    def _sc_make_twins(self, req: dict[str, Any], why: str) -> list[str]:
+        """After the asked-for shortcut is made, the same one in each other environment, as the approver and
+        under the shortcut rules. One that can't be made doesn't stop the approval: it is said, in words."""
+        d = req["detail"]
+        try:
+            plan = self._sc_twin_plan(req)
+        except Exception as exc:  # noqa: BLE001 - the asked-for shortcut is made; the others are said
+            return [f"Not made in the other environments: the lakehouses couldn't be listed ({describe(exc)})"]
+        if plan["why"]:
+            return [plan["why"]]
+        said: list[str] = []
+        made: list[dict[str, str]] = []
+        me = self._sc_me()
+        for p in plan["places"]:
+            label = p["env"].title()
+            if p.get("why"):
+                said.append(f"Not made in {label}: {p['why']}")
+                continue
+            where = f"{p['workspace_name']} / {p['lakehouse_name']}"
+            try:
+                self._create_shortcut(p["workspace_id"], p["lakehouse_id"], d["where"], d["name"], p["source"],  # type: ignore[attr-defined]
+                                      p["lakehouse_name"], workspace_name=p["workspace_name"],
+                                      target_workspace_name=p["target_workspace_name"],
+                                      note=f"{why} ({label} copy of the request)".strip(),
+                                      via_request=self._sc_may_decide_twin(me, p))
+            except FabricError as exc:
+                if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
+                    said.append(self._sc_twin_there(p, d, where))
+                else:
+                    said.append(f"Not made in {label} ({where}): {describe(exc)}")
+                continue
+            except Exception as exc:  # noqa: BLE001 - rules, rights: said, and the next environment is tried
+                said.append(f"Not made in {label} ({where}): {describe(exc)}")
+                continue
+            made.append({"env": p["env"], "workspace_name": p["workspace_name"], "lakehouse_name": p["lakehouse_name"],
+                         "shortcut_id": core.shortcut_id(p["lakehouse_id"], f"{shortcuts_mod.location(d['where'])}/{d['name']}")})
+            said.append(f"Also made in {label}: {where}")
+        if made:
+            self._rq_progress(req, {"also": made})  # type: ignore[attr-defined]
+        return said
+
+    def _sc_me(self) -> dict[str, Any]:
+        """The approver as the catalog sees them: {user, admin}. Unknown means neither."""
+        try:
+            who = self._catalog().call("whoami")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - unknown: the twins get the plain rules
+            _log.info("Couldn't ask the shortcut catalog who is approving: %s", describe(exc))
+            return {"user": "", "admin": False}
+        return {"user": str(who.get("user") or "").strip().lower(), "admin": bool(who.get("admin"))}
+
+    def _sc_may_decide_twin(self, me: dict[str, Any], p: dict[str, Any]) -> bool:
+        """Whether the approver could approve this environment's copy on its own: a platform admin, or an
+        owner of the data product that copy points at. Approving one request decides only for the product
+        it names, so anyone else gets the plain rules for the other environments, and a rule that only
+        admins make shortcuts stops that copy (and says so)."""
+        if me.get("admin"):
+            return True
+        if not me.get("user"):
+            return False
+        product = self._sc_new(p["workspace_id"], p["workspace_name"], p["source"],
+                               p.get("target_workspace_name", "")).get("product") or {}
+        return me["user"] in center.owners(product.get("owner"))
+
+    def _sc_twin_there(self, p: dict[str, Any], d: dict[str, Any], where: str) -> str:
+        """Fabric refused an environment's copy because a shortcut of that name is there: kept when it points
+        at that environment's target (an earlier approval made it), else said."""
+        label = p["env"].title()
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        path = shortcuts_mod.location(d["where"])
+        there = next((s for s in api.list_shortcuts(p["workspace_id"], p["lakehouse_id"])
+                      if str(s.get("path") or "").strip("/") == path and s.get("name") == d["name"]), None)
+        if there is not None and shortcuts_mod.same_target(there.get("target") or {}, shortcuts_mod.target(p["source"])):
+            return f"{label} already had it in {where}, pointing at its {label} match, so it was kept"
+        return f"Not made in {label}: {where} already has a shortcut {path}/{d['name']} pointing somewhere else"
 
     def _sc_progress(self, req: dict[str, Any], found: bool = False) -> None:
         """Record the shortcut on the request, so declining it after a later step fails says it's in OneLake.

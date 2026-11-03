@@ -25,6 +25,10 @@ refuses to register an engine that claims more than it has an adapter and tests 
 | Translated | The code is rewritten for another engine first. Spark SQL and Snowflake SQL on DuckDB are translated by sqlglot. |
 | Unsupported | Not available. Anything not listed is unsupported. |
 
+Which Spark SQL built-in functions a notebook can use on this PC is in
+[Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
+Apache Spark's own value for its documented example, and kept current by CI.
+
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing

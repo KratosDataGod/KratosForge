@@ -513,10 +513,63 @@ def _frame(df: DataFrame, relation: Any) -> DataFrame:
     return DataFrame(relation, df.session)
 
 
+def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
+    """``cols`` (columns and column names over ``df``) with Spark's decimal result types for ``+ - * /``,
+    ``sum`` and ``avg`` of decimals (EA-004, #1682), by the rules Spark SQL on this PC follows
+    (spark_decimals). Each column keeps the name it had; one whose types can't be worked out, a name
+    and a star are left as they were."""
+    cols = list(cols)
+    at = [i for i, c in enumerate(cols) if isinstance(c, Column)]
+    texts = [str(cols[i].expr) for i in at]
+    if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
+        return cols
+    from .spark_decimals import spark_decimal_columns
+    for i, new in zip(at, spark_decimal_columns(texts, _types(df)), strict=True):
+        if new is not None:
+            # The rewritten column keeps the column's name: its alias, or the name DuckDB gives the expression.
+            cols[i] = Column(duckdb.SQLExpression(new[0]).alias(new[1] or _bound_name(df, cols[i].expr)))
+    return cols
+
+
+def _bound_name(df: DataFrame, expression: Any) -> str:
+    """The name DuckDB gives ``expression`` as a column of ``df``: binding it runs nothing. An aggregate
+    binds only in aggregate(); DuckDB 2.0 quotes column names in get_name() but not in this name."""
+    for bind in (lambda: df.relation.select(expression), lambda: df.relation.aggregate([expression])):
+        try:
+            return str(bind().columns[0])
+        except duckdb.Error:
+            continue
+    return str(expression.get_name())
+
+
+def _decimal_select(fn: Any) -> Any:
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        return fn(self, *_spark_decimals(self, _flat(cols)))
+    select.__doc__ = fn.__doc__
+    return select
+
+
+def _decimal_with_column(fn: Any) -> Any:
+    def withColumn(self: DataFrame, colName: str, col: Any) -> DataFrame:  # noqa: N802, N803
+        return fn(self, colName, *_spark_decimals(self, [col]))
+    withColumn.__doc__ = fn.__doc__
+    return withColumn
+
+
+def _decimal_with_columns(fn: Any) -> Any:
+    def withColumns(self: DataFrame, *colsMap: Any) -> DataFrame:  # noqa: N802, N803
+        if len(colsMap) == 1 and isinstance(colsMap[0], dict):
+            names = list(colsMap[0])
+            colsMap = (dict(zip(names, _spark_decimals(self, [colsMap[0][n] for n in names]), strict=True)),)
+        return fn(self, *colsMap)
+    withColumns.__doc__ = fn.__doc__
+    return withColumns
+
+
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
     if len(exprs) == 1 and isinstance(exprs[0], dict):
         exprs = tuple(_dict_agg(self, exprs[0]))
-    return DataFrame(self.relation.aggregate([c.expr for c in exprs]), self.session)
+    return DataFrame(self.relation.aggregate([c.expr for c in _spark_decimals(self, exprs)]), self.session)
 
 
 def _grouped_agg(fn: Any) -> Any:
@@ -526,7 +579,7 @@ def _grouped_agg(fn: Any) -> Any:
             exprs = tuple(_dict_agg(self._df, exprs[0]))
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
-        return fn(self, *exprs)
+        return fn(self, *_spark_decimals(self._df, exprs))
     agg.__doc__ = fn.__doc__
     return agg
 
@@ -1038,7 +1091,9 @@ def install() -> None:
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
-    DataFrame.select = _global_select(DataFrame.select)  # type: ignore[method-assign]
+    DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]
+    DataFrame.withColumn = _decimal_with_column(DataFrame.withColumn)  # type: ignore[method-assign]
+    DataFrame.withColumns = _decimal_with_columns(DataFrame.withColumns)  # type: ignore[method-assign]
     DataFrame.selectExpr = _select_expr  # type: ignore[attr-defined]
     DataFrame.fillna = _fillna  # type: ignore[attr-defined]
     DataFrame.dropna = _dropna  # type: ignore[attr-defined]

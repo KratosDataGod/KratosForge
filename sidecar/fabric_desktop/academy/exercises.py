@@ -133,7 +133,7 @@ def reference(pack_id: str, exercise_id: str, root: Path = registry.ROOT) -> dic
     return {"setup": setup or None, "starter": starter, "solution": solution, "wrong": wrong}
 
 
-def _check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, solution: str) -> dict[str, Any]:
+def run_check(con: duckdb.DuckDBPyConnection, c: dict[str, Any], answer: str, solution: str) -> dict[str, Any]:
     kind = c["kind"]
     if kind == "result_matches":
         return checks.result_matches(con, answer, reference=solution, ordered=bool(c.get("ordered")))
@@ -162,7 +162,7 @@ def grade(setup: str | None, validation: list[dict[str, Any]], answer: str, solu
             con.execute(setup)
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
-        results = [_check(con, c, answer, solution) for c in validation]
+        results = [run_check(con, c, answer, solution) for c in validation]
     finally:
         con.close()
     return {"passed": all(r["passed"] for r in results), "results": results}

@@ -1,0 +1,7 @@
+# Every text file is checked out with LF line endings, on Windows too. A Windows clone with
+# core.autocrlf=true otherwise turns the app's sources into CRLF, and the UI unit tests (which
+# read those sources as text) fail although nothing is wrong.
+* text=auto eol=lf
+
+# Vendored files stay byte for byte as published (one is checked by hash).
+app/src-tauri/embed-host/vendor/** -text

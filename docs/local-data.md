@@ -126,7 +126,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `CAST(3.7 AS INT)`, `CONVERT(INT, -3.7)` | `3`, `-3`: a decimal or float cast to any integer type is cut toward zero, as T-SQL does (DuckDB rounds). Casts to `DECIMAL` still round |
 | `CAST(' 5 ' AS INT)`, `CAST('3.7' AS INT)` | `5`, an error: text becomes an integer only when it's a whole number (spaces around it are fine, and `''` is `0`). `TRY_CAST` and `TRY_CONVERT` give `NULL` instead of the error |
 | `CONVERT(VARCHAR(10), day, 120)` | `'2026-10-18'`: the style, then the length. `CONVERT(INT, 'x')` is an error and `TRY_CONVERT` gives `NULL` |
-| `PATINDEX('%b%', s)`, `PATINDEX('%[0-9]%', s)` | Where the `LIKE` pattern first matches, from 1, or `0`. A pattern with no leading `%` must match from the start. The pattern has to be written out as text |
+| `PATINDEX('%b%', s)`, `PATINDEX('%[0-9]%', s)` | Where the `LIKE` pattern first matches, from 1, or `0`. A pattern with no leading `%` must match from the start. The pattern has to be written out as text; a `NULL` pattern gives `NULL` |
 | `GETDATE()`, `SYSDATETIME()`, `GETUTCDATE()` | The time in UTC, without a time zone (a warehouse's clock is UTC) |
 | `CAST(1 AS BIT)`, a `BIT` column | `true`: `BIT` is a boolean. `CAST('true' AS BIT)` and `CAST('2' AS BIT)` are `true`. A `BIT` column in a table made before this release keeps DuckDB's bit-string type until the table is created again |
 | `CHOOSE(2, 'a', 'b')`, `ROUND(123.456, 1, 1)`, `DATALENGTH('é')` | `'b'`, `123.4` (cut, not rounded), `2` (UTF-8 bytes, as varchar; an `N'...'` literal counts 2 bytes a character, and a number is refused) |

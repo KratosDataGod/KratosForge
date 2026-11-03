@@ -3,10 +3,18 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-02 23:42 UTC, main 9367abf7.** Covers the PRs merged from #135 to #1699.
+**Product check of 2026-11-03 11:42 UTC, main 5f8144f7.** Covers the PRs merged from #135 to #1743.
 
 ## Summary
 
+- Morning check, 2026-11-03: 35 PRs merged after 9367abf7. 5 were product data, docs audit and queue PRs;
+  the other 30 were linked. Fabric App Studio started (new PB-127): its design, the app specification
+  with undo, model connections that use the person's own model and key, sanitized semantic model
+  metadata and a compiler to a Power BI report definition. It is the first place KratosForge itself
+  calls a model, and it stays off until a model is connected. Also: the Optimize plan (PB-104), a team
+  guidance level set by policy (GD-09), an installable VS Code extension on Preview (PB-109), window
+  zoom with every page fitting at 200% (PB-063), shortcut requests made in every environment, and
+  schedules that run while you're signed out.
 - Acceptance, 2026-11-03: the product owner accepted PB-014, PB-125 and PB-126, and PB-084 with documented
   limitations (no Windows or live Teams run).
 - Evening check, 2026-11-02: 58 PRs merged after 32cbd98f (#1166 to #1699). 7 were product data,
@@ -77,7 +85,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 14 are Proposed, 27 In progress, 2 In review and 71 Accepted.
+- Backlog: 115 items (6 P0, 32 P1, 59 P2, 18 P3). 14 are Proposed, 28 In progress, 2 In review and 71 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.

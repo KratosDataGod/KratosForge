@@ -251,7 +251,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
 | [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
 
-### P3 (17 items)
+### P3 (18 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -264,6 +264,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-117](PRODUCT_BACKLOG.md#pb-117) | Snowflake pillar: audit, ADRs and parity matrix | 2 | 1 | 2 | 2 | 3 | 2 | 2 | 1.95 | 2.0 | 1.56 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-121](PRODUCT_BACKLOG.md#pb-121) | Power BI embedding (Embed Studio) | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | L | Medium | none | Power BI embedding (PBE) |
+| [PB-127](PRODUCT_BACKLOG.md#pb-127) | Fabric App Studio | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | L | Medium | none | Fabric App Studio (AS) |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |

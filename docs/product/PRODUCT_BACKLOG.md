@@ -71,12 +71,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 1 | 1 | 6 | 3 | 11 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 3 | 1 | 5 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 3 | 9 | 0 | 12 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 12 | 1 | 16 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 2 | 16 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 7 | 2 | 0 | 12 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **7** | **32** | **61** | **18** | **118** |
+| **Total** | **7** | **32** | **60** | **19** | **118** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -813,7 +813,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.
 - **Proposed capability:** Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).
-- **Current-state evidence:** AS-01 design and capability matrix (#1715), AS-02 to AS-04 specification, patches with undo and project folder (#1718), AS-05 model connections with key references, consent and spend limits (#1721), AS-09 sanitized semantic model metadata (#1728) and AS-12 the PBIR compiler (#1727) on main at 5f8144f7; Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03; First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one; Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20; Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish); AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb
+- **Current-state evidence:** AS-01 design and capability matrix (#1715), AS-02 to AS-04 specification, patches with undo and project folder (#1718), AS-05 model connections with key references, consent and spend limits (#1721), AS-09 sanitized semantic model metadata (#1728) and AS-12 the PBIR compiler (#1727) on main at 5f8144f7; Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03; First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one; Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20; Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish); AS-06 page shell, Design and local preview on sample data (#1736, Preview) on main at 9b7848eb
 - **Inventory features:** [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05)
 - **Dependencies:** none
 - **Owner:** Fabric App Studio (AS) (AS-01..20)
@@ -826,11 +826,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-129
 
-**Platform skins and experience parity** · P0 (score 0.97) · L · confidence Medium · In progress
+**Platform skins and experience parity** · P0 (score 1.82) · L · confidence Medium · In progress
 
 - **Problem:** Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.
 - **Proposed capability:** One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.
-- **Current-state evidence:** Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb; Not built: Databricks and Snowflake skins, state kept across skin switches, the end-to-end demonstration the brief asks for
+- **Current-state evidence:** Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y); Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb; A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration; Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)
 - **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-EXT-05](FEATURE_INVENTORY.md#feat-ext-05)
 - **Dependencies:** none
 - **Owner:** Platform skins (Chris's Platform Skins brief, 2026-11-03 13:41Z (P0))
@@ -1139,7 +1139,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-123](#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | P2 | Learning experience (LX) | L | In progress |
 | [PB-125](#pb-125) | Learn ranks and profile pictures | P2 | Learning experience (LX) | M | Accepted |
 | [PB-126](#pb-126) | Learn curriculum content batches by path | P2 | Learning experience (LX) | L | Accepted |
-| [PB-128](#pb-128) | KratosForge Academy: certification preparation | P2 | Academy | L | In progress |
+| [PB-128](#pb-128) | KratosForge Academy: certification preparation | P3 | Academy | L | In progress |
 
 ### PB-034
 
@@ -1379,11 +1379,11 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-128
 
-**KratosForge Academy: certification preparation** · P2 (score 2.34) · L · confidence Medium · In progress
+**KratosForge Academy: certification preparation** · P3 (score 1.48) · L · confidence Medium · In progress
 
 - **Problem:** Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.
 - **Proposed capability:** An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).
-- **Current-state evidence:** Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb; Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant
+- **Current-state evidence:** Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z); Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb; Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant; Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Academy (ACD-001..020, DBA-001..016)

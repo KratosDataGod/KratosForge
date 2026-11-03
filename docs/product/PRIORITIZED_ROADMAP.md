@@ -64,9 +64,9 @@ required items are never below P1, whatever their score. Each states why.
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | blocker | 2.76 | P0 | Launch to about 5,000 people needs evidence the core flows work on a real tenant. |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | blocker | 2.48 | P0 | Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people. |
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | blocker | 1.85 | P0 | QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001. |
+| [PB-129](PRODUCT_BACKLOG.md#pb-129) | Platform skins and experience parity | blocker | 1.82 | P0 | The product owner set platform skins and experience parity as P0 in the Platform Skins brief of 2026-11-03 13:41 UTC. |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | blocker | 1.75 | P0 | HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
 | [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | blocker | 1.75 | P0 | EA-001 (appends quietly changed values in lakehouse tables) and EA-020 (engine packages and sources installed without hash checks) are data-integrity and release-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
-| [PB-129](PRODUCT_BACKLOG.md#pb-129) | Platform skins and experience parity | blocker | 0.97 | P0 | The product owner set platform skins and experience parity as P0 in the Platform Skins brief of 2026-11-03 13:41 UTC. |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | required | 2.56 | P1 | Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof. |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | required | 2.45 | P1 | The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI. |
 | [PB-078](PRODUCT_BACKLOG.md#pb-078) | Preview tags match the docs | required | 2.45 | P1 | AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy. |
@@ -148,9 +148,9 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | 3 | 1 | 5 | 1 | 5 | 2 | 2 | 3.1 | 2.0 | 2.48 | blocker | S | High | none | Enterprise readiness |
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | 4 | 2 | 5 | 2 | 5 | 4 | 3 | 3.7 | 3.5 | 1.85 | blocker | XL | Medium | none | Engineering quality review |
+| [PB-129](PRODUCT_BACKLOG.md#pb-129) | Platform skins and experience parity | 4 | 2 | 3 | 5 | 5 | 4 | 3 | 3.65 | 3.5 | 1.82 | blocker | L | Medium | none | Platform skins |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 | [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | L | Medium | none | Enterprise readiness |
-| [PB-129](PRODUCT_BACKLOG.md#pb-129) | Platform skins and experience parity | 3 | 2 | 3 | 5 | 4 | 5 | 4 | 3.25 | 4.5 | 0.97 | blocker | L | Medium | none | Platform skins |
 
 ### P1 (32 items)
 
@@ -189,7 +189,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 | [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
-### P2 (61 items)
+### P2 (60 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -212,7 +212,6 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-123](PRODUCT_BACKLOG.md#pb-123) | Learn phase 2: rule batches, Profile v2 and comparison lessons | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
 | [PB-125](PRODUCT_BACKLOG.md#pb-125) | Learn ranks and profile pictures | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | M | Medium | none | Learning experience (LX) |
 | [PB-126](PRODUCT_BACKLOG.md#pb-126) | Learn curriculum content batches by path | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Learning experience (LX) |
-| [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: certification preparation | 3 | 1 | 3 | 3 | 3 | 2 | 1 | 2.6 | 1.5 | 2.34 | none | L | Medium | none | Academy |
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |
@@ -255,7 +254,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-116](PRODUCT_BACKLOG.md#pb-116) | Fabric Spark interactive sessions (Livy) as a Preview engine | 4 | 1 | 3 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | none | Fabric and Databricks unified development |
 | [PB-130](PRODUCT_BACKLOG.md#pb-130) | Data product promises, status and change windows | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-002 | Data mesh |
 
-### P3 (18 items)
+### P3 (19 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -270,6 +269,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-121](PRODUCT_BACKLOG.md#pb-121) | Power BI embedding (Embed Studio) | 2 | 1 | 4 | 3 | 3 | 3 | 3 | 2.6 | 3.0 | 1.56 | none | L | Medium | none | Power BI embedding (PBE) |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | Build full warehouse development experience |
 | [PB-114](PRODUCT_BACKLOG.md#pb-114) | Fabric SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-024 | Build full warehouse development experience |
+| [PB-128](PRODUCT_BACKLOG.md#pb-128) | KratosForge Academy: certification preparation | 3 | 2 | 3 | 4 | 3 | 4 | 3 | 2.95 | 3.5 | 1.48 | none | L | Medium | none | Academy |
 | [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |

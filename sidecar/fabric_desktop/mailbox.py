@@ -542,7 +542,7 @@ class Mailbox:
                 # On OneLake's clock: how long the record has gone unwritten, against how long its
                 # writer said it stays fresh (both its writer's clock, so the difference holds). A PC
                 # whose clock ran fast would take over requests from an agent that is still running.
-                fresh_for = stale_after - _epoch(str(record["heartbeat_at"]))
+                fresh_for = max(0.0, stale_after - _epoch(str(record["heartbeat_at"])))  # a record out of order never shortens the grace
                 return _age(stored, self.clock()) > fresh_for + TAKEOVER_GRACE
             return self.clock() > stale_after + TAKEOVER_GRACE
         except (ValueError, KeyError, TypeError, AttributeError):

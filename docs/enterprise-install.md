@@ -33,6 +33,7 @@ Each build's release also has `kratosforge.msi`, built by CI from the same exe t
 - In Intune, add it as a **Line-of-business app** (or a Win32 app) and assign it to **users**, not devices. Install behaviour: User. Silent install: `msiexec /i kratosforge.msi /qn`.
 - That folder is the user's, so the app can still update itself there. To control versions yourself, also set `"auto_update": false` and deploy each new MSI.
 - The MSI is unsigned until code signing lands, the same as the exe. Expect the same SmartScreen and policy checks.
+- Each build's MSI has a higher version than the one before. Going back to an earlier build (a Stable rollback) gives a lower version, which the MSI refuses over a newer one: uninstall KratosForge first, then assign the earlier MSI. Settings and the engine stay, since they live outside the install folder.
 
 ## Deploy
 

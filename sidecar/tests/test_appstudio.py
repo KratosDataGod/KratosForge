@@ -336,3 +336,42 @@ def test_torn_history_line_is_skipped(tmp_path):
         f.write('{"seq": 2, "ki')
     project.undo(folder)
     assert spec.find(project.open_project(folder)["spec"], "c_rev")[1]["title"] == "Revenue"
+
+
+SECRET = "sk-" + "ant-api03-" + "Q" * 40
+
+
+def test_a_change_that_sets_and_removes_a_secret_is_refused(tmp_path):
+    folder = project.create(tmp_path, "S", sales())
+    with pytest.raises(SpecError, match="change"):
+        project.change(folder, [{"op": "set", "id": "c_rev", "field": "props.note", "value": SECRET},
+                                {"op": "set", "id": "c_rev", "field": "props.note"}])
+    assert SECRET not in "".join(p.read_text() for p in folder.rglob("*") if p.is_file())
+
+
+def test_export_refuses_a_history_with_a_secret(tmp_path):
+    folder = project.create(tmp_path, "S", sales())
+    project.change(folder, [{"op": "set", "id": "c_rev", "field": "title", "value": "x"}])
+    with open(folder / "history.jsonl", "a") as f:  # a hand-edited history
+        f.write(json.dumps({"seq": 2, "kind": "change", "note": SECRET}) + "\n")
+    with pytest.raises(SpecError, match="history.jsonl"):
+        project.export(folder)
+    with pytest.raises(SpecError, match="history.jsonl"):
+        project.save_as(folder, tmp_path, "S copy")
+
+
+@pytest.mark.parametrize("history", [
+    json.dumps({"seq": 1, "kind": "change", "ops": [{"op": "set", "id": "c_rev", "field": "props.k", "value": SECRET}]}) + "\n",
+    "not json " + SECRET + "\n",
+])
+def test_import_refuses_a_history_with_a_secret(tmp_path, history):
+    with pytest.raises(SpecError, match="history.jsonl"):
+        project.import_(_zip({"kfapp.json": "{}", "app.json": json.dumps(sales()), "history.jsonl": history}), tmp_path / "in")
+    assert not (tmp_path / "in").exists()
+
+
+def test_import_drops_a_version_with_a_secret_label(tmp_path):
+    version = {"version": 1, "label": SECRET, "at": "x", "spec": sales()}
+    dest = project.import_(_zip({"kfapp.json": "{}", "app.json": json.dumps(sales()),
+                                 "versions/0001.json": json.dumps(version)}), tmp_path)
+    assert project.versions(dest) == []

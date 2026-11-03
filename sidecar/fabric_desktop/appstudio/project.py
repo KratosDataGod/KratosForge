@@ -84,6 +84,20 @@ def secret_problems(value: Any, where: str = "") -> list[str]:
     return out
 
 
+def text_problems(text: str, where: str) -> list[str]:
+    """Secret problems in a whole file's text (history.jsonl, a version): each JSON line or document is walked,
+    and the raw text is checked too, so a secret in a torn or non-JSON line is still found."""
+    out: list[str] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        try:
+            out += secret_problems(json.loads(line), f"{where} line {n}")
+        except ValueError:
+            pass
+    if not out and (redact.secrets(text) != text or _MODEL_KEY.search(text)):
+        out.append(f"{where} holds something that looks like a key, token or password.")
+    return out
+
+
 def _guard(spec: dict[str, Any]) -> dict[str, Any]:
     specs.check(spec)
     leaks = secret_problems(spec)
@@ -198,6 +212,10 @@ def change(path: str | os.PathLike[str], ops: list[dict[str, Any]], note: str = 
     meta, spec = _current(folder)
     done = patches.apply(spec, ops)
     _guard(done["spec"])
+    # The operations are kept too, so they are scanned: a change could set a secret and remove it again.
+    leaks = secret_problems(ops, "change")
+    if leaks:
+        raise SpecError(leaks)
     seq = len(_history(folder)) + 1
     _append(folder, {"seq": seq, "at": _now(), "kind": "change", "source": source, "note": redact.one_line(note, 200),
                      "ops": ops, "inverse": done["inverse"], "changed": done["changed"]})
@@ -299,7 +317,11 @@ def save_as(path: str | os.PathLike[str], parent: str | os.PathLike[str], name: 
     dest = create(parent, name, spec)
     if not clone:
         if _file(folder, HISTORY).exists():
-            write_text(dest / HISTORY, read_text(_file(folder, HISTORY)), newline="\n")
+            history = read_text(_file(folder, HISTORY))
+            leaks = text_problems(history, HISTORY)
+            if leaks:
+                raise SpecError(leaks)
+            write_text(dest / HISTORY, history, newline="\n")
         for f in sorted(_file(folder, VERSIONS).glob("*.json")):
             if _VERSION_FILE.fullmatch(f.name) and not f.is_symlink():
                 write_text(dest / VERSIONS / f.name, read_text(f), newline="\n")
@@ -314,6 +336,12 @@ def export(path: str | os.PathLike[str]) -> bytes:
     """The project as a .zip (its folder's files, nothing else), after the secret scan."""
     folder = _dir(path)
     _current(folder)
+    leaks: list[str] = []
+    for f in [_file(folder, HISTORY), *sorted(_file(folder, VERSIONS).glob("*.json"))]:
+        if f.is_file() and not f.is_symlink():
+            leaks += text_problems(read_text(f), f.name)
+    if leaks:
+        raise SpecError(leaks)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for name in (META, SPEC, HISTORY, VALIDATION):
@@ -356,14 +384,20 @@ def import_(data: bytes, parent: str | os.PathLike[str], name: str = "") -> Path
     except ValueError:
         raise ProjectError("app.json in the zip isn't valid JSON.") from None
     _guard(spec)
+    history = files[HISTORY].decode("utf-8", "replace") if HISTORY in files else ""
+    leaks = text_problems(history, HISTORY)
+    if leaks:
+        raise SpecError(leaks)
     dest = create(parent, name or spec["name"], spec)
     if HISTORY in files:
-        write_text(dest / HISTORY, files[HISTORY].decode("utf-8", "replace"), newline="\n")
+        write_text(dest / HISTORY, history, newline="\n")
     for fname, body in files.items():
         if fname.startswith(f"{VERSIONS}/"):
             try:
                 doc = json.loads(body.decode("utf-8"))
                 _guard(doc["spec"])
+                if secret_problems({k: v for k, v in doc.items() if k != "spec"}):
+                    continue
             except (ValueError, KeyError, TypeError):
                 continue  # a damaged or unsafe version is left behind; the current specification is what matters
             write_json(dest / VERSIONS / PurePosixPath(fname).name, doc)

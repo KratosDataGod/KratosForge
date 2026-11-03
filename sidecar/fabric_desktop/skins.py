@@ -258,14 +258,14 @@ BASE: dict[str, dict[str, str]] = {"light": dict(KRATOSFORGE["appearance"]["toke
 # OneLake before governance). Patterns only: no Microsoft names, logos or colors beyond a familiar feel.
 FABRIC: dict[str, Any] = {
     "schema": SCHEMA, "id": "fabric", "name": "Fabric-familiar", "version": "0.1.0",
-    "description": "Light, workspace-first: Workspaces and OneLake up front, as Fabric developers expect.",
+    "description": "Light, workspace-first: Create, Workspaces and OneLake at the top, as Fabric developers expect.",
     "targets": [{"platform": "fabric", "reviewed": "2026-11-03",
                  "basis": "Microsoft Fabric documentation (workspaces, lakehouse explorer, task flows), November 2026"}],
-    "appearance": {"color_mode": "light", "density": "compact", "tokens": {"light": {
+    "appearance": {"color_mode": "light", "tokens": {"light": {
         "--accent": "#0f6c5c", "--accent-dark": "#0a4d42", "--accent-soft": "#e6f2ef", "--accent-soft-2": "#edf5f3",
         "--canvas": "#f5f5f5", "--border": "#e1e1e1",
     }}},
-    "workflow": {"rail": ["home", "workspaces", "onelake", "create", "monitor", "optimize", "metadata", "platform"]},
+    "workflow": {"rail": ["home", "create", "workspaces", "onelake", "monitor", "platform", "optimize", "metadata"]},
 }
 BUILT_IN: dict[str, dict[str, Any]] = {m["id"]: validate(m, BASE) for m in (KRATOSFORGE, FABRIC)}
 

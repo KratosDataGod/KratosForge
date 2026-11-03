@@ -61,12 +61,14 @@ function skinChooser(locked) {
         [["background-color", "--canvas"], ["border-color", "--border"]]),
       h("span", { class: "skin-name" },
         h("input", { type: "radio", name: "ui_skin", value: skin.id, checked: on ? true : null, disabled: locked("ui_skin") ? true : null,
-          onchange: async () => { if (await saveSettings({ ui_skin: skin.id })) render(); } }),
+          // Redraw either way: after a failed save the radios go back to the skin still in force.
+          onchange: async () => { await saveSettings({ ui_skin: skin.id }); render(); } }),
         h("b", {}, skin.name)),
       skin.description ? h("span", { class: "muted-text small" }, skin.description) : null);
   };
   return h("fieldset", { class: "skin-chooser" }, h("legend", {}, "Skin ", previewTag()),
-    h("p", { class: "muted-text small" }, "How KratosForge looks and how its pages are ordered. Your projects, connections, engines and open work stay exactly as they are, and Settings stays at the bottom of every skin."),
+    h("p", { class: "muted-text small" }, "How KratosForge looks and how its pages are ordered. Your projects, connections, engines and open work stay exactly as they are, and Settings stays at the bottom of every skin and in Ctrl+K."),
+    locked("ui_skin") ? h("div", { class: "setting-source" }, SOURCE_TEXT.policy) : null,
     h("div", { class: "skin-cards" }, list.map(card)));
 }
 

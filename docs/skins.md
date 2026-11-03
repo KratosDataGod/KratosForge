@@ -78,7 +78,7 @@ Preview features are shown, and an administrator's policy can lock it.
 | Skin | What it changes |
 |---|---|
 | KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
-| Fabric-familiar | A teal accent and lighter surfaces, and Workspaces and OneLake up front in the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
+| Fabric-familiar | A teal accent and lighter surfaces, and Create, Workspaces, OneLake and Monitor at the top of the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
 
 Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
 services, Learn), at most 8 main pages in the rail, and Settings at the bottom. Dark versions of the

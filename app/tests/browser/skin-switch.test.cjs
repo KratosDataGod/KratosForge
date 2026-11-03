@@ -4,7 +4,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp, startupReads } = require("./harness.cjs");
+const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
@@ -51,7 +51,7 @@ test("choosing Fabric-familiar recolors and reorders the rail, keeps the open no
   await page().waitForFunction(() => document.body.dataset.skin === "fabric");
   assert.strictEqual(await accent(), "#0f6c5c");
   const rail = await railIds();
-  assert.deepStrictEqual(rail.slice(0, 3), ["home", "workspaces", "onelake"]);
+  assert.deepStrictEqual(rail.slice(0, 5), ["home", "create", "workspaces", "onelake", "monitor"]);  // mockup v7
   assert.ok(rail.length <= 8, `the rail holds at most 8 pages (${rail.length})`);
   const made = app.calls.slice(before).map((c) => c.method);
   // The switch itself saves the setting and nothing else: any other call is the Settings page redrawing.
@@ -63,6 +63,18 @@ test("choosing Fabric-familiar recolors and reorders the rail, keeps the open no
     await chooser().scrollIntoViewIfNeeded();
     await page().screenshot({ path: path.join(SHOTS, "skin-fabric-settings.png") });
   }
+});
+
+test("the skin cards have no serious axe findings", { skip: skip || (!axeSource && "axe-core is not installed") }, async () => {
+  assert.deepStrictEqual(await axeFindings(page(), ".skin-chooser"), []);
+});
+
+test("a save that fails leaves the skin in force checked", { skip }, async () => {
+  await page().evaluate(() => { window.__realSave = saveSettings; saveSettings = async () => false; });
+  await chooser().getByRole("radio", { name: "KratosForge" }).click();
+  await page().waitForFunction(() => document.querySelector('input[name="ui_skin"][value="fabric"]')?.checked);
+  assert.strictEqual(await page().evaluate(() => document.body.dataset.skin), "fabric");
+  await page().evaluate(() => { saveSettings = window.__realSave; });
 });
 
 test("the chosen skin is kept for the next start", { skip }, async () => {
@@ -79,6 +91,6 @@ test("switching back to KratosForge removes the skin's colors and restores the r
   await page().waitForFunction(() => document.body.dataset.skin === "kratosforge");
   assert.strictEqual(await page().evaluate(() => document.documentElement.style.getPropertyValue("--accent")), "");
   assert.strictEqual(await accent(), "#1b3664");
-  assert.deepStrictEqual((await railIds()).slice(0, 2), ["home", "create"]);
+  assert.deepStrictEqual((await railIds()).slice(0, 3), ["home", "create", "workspaces"]);
   assert.deepStrictEqual(app.errors, []);
 });

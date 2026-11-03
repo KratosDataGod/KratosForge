@@ -496,10 +496,37 @@ jobs:
           $signed = $sig.Status -eq 'Valid'
           if ($env:SIGNING -eq 'true' -and -not $signed) { throw "Signing is set up, but the exe isn't validly signed ($($sig.Status)), so it isn't published." }
           "signed=$($signed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+      # The same exe as a per-user MSI for Intune and Configuration Manager (app/installer/kratosforge.wxs,
+      # docs/enterprise-install.md). Built after signing, so the MSI carries the signed exe.
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix build ..\installer\kratosforge.wxs -arch x64 `
+            -d Version=0.1.${{ github.run_number }} `
+            -d ExeFile=target\release\kratosforge.exe -d IconFile=icons\icon.ico `
+            -o target\release\kratosforge.msi
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+      - name: Sign the MSI
+        if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\app\src-tauri\target\release\kratosforge.msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
-          path: app/src-tauri/target/release/kratosforge.exe
+          path: |
+            app/src-tauri/target/release/kratosforge.exe
+            app/src-tauri/target/release/kratosforge.msi
           if-no-files-found: error
 
   release:
@@ -557,6 +584,7 @@ jobs:
         with:
           subject-path: |
             kratosforge.exe
+            kratosforge.msi
             fabric-desktop.exe
             fabric-desktop-engine.zip
             fabric-desktop-engine-update.zip
@@ -596,7 +624,7 @@ jobs:
           # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
           # first, so the build Preview names always has one. version.json last, as for latest.
           BUILD_TAG="build-${GITHUB_SHA::12}"
-          BUILD_FILES=(kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix)
+          BUILD_FILES=(kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sidecar-source.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix)
           if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
             ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
             if grep -qx version.json <<< "$ASSETS"; then
@@ -624,12 +652,12 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix --clobber
+            gh release upload latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest kratosforge.exe fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix version.json \
+            gh release create latest kratosforge.exe kratosforge.msi fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-update.zip sbom-engine.cdx.json sbom-app.cdx.json kratosforge.vsix version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
           # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was

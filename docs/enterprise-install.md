@@ -8,11 +8,12 @@ This page is for IT teams that roll KratosForge out to many Windows PCs with Int
 
 | Part | Where it goes | How it gets there |
 | --- | --- | --- |
-| `kratosforge.exe` | Any folder. It is one file; there is no installer or MSI | You copy it |
+| `kratosforge.exe` | Any folder. It is one file | You copy it |
+| or `kratosforge.msi` (the same exe, packaged) | `%LOCALAPPDATA%\Programs\KratosForge` for each Windows user, with a Start menu shortcut | You assign it per user in Intune or Configuration Manager ([Deploy the MSI](#deploy-the-msi)) |
 | The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release, or from [your own folder](#host-the-engine-yourself), on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | `policy.json` (optional) | `%ProgramData%\FabricDesktop\policy.json` | You push it ([the keys](azure-setup.md#4-push-settings-to-everyone)) |
 
-Nothing needs admin rights at run time, and nothing is written to the registry. The engine is per user, so a shared PC downloads it once for each person who uses the app.
+Nothing needs admin rights at run time. The exe writes nothing to the registry; the MSI adds its own uninstall entry and two values under `HKCU\Software\KratosBI\KratosForge`. The engine is per user, so a shared PC downloads it once for each person who uses the app.
 
 ## Pick an update model
 
@@ -24,6 +25,14 @@ Nothing needs admin rights at run time, and nothing is written to the registry. 
 A self-updating app replaces its own exe, so it must be in a folder the user can write. In `C:\Program Files` the update fails with "Could not move ... aside" and the app keeps running the old build. Use the managed model there.
 
 With `"auto_update": false` the startup window says "Your organization rolls out updates", and when a newer build is out it names it, so you can see who is behind.
+
+## Deploy the MSI
+
+Each build's release also has `kratosforge.msi`, built by CI from the same exe the release publishes. It installs **per user** (no administrator rights, nothing in Program Files or HKLM) to `%LOCALAPPDATA%\Programs\KratosForge`, with a Start menu shortcut, and Windows lists it under Installed apps so it uninstalls cleanly. A newer MSI replaces an older one.
+
+- In Intune, add it as a **Line-of-business app** (or a Win32 app) and assign it to **users**, not devices. Install behaviour: User. Silent install: `msiexec /i kratosforge.msi /qn`.
+- That folder is the user's, so the app can still update itself there. To control versions yourself, also set `"auto_update": false` and deploy each new MSI.
+- The MSI is unsigned until code signing lands, the same as the exe. Expect the same SmartScreen and policy checks.
 
 ## Deploy
 

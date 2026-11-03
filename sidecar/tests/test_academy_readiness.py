@@ -67,7 +67,7 @@ def test_a_local_pass_shows_a_portable_objective(cert):
     progress.add(profile, _row("E37", cert))
     x = _state(profile, "2.2.9")
     assert x["state"] == "shown" and x["best_class"] == "local_verified" and x["measures"]["guided"] == ["dp-700/E37"]
-    assert not x["needs_fabric"]
+    assert not x["needs_platform"]
     assert _state(profile, "2.2.8")["state"] == "not_started"
 
 
@@ -76,7 +76,7 @@ def test_an_objective_that_needs_fabric_stays_incomplete_with_local_work(cert):
     profile = progress.empty()
     progress.add(profile, progress.from_academy(_passed("E21"), ex, cert))
     x = _state(profile, "2.3.3")
-    assert x["state"] == "practised" and x["needs_fabric"] and x["gaps"]
+    assert x["state"] == "practised" and x["needs_platform"] and x["gaps"]
 
 
 def test_measures_stay_separate(cert):
@@ -144,7 +144,7 @@ def test_the_estimate_is_labelled_and_suggests_what_is_next(cert):
     out = readiness.readiness(progress.empty(), PACK)
     assert out["label"] == "KratosForge readiness estimate" and "isn't Microsoft's score" in out["note"]
     assert [d["objectives"] for d in out["domains"]] == [16, 17, 16]
-    assert [d["need_fabric"] for d in out["domains"]] == [14, 9, 13]
+    assert [d["need_platform"] for d in out["domains"]] == [14, 9, 13]
     assert {n["exercise"] for n in out["next"]} == {"E21", "E36", "E37"}
     profile = progress.empty()
     progress.add(profile, _row("E37", cert))

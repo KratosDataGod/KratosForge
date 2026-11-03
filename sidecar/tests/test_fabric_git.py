@@ -634,6 +634,8 @@ def test_update_body_matches_microsoft_learn():
     assert sent["json"] == {"remoteCommitHash": H2, "workspaceHead": H1, "options": {"allowOverrideItems": True},
                             "conflictResolution": {"conflictResolutionType": "Workspace",
                                                    "conflictResolutionPolicy": "PreferRemote"}}
+
+
 def test_status_rows_carry_the_registry_limits():
     rows = {r["name"]: r for r in fabric_git.status(STATUS)["items"]}
     assert any("never go" in limit for limit in rows["LH_Silver"]["limits"])

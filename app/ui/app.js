@@ -176,9 +176,11 @@ function closeDialog() {
 // outside would close, and focus goes back to whatever opened it.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+// lastOutside is a WeakRef: the last element focused may be on a page you've left since, and holding
+// it would keep that whole page in memory.
 const dialogFocus = { opener: null, lastOutside: null };
 document.addEventListener("focusin", (e) => {
-  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = e.target;
+  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = new WeakRef(e.target);
 });
 
 function trapFocus(e, root) {
@@ -204,7 +206,7 @@ new MutationObserver(() => {
   const root = document.getElementById("dialog-root");
   if (root.childElementCount) {
     // showDialog may already have focused a field, so remember where focus was before it.
-    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside;
+    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside?.deref() || null;
     // Start inside the dialog unless the code that opened it already chose a field.
     if (!root.contains(document.activeElement)) root.querySelector(FOCUSABLE)?.focus();
   } else {
@@ -406,11 +408,13 @@ function lakehouseRef(ws, lh) {
 // The Warehouse page's ref (WH-01) for a Warehouse item, or for a SQL analytics endpoint: the engine
 // finds an endpoint through its lakehouse, which Fabric gives the same name in the same workspace.
 // null for other items, and for an endpoint whose lakehouse isn't in the list.
+// items: the workspace's items, or a Map of its lakehouses by name (built once for a whole list).
 function warehouseRefFor(ws, it, items) {
   const base = { workspace_id: ws.id, workspace_name: ws.displayName, name: it.displayName };
   if (it.type === "Warehouse") return { ...base, kind: "warehouse", item_id: it.id };
   if (it.type !== "SQLEndpoint") return null;
-  const lake = items.find((x) => x.type === "Lakehouse" && x.displayName === it.displayName);
+  const lake = items instanceof Map ? items.get(it.displayName)
+    : items.find((x) => x.type === "Lakehouse" && x.displayName === it.displayName);
   return lake ? { ...base, kind: "endpoint", item_id: lake.id } : null;
 }
 
@@ -670,6 +674,10 @@ function render() {
   navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
+  // The preview panel belongs to the page drawn last: let go of it, or a page you left (every row of
+  // a 5,000-item workspace) stays in memory. A page with the panel sets it again as it draws.
+  itemPreview.host = null;
+  itemPreview.onChange = null;
   (features.views[state.view] || renderHome)();
 }
 
@@ -1268,7 +1276,9 @@ new MutationObserver(placeFabricView).observe(document.getElementById("dialog-ro
 // ---------- Workspaces, OneLake, lakehouse ----------
 
 // Favorites and pins are kept on this PC; pins sit at the top in the order they were pinned.
-const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {} };
+// drawn: how many item rows each open workspace has drawn so far (ITEM_ROWS_STEP more as you scroll).
+const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {}, drawn: {} };
+const ITEM_ROWS_STEP = 200;
 
 async function renderWorkspaces() {
   const wp = workspacesPage;
@@ -1317,10 +1327,13 @@ async function renderWorkspaces() {
     if (!items) return h("p", { class: "muted-text ws-items-note" }, "Loading items...");
     if (!items.length) return h("p", { class: "muted-text ws-items-note" }, "This workspace has no items yet.");
     const sorted = [...items].sort((a, b) => typeLabel(a.type).localeCompare(typeLabel(b.type)) || a.displayName.localeCompare(b.displayName));
-    return h("table", { class: "list ws-items" }, h("tbody", {}, sorted.map((it) => {
+    // A SQL endpoint's lakehouse by name, once: looking it up row by row is quadratic in a big workspace.
+    const lakes = new Map();
+    for (const x of items) if (x.type === "Lakehouse" && !lakes.has(x.displayName)) lakes.set(x.displayName, x);  // the first, as find() gave
+    const row = (it) => {
       const r = { workspace_id: ws.id, item_id: it.id, type: it.type, name: it.displayName };
       const lh = it.type === "Lakehouse" ? lakehouseRef(ws, it) : null;
-      const whRef = warehouseRefFor(ws, it, items);
+      const whRef = warehouseRefFor(ws, it, lakes);
       const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
       const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
       return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
@@ -1338,7 +1351,25 @@ async function renderWorkspaces() {
           whRef && !whOpensHere() ? preview("warehouse", btn("SQL query", null, stop(() => openWarehouseQuery(whRef)), "tool small link",
             { title: "Query it with T-SQL in Fabric (uses capacity)" })) : null,
           btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
-    })));
+    };
+    // A big workspace draws its first rows at once and the rest as you scroll near the end, so opening
+    // one with thousands of items doesn't build every row up front. A redraw keeps what was drawn.
+    let drawn = Math.min(sorted.length, Math.max(ITEM_ROWS_STEP, wp.drawn[ws.id] || 0));
+    const tbody = h("tbody", {}, sorted.slice(0, drawn).map(row));
+    if (drawn < sorted.length) {
+      const more = h("tr", { class: "ws-more", "aria-hidden": "true" }, h("td", { colspan: 4 }));
+      tbody.append(more);
+      const seen = new IntersectionObserver((entries) => {
+        if (!more.isConnected) { seen.disconnect(); return; }
+        if (!entries.some((e) => e.isIntersecting)) return;
+        more.before(...sorted.slice(drawn, drawn + ITEM_ROWS_STEP).map(row));
+        drawn = wp.drawn[ws.id] = Math.min(sorted.length, drawn + ITEM_ROWS_STEP);
+        if (drawn >= sorted.length) { seen.disconnect(); more.remove(); }
+        else { seen.unobserve(more); seen.observe(more); }  // still in view after the new rows: draw more
+      }, { rootMargin: "800px 0px" });
+      seen.observe(more);
+    }
+    return h("table", { class: "list ws-items" }, tbody);
   }
 
   function draw() {

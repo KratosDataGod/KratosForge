@@ -247,3 +247,28 @@ def test_an_oversized_answer_is_refused_and_writes_leave_no_temp_files(svc, tmp_
         svc.academy_save(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))
     svc.academy_save(PACK, "E37", "SELECT 1")
     assert sorted(p.name for p in _folder(tmp_path).iterdir()) == ["answer.sql", "lab.duckdb", "state.json"]
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "symlink"), reason="no symlinks here")
+def test_a_linked_write_ahead_log_is_refused(svc, tmp_path):
+    import os
+    svc.academy_start(PACK, "E37")
+    target = tmp_path / "elsewhere.wal"
+    target.write_bytes(b"")
+    os.symlink(target, _folder(tmp_path) / (lab.DB_FILE + ".wal"))
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_run(PACK, "E37", "SELECT 1")
+    assert target.read_bytes() == b""
+
+
+def test_a_folder_named_like_the_write_ahead_log_is_refused(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    (_folder(tmp_path) / (lab.DB_FILE + ".wal")).mkdir()
+    with pytest.raises(ValueError, match="plain file"):
+        svc.academy_run(PACK, "E37", "SELECT 1")
+
+
+def test_an_oversized_answer_to_check_is_refused(svc):
+    svc.academy_start(PACK, "E37")
+    with pytest.raises(ValueError, match="1 MB"):
+        svc.academy_validate(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))

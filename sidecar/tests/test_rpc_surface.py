@@ -37,17 +37,6 @@ _EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
-    # Academy (ACD-008): engine first; the screens wait on their mockup go (docs/academy/).
-    "academy_catalog": "Academy screens await their mockup go (docs/academy/)",
-    "academy_exercise": "Academy screens await their mockup go (docs/academy/)",
-    "academy_start": "Academy screens await their mockup go (docs/academy/)",
-    "academy_save": "Academy screens await their mockup go (docs/academy/)",
-    "academy_run": "Academy screens await their mockup go (docs/academy/)",
-    "academy_validate": "Academy screens await their mockup go (docs/academy/)",
-    "academy_hint": "Academy screens await their mockup go (docs/academy/)",
-    "academy_explanation": "Academy screens await their mockup go (docs/academy/)",
-    "academy_reset": "Academy screens await their mockup go (docs/academy/)",
-    "academy_readiness": "Academy screens await their mockup go (docs/academy/)",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

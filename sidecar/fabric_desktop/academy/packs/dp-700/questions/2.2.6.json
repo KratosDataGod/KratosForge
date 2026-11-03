@@ -1,0 +1,229 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.6",
+  "questions": [
+    {
+      "id": "2.2.6-q1",
+      "type": "single",
+      "stem": "In a PySpark notebook, which expression adds a column total equal to qty times price to a DataFrame df?",
+      "options": [
+        {
+          "id": "a",
+          "text": "df.addColumn(\"total\", \"qty * price\")"
+        },
+        {
+          "id": "b",
+          "text": "df.withColumn(\"total\", F.col(\"qty\") * F.col(\"price\"))"
+        },
+        {
+          "id": "c",
+          "text": "df[\"total\"] == df[\"qty\"] * df[\"price\"]"
+        },
+        {
+          "id": "d",
+          "text": "df.select(\"total\" = qty * price)"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "withColumn returns a new DataFrame with the column added. The other options aren't valid PySpark for adding a column; the last one is a comparison, not an assignment.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q2",
+      "type": "single",
+      "stem": "Which KQL query returns the error rows from a Logs table with only their Timestamp and Message columns?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Logs | extend Level == \"Error\" | take Timestamp, Message"
+        },
+        {
+          "id": "b",
+          "text": "SELECT Timestamp, Message FROM Logs WHERE Level = 'Error'"
+        },
+        {
+          "id": "c",
+          "text": "Logs | where Level == \"Error\" | project Timestamp, Message"
+        },
+        {
+          "id": "d",
+          "text": "Logs | filter Level = \"Error\" | columns Timestamp, Message"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "In KQL, where filters rows and project picks columns. The second option is SQL, and filter, columns and that use of take aren't KQL operators for this.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/project-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q3",
+      "type": "single",
+      "stem": "Which KQL query counts events per device in five-minute intervals?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Events | count by DeviceId every 5m"
+        },
+        {
+          "id": "b",
+          "text": "Events | group DeviceId, Timestamp/5"
+        },
+        {
+          "id": "c",
+          "text": "Events | summarize DeviceId by count(), 5m"
+        },
+        {
+          "id": "d",
+          "text": "Events | summarize count() by DeviceId, bin(Timestamp, 5m)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "summarize aggregates rows by the given groups, and bin() rounds each timestamp down to its five-minute interval.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q4",
+      "type": "multiple",
+      "stem": "Which two PySpark operations are transformations, evaluated lazily until an action runs? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "filter"
+        },
+        {
+          "id": "b",
+          "text": "count"
+        },
+        {
+          "id": "c",
+          "text": "collect"
+        },
+        {
+          "id": "d",
+          "text": "show"
+        },
+        {
+          "id": "e",
+          "text": "select"
+        }
+      ],
+      "answer": [
+        "a",
+        "e"
+      ],
+      "explanation": "Transformations such as filter and select build up a plan without running it. Actions such as count, show and collect run the plan and return or display results.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q5",
+      "type": "single",
+      "stem": "You need each device's most recent reading from DeviceEvents, with all of its columns. Which query?",
+      "options": [
+        {
+          "id": "a",
+          "text": "DeviceEvents | summarize arg_max(Timestamp, *) by DeviceId"
+        },
+        {
+          "id": "b",
+          "text": "DeviceEvents | distinct DeviceId"
+        },
+        {
+          "id": "c",
+          "text": "DeviceEvents | top 1 by Timestamp"
+        },
+        {
+          "id": "d",
+          "text": "DeviceEvents | summarize max(Timestamp) by DeviceId"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "arg_max(Timestamp, *) returns the whole row with the largest Timestamp in each group. max() returns only the time, top 1 returns one row in total, and distinct returns only the device ids.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/arg-max-aggregation-function",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q6",
+      "type": "multiple",
+      "stem": "Which two KQL operators add or change columns without changing the number of rows? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "where"
+        },
+        {
+          "id": "b",
+          "text": "project"
+        },
+        {
+          "id": "c",
+          "text": "extend"
+        },
+        {
+          "id": "d",
+          "text": "summarize"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "extend adds calculated columns and project selects, renames or computes columns; both keep every row. summarize groups rows and where filters them.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/extend-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.6-q7",
+      "type": "single",
+      "stem": "What does DeviceEvents | where Timestamp > ago(1d) | take 10 return?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Any ten events from the last day, in no guaranteed order"
+        },
+        {
+          "id": "b",
+          "text": "The ten newest events"
+        },
+        {
+          "id": "c",
+          "text": "The ten oldest events from the last day"
+        },
+        {
+          "id": "d",
+          "text": "An error, because take needs a by clause"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "take returns the requested number of rows with no ordering guarantee. To get the newest, use top 10 by Timestamp desc.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/take-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

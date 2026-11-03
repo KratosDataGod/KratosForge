@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.8",
+  "questions": [
+    {
+      "id": "2.2.8-q1",
+      "type": "single",
+      "stem": "Which query returns total sales per region, only for regions whose total is over 1,000?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT Region, SUM(Amount) FROM Sales GROUP BY Amount HAVING Region > 1000"
+        },
+        {
+          "id": "b",
+          "text": "SELECT Region, SUM(Amount) FROM Sales GROUP BY Region HAVING SUM(Amount) > 1000"
+        },
+        {
+          "id": "c",
+          "text": "SELECT Region, Amount FROM Sales GROUP BY Region, Amount HAVING Amount > 1000"
+        },
+        {
+          "id": "d",
+          "text": "SELECT Region, SUM(Amount) FROM Sales WHERE SUM(Amount) > 1000 GROUP BY Region"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "WHERE filters rows before grouping and can't use an aggregate; HAVING filters groups after aggregation.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-having-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.8-q2",
+      "type": "single",
+      "stem": "Which PySpark code returns each region's total amount in a column named total?",
+      "options": [
+        {
+          "id": "a",
+          "text": "df.groupBy(\"amount\").sum(\"region\")"
+        },
+        {
+          "id": "b",
+          "text": "df.groupBy(\"region\").agg(F.sum(\"amount\").alias(\"total\"))"
+        },
+        {
+          "id": "c",
+          "text": "df.select(F.sum(\"region\")).alias(\"total\")"
+        },
+        {
+          "id": "d",
+          "text": "df.agg(\"region\", \"total\")"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "groupBy sets the grouping column and agg applies the aggregate; alias names the result column.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.8-q3",
+      "type": "single",
+      "stem": "Which KQL query returns the average request duration per region?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Requests | avg Duration group by Region"
+        },
+        {
+          "id": "b",
+          "text": "Requests | project avg(Duration), Region"
+        },
+        {
+          "id": "c",
+          "text": "Requests | summarize avg(Duration) by Region"
+        },
+        {
+          "id": "d",
+          "text": "Requests | extend avg(Duration) by Region"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "summarize with an aggregation function and a by clause groups rows and aggregates each group.",
+      "source": "https://learn.microsoft.com/en-us/kusto/query/summarize-operator",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.8-q4",
+      "type": "multiple",
+      "stem": "A column Email has some NULL values. Which two statements are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "COUNT(*) skips rows where any column is NULL"
+        },
+        {
+          "id": "b",
+          "text": "COUNT(DISTINCT Email) counts NULL as a distinct value"
+        },
+        {
+          "id": "c",
+          "text": "COUNT(*) counts every row, including rows where Email is NULL"
+        },
+        {
+          "id": "d",
+          "text": "COUNT(Email) counts NULLs as one extra value"
+        },
+        {
+          "id": "e",
+          "text": "COUNT(Email) counts only rows where Email isn't NULL"
+        }
+      ],
+      "answer": [
+        "c",
+        "e"
+      ],
+      "explanation": "COUNT(*) counts rows. COUNT(column) and COUNT(DISTINCT column) count non-NULL values only.",
+      "source": "https://learn.microsoft.com/en-us/sql/t-sql/functions/count-transact-sql",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

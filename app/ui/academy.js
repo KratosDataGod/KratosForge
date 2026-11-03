@@ -254,8 +254,7 @@ async function renderAcademyExercise(eid) {
     h("div", { class: "small academy-crumb" }, h("a", { href: "#", onclick: (e) => { e.preventDefault(); leave(); } }, "Academy"),
       ` / ${pack.toUpperCase()} · ${ex.objectives.join(", ")}`),
     h("h1", {}, `${ex.id} ${ex.title} `, previewTag()),
-    h("p", { class: "sub row wrap" }, academyPill(ex.class), ` ${academyMeta(ex)} · ${ex.verification.engine}`)),
-    h("div", { class: "head-actions" }));
+    h("p", { class: "sub row wrap" }, academyPill(ex.class), ` ${academyMeta(ex)} · ${ex.verification.engine}`)));
   const work = h("div", { class: "academy-work" });
   const aside = h("aside", { class: "card academy-panel", "aria-label": "Exercise panel" });
   setView(h("div", { class: "page academy academy-exercise" }, head, h("div", { class: "learn-split" }, work, aside)));

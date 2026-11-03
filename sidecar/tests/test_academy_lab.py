@@ -166,3 +166,84 @@ def test_validation_ignores_an_edited_workspace_database(svc, tmp_path):
     wrong = exercises.reference(PACK, "E37")["wrong"]["wrong-distinct.sql"]
     assert not svc.academy_validate(PACK, "E37", wrong)["passed"]
     assert svc.academy_validate(PACK, "E37", _solution("E37"))["passed"]
+
+
+# Learner code may write in the workspace one day (ACD-005), so the engine never follows a link there.
+
+def _folder(tmp_path, eid="E37"):
+    return lab.workspace(tmp_path, PACK, eid)
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "symlink"), reason="no symlinks here")
+def test_a_linked_answer_is_never_read_or_written_through(svc, tmp_path):
+    import os
+    svc.academy_start(PACK, "E37")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private", encoding="utf-8")
+    answer = _folder(tmp_path) / lab.ANSWER_FILE
+    answer.unlink()
+    os.symlink(secret, answer)
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_exercise(PACK, "E37")
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_save(PACK, "E37", "SELECT 1")
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_validate(PACK, "E37")
+    assert secret.read_text(encoding="utf-8") == "private"
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "symlink"), reason="no symlinks here")
+def test_a_linked_database_or_state_is_refused(svc, tmp_path):
+    import os
+    svc.academy_start(PACK, "E37")
+    other = tmp_path / "other.duckdb"
+    db = _folder(tmp_path) / lab.DB_FILE
+    db.rename(other)
+    os.symlink(other, db)
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_run(PACK, "E37", "SELECT 1")
+    db.unlink()
+    other.rename(db)
+    state = _folder(tmp_path) / lab.STATE_FILE
+    (tmp_path / "state.json").write_text(state.read_text(encoding="utf-8"), encoding="utf-8")
+    state.unlink()
+    os.symlink(tmp_path / "state.json", state)
+    with pytest.raises(ValueError, match="link"):
+        svc.academy_hint(PACK, "E37", 1)
+
+
+def test_a_hard_linked_answer_is_refused(svc, tmp_path):
+    import os
+    svc.academy_start(PACK, "E37")
+    answer = _folder(tmp_path) / lab.ANSWER_FILE
+    outside = tmp_path / "outside.sql"
+    outside.write_text("SELECT 1", encoding="utf-8")
+    answer.unlink()
+    os.link(outside, answer)
+    with pytest.raises(ValueError, match="hard link"):
+        svc.academy_save(PACK, "E37", "SELECT 2")
+    assert outside.read_text(encoding="utf-8") == "SELECT 1"
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "symlink"), reason="no symlinks here")
+def test_reset_refuses_a_workspace_that_is_a_link(svc, tmp_path):
+    import os
+    svc.academy_start(PACK, "E37")
+    keep = tmp_path / "keep"
+    keep.mkdir()
+    (keep / "precious.txt").write_text("x", encoding="utf-8")
+    folder = _folder(tmp_path)
+    import shutil
+    shutil.rmtree(folder)
+    os.symlink(keep, folder, target_is_directory=True)
+    with pytest.raises(ValueError):
+        svc.academy_reset(PACK, "E37")
+    assert (keep / "precious.txt").exists()
+
+
+def test_an_oversized_answer_is_refused_and_writes_leave_no_temp_files(svc, tmp_path):
+    svc.academy_start(PACK, "E37")
+    with pytest.raises(ValueError, match="1 MB"):
+        svc.academy_save(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))
+    svc.academy_save(PACK, "E37", "SELECT 1")
+    assert sorted(p.name for p in _folder(tmp_path).iterdir()) == ["answer.sql", "lab.duckdb", "state.json"]

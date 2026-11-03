@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.2.5",
+  "questions": [
+    {
+      "id": "3.2.5-q1",
+      "type": "single",
+      "stem": "An eventstream destination shows errors and no data arrives. The source sends CSV but the eventstream expects JSON. What do you fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing; formats are detected automatically for every source"
+        },
+        {
+          "id": "b",
+          "text": "The data format set on the source to match what is actually sent"
+        },
+        {
+          "id": "c",
+          "text": "The workspace domain"
+        },
+        {
+          "id": "d",
+          "text": "The destination's capacity"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Eventstreams read events in the format configured on the source. A mismatch makes events unreadable, and the runtime logs show the errors.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.5-q2",
+      "type": "single",
+      "stem": "Where do you look for warnings and errors about an eventstream's sources and destinations?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The Git history"
+        },
+        {
+          "id": "b",
+          "text": "The warehouse query insights"
+        },
+        {
+          "id": "c",
+          "text": "The pipeline run history"
+        },
+        {
+          "id": "d",
+          "text": "The eventstream's runtime logs"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Runtime logs list warnings and errors for each source and destination node.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.5-q3",
+      "type": "single",
+      "stem": "An eventstream's Event Hubs source stops receiving events after another application started reading the same event hub with the same consumer group. What should you do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the event hub"
+        },
+        {
+          "id": "b",
+          "text": "Turn off the eventstream's destinations"
+        },
+        {
+          "id": "c",
+          "text": "Increase the lakehouse size"
+        },
+        {
+          "id": "d",
+          "text": "Give the eventstream its own consumer group on the event hub"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Readers sharing a consumer group compete for the same partitions. A dedicated consumer group lets each reader receive every event.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/add-source-azure-event-hubs",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.2.5-q4",
+      "type": "single",
+      "stem": "You changed an eventstream's filter, but events still arrive unfiltered. What is the most likely reason?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Filters only work on weekends"
+        },
+        {
+          "id": "b",
+          "text": "The changes were made in edit mode and haven't been published"
+        },
+        {
+          "id": "c",
+          "text": "The destination ignores filters"
+        },
+        {
+          "id": "d",
+          "text": "The lakehouse needs V-Order"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Changes made in the eventstream's edit mode take effect when you select Publish, which returns it to Live view.",
+      "source": "https://learn.microsoft.com/en-us/fabric/real-time-intelligence/event-streams/process-events-using-event-processor-editor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

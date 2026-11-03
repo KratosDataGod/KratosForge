@@ -1,0 +1,140 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.1.1",
+  "questions": [
+    {
+      "id": "2.1.1-q1",
+      "type": "single",
+      "stem": "Larkspur's Orders table is too large to reload every night, and only about 1% of its rows change each day. Which load design fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Load only rows whose OrderID is greater than the largest OrderID already loaded"
+        },
+        {
+          "id": "b",
+          "text": "Reload the whole table every night and overwrite the bronze copy"
+        },
+        {
+          "id": "c",
+          "text": "Load only rows whose LastModified is later than the high watermark saved by the last successful run"
+        },
+        {
+          "id": "d",
+          "text": "Take a weekly full copy and skip the days in between"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "LastModified changes on every insert and update, so a watermark on it picks up new and changed rows while reading about 1% of the table. An OrderID watermark finds new orders but misses updates to old ones, a nightly full reload rereads 400 million rows to catch 4 million changes, and a weekly copy leaves data up to a week stale.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
+      "case": "larkspur-orders",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.1-q2",
+      "type": "multiple",
+      "stem": "You are building a watermark-based incremental load from a SQL table into a lakehouse. Which three things does the design need? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A stored watermark value from the last successful run"
+        },
+        {
+          "id": "b",
+          "text": "A full overwrite of the destination table on every run"
+        },
+        {
+          "id": "c",
+          "text": "V-Order turned off on the destination table"
+        },
+        {
+          "id": "d",
+          "text": "A source column whose value increases whenever a row is inserted or changed"
+        },
+        {
+          "id": "e",
+          "text": "A filter on the source query that reads only rows past the stored watermark"
+        }
+      ],
+      "answer": [
+        "d",
+        "a",
+        "e"
+      ],
+      "explanation": "An incremental load needs a column that moves forward when rows change, a place to keep the last value loaded, and a source query that reads only rows after it. The watermark is updated only after the copy succeeds, so a failed run is simply repeated. V-Order is unrelated, and a full overwrite is the opposite of an incremental load.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.1-q3",
+      "type": "order",
+      "stem": "Put the activities of a watermark-based incremental copy pipeline in the order they run.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Save the new value as the stored watermark"
+        },
+        {
+          "id": "b",
+          "text": "Look up the stored watermark from the last successful run"
+        },
+        {
+          "id": "c",
+          "text": "Look up the current highest change value in the source table"
+        },
+        {
+          "id": "d",
+          "text": "Copy the source rows that changed between the two values"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "d",
+        "a"
+      ],
+      "explanation": "The pipeline reads the old watermark and the new high value first, so the copy has a fixed range to read even if rows keep changing while it runs. The watermark moves forward only after the copy succeeds, so a failed run copies the same range again next time.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.1-q4",
+      "type": "single",
+      "stem": "A 50,000-row reference table in an operational database has no change tracking and no reliable modified-date column, and rows are sometimes deleted. What load pattern fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A watermark on the time the pipeline runs"
+        },
+        {
+          "id": "b",
+          "text": "A full load that replaces the destination table on each run"
+        },
+        {
+          "id": "c",
+          "text": "An incremental load with a watermark on the primary key"
+        },
+        {
+          "id": "d",
+          "text": "An append-only load that adds every source row on each run"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Without a change column an incremental load can't tell which rows changed, and no watermark ever sees a deleted row. At 50,000 rows a full replace is cheap and always matches the source. Appending every row on each run creates duplicates.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

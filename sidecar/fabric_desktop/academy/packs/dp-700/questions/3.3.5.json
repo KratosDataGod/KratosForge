@@ -1,0 +1,130 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3.5",
+  "questions": [
+    {
+      "id": "3.3.5-q1",
+      "type": "single",
+      "stem": "A Spark join between a 2-billion-row fact table and a 500-row lookup table is slow because both sides are shuffled. What helps?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Collect the large table to the driver"
+        },
+        {
+          "id": "b",
+          "text": "Broadcast the small table so each executor has a copy and the large table isn't shuffled"
+        },
+        {
+          "id": "c",
+          "text": "Repartition the small table into 2,000 partitions"
+        },
+        {
+          "id": "d",
+          "text": "Use a cross join"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A broadcast join sends the small table to every executor, avoiding a shuffle of the large one.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/optimizations/aqe",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.5-q2",
+      "type": "single",
+      "stem": "Which Fabric feature can speed up Spark queries by running them on a native vectorized engine, without code changes?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The native execution engine"
+        },
+        {
+          "id": "b",
+          "text": "Deployment pipelines"
+        },
+        {
+          "id": "c",
+          "text": "V-Order"
+        },
+        {
+          "id": "d",
+          "text": "Shortcut caching"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The native execution engine runs supported Spark operations natively on a vectorized engine.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/native-execution-engine-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.5-q3",
+      "type": "single",
+      "stem": "Queries on a large table always filter on EventDate. How can the table's layout reduce the data read?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Store it as one huge file"
+        },
+        {
+          "id": "b",
+          "text": "Partition the table by date, or Z-order on EventDate, so filters skip files"
+        },
+        {
+          "id": "c",
+          "text": "Shuffle it randomly"
+        },
+        {
+          "id": "d",
+          "text": "Store it as CSV"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Partitioning and Z-ordering group rows by the filtered column, so Spark skips files outside the filter.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/delta-optimization-and-v-order",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3.5-q4",
+      "type": "single",
+      "stem": "A notebook reads the same expensive DataFrame in several later steps. What can avoid recomputing it each time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Turn off autoscale"
+        },
+        {
+          "id": "b",
+          "text": "Call collect() at every step"
+        },
+        {
+          "id": "c",
+          "text": "Cache or persist the DataFrame after it's built"
+        },
+        {
+          "id": "d",
+          "text": "Restart the session between steps"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Caching keeps the computed DataFrame in memory or on disk, so later actions reuse it.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/pyspark/basics",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

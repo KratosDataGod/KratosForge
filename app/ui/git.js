@@ -139,6 +139,65 @@ function capacityLines(item) {
   ].filter(Boolean);
 }
 
+// ---------- Fabric workspace (a workspace's own Git connection, next to this repository) ----------
+
+const FABRIC_GIT_STATES = {
+  conflict: ["Conflict: both changed", "fail"], both_changed: ["Both changed", "warn"],
+  incoming: ["Git is newer", "info"], outgoing: ["Workspace is newer", "info"],
+  same_change: ["Same change on both sides", "neu"], unchanged: ["No change", "neu"],
+};
+const FABRIC_GIT_CHANGES = { added: "Added", deleted: "Deleted", modified: "Changed", "": "No change" };
+const FABRIC_GIT_SUPPORT = { yes: "Full", preview: "Preview in Fabric", no: "Not supported by Fabric Git" };
+// The Support cell: Fabric Git's level, and "definition only" when the item's data never goes through Git.
+function fgSupportText(i) {
+  const base = FABRIC_GIT_SUPPORT[i.git_support] || "";
+  const dataStays = i.git_support !== "no" && (i.limits || []).some((l) => /never go/.test(l));
+  return dataStays ? `${base}, definition only` : base;
+}
+
+const fgShort = (sha) => (sha ? String(sha).slice(0, 7) : "");
+const fgPlural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// The three boxes on the Fabric workspace tab: this PC, the Git remote and the workspace, each with
+// a title, a commit and one line on how far apart they are. Only what Git on this PC can tell.
+function fabricGitBoxes(a, when = (t) => t) {
+  if (!a) return [];
+  const l = a.local || {};
+  const localLine = [l.ahead_of_remote ? `${fgPlural(l.ahead_of_remote, "commit", "commits")} not pushed` : null,
+    l.behind_remote ? `${fgPlural(l.behind_remote, "commit", "commits")} to pull` : null,
+    l.uncommitted ? `${fgPlural(l.uncommitted, "file", "files")} not committed` : null].filter(Boolean).join(" · ") || "Up to date with the remote";
+  const boxes = [{ kind: "local", label: "This PC (local)", title: l.branch || "No branch", commit: fgShort(l.commit), line: localLine }];
+  if (a.remote) {
+    const r = a.remote;
+    const line = !r.commit ? "Not fetched on this PC yet"
+      : r.ahead_of_workspace == null ? "Can't compare with the workspace yet"
+        : r.ahead_of_workspace || r.behind_workspace
+          ? [r.ahead_of_workspace ? `${fgPlural(r.ahead_of_workspace, "commit", "commits")} the workspace doesn't have` : null,
+            r.behind_workspace ? `behind the workspace's commit by ${r.behind_workspace}` : null].filter(Boolean).join(" · ")
+          : "Same commit as the workspace";
+    boxes.push({ kind: "remote", label: "Git remote", title: `${r.name || "?"}/${r.branch}`, commit: fgShort(r.commit), line });
+  }
+  if (a.workspace) {
+    const w = a.workspace;
+    boxes.push({ kind: "workspace", label: "Fabric workspace (cloud)",
+      title: w.commit ? `Synced to ${fgShort(w.commit)}` : "Not synced yet", commit: "",
+      line: [w.folder ? `Folder ${w.folder}` : "Repository root", w.last_sync ? `last sync ${when(w.last_sync)}` : null].filter(Boolean).join(" · ") });
+  }
+  return boxes;
+}
+
+// One line saying what Get Status found, for the items card's heading.
+function fabricGitSummary(st) {
+  if (!st) return "";
+  if (st.aligned) return "The workspace and Git match: nothing to update or commit.";
+  const c = st.counts || {};
+  return [c.conflict ? fgPlural(c.conflict, "conflict", "conflicts") : null,
+    c.both_changed ? `${c.both_changed} changed on both sides` : null,
+    c.incoming ? `${c.incoming} newer in Git` : null,
+    c.outgoing ? `${c.outgoing} newer in the workspace` : null,
+    c.same_change ? `${c.same_change} same on both sides` : null].filter(Boolean).join(" · ");
+}
+
 // ---------- state ----------
 
 const gitPage = {
@@ -149,6 +208,7 @@ const gitPage = {
   settings: null, op: null, opTimer: null, refreshTimer: null, loading: false,
   platform: { env: "prod", key: null, diff: null, error: null },  // the Platform tab of a platform repository
   capacity: { key: null, diff: null, error: null },  // the Capacity tab of a capacity repository
+  fabric: { key: null, env: "dev", overview: null, error: null, status: null, statusError: null, checking: false },  // the Fabric workspace tab
 };
 
 function gitCurrent() {
@@ -243,8 +303,8 @@ async function renderSourceControl() {
   if ((gitPage.tab === "platform" && !isPlatform) || (gitPage.tab === "capacity" && !isCapacity)) gitPage.tab = "changes";
   const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Repository" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
     isPlatform ? tab("platform", "Platform") : null, isCapacity ? tab("capacity", "Capacity") : null, tab("branches", "Branches"),
-    tab("history", "History"), tab("settings", "Repository settings"));
-  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
+    tab("history", "History"), tab("fabric", "Fabric workspace"), tab("settings", "Repository settings"));
+  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, fabric: gitFabricTab, settings: gitSettingsTab };
   setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
@@ -1144,6 +1204,247 @@ async function gitLocationsDialog(root, label, after) {
       if (after) after();
     } catch (e) { err.textContent = friendlyError(e).text; }
   }, "tool primary")]);
+}
+
+// ---------- Fabric workspace (the workspace's own Git connection, next to this repository) ----------
+
+function gitFabricReload(keepStatus = false) {
+  const p = gitPage.fabric;
+  p.key = null;
+  if (!keepStatus) Object.assign(p, { status: null, statusError: null });
+  if (state.view === "source" && gitPage.tab === "fabric") render();
+}
+
+function gitFabricTab(st) {
+  const p = gitPage.fabric;
+  const key = `${st.root}|${p.env}`;
+  if (p.key !== key) {
+    Object.assign(p, { key, overview: null, error: null, status: null, statusError: null });
+    rpc("fabric_git_overview", { repo: st.root, env: p.env })
+      .then((o) => { if (p.key === key) p.overview = o; })
+      .catch((err) => { if (p.key === key) p.error = err; })
+      .finally(() => { if (state.view === "source" && gitPage.tab === "fabric") render(); });
+  }
+  const how = howItWorks("source.fabric", {
+    reads: "The Git connection Fabric keeps for the workspace, and this repository. Check status in Fabric also asks Fabric which items differ; the first time, Windows asks you to allow KratosForge to use Fabric Git for you.",
+    changes: "Nothing in Fabric and nothing in Git. Linking writes fabric-desktop.toml in this repository (workspace ids and names, no secrets) as a change to commit.",
+    results: "On this tab. Pushing to Git never updates the workspace: it changes only when someone chooses Update from Git.",
+    anchor: "fabric-workspace" });
+  const envPick = h("select", { class: "fg-env", "aria-label": "Environment", onchange: (e) => { p.env = e.target.value; gitFabricReload(); } },
+    ["dev", "test", "prod"].map((e) => h("option", { value: e, selected: p.env === e ? true : null }, e[0].toUpperCase() + e.slice(1))));
+  const wrap = (...kids) => withHowItWorks(h("div", { class: "git-platform" }, ...kids), how);
+  if (p.error) return wrap(h("div", { class: "row" }, envPick),
+    errorPanel(p.error, { label: "Couldn't read the workspace's Git connection", retry: () => gitFabricReload(true) }));
+  const o = p.overview;
+  if (!o) return wrap(h("div", { class: "row" }, envPick), h("p", { class: "muted-text" }, "Reading the workspace's Git connection…"));
+  if (!o.linked) {
+    return wrap(h("div", { class: "row" }, envPick),
+      o.problem ? h("div", { class: "callout git-warn" }, icon("warning", 16), o.problem) : null,
+      emptyState({ icon: "branch", title: `No ${envPick.selectedOptions[0]?.textContent || ""} workspace linked`,
+        text: "Link this repository to the Fabric workspace that follows it, to see this PC, the Git remote and the workspace side by side. Linking reads Fabric only.",
+        action: btn("Link a workspace…", "databaseLink", () => gitFabricLinkDialog(st.root, p.env), "tool primary") }));
+  }
+  const link = o.link;
+  const conn = o.connection;
+  const where = [link.repository ? `${link.owner}${link.project ? `/${link.project}` : ""}/${link.repository}` : null,
+    link.branch ? `branch ${link.branch}` : null, link.folder ? `folder ${link.folder}` : null].filter(Boolean).join(" · ");
+  const head = h("section", { class: "card pad" },
+    h("div", { class: "row wrap" }, envPick,
+      h("h2", { class: "grow" }, `Linked workspace: ${link.workspace_name || link.workspace_id}`),
+      btn(p.checking ? "Checking…" : "Check status in Fabric", "sync", () => gitFabricCheck(st.root), "tool outline",
+        { disabled: p.checking || !conn?.connected ? true : null, title: "Reads which items differ. Changes nothing." }),
+      btn("More", "chevronDown", (e) => showMenu(e.currentTarget, [
+        { label: "Link another workspace…", icon: "databaseLink", action: () => gitFabricLinkDialog(st.root, p.env) },
+        { label: "Unlink", icon: "delete", action: () => gitFabricUnlink(st.root, p.env) },
+      ]), "tool outline", { "aria-label": "More workspace actions" })),
+    h("p", { class: "muted-text small" }, where || "Fabric didn't say which repository it follows."),
+    o.problem ? h("div", { class: "callout git-warn small" }, icon("warning", 16), o.problem) : null,
+    o.changed_in_fabric?.length ? h("div", { class: "callout git-warn small" }, icon("warning", 16),
+      `Fabric now shows a different ${o.changed_in_fabric.join(" and ")} than this link. Link the workspace again to update fabric-desktop.toml.`) : null,
+    o.alignment ? h("div", { class: "fg-boxes" }, fabricGitBoxes(o.alignment, relTime).map((b) => h("div", { class: `fg-box ${b.kind}` },
+      h("span", { class: "muted-text small" }, b.label), h("b", {}, b.title),
+      b.commit ? h("code", { class: "small" }, b.commit) : null, h("span", { class: "small" }, b.line)))) : null,
+    o.alignment?.notes?.length ? h("ul", { class: "small fg-notes" }, o.alignment.notes.map((n) => h("li", {}, n))) : null);
+  return wrap(head, gitFabricItems(p));
+}
+
+function gitFabricItems(p) {
+  if (p.statusError) return h("div", { class: "callout git-warn" }, icon("warning", 16), p.statusError);
+  const s = p.status;
+  if (!s) return h("p", { class: "muted-text small" }, p.checking ? "Asking Fabric which items differ… This can take a minute."
+    : "Check status in Fabric to see which items differ and which conflict. The first time, Windows asks you to allow KratosForge to use Fabric Git for you.");
+  const rows = s.items.map((i) => {
+    const [label, tone] = FABRIC_GIT_STATES[i.state] || [i.state, "neu"];
+    return h("tr", { class: i.state === "conflict" ? "fg-conflict" : null },
+      h("td", {}, i.state === "conflict" ? h("b", {}, i.name) : i.name), h("td", {}, i.label), h("td", {}, FABRIC_GIT_CHANGES[i.workspace_change] || ""),
+      h("td", {}, FABRIC_GIT_CHANGES[i.remote_change] || ""), h("td", {}, h("span", { class: `pill-s ${tone}` }, label)),
+      h("td", { class: i.git_support === "no" ? "muted-text" : null, title: (i.limits || []).join(" ") || null }, fgSupportText(i),
+        i.limits?.length && i.git_support !== "no" ? h("div", { class: "muted-text small" }, i.limits[0]) : null));
+  });
+  return h("section", { class: "card" },
+    h("div", { class: "row wrap pad" }, h("h2", { class: "grow" }, s.items.length ? `Items (${s.items.length} differ)` : "Items"),
+      h("span", { class: "muted-text small" }, fabricGitSummary(s)),
+      btn("Commit in Fabric", "open", () => openLink(`https://app.fabric.microsoft.com/groups/${p.overview.link.workspace_id}/list?experience=fabric-developer`),
+        "tool outline", { title: "Committing the workspace's changes to Git happens in Fabric's Source control panel" }),
+      btn("Update from Git…", "arrowDownload", () => gitFabricUpdateDialog(gitPage.status.root), "tool primary",
+        { disabled: !(s.counts.incoming || s.counts.conflict || s.counts.both_changed) || p.checking ? true : null,
+          title: "Bring the workspace up to the commit in Git, after a preview" })),
+    s.remote_tracking && !s.remote_fetched_matches ? h("p", { class: "muted-text small pad" },
+      `Fabric compared Git commit ${fgShort(s.remote_commit)}; this PC last fetched ${fgShort(s.remote_tracking)}. Fetch to see the same commits here.`) : null,
+    s.items.length ? h("div", { class: "table-scroll" }, h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Item", "Type", "In the workspace", "In Git", "State", "Support"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, rows))) : null,
+    h("p", { class: "muted-text small pad" }, "Checking status reads Fabric only. It changes nothing in Git or the workspace."));
+}
+
+async function gitFabricCheck(root) {
+  const p = gitPage.fabric;
+  const key = p.key;
+  Object.assign(p, { checking: true, statusError: null });
+  render();
+  try {
+    const s = await rpc("fabric_git_status", { repo: root, env: p.env });
+    if (p.key === key) p.status = s;
+  } catch (err) {
+    if (p.key === key) p.statusError = friendlyError(err).text;
+  } finally {
+    p.checking = false;
+    if (state.view === "source" && gitPage.tab === "fabric") render();
+  }
+}
+
+// Update from Git: the engine's plan first (it reads Fabric's status again), a choice for conflicts,
+// the workspace's name typed, then the one write. The engine checks every one of these again.
+async function gitFabricUpdateDialog(root) {
+  const p = gitPage.fabric;
+  const env = p.env;
+  const first = await attempt(() => rpc("fabric_git_update", { repo: root, env, fingerprint: p.status.fingerprint }), "Couldn't prepare the update");
+  if (!first) return;
+  if (first.stale) { p.status = first.status; render(); toast("Fabric changed since you checked. Here is the new list: check it, then update.", true); return; }
+  if (first.nothing) { toast("Nothing to bring in from Git."); return; }
+  const plan = first.plan;
+  const fingerprint = first.fingerprint;
+  const name = first.confirm_text;
+  const conflicts = p.status.items.filter((i) => i.state === "conflict" || i.state === "both_changed");  // from the preview the person saw
+  let policy = conflicts.length ? "PreferWorkspace" : "";
+  const line = (i, why) => h("div", { class: "fg-plan-row" }, h("b", {}, i.name), h("span", {}, i.label), h("span", {}, why));
+  const choice = conflicts.length ? h("fieldset", { class: "fg-conflicts" },
+    h("legend", {}, `${fgPlural(conflicts.length, "conflict", "conflicts")}: ${conflicts.map((i) => i.name).join(", ")}`),
+    h("p", { class: "small" }, "Changed in the workspace and in Git. Fabric applies one choice to every conflict in this update."),
+    ...[["PreferWorkspace", "Keep the workspace version (Git's change is not applied)"], ["PreferRemote", "Take the Git version (the workspace's change is lost)"]]
+      .map(([v, text]) => h("label", { class: "row" }, h("input", { type: "radio", name: "fg-policy", value: v, checked: v === policy ? true : null,
+        onchange: () => { policy = v; lossy(); } }), text))) : null;
+  const typed = h("input", { id: "fg-confirm", type: "text", autocomplete: "off", spellcheck: "false", oninput: () => ready() });
+  const loses = h("p", { class: "small" });
+  const err = h("p", { class: "field-error" });
+  const isConflict = (i) => i.state === "conflict" || i.state === "both_changed";
+  const atRisk = plan.overwrites.filter((i) => !isConflict(i));
+  const consent = h("input", { id: "fg-override", type: "checkbox", onchange: () => ready() });
+  const go = btn("Update workspace", null, () => run(), "tool danger-solid", { disabled: true });
+  const ready = () => { go.disabled = typed.value !== name || !consent.checked; };
+  const lossy = () => {
+    const lost = policy === "PreferRemote" ? conflicts.length : 0;
+    const risk = atRisk.length ? ` ${fgPlural(atRisk.length, "uncommitted workspace change", "uncommitted workspace changes")} may be lost.` : "";
+    loses.textContent = `This changes ${fgPlural(plan.changes.length + lost, "item", "items")} in the workspace${lost ? `, and ${lost} lose${lost === 1 ? "s" : ""} the workspace's own change` : ""}.${risk} Type ${name} to confirm.`;
+  };
+  lossy();
+  const run = async () => {
+    err.textContent = "";
+    go.disabled = true;
+    go.textContent = "Updating…";
+    try {
+      const out = await rpc("fabric_git_update", { repo: root, env, fingerprint, policy, confirm_name: typed.value, allow_override: consent.checked });
+      if (out.done) {
+        closeDialog();
+        toast(`Updated ${name} from Git.`);
+        gitFabricReload();
+        return;
+      }
+      if (out.stale) { closeDialog(); p.status = out.status; render(); toast("Fabric changed since the preview, so nothing was updated. Check the new list, then try again.", true); return; }
+      err.textContent = out.needs_choice ? "Choose what happens to the conflicts." : out.needs_override ? "Tick the box to let Fabric replace these workspace items."
+        : out.needs_confirm ? `Type ${out.confirm_text} exactly to confirm.` : "Nothing to bring in from Git.";
+    } catch (e) { err.textContent = friendlyError(e).text; }
+    go.textContent = "Update workspace";
+    ready();
+  };
+  showDialog(`Update ${name} from Git`, h("div", { class: "git-form fg-update" },
+    first.name_differs ? h("p", { class: "fg-warn small", role: "alert" }, `Fabric calls this workspace ${name}, but fabric-desktop.toml says ${first.linked_name}. Check it's the workspace you mean before you update.`) : null,
+    h("p", { class: "muted-text small" }, `Fabric workspace (cloud) · brings the workspace from ${fgShort(plan.from) || "its first sync"} to ${fgShort(plan.to)} on ${p.overview.link.branch || "its branch"}`),
+    h("h3", {}, "What changes in the workspace"),
+    plan.changes.length ? h("div", { class: "fg-plan" }, plan.changes.map((i) => line(i, i.why))) : h("p", { class: "small" }, "Only the conflicts below."),
+    choice,
+    atRisk.length ? [h("h3", {}, "May be lost"), h("p", { class: "small" }, "Changed only in the workspace and not committed. Microsoft doesn't say Update from Git keeps these, so commit them in Fabric first to be sure."),
+      h("div", { class: "fg-plan" }, atRisk.map((i) => line(i, "Uncommitted workspace change")))] : null,
+    plan.kept.length ? [h("h3", {}, "Not touched"), h("div", { class: "fg-plan" }, plan.kept.filter((i) => !isConflict(i)).map((i) => line(i, i.why)))] : null,
+    h("p", { class: "muted-text small" }, "Lakehouse tables and files, and warehouse data, never move through Git."),
+    h("label", { class: "row small" }, consent, "Let Fabric replace the workspace items listed above with the Git versions"),
+    loses, h("label", { for: "fg-confirm", class: "sr-only" }, `Type ${name} to confirm`), typed,
+    h("p", { class: "muted-text small" }, "Before it starts, KratosForge checks the status again. If anything changed since this preview, it stops and shows the new list."),
+    err),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+async function gitFabricUnlink(root, env) {
+  if (!(await confirmDialog("Unlink this workspace?",
+    `Removes the ${env[0].toUpperCase() + env.slice(1)} link from fabric-desktop.toml, as a change to commit. Nothing in Fabric changes, and the workspace stays connected to Git there.`,
+    "Unlink"))) return;
+  if (!(await attempt(() => rpc("fabric_git_unlink", { repo: root, env }), "Couldn't unlink"))) return;
+  toast("Unlinked. Commit fabric-desktop.toml to share it.");
+  gitAfterChange();
+  gitFabricReload();
+}
+
+// Pick a workspace; show what Fabric says it follows and whether a remote here points there; link.
+async function gitFabricLinkDialog(root, env) {
+  const workspaces = await loadWorkspaces();
+  if (!workspaces.length) { toast("Sign in to pick a workspace.", true); return; }
+  const envLabel = env[0].toUpperCase() + env.slice(1);
+  const ws = h("select", { id: "fg-ws", "aria-label": "Workspace" }, h("option", { value: "" }, "Choose a workspace"),
+    workspaces.map((w) => h("option", { value: w.id }, w.displayName)));
+  const said = h("div", { class: "fg-said small", "aria-live": "polite" });
+  const err = h("p", { class: "field-error" });
+  const linkBtn = btn("Link", null, () => doLink(false), "tool primary", { disabled: true });
+  ws.onchange = async () => {
+    const id = ws.value;
+    linkBtn.disabled = true;
+    said.replaceChildren(id ? h("span", { class: "muted-text" }, "Asking Fabric what this workspace follows…") : "");
+    if (!id) return;
+    try {
+      const out = await rpc("fabric_git_check", { repo: root, workspace_id: id });
+      if (ws.value !== id) return;
+      const c = out.connection;
+      said.replaceChildren(h("b", {}, "What Fabric says"),
+        c.connected ? h("div", {}, `Connected to ${c.provider_label}: ${c.owner}${c.project ? `/${c.project}` : ""}/${c.repository}, branch ${c.branch}${c.folder ? `, folder ${c.folder}` : ""}`)
+          : h("div", {}, "This workspace isn't connected to Git in Fabric. A workspace admin connects it once in Fabric (Workspace settings > Git integration)."),
+        c.connected ? h("div", { class: out.remote ? "fg-ok" : "fg-warn" }, out.remote ? `Matches this repository's remote ${out.remote}` : "None of this repository's remotes points there") : null,
+        c.synced_head ? h("div", { class: "muted-text" }, `Last synced to commit ${fgShort(c.synced_head)}`) : null);
+      linkBtn.disabled = false;
+    } catch (e) { if (ws.value === id) said.replaceChildren(h("span", { class: "field-error" }, friendlyError(e).text)); }
+  };
+  const doLink = async (confirm) => {
+    err.textContent = "";
+    const w = workspaces.find((x) => x.id === ws.value);
+    try {
+      const out = await rpc("fabric_git_link", { repo: root, env, workspace_id: ws.value, workspace_name: w?.displayName || "", confirm });
+      if (out.needs_confirm) {
+        closeDialog();
+        if (await confirmDialog("Link it anyway?", out.message, "Link anyway")) {
+          await attempt(() => rpc("fabric_git_link", { repo: root, env, workspace_id: ws.value, workspace_name: w?.displayName || "", confirm: true }), "Couldn't link");
+          gitAfterChange(); gitFabricReload();
+        }
+        return;
+      }
+      closeDialog();
+      toast("Linked. Commit fabric-desktop.toml to share it with your team.");
+      gitAfterChange();
+      gitFabricReload();
+    } catch (e) { err.textContent = friendlyError(e).text; }
+  };
+  showDialog(`Link ${gitRepoName(root)} to a ${envLabel} workspace`, h("div", { class: "git-form" },
+    h("label", { for: "fg-ws" }, "Workspace"), ws, said,
+    h("p", { class: "muted-text small" }, "Saved in fabric-desktop.toml in the repository, so the team shares it: workspace id and name, and the repository, branch and folder Fabric follows. No sign-in, secret or tenant id is saved. Linking reads Fabric only: it doesn't connect the workspace to Git or change it."),
+    err),
+  [btn("Cancel", null, closeDialog, "tool outline"), linkBtn]);
 }
 
 // ---------- Platform (a platform repository: compare, export, deploy) ----------

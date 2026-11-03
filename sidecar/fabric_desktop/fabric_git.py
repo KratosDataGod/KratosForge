@@ -10,17 +10,20 @@ up three commits without asking Fabric for anything more:
 * the Git remote: the remote-tracking commit of the branch Fabric follows (as of the last fetch);
 * the workspace: the commit Fabric last synced (``gitSyncDetails.head``).
 
-Which items changed in the workspace needs Fabric's Get Status call and a Git scope; that comes
-in a later change, behind a card. Nothing here writes to Fabric or to Git.
+Which items changed in the workspace comes from Fabric's Get Status (``status``), which needs the
+Workspace.GitUpdate.All scope (asked for on first use). Nothing here writes to Fabric or to Git.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
+from . import artifacts
 from .git.cli import GitError
 from .git.remote import PROVIDER_LABELS, parse
 from .git.repo import Repository
@@ -31,7 +34,7 @@ ENVS = ("dev", "test", "prod")
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 # What a link keeps: ids KratosForge uses, names for people, and what Fabric said the workspace follows.
-_LINK_FIELDS = ("workspace_id", "workspace_name", "provider", "owner", "project", "repository",
+_LINK_FIELDS = ("workspace_id", "workspace_name", "provider", "host", "owner", "project", "repository",
                 "branch", "folder")
 _STATES = {"NotConnected", "Connected", "ConnectedAndInitialized"}
 
@@ -121,6 +124,15 @@ def matching_remote(conn: dict[str, Any], remotes: list[dict[str, Any]]) -> str 
                 continue
         return str(r.get("name") or "")
     return None
+
+
+def remote_for_link(link: dict[str, Any], remotes: list[dict[str, Any]]) -> str | None:
+    """The remote that points where a saved link says the workspace follows (no Fabric call)."""
+    if link.get("provider") not in ("github", "azure_devops"):
+        return None
+    conn = {"connected": True, "provider": link["provider"], "owner": link.get("owner", ""),
+            "project": link.get("project", ""), "repository": link.get("repository", ""), "host": link.get("host", "")}
+    return matching_remote(conn, remotes)
 
 
 # ---- the link, kept in the repository
@@ -217,3 +229,109 @@ def alignment(repo: Repository, conn: dict[str, Any], remote: str | None) -> dic
     out["notes"].append("Pushing to Git doesn't update the workspace: it changes only when someone chooses Update "
                         "from Git.")
     return out
+
+
+# ---- which items differ, and their conflicts (Get Status)
+
+_CHANGES = {"Added": "added", "Deleted": "deleted", "Modified": "modified"}
+_CONFLICTS = {"Conflict": "conflict", "SameChanges": "same"}
+
+
+def _state(ws: str, remote: str, conflict: str) -> str:
+    """One item's state, from both sides, in the order a person has to act on them."""
+    if conflict == "conflict":
+        return "conflict"
+    if conflict == "same":
+        return "same_change"
+    if ws and remote:
+        return "both_changed"  # Fabric didn't call it a conflict; shown next to conflicts anyway
+    if remote:
+        return "incoming"  # Git is newer: Update from Git would bring it in
+    if ws:
+        return "outgoing"  # the workspace is newer: Commit to Git would take it out
+    return "unchanged"
+
+
+def status(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Fabric's Get Status answer in the app's words: the two commits it compared, one row per
+    item that differs (with its support from the capability registry) and counts. Anything Fabric
+    sends that isn't documented is left out rather than guessed. ``fingerprint`` changes whenever
+    any of it changes, so a later write can refuse to act on an out-of-date preview."""
+    if not isinstance(raw, dict):
+        raw = {}
+    heads = {k: _text(raw.get(k)).lower() for k in ("workspaceHead", "remoteCommitHash")}
+    rows: list[dict[str, Any]] = []
+    changes = raw.get("changes")
+    for change in changes if isinstance(changes, list) else []:
+        if not isinstance(change, dict):
+            continue
+        got_meta = change.get("itemMetadata")
+        meta: dict[str, Any] = got_meta if isinstance(got_meta, dict) else {}
+        got_ident = meta.get("itemIdentifier")
+        ident: dict[str, Any] = got_ident if isinstance(got_ident, dict) else {}
+        logical = _text(ident.get("logicalId")).lower()
+        object_id = _text(ident.get("objectId")).lower()
+        if not (_GUID.fullmatch(logical) or _GUID.fullmatch(object_id)):
+            continue  # Fabric always names an item by at least one of these
+        ws_change = _CHANGES.get(change.get("workspaceChange") or "", "")
+        remote_change = _CHANGES.get(change.get("remoteChange") or "", "")
+        conflict = _CONFLICTS.get(change.get("conflictType") or "", "")
+        item_type = _text(meta.get("itemType"), 80)
+        cap = artifacts.capability(item_type)
+        rows.append({"item_type": item_type, "label": cap.label, "name": _text(meta.get("displayName")) or "(no name)",
+                     "logical_id": logical if _GUID.fullmatch(logical) else "",
+                     "object_id": object_id if _GUID.fullmatch(object_id) else "",
+                     "workspace_change": ws_change, "remote_change": remote_change, "conflict": conflict,
+                     "state": _state(ws_change, remote_change, conflict),
+                     "git_support": cap.git, "round_trip": cap.round_trip, "limits": list(cap.limits)})
+    order = {"conflict": 0, "both_changed": 1, "incoming": 2, "outgoing": 3, "same_change": 4, "unchanged": 5}
+    rows.sort(key=lambda r: (order[r["state"]], r["name"].lower()))
+    counts = {s: sum(1 for r in rows if r["state"] == s) for s in order}
+    fingerprint = hashlib.sha256(json.dumps(
+        [heads, [[r["logical_id"], r["object_id"], r["workspace_change"], r["remote_change"], r["conflict"]]
+                 for r in rows]], sort_keys=True).encode()).hexdigest()[:16]
+    return {"workspace_head": heads["workspaceHead"] if _SHA.fullmatch(heads["workspaceHead"]) else "",
+            "remote_commit": heads["remoteCommitHash"] if _SHA.fullmatch(heads["remoteCommitHash"]) else "",
+            "items": rows, "counts": counts, "fingerprint": fingerprint,
+            "aligned": not rows}
+
+
+# ---- Update from Git: what it would do, before it does it
+
+POLICIES = {"": None, "PreferWorkspace": "PreferWorkspace", "PreferRemote": "PreferRemote"}
+
+
+def update_plan(st: dict[str, Any], policy: str = "") -> dict[str, Any]:
+    """What Update from Git would do to each item of a ``status()`` answer, with ``policy`` for
+    conflicts ("PreferWorkspace" keeps the workspace's version, "PreferRemote" takes Git's; Fabric
+    applies one choice to every conflict). ``changes`` are items the workspace takes from Git,
+    ``overwrites`` those where a change made in the workspace is lost or may be, ``kept`` the rest.
+
+    Microsoft Learn says only that the update "only affects items in the workspace that were changed in
+    those commits" (Core > Git > Update From Git, checked 2026-11-03); it doesn't say what happens to an
+    uncommitted change in the workspace. So a change made only in the workspace counts as at risk, and
+    the person is told to commit it in Fabric first to be sure of keeping it."""
+    if policy not in POLICIES:
+        raise GitError("Choose Keep the workspace version or Take the Git version.", kind="invalid")
+    changes, overwrites, kept = [], [], []
+    conflicts = [i for i in st.get("items", []) if i["state"] in ("conflict", "both_changed")]
+    for i in st.get("items", []):
+        if i.get("git_support") == "no":
+            kept.append({**i, "why": "Fabric Git doesn't carry this item type"})
+        elif i["state"] == "incoming":
+            changes.append({**i, "why": {"added": "Added from Git", "deleted": "Deleted from the workspace, as in Git"}
+                            .get(i["remote_change"], "Replaced with the version in Git")})
+        elif i["state"] in ("conflict", "both_changed"):
+            if policy == "PreferRemote":
+                overwrites.append({**i, "why": "Takes the Git version; the workspace's change is lost"})
+            elif policy == "PreferWorkspace":
+                kept.append({**i, "why": "Keeps the workspace version; Git's change isn't applied"})
+        elif i["state"] == "outgoing":
+            overwrites.append({**i, "why": "Changed only in the workspace and not committed; Microsoft doesn't "
+                               "say Update from Git keeps it, so commit it in Fabric first to be sure"})
+        else:
+            kept.append({**i, "why": "Same on both sides"})
+    return {"from": st.get("workspace_head", ""), "to": st.get("remote_commit", ""), "policy": policy,
+            "needs_policy": bool(conflicts) and not policy, "conflicts": len(conflicts),
+            "changes": changes, "overwrites": overwrites, "kept": kept,
+            "nothing": not changes and not conflicts}  # workspace-only changes give Fabric nothing to update

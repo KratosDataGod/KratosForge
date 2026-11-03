@@ -1,4 +1,4 @@
-"""Spark's decimal result types for Spark SQL on this PC (EA-004, part 2).
+"""Spark's decimal result types for Spark SQL and the DataFrame API on this PC (EA-004, parts 2 and 3).
 
 DuckDB types decimal arithmetic by its own rules: ``decimal(10,2) / decimal(10,2)`` and ``avg`` of a
 decimal give DOUBLE, ``decimal(10,2) * decimal(10,2)`` is DECIMAL(18,4) and can overflow where Spark
@@ -164,6 +164,73 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
     targets = [n for n in statement.find_all(*_ARITHMETIC, *_AGGREGATES)]
     if not targets:
         return statement
+    try:
+        schema = _schema(conn)
+        if _sees_lambda_name(statement, schema):
+            log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
+            return statement
+        names = _output_names(statement, conn, targets)
+        if names is None:
+            return statement
+        root = _retype(statement, targets, schema)
+    except Exception as exc:
+        # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
+        log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
+        return _unmark(statement)
+    # An unnamed column keeps the name it had before the rewrite, not the rewritten SQL.
+    for select, index, name in names:
+        projection = select.expressions[index]
+        select.expressions[index].replace(exp.alias_(projection, name, quoted=True))
+    return root
+
+
+_FRAME = "kf_frame"
+
+
+def spark_decimal_columns(expressions: list[str], columns: list[tuple[str, str]]
+                          ) -> list[tuple[str, str | None] | None]:
+    """The DataFrame API's side of EA-004 (#1682): for each DuckDB SQL expression over a frame whose
+    columns are ``columns`` (name, DuckDB type), the same expression with Spark's decimal result types
+    as (DuckDB SQL, its ``AS`` name or None), or None when that changes nothing. Expressions whose
+    types can't be worked out are None too, and keep DuckDB's types (logged)."""
+    unchanged: list[tuple[str, str | None] | None] = [None] * len(expressions)
+    if not expressions or not any(t.upper().startswith("DECIMAL") for _, t in columns):
+        return unchanged  # Spark's rules only change an expression with a decimal operand
+    from sqlglot import parse_one
+
+    from .sql import duckdb_sql
+    try:
+        statement = parse_one(f"SELECT {', '.join(expressions)} FROM {_FRAME}", read="duckdb")
+        if not isinstance(statement, exp.Select) or len(statement.expressions) != len(expressions):
+            return unchanged
+        before = [duckdb_sql(p) for p in statement.expressions]
+        targets = [n for n in statement.find_all(*_ARITHMETIC, *_AGGREGATES)]
+        if not targets:
+            return unchanged
+        frame: dict[str, str] = {}
+        for name, kind in columns:
+            frame.setdefault(name, kind)
+        schema = MappingSchema(cast(dict[str, object], {_FRAME: frame}), dialect="duckdb", normalize=False)
+        if _sees_lambda_name(statement, schema):
+            log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
+            return unchanged
+        root = _retype(statement, targets, schema)
+        if not isinstance(root, exp.Select):
+            return unchanged
+        out = unchanged.copy()
+        for i, (projection, was) in enumerate(zip(root.expressions, before, strict=True)):
+            if duckdb_sql(projection) != was:
+                named = isinstance(projection, exp.Alias)
+                out[i] = (duckdb_sql(projection.this if named else projection), projection.alias if named else None)
+    except Exception as exc:
+        log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
+        return unchanged
+    return out
+
+
+def _retype(statement: exp.Expr, targets: list[Any], schema: MappingSchema) -> exp.Expr:
+    """``statement`` with each of ``targets`` (its arithmetic and sums) given Spark's decimal type, typed
+    against ``schema``. Raises when sqlglot can't qualify or type it."""
     marked = 0
     for node in targets:
         for operand in (node.this, node.args.get("expression")):
@@ -174,20 +241,12 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
                 operand.meta[_KEY] = marked
                 marked += 1
     try:
-        schema = _schema(conn)
-        if _sees_lambda_name(statement, schema):
-            log.info("Spark decimal types not applied: a column is named like the rewrite's lambdas %s", _LAMBDAS)
-            return _unmark(statement)
-        names = _output_names(statement, conn, targets)
-        if names is None:
-            return _unmark(statement)
         copy = qualify(statement.copy(), schema=schema, dialect="spark", validate_qualify_columns=False,
                        quote_identifiers=False, identify=False)
         annotate_types(copy, schema=schema, dialect="spark")
-    except Exception as exc:
-        # Only a type fix: a statement sqlglot can't type runs with DuckDB's types, as before, and says so.
-        log.info("Spark decimal types not applied: %s: %s", type(exc).__name__, exc)
-        return _unmark(statement)
+    except Exception:
+        _unmark(statement)
+        raise
     by_mark = {n.meta[_KEY]: n for n in copy.walk() if _KEY in n.meta}
     annotated: dict[int, exp.Expr] = {}
     for original in statement.walk():
@@ -209,10 +268,6 @@ def spark_decimal_types(statement: exp.Expr, conn: Any) -> exp.Expr:
             root = new
         else:
             top.replace(new)
-    # An unnamed column keeps the name it had before the rewrite, not the rewritten SQL.
-    for select, index, name in names:
-        projection = select.expressions[index]
-        select.expressions[index].replace(exp.alias_(projection, name, quoted=True))
     return root
 
 

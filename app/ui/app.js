@@ -965,7 +965,10 @@ function renderCreate() {
       preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()),
-      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog)))));
+      preview("pipelines", tile("flow", "Pipeline", "Open a Fabric pipeline, check what can run here, and run it on this PC", pipelineOpenDialog))),
+    preview("appStudio", h("h2", {}, "Applications ")),
+    PREVIEW_FEATURES.appStudio && previewShown() ? h("div", { class: "tiles" },
+      tile("apps", "App Studio", "Describe an app, build it from a template and preview it on this PC, with every version kept", () => appStudioOpen())) : null));
 }
 
 // Filters on Monitor, kept for the session.
@@ -2799,7 +2802,7 @@ function markdown(src) {
 // (meta.js, settings.js); features.js has the rules.
 registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
-  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun"] }, views: { create: renderCreate },
+  id: "create", rail: { label: "Create", icon: "create", order: 20, also: ["pipelines", "pipelineRun", "appStudio"] }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
     { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",

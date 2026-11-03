@@ -2191,6 +2191,7 @@ img.profile-avatar.has-picture { object-fit: cover; padding: 0; }
 .profile-report h3 { margin: 14px 0 2px; font-size: 15px; }
 .profile-report p, .profile-report ul { margin: 0; }
 .profile-report em { color: var(--muted); font-size: 12px; }
+.profile-goal-input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border-input); border-radius: 4px; font: inherit; background: var(--surface); color: inherit; }
 @media (max-width: 900px) { .profile-grid, .profile-report-layout, .profile-skills { grid-template-columns: minmax(0, 1fr); } }
 
 /* Optimize > Settings history */
@@ -2695,3 +2696,49 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .optimize-sync[hidden] { display: none; }
 .optimize-sync { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
 .optimize-sync-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 24px; margin-bottom: 8px; }
+
+/* App Studio (Preview, appstudio.js) */
+.as-body { display: flex; flex-direction: column; gap: 16px; }
+.as-create-fields { gap: 16px; flex-wrap: wrap; }
+.as-create-fields .field { flex: 1 1 240px; }
+.as-templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+.as-template { display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.as-template:hover { border-color: var(--accent); }
+.as-template.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.as-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.as-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  background: var(--border-soft); color: var(--text-2); }
+.as-chip.ok { color: #1f7a4a; background: #eaf6ef; }
+.as-chip.warn { color: #8a5300; background: #fdf3e3; }
+.as-split { display: grid; grid-template-columns: 180px minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .as-split { grid-template-columns: 160px minmax(0, 1fr); } .as-ask { grid-column: 1 / -1; } }
+.as-pages { display: flex; flex-direction: column; gap: 4px; }
+.as-eyebrow { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.as-page { text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.as-page:hover { background: var(--hover); }
+.as-page.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.as-center { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.as-sim { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; color: #8a5300; background: #fdf3e3;
+  padding: 6px 10px; border-radius: 6px; }
+.as-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: 52px; gap: 10px; }
+.as-tile { padding: 10px 12px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.as-tile-title { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.as-card-value { font-size: 26px; font-weight: 600; color: var(--accent-dark); font-variant-numeric: tabular-nums; }
+.as-tile .output { overflow: auto; font-size: 12px; }
+.as-svg { width: 100%; flex: 1 1 auto; min-height: 0; }
+.as-axis { font-size: 10px; fill: var(--muted); }
+.as-hole { fill: var(--surface); }
+.as-ask textarea { width: 100%; resize: vertical; }
+.as-ask h2 { margin-top: 0; }
+.as-design { display: flex; flex-direction: column; gap: 12px; }
+.as-design-table input { width: 100%; min-width: 120px; }
+.as-json { font-family: var(--mono); font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; overflow: auto; max-height: 60vh; white-space: pre; }
+.as-changes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.as-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; }
+.as-facts dt { font-weight: 600; color: var(--text-2); }
+.as-facts dd { margin: 0; }
+.as-ready { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.as-ready li { display: flex; gap: 6px; align-items: flex-start; }
+.as-ready li.ok { color: #1f7a4a; }
+.as-ready li.todo { color: #8a5300; }

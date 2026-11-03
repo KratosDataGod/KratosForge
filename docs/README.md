@@ -237,6 +237,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Risk check before a run | Before a run in Workloads, Notebook > Run in Fabric and Data mesh ([risk-check.md](finops/risk-check.md); always shown) |
 | VS Code pairing | Settings > Integrations > VS Code ([vscode.md](vscode.md); always shown, so a pairing that is on can always be turned off) |
 | Learn | Learn at the bottom of the left rail: lessons, practice labs on this PC and the best-practice rules ([learn.md](learn.md)) |
+| App Studio | Create > Applications: build an app from a template, preview it on sample data on this PC, and keep every version ([app-studio.md](app-studio.md)) |
 
 Two notebook settings are also in Preview: **Run notebooks in their own process**, and the **notebook cell time and memory limits** that need it (both in Settings > Preview features).
 

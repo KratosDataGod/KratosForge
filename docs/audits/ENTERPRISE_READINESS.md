@@ -151,7 +151,7 @@ What works today:
 What's missing:
 
 - The builds are unsigned.
-- There is no MSI or MSIX package for Intune or Configuration Manager.
+- The MSI is new: it hasn't been tried in an Intune or Configuration Manager tenant yet, and it is unsigned like the exe.
 - The policy file is advisory against a determined local user.
 - Privacy statement and support terms aren't published yet.
 

@@ -3686,7 +3686,8 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
   assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
   assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
-  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove"]) {
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set", "profile_avatar_remove",
+    "profile_report_pdf", "profile_goal_add", "profile_goal_remove", "profile_goal_done"]) {
     assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
@@ -5572,6 +5573,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+    "Promises to readers": ["docs/data-mesh.md", /a setting in the product's file, with no screen of its own yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

@@ -32,7 +32,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
-           "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
+           "platform_whoami", "platform_change_window", "platform_save_change_window", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
@@ -152,6 +152,11 @@ METHODS |= ACCESS_CACHE_METHODS
 from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
 
 METHODS |= LEARN_METHODS
+
+# Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
+from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402
+
+METHODS |= APPSTUDIO_METHODS
 
 # Settings > Advanced > OneLake writes: the local write folders (local_writes_service.py).
 from .local_writes_service import METHODS as LOCAL_WRITES_METHODS  # noqa: E402

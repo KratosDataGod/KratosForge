@@ -153,7 +153,8 @@ class Agent:
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
                 signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
-                                           team=mesh_mod.identity(project)["team"])
+                                           team=mesh_mod.identity(project)["team"],
+                                           promises=mesh_mod.promises(project))
                 evaluated |= evaluate.WORKLOAD_KINDS
             try:
                 signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)

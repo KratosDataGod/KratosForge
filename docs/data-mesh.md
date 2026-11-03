@@ -181,7 +181,27 @@ entity = "gold.dim_customer"
 
 A reader that hasn't listed its columns counts as relying on every column of the port it links to.
 
+**The change window (Preview).** A platform can agree when changes reach Prod, for example Monday to Thursday, 08:00 to 16:00 London time. A promote to an environment the window covers (Prod unless it says otherwise) that changes products other projects read, outside the window, gets a warning naming those projects. It never blocks: you can still promote, and the promote's answer repeats the warning. A project nobody else reads, a platform without a window, and a platform made before change windows get no warning. Platform admins set it with the platform's `save_change_window` operation (`days` from mon to sun, `start` and `end` as "HH:MM" on the same day, `time_zone` such as "Europe/London", `envs` from test and prod). Anyone can read it with `change_window`. Its screen in Platform > Govern is still to come. The time is judged in the window's time zone, so it's the same on every PC.
+
 **Deprecating a product.** Set `status = "deprecated"` and `deprecated_on`, then promote or publish. The first publish as deprecated, or one with a new date, sends one Teams notice (`product.deprecated`) to the projects that link to it, through the platform's Teams routes (see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)); the publish's answer lists who was told. A notice that can't be sent never stops the publish: the answer says so. From the date on, the catalog takes no new links to it, and a project that still links to it can't promote until it moves the link (before the date, its promote gets a note saying when). Runs aren't stopped: a running pipeline keeps reading until its team moves it.
+
+## Promises to readers (Preview)
+
+A product can promise its readers how fresh and how clean its data is, in its own file:
+
+```toml
+[promise]
+within_hours = 24        # a successful load at most this long ago
+by = "06:00"             # and/or: loaded today by this time (the clock of the PC or agent that checks)
+max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 1 % of the rows it read
+envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
+```
+
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing. A promise is a setting in the product's file, with no screen of its own yet: its broken promises show in Monitor > Incidents.
+
+**Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
+
+**When it's broken.** Each incident check (an agent on its timer, the app every 10 minutes, or **Check now** on Monitor > Incidents) checks every port's table against its products' promises, from the run log alone. A late load or too many rejected rows opens one **Promise broken** incident for that table, naming the products and why, and it resolves itself once a later load keeps the promise. When the table's own `[freshness]` already reports it late, the promise doesn't report the same lateness again. From there it's an incident like any other: who's affected, Teams notices and the incident's SLA.
 
 ## Follow a product (Preview)
 

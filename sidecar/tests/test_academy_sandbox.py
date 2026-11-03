@@ -342,11 +342,25 @@ def test_query_builder_runs_only_a_select(lab: tuple[Path, Path], tmp_path: Path
     "deltalake.QueryBuilder({'datafusion.catalog.location': '/', 'datafusion.catalog.format': 'csv'})",
     "from deltalake._internal import PyQueryBuilder; PyQueryBuilder(None)",
     "import deltalake.query as q; q.PyQueryBuilder(None)",
+    "qb._query_builder.execute(\"COPY (SELECT 1 AS a) TO 'x.csv' STORED AS CSV\").read_all()",
 ])
 def test_query_builder_settings_and_internals_are_refused(lab: tuple[Path, Path], code: str) -> None:
     pytest.importorskip("deltalake")
     res = run(lab, QB + code + "\n")
     assert res["status"] == "error" and "PermissionError" in res["stderr"], res["stderr"]
+
+
+def test_query_builder_holds_no_native_builder_in_reach(lab: tuple[Path, Path]) -> None:
+    pytest.importorskip("deltalake")
+    code = QB + ("inner = qb._query_builder\n"
+                 "print(type(inner).__name__, [n for n in dir(inner) if not n.startswith('__')])\n"
+                 "try:\n    type(inner)(None)\nexcept TypeError:\n    print('no new builder')\n"
+                 "print(repr(vars(qb)), [c.__name__ for c in type(qb).__mro__])\n")
+    res = run(lab, code)
+    assert res["status"] == "ok", res["stderr"]
+    assert "PyQueryBuilder" not in res["stdout"] and "no new builder" in res["stdout"]
+    assert "['execute', 'register']" in res["stdout"]
+    assert "['QueryBuilder', 'object']" in res["stdout"]   # nothing native up the class chain either
 
 
 def test_query_builder_still_selects_from_registered_tables(lab: tuple[Path, Path]) -> None:

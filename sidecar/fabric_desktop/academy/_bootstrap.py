@@ -362,21 +362,39 @@ def _lock_query_builder():
     banned = re.compile(r"\b(copy|create|location|insert|delete|update|drop|alter|set|external|merge|load|install|"
                         r"attach|prepare|execute|explain\s+analyze)\b", re.I)
 
-    def __init__(self, session_config=None):
-        for key in (session_config or {}):
-            if not str(key).startswith("datafusion.execution."):
-                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
-        self._query_builder = real(session_config)
-
-    original = qb.execute
-
-    def execute(self, sql):
+    def allowed(sql):
         text = comments.sub(" ", str(sql))
         bare = strings.sub("''", text).strip().rstrip(";").strip()
         if ";" in bare or not re.match(r"(?is)\s*(select|with)\b", bare) or banned.search(bare):
             raise PermissionError("An Academy exercise runs one SELECT (or WITH ... SELECT) over the tables "
                                   "registered with the QueryBuilder.")
-        return original(self, sql)
+        return sql
+
+    def builder(session_config):
+        """The native builder stays in this closure; the instance holds only what the class calls."""
+        inner = real(session_config)
+
+        class _Builder:
+            __slots__ = ()
+
+            def register(self, table_name, delta_table):
+                return inner.register(table_name=table_name, delta_table=delta_table)
+
+            def execute(self, sql):
+                return inner.execute(allowed(sql))
+
+        return _Builder()
+
+    def __init__(self, session_config=None):
+        for key in (session_config or {}):
+            if not str(key).startswith("datafusion.execution."):
+                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
+        self._query_builder = builder(session_config)
+
+    original = qb.execute
+
+    def execute(self, sql):
+        return original(self, allowed(sql))
 
     qb.__init__, qb.execute = __init__, execute
     refuse = _refused("deltalake's PyQueryBuilder; use deltalake.QueryBuilder")

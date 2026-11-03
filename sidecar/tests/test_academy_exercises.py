@@ -104,7 +104,7 @@ def broken(tmp_path):
     ({"objectives": ["9.9.9"]}, "unknown objective 9.9.9"),
     ({"validation": [{"kind": "faster_than"}]}, "can't check faster_than"),
     ({"validation": [{"kind": "table_shape"}]}, "needs table"),
-    ({"status": "live"}, "needs the date it was last reviewed"),
+    ({"status": "live", "reviewed": None}, "needs the date it was last reviewed"),
     ({"prerequisites": ["LM-99"]}, "unknown prerequisite LM-99"),
     ({"remediation": ["LAB-99"]}, "unknown remediation lesson LAB-99"),
     ({"mode": "lecture"}, "mode is one of"),

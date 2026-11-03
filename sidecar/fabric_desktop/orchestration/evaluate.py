@@ -514,13 +514,59 @@ _SCOPED: dict[str, Callable[..., Any]] = {
 FUNCTIONS = tuple(sorted(set(_PURE) | set(_SCOPED)))
 
 
+MAX_TEXT = 10 * 1024 * 1024    # characters in one value: a pipeline value is small; a loop that doubles one isn't
+
+
+def _too_big(value: Any) -> str:
+    """Why ``value`` is too big for a pipeline value, or "". Arrays and objects are walked through
+    (shared parts count each time they appear, as they would in its JSON), stopping at the limits."""
+    nodes, chars, stack = 0, 0, [value]
+    while stack:
+        v = stack.pop()
+        nodes += 1
+        if isinstance(v, str):
+            chars += len(v)
+        elif isinstance(v, dict):
+            chars += sum(len(str(k)) for k in v)
+            stack.extend(v.values())
+        elif isinstance(v, (list, tuple)):
+            stack.extend(v)
+        if chars > MAX_TEXT:
+            return f"more than {MAX_TEXT:,} characters"
+        if nodes > MAX_ITEMS:
+            return f"more than {MAX_ITEMS:,} items"
+    return ""
+
+
+def _bounded(name: str, value: Any) -> Any:
+    """A function's result, refused when it is too big for a pipeline value, so an expression in a loop
+    (concat(s, s) in an Until) stops instead of using all the engine's memory."""
+    if isinstance(value, str):
+        why = f"more than {MAX_TEXT:,} characters" if len(value) > MAX_TEXT else ""
+    elif isinstance(value, (list, dict)):
+        why = _too_big(value)
+    else:
+        why = ""
+    if why:
+        raise ExpressionError(f"{name}() made a value with {why}, the limit for one pipeline value")
+    return value
+
+
 def call(name: str, args: list[Any], scope: Scope) -> Any:
     fn = name.lower()
     try:
         if fn in _SCOPED:
-            return _SCOPED[fn](scope, *args)
+            return _SCOPED[fn](scope, *args)   # reads a value the run already holds
+        # These can multiply a value's size in one call, so they are checked before they run.
+        if fn == "replace" and len(args) == 3:
+            text, old, new = (_text(a) for a in args)
+            if old and len(text) + text.count(old) * (len(new) - len(old)) > MAX_TEXT:
+                raise ExpressionError(f"replace() would make a value over {MAX_TEXT:,} characters, the limit")
+        if fn == "join" and len(args) == 2 and isinstance(args[0], list):
+            if (len(args[0]) - 1) * len(_text(args[1])) > MAX_TEXT or _too_big(args[0]):
+                raise ExpressionError(f"join() would make a value over {MAX_TEXT:,} characters, the limit")
         if fn in _PURE:
-            return _PURE[fn](*args)
+            return _bounded(name, _PURE[fn](*args))
     except TypeError:
         raise ExpressionError(f"{name}() was given {len(args)} argument(s), which it doesn't take") from None
     raise ExpressionError(f"{name}() isn't supported in local runs yet")

@@ -100,7 +100,7 @@ def start(root: Path, pack_id: str, exercise_id: str) -> dict[str, Any]:
         return state(root, pack_id, exercise_id)
     folder.mkdir(parents=True, exist_ok=True)
     ref = exercises.reference(pack_id, exercise_id)
-    con = duckdb.connect(str(ws.inside(folder, DB_FILE, must_exist=False)))
+    con = duckdb.connect(_db_path(folder, must_exist=False))
     try:
         if ref["setup"]:
             con.execute(ref["setup"])
@@ -165,10 +165,20 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
             "ms": round((time.perf_counter() - began) * 1000)}
 
 
+def _db_path(folder: Path, must_exist: bool = True) -> str:
+    """lab.duckdb, checked, and its write-ahead log beside it: DuckDB opens that file too, so it must
+    not be a link either (refused by inside()) and must be a plain file when it's there."""
+    db = ws.inside(folder, DB_FILE, must_exist=must_exist)
+    wal = ws.inside(folder, DB_FILE + ".wal", must_exist=False)
+    if os.path.lexists(wal) and not wal.is_file():
+        raise ws.Refused(f"{DB_FILE}.wal isn't a plain file; reset the exercise.")
+    return str(db)
+
+
 def _connect(folder: Path) -> duckdb.DuckDBPyConnection:
     """The workspace database with no file or network access, a memory limit and locked settings: the
     same connection Learn labs use."""
-    con = duckdb.connect(str(ws.inside(folder, DB_FILE)))
+    con = duckdb.connect(_db_path(folder))
     con.execute("SET enable_external_access = false")
     con.execute(f"SET memory_limit = '{learn_labs.MEMORY_LIMIT}'")
     con.execute("SET lock_configuration = true")
@@ -196,6 +206,8 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
     folder = _started(root, pack_id, exercise_id)
     if answer is None:
         answer = _read_text(folder, ANSWER_FILE)
+    elif len(answer.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
     ref = exercises.reference(pack_id, exercise_id)
     solution = ref["solution"]
     results = []

@@ -65,4 +65,22 @@ What a skin file can't do, because the check refuses it:
 
 Two settings choose the skin: `ui_skin` (its id, `kratosforge` by default) and `ui_color_mode`
 (`skin` follows the skin's own mode, or `light` or `dark`). See
-[the settings file](azure-setup.md). The Settings page for skins comes in a later release.
+[the settings file](azure-setup.md).
+
+## Choosing a skin (Preview)
+
+**Settings > Appearance > Skin** shows one card per built-in skin. Choosing one changes the colors and
+the order of the left rail at once. Nothing else changes: the page you're on, open notebooks and their
+unsaved edits, editors, selections, connections and engines stay exactly as they were, and the switch
+calls the engine only to save the setting. The choice is kept for the next start. The card shows while
+Preview features are shown, and an administrator's policy can lock it.
+
+| Skin | What it changes |
+|---|---|
+| KratosForge | Nothing: the app's own look. Every engine and platform side by side, local runs up front. |
+| Fabric-familiar | A teal accent and lighter surfaces, and Workspaces and OneLake up front in the rail, as Fabric developers expect. It follows Fabric's documented workspace-first layout, not its branding: no Microsoft logos or assets. |
+
+Every skin keeps all of KratosForge's pages (local runs, compare local vs cloud, Optimize, shared
+services, Learn), at most 8 main pages in the rail, and Settings at the bottom. Dark versions of the
+skins come once the rest of the app's colors are on tokens. Databricks-familiar and
+Snowflake-familiar skins follow.

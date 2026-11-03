@@ -18,15 +18,16 @@ from .classify import classify
 from .incidents import KIND_LABELS
 
 
-WORKLOAD_KINDS = frozenset({"run_failed", "needs_decision", "late", "objective"})
+WORKLOAD_KINDS = frozenset({"run_failed", "needs_decision", "late", "objective", "promise"})
 
 
 def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[dict[str, Any]], env: str,
             now: dt.datetime | None = None, criticality: dict[str, str] | None = None,
-            team: str = "") -> list[dict[str, Any]]:
+            team: str = "", promises: dict[str, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
     """Problems with the entities of ``project_name`` in ``env``. ``entities`` maps a name to its spec
     (the entity file); ``runs`` are that environment's run log rows, newest first. ``criticality``
-    maps a name to one assigned elsewhere; one declared in the entity's ``[objectives]`` wins."""
+    maps a name to one assigned elsewhere; one declared in the entity's ``[objectives]`` wins.
+    ``promises`` (meta.mesh.promises) are what data products promise their readers about an entity."""
     now = now or dt.datetime.now().astimezone()
     criticality = criticality or {}
     by_entity: dict[str, list[dict[str, Any]]] = {}
@@ -55,13 +56,18 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
                                "text": latest.get("message") or "Schema drift or quarantined rows are waiting for review.",
                                "evidence": _run_evidence(latest)})
         p = freshness_mod.promise(spec)
+        own_late = False
         if p and env in p["envs"]:
             f = freshness_mod.status(p, mine, now)
+            own_late = f["status"] == "late"
             if f["status"] == "late":
                 out.append(base | {"kind": "late", "evidence_id": f"late:{f.get('last_ok')}",
                                    "title": f"{name} is late in {env.title()}", "text": "; ".join(f["reasons"]),
                                    "evidence": {"source": "freshness promise", "expected": f["expected"],
                                                 "last_ok": f["last_ok"], "due_at": f["due_at"]}})
+        broken = promise_signal(name, (promises or {}).get(name) or [], mine, env, now, skip_late=own_late)
+        if broken:
+            out.append(base | broken)
         o = objectives_mod.objective(spec, criticality.get(name))
         if o and env in o["envs"]:
             res = objectives_mod.success(o, mine)
@@ -73,6 +79,42 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
                                            f"the objective is {res['expected']}.",
                                    "evidence": {"source": "run log", **res}})
     return out
+
+
+def promise_signal(name: str, promised: list[dict[str, Any]], runs: list[dict[str, Any]], env: str,
+                   now: dt.datetime, skip_late: bool = False) -> dict[str, Any] | None:
+    """One "promise" signal for an entity whose data products broke their promise to readers in
+    ``env``: late against the product's freshness, or more rows rejected (quarantined) by its newest
+    load than the product allows. ``skip_late`` leaves out lateness the entity's own freshness
+    promise already reports, so one cause opens one incident. None when every promise holds."""
+    reasons: list[str] = []
+    evidence: list[str] = []
+    products: list[str] = []
+    for p in promised:
+        if env not in (p.get("envs") or []):
+            continue
+        said = []
+        if (p.get("within_hours") or p.get("by")) and not skip_late:
+            f = freshness_mod.status({"within_hours": p.get("within_hours"), "by": p.get("by")}, runs, now)
+            if f["status"] == "late":
+                said += f["reasons"]
+                evidence.append(f"late:{f.get('last_ok')}")
+        limit = p.get("max_rejected_pct")
+        load = next((r for r in runs if r.get("status") in ("ok", "needs_decision")), None)
+        if limit is not None and load and int(load.get("rows_read") or 0) > 0:
+            pct = 100.0 * int(load.get("quarantined") or 0) / int(load["rows_read"])
+            if pct > float(limit):
+                said.append(f"{pct:.1f} % of rows rejected in the newest load, promised under {float(limit):g} %")
+                evidence.append(f"rejected:{load.get('run_id')}")
+        if said:
+            products.append(p["product"])
+            reasons += [f"{p['product']}: {r}" for r in said]
+    if not reasons:
+        return None
+    return {"kind": "promise", "evidence_id": "|".join(sorted(set(evidence))),
+            "title": f"{', '.join(products)} broke {'its' if len(products) == 1 else 'their'} promise in {env.title()} ({name})",
+            "text": "; ".join(reasons) + ". Readers of the product rely on it.",
+            "evidence": {"source": "product promise", "products": products, "reasons": reasons}}
 
 
 def agent_signals(records: list[dict[str, Any]], env: str, now: dt.datetime | None = None,

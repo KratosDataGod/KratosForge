@@ -170,7 +170,7 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                 ("description", "long"), ("updated_at", "text"), ("updated_by", "text")],
     "product": [("id", "key"), ("project", "text"), ("name", "text"), ("domain_id", "text"), ("description", "long"),
                 ("owner", "text"), ("access", "text"), ("version", "text"), ("status", "text"),
-                ("deprecated_on", "text"), ("updated_at", "text"), ("updated_by", "text")],
+                ("deprecated_on", "text"), ("updated_at", "text"), ("updated_by", "text"), ("promise", "long")],
     "port": [("id", "key"), ("product_id", "text"), ("port", "text"), ("entity", "text"), ("env", "text"),
              ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"), ("lakehouse_name", "text"),
              ("schema_name", "text"), ("table_name", "text"), ("columns", "long"), ("updated_at", "text")],
@@ -777,6 +777,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     if product.get("status", "draft") not in STATUS:
         raise PlatformError(f"status must be one of {', '.join(STATUS)}")
     ensure_contracts(db)
+    promise = _promise(product.get("promise"))
     pid = f"{project}/{name}"
     require_member(db, project, by, "publish its products")
     _may_publish(db, pid, _row(db, "product", "id", pid), product, by)
@@ -790,6 +791,8 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
            "access": product.get("access", "private"), "version": str(product.get("version") or "1"),
            "status": product.get("status", "draft"), "deprecated_on": product.get("deprecated_on") or None,
            "updated_at": _now(), "updated_by": by}
+    ensure_promises(db)
+    row["promise"] = json.dumps(promise) if promise else None
     _upsert(db, "catalog", "product", "id", row)
     changed = []
     for p in ports:
@@ -808,7 +811,7 @@ def register_product(db: Db, product: dict[str, Any], ports: list[dict[str, Any]
     _audit(db, by, "publish product", pid, {"env": env, "ports": [p["port"] for p in ports], "history": changed,
                                             **({"changes": changes} if changes else {})})
     db.commit()
-    out = dict(row, changes=changes, history=changed)
+    out = dict(row, promise=promise, changes=changes, history=changed)
     if changes:
         out["followers"] = _followers(db, pid)
     return out
@@ -1127,6 +1130,8 @@ def list_products(db: Db) -> list[dict[str, Any]]:
     links = db.rows(f"SELECT * FROM {db.t('catalog', 'link')}")
     grants = db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}")
     for p in products:
+        # A catalog made before product promises has no promise column: read as none.
+        p["promise"] = json.loads(p.get("promise") or "null")
         p["granted"] = sorted(g["project"] for g in grants if g["product_id"] == p["id"])
         p["ports"] = [dict(x, columns=json.loads(x["columns"] or "{}")) for x in ports if x["product_id"] == p["id"]]
         # A catalog made before versioned contracts has no accepts or columns on its links: read as none.
@@ -1221,6 +1226,49 @@ def ensure_contracts(db: Db) -> list[str]:
 
 
 SCHEMA_HOOKS.append(ensure_contracts)
+
+
+def ensure_promises(db: Db) -> list[str]:
+    """Give a platform made before product promises catalog.product's promise. Additive only, and safe
+    to run again; publishing a product calls it, so a platform in Fabric gets it on first use."""
+    if "promise" in _columns(db, "product"):
+        return []
+    db.run(f"ALTER TABLE {db.t('catalog', 'product')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, 'promise', 'long')}")
+    db.commit()
+    return ["catalog.product.promise"]
+
+
+SCHEMA_HOOKS.append(ensure_promises)
+
+
+def _promise(value: Any) -> dict[str, Any] | None:
+    """A product's promise to readers as the catalog keeps it: only the known keys, numbers as numbers,
+    times as "HH:MM". Anything else is refused, so readers never see a promise nobody can check."""
+    if value in (None, "", {}):
+        return None
+    if not isinstance(value, dict):
+        raise PlatformError("A product's promise is a table: within_hours, by, max_rejected_pct, envs")
+    out: dict[str, Any] = {}
+    for key in ("within_hours", "max_rejected_pct"):
+        v = value.get(key)
+        if v in (None, ""):
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0 or (key == "within_hours" and v == 0) \
+                or (key == "max_rejected_pct" and v >= 100):
+            raise PlatformError(f"The promise's {key} isn't a usable number")
+        out[key] = float(v)
+    by = value.get("by")
+    if by not in (None, ""):
+        if not (isinstance(by, str) and re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", by)):
+            raise PlatformError('The promise\'s by is a time like "06:00"')
+        out["by"] = by
+    if not out:
+        return None
+    envs = value.get("envs") or ["prod"]
+    if not isinstance(envs, list) or any(e not in ("dev", "test", "prod") for e in envs):
+        raise PlatformError("The promise's envs list some of dev, test, prod")
+    out["envs"] = sorted(set(envs), key=("dev", "test", "prod").index)
+    return out
 
 
 def save_enrichment(db: Db, target: str, fields: dict[str, Any], by: str = "") -> dict[str, Any]:

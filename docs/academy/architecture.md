@@ -63,15 +63,18 @@ Schema `kratosforge/academy-exercise@1`.
 | `mode` | `guided`, `challenge` or `troubleshoot` (primary mode) |
 | `class` | `local_verified`, `simulated`, `fabric_verified` or `knowledge_only` |
 | `verifies` / `does_not_verify` | Plain sentences shown to the learner: what this run proves, and what still needs Fabric |
+| `engine_label` | The engine that ran the work, as the learner sees it ("DuckDB on this PC") |
 | `adapter` | Execution adapter: `duckdb_lab`, `python_lab`, `delta_lab`, `pipeline_lab`, `config_model`, `git_lab`, `sqlproj_lab`, `quiz`, `fabric` |
 | `starter` | Files copied into the learner's workspace |
 | `datasets` | Generated datasets with seed and size |
 | `expected` | What the learner must produce: tables, files, a result, a settings document |
-| `validation` | Validators to run (below), each with a message for pass and fail |
+| `validation` | Validators to run (below), each optionally with its own `pass` and `fail` message |
 | `hints` | Progressive, from a nudge to nearly the answer |
 | `explanation` | The correct approach and why, shown after a pass or on request after a fail |
 | `remediation` | Lesson ids and Microsoft Learn links |
 | `reset` | What Reset restores; `cleanup` for anything outside the workspace (Fabric only) |
+| `fault` | Troubleshoot exercises only: `summary`, `planted` (what was broken) and `symptom` (what the learner sees) |
+| `uses` | A Learn lab exercise to build on (`LAB-04/rebuild`); its data, starter and reference solution are used |
 | `parity` | For LOCAL VERIFIED work, the evidence link for any local-to-Fabric claim |
 
 ## Verification classes

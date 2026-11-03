@@ -878,6 +878,13 @@ def function_app() -> str:
             + _WRAPPERS)
 
 
+# The connection's item type as Fabric names it: SQL_Platform is a SQL database in Fabric ("SqlDbNative").
+# Live run 3 (2026-11-03) was refused with an empty one: "Unsupported Argument: artifactType. Value: is
+# unsupported. Supported values are: Lakehouse, LakeWarehouse, MountedWarehouse, DataWarehouse, AzureSql,
+# SqlDbNative, MountedRelationalDatabase, Warehouse, Variables, EventDefinition".
+SQL_ITEM_TYPE = "SqlDbNative"
+
+
 def _functions() -> list[dict]:
     """Each function in _WRAPPERS, as resources/functions.json describes it: its parameters and
     return type, and its bindings (the HTTP trigger, the SQL_Platform connection, Fabric's context)."""
@@ -891,7 +898,7 @@ def _functions() -> list[dict]:
         for arg in node.args.args:
             kind = ast.unparse(arg.annotation) if arg.annotation else "str"
             if kind == "fn.FabricSqlConnection":
-                bindings.append({"itemType": None, "subType": "FabricSqlConnection", "alias": ALIAS,
+                bindings.append({"itemType": SQL_ITEM_TYPE, "subType": "FabricSqlConnection", "alias": ALIAS,
                                  "name": arg.arg, "direction": "In", "type": "FabricItem"})
             elif kind == "fn.UserDataFunctionContext":
                 bindings.append({"name": arg.arg, "direction": "In", "type": "UserDataFunctionContext"})

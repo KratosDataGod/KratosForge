@@ -13,7 +13,7 @@
         },
         {
           "id": "b",
-          "text": "Tasks always run in the order they were created"
+          "text": "Tasks run in the order they appear in the job's task list"
         },
         {
           "id": "c",
@@ -29,7 +29,7 @@
       ],
       "explanation": "Depends on sets a task's upstream tasks; by default it runs when they have all succeeded.",
       "source": "https://docs.databricks.com/aws/en/jobs/run-if",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -75,7 +75,7 @@
         },
         {
           "id": "b",
-          "text": "Email inbox"
+          "text": "Cluster policy"
         },
         {
           "id": "c",
@@ -91,9 +91,9 @@
         "d",
         "a"
       ],
-      "explanation": "Jobs run notebooks, SQL, pipelines and more; there is no email inbox task type.",
+      "explanation": "Jobs run notebooks, SQL, pipelines and more; a cluster policy limits how compute can be configured, and isn't a task type.",
       "source": "https://docs.databricks.com/aws/en/jobs/configure-task",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

@@ -40,7 +40,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Restart the workspace"
+          "text": "Pin the newer version in a cluster init script"
         },
         {
           "id": "b",
@@ -60,7 +60,7 @@
       ],
       "explanation": "Notebook-scoped libraries keep each notebook's environment separate.",
       "source": "https://docs.databricks.com/aws/en/libraries/notebooks-python-libraries",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

@@ -17,7 +17,7 @@
         },
         {
           "id": "c",
-          "text": "There is no difference"
+          "text": "File arrival watches Delta tables for new rows; a schedule watches a storage location"
         },
         {
           "id": "d",
@@ -29,7 +29,7 @@
       ],
       "explanation": "Time-based triggers follow the clock; data-driven triggers follow new data.",
       "source": "https://docs.databricks.com/aws/en/jobs/triggers",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

@@ -71,7 +71,7 @@
       "options": [
         {
           "id": "a",
-          "text": "By leaving the notebook open in a browser"
+          "text": "By attaching the notebook to an all-purpose cluster with auto termination turned off"
         },
         {
           "id": "b",
@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "It can't be scheduled"
+          "text": "With a dashboard refresh schedule"
         },
         {
           "id": "d",
@@ -91,7 +91,7 @@
       ],
       "explanation": "Lakeflow Jobs run notebooks on schedules, with monitoring of each run.",
       "source": "https://docs.databricks.com/aws/en/jobs/",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

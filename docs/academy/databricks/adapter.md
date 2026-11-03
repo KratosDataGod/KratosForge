@@ -9,7 +9,7 @@ Academy exercise (pack dbx-de-associate)
         ▼
 academy/databricks.py  ── mode: local ──► sandbox.py (learner process, no tokens) ─► Delta in the workspace ─► validators
                        ── mode: simulated ► the story's model (DBA-005..010), engine process, data only ─► validators
-                       ── mode: remote ──► preflight ─► confirm ─► run ─► platform_check ─► cleanup
+                       ── mode: remote ──► preflight ─► confirm ─► run ─► databricks_check ─► cleanup
                                               │            │          │
                      engines/databricks_discovery   engines/authorization   engines/databricks_sql | engines/dbconnect
                      (GET only, no DBU)             (names compute + cost)  (existing remote engines)
@@ -42,7 +42,7 @@ academy/databricks.py  ── mode: local ──► sandbox.py (learner process,
 6. **Run.** Through the existing SQL warehouse or Databricks Connect engine. Created objects are
    tagged `kratosforge-academy=<pack>/<exercise>/<run>` where the object supports tags, named with
    the `kf_academy_<run>` prefix, and written to the run ledger before the call returns.
-7. **Verify.** `platform_check` read-only reads (table history, grants, job run state). Result
+7. **Verify.** `databricks_check` read-only reads (table history, grants, job run state). Result
    comparison: the remote table's rows are compared with the local run's, and differences are
    shown, not hidden.
 8. **Cleanup.** Only objects in the ledger **and** carrying the tag or prefix; anything else is

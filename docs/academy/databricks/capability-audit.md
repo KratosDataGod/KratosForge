@@ -59,7 +59,7 @@ validators, #1781 exam engine, plus the grading sandbox work in progress (PR-F, 
 
 | Directive need | Reuse | Gap (story) |
 | --- | --- | --- |
-| Versioned competency registry | `registry.py` as is, plus a `platform` per pack | Platform-neutral flag, check and doc hosts (DBA-001) |
+| Versioned competency registry | `registry.py` as is, plus a `platform` per pack | Platform-named flag, check, class and doc hosts (DBA-001) |
 | Exercise format, modes, classes | `exercises.py` | DATABRICKS VERIFIED class and `databricks` adapter (DBA-001) |
 | Learner profile, evidence, readiness | `progress.py`, `readiness.py` | Rename the platform measure to `platform_verified` (DBA-001, agreed with the Academy lead) |
 | Grading engine | `validators.py`, `learn/checks.py` | `idempotent`, `job_graph`, `grants`, `bundle_resolves`, `plan_shows` (DBA-011) |

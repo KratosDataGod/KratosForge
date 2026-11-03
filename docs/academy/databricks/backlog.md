@@ -12,15 +12,17 @@ system DP-700 already has by copying it; each story names the module it extends.
 - **Scope:** `packs/dbx-de-associate/` (`pack.json`, `certification.json` with all 33 objectives word
   for word, weights, the May 4 wording where it differs, competencies, exercises, validators, docs
   links, gap records G-01 to G-10). Make the shared registry platform-aware instead of Fabric-only:
-  a pack declares `platform` (`fabric` or `databricks`); the platform flag becomes
-  `platform_required`, the platform check `platform_check`, the platform class
-  `fabric_verified`/`databricks_verified` by platform, doc hosts by platform; readiness's
-  `fabric_verified` measure becomes `platform_verified`. DP-700 data is migrated in the same PR.
+  a pack declares `platform` (`fabric` or `databricks`) and the platform decides the objective flag
+  (`fabric_required`, `databricks_required`), the platform check (`fabric_check`,
+  `databricks_check`), the platform's own class (FABRIC VERIFIED, DATABRICKS VERIFIED), the engine
+  names a local result may not claim, and whose documentation counts. DP-700's data doesn't change.
+  Readiness's `fabric_verified` measure becomes `platform_verified`. A guide with no skill areas
+  (Databricks) keeps its own objective ids (`2.3`).
   Exercise format gains `difficulty`, `troubleshooting` and `cleanup` for both packs.
 - **Depends on:** #1776, #1778, #1779 (stacked on #1782).
 - **Acceptance:** `registry.problems()` and `exercises.problems()` empty for both packs; 33
   objectives, weights sum to 100; every objective that needs Databricks has a gap record and
-  `platform_check`; no Databricks exercise can be FABRIC VERIFIED or the reverse; DP-700 tests pass
+  `databricks_check`; no Databricks exercise can be FABRIC VERIFIED or the reverse; DP-700 tests pass
   unchanged in meaning.
 - **Tests:** registry tests for both packs; platform cross-claims refused; snapshot hash; crosswalk.
 - **Owner:** this thread. **Evidence:** CI run, `problems()` output, coverage counts.
@@ -121,7 +123,7 @@ system DP-700 already has by copying it; each story names the module it extends.
 **Databricks-specific automated grading (P0 for `idempotent`, Phase 1 onward).**
 - **Scope:** extend `academy/validators.py`, never a second framework: `idempotent` (run twice,
   same table state, versions only where allowed), `job_graph`, `grants`, `bundle_resolves`,
-  `plan_shows`, `platform_check`. Partial credit: each check carries a weight; the exercise result
+  `plan_shows`, and `databricks_check` (with DBA-013). Partial credit: each check carries a weight; the exercise result
   is the weighted share passed, and pass needs every `required` check. Messages explain the failed
   criterion without showing the answer.
 - **Depends on:** #1777. **Acceptance:** each validator passes the reference and fails two planted
@@ -141,7 +143,7 @@ system DP-700 already has by copying it; each story names the module it extends.
   cost warning, confirm); every Academy-created object named `kf_academy_<run>` and tagged
   `kratosforge-academy=<pack>/<exercise>/<run>`; a local ledger of what each run created;
   cleanup removes only objects that are in the ledger **and** carry the tag; interrupted runs are
-  found and offered for cleanup on next start; `platform_check` read-only checks.
+  found and offered for cleanup on next start; `databricks_check` read-only checks.
 - **Depends on:** DBA-002. **Acceptance:** cleanup refuses an untagged object or one missing from the
   ledger, with a test for each. **Owner:** this thread. **Security read:** required.
 

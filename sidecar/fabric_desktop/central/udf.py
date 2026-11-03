@@ -568,6 +568,22 @@ def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
     return _run(sqlDB, "save_change_window", ctx, window=window)
 
 
+# ---- how each product is doing now (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_product_status(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_product_status")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def report_product_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, env: str,
+                          statuses: list) -> list:
+    return _run(sqlDB, "report_product_status", ctx, project=project, env=env, statuses=statuses)
+
+
 # ---- Entra ID groups per domain (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")

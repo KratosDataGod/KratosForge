@@ -230,6 +230,10 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     # What each environment last published of a product, so a promote's changes are told once per environment.
     "product_env": [("id", "key"), ("product_id", "text"), ("env", "text"), ("version", "text"), ("status", "text"),
                     ("deprecated_on", "text"), ("published_at", "text")],
+    # How each product is doing now in each environment, as its own team's incident check last reported it
+    # (data mesh P5): green, amber (late or a broken promise) or red (an open incident stops its load).
+    "product_status": [("id", "key"), ("product_id", "text"), ("env", "text"), ("status", "text"), ("why", "long"),
+                       ("latest", "long"), ("latest_at", "text"), ("checked_at", "text"), ("checked_by", "text")],
     # An Entra ID group someone already has, linked to one of a domain's roles in one environment ("" for roles
     # that span them), so the role uses it instead of the group the platform suggests (entra.py).
     "entra_group": [("id", "key"), ("domain_id", "text"), ("role", "text"), ("env", "text"), ("group_id", "text"),
@@ -948,6 +952,71 @@ def product_followers(db: Db, product_id: str, by: str = "") -> list[str]:
     if not (is_admin(db, by) or _who(by) in _product_owners(product)):
         raise PlatformError("Only the product's owner or a platform admin can see who follows it")
     return _followers(db, product_id)
+
+
+# ---------- how each product is doing now (data mesh P5) ----------
+# Incidents live in each team's own control area, which readers can't see. So the team's incident check
+# reports one line per product per environment here, and every reader sees it on Data mesh > Products.
+
+PRODUCT_STATUSES = ("green", "amber", "red")
+_STATUS_ENVS = ("dev", "test", "prod")
+_STATUS_TEXT = 300  # characters kept of why and latest
+
+
+def ensure_product_status(db: Db) -> list[str]:
+    """catalog.product_status, added with the Status view: additive, safe to run again; reporting calls it."""
+    if db.exists("catalog", "product_status"):
+        return []
+    db.run(f"CREATE TABLE {db.t('catalog', 'product_status')} ({', '.join(_column(db, n, k) for n, k in _CATALOG['product_status'])})")
+    db.commit()
+    return ["catalog.product_status"]
+
+
+SCHEMA_HOOKS.append(ensure_product_status)
+
+
+def report_product_status(db: Db, project: str, env: str, statuses: list[dict[str, Any]], by: str = "") -> list[dict[str, Any]]:
+    """Replace what a project's products show in one environment: one {product, status, why, latest,
+    latest_at} per product. A product left out shows nothing (not checked), and one the catalog doesn't
+    have yet is skipped. Only the project's own members or a platform admin may report, so nobody marks
+    another team's products."""
+    if env not in _STATUS_ENVS:
+        raise PlatformError(f"env is one of {', '.join(_STATUS_ENVS)}")
+    if not isinstance(statuses, list) or len(statuses) > 500:
+        raise PlatformError("statuses is a list of at most 500 products")
+    ours = {r["name"]: r["id"] for r in db.rows(f"SELECT id, name FROM {db.t('catalog', 'product')} WHERE project = ?", (project,))}
+    if not ours:
+        return []  # nothing published yet: nothing to show, and no first owner made by a status report
+    require_member(db, project, by, "report how its products are doing")
+    rows, seen = [], set()
+    for s in statuses:
+        name = s.get("product") if isinstance(s, dict) else None
+        if not isinstance(name, str) or name in seen:
+            raise PlatformError("Each status names one product, once")
+        seen.add(name)
+        if name not in ours:
+            continue  # published on this PC but not yet in the catalog: nobody reads it here
+        if s.get("status") not in PRODUCT_STATUSES:
+            raise PlatformError(f"A product's status is one of {', '.join(PRODUCT_STATUSES)}")
+        rows.append({"id": f"{ours[name]}:{env}", "product_id": ours[name], "env": env, "status": s["status"],
+                     "why": str(s.get("why") or "")[:_STATUS_TEXT], "latest": str(s.get("latest") or "")[:_STATUS_TEXT],
+                     "latest_at": str(s.get("latest_at") or "")[:40], "checked_at": _now(), "checked_by": _who(by)})
+    ensure_product_status(db)
+    table = db.t("catalog", "product_status")
+    db.run(f"DELETE FROM {table} WHERE env = ? AND product_id IN (SELECT id FROM {db.t('catalog', 'product')} WHERE project = ?)",
+           (env, project))
+    for row in rows:
+        _upsert(db, "catalog", "product_status", "id", row)
+    db.commit()
+    return rows
+
+
+def list_product_status(db: Db) -> list[dict[str, Any]]:
+    """Every product's status in every environment it was reported for. A read: a platform made before the
+    Status view has none, and reading creates nothing."""
+    if not db.exists("catalog", "product_status"):
+        return []
+    return db.rows(f"SELECT * FROM {db.t('catalog', 'product_status')}")
 
 
 def _followers(db: Db, product_id: str) -> list[str]:
@@ -3267,7 +3336,7 @@ READ_OPERATIONS = frozenset({
     "access_reviews", "audit", "change_window", "enrichment", "entra_group_naming", "export_keys", "get_policy", "key_stats",
     "keys_state", "list_admins", "list_assignments", "list_domains", "list_entra_groups", "list_follows",
     "list_glossary", "list_grants", "list_key_tables", "list_landing_zones", "list_policies",
-    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_products",
+    "list_policy_exceptions", "list_policy_templates", "list_product_items", "list_product_status", "list_products",
     "list_project_members", "list_projects", "list_requests", "list_seen_shortcuts", "list_shortcut_risks",
     "list_sources", "lookup_key", "owner_coverage", "policies_ready", "policy_applicability", "policy_history",
     "policy_options", "policy_snapshot", "policy_version", "product_followers", "product_history",
@@ -3372,6 +3441,7 @@ OPERATIONS = {
     "product_followers": product_followers,
     "entra_group_naming": entra_group_naming, "save_entra_group_naming": save_entra_group_naming,
     "change_window": change_window, "save_change_window": save_change_window,
+    "report_product_status": report_product_status, "list_product_status": list_product_status,
     "list_entra_groups": list_entra_groups, "link_entra_group": link_entra_group, "unlink_entra_group": unlink_entra_group,
     "list_product_items": list_product_items, "add_product_item": add_product_item, "remove_product_item": remove_product_item,
     "call_once": call_once,

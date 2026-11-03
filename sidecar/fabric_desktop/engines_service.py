@@ -25,6 +25,9 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   one query on a SQL warehouse, which may start and bill, so it first answers ``needs_confirm`` with the
   warehouse's state, and runs only with ``confirmed`` (a RemoteAuthorization for that warehouse).
   ``databricks_billing_last`` is the last read kept on this PC.
+- ``databricks_sync_*`` is Workspaces > Databricks (Preview): folder pairs between this PC and a
+  workspace folder (engines/databricks_workspace_sync.py). Compare only reads; push never overwrites a
+  file changed in Databricks since the last sync and deletes only with ``confirm_deletes``.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -37,6 +40,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +54,9 @@ from .engines.sessions import SessionManager, SwitchNeeded
 METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_select", "engine_state",
            "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close",
            "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove",
-           "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last"}
+           "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
+           "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
+           "databricks_sync_push", "databricks_sync_pull"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -94,7 +100,6 @@ def _kind_for(conns: list[dict[str, Any]]) -> str:
 
 
 def _new_id(existing: set[str]) -> str:
-    import uuid
     while True:
         pid = "p-" + uuid.uuid4().hex[:12]
         if pid not in existing:
@@ -332,6 +337,66 @@ class EnginesMixin:
         from .engines import databricks_billing
         conn, _, _ = self._connection(connection)
         return databricks_billing.last(self._billing_root(), str(conn.get("host") or "")) or {}
+
+    def _sync_pairs(self) -> Any:
+        from .engines import databricks_workspace_sync as wsync
+        from .service import data_dir
+        return wsync.Pairs(Path(data_dir()) / "databricks-sync" / "pairs.json")
+
+    def _sync_client(self, pair: dict[str, Any]) -> Any:
+        conn, _, _ = self._connection(str(pair.get("connection") or ""))
+        return self._discovery_client(conn)
+
+    def databricks_sync_pairs(self) -> dict[str, Any]:
+        """The synced folder pairs on this PC (no files read)."""
+        pairs = self._sync_pairs().all()["pairs"]
+        return {"pairs": [{"id": pid, "name": p.get("name", ""), "connection": p.get("connection", ""), "local": p.get("local", ""),
+                           "remote": p.get("remote", ""), "synced": len(p.get("files") or {})} for pid, p in sorted(pairs.items())]}
+
+    def databricks_sync_pair_save(self, name: str, connection: str, local: str, remote: str) -> dict[str, Any]:
+        """Pair a folder on this PC with a workspace folder. Nothing is read or written in Databricks."""
+        from .engines import databricks_workspace_sync as wsync
+        self._connection(connection)   # a connection this PC has
+        pair = wsync.new_pair(name, connection, local, remote)
+        store = self._sync_pairs()
+        if any(p.get("local") == pair["local"] and p.get("remote") == pair["remote"] for p in store.all()["pairs"].values()):
+            raise ValueError("Those two folders are already paired.")
+        pair_id = "s-" + uuid.uuid4().hex[:10]
+        store.put(pair_id, pair)
+        return {"id": pair_id}
+
+    def databricks_sync_pair_remove(self, pair: str) -> dict[str, Any]:
+        """Forget a pair. No file is touched on this PC or in Databricks."""
+        self._sync_pairs().get(pair)
+        self._sync_pairs().remove(pair)
+        return {"removed": pair}
+
+    def databricks_sync_compare(self, pair: str) -> dict[str, Any]:
+        """What pushing would do, file by file. GETs only."""
+        from .engines import databricks_workspace_sync as wsync
+        p = self._sync_pairs().get(pair)
+        return redact.walk(wsync.compare(self._sync_client(p), p))
+
+    def databricks_sync_push(self, pair: str, files: list[str], deletes: list[str] | None = None,
+                             confirm_deletes: bool = False) -> dict[str, Any]:
+        """Write ``files`` to the workspace folder as you; delete ``deletes`` there only with
+        ``confirm_deletes``. Compares again first, so a file changed in Databricks is never overwritten."""
+        from .engines import databricks_workspace_sync as wsync
+        store = self._sync_pairs()
+        p = store.get(pair)
+        out = wsync.push(self._sync_client(p), p, [str(f) for f in files or []], [str(d) for d in deletes or []],
+                         bool(confirm_deletes))
+        store.put(pair, p | {"files": out.pop("files")})
+        return redact.walk(out)
+
+    def databricks_sync_pull(self, pair: str, files: list[str]) -> dict[str, Any]:
+        """Bring workspace changes to this PC for files unchanged here since the last sync."""
+        from .engines import databricks_workspace_sync as wsync
+        store = self._sync_pairs()
+        p = store.get(pair)
+        out = wsync.pull(self._sync_client(p), p, [str(f) for f in files or []])
+        store.put(pair, p | {"files": out.pop("files")})
+        return redact.walk(out)
 
     def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
                                snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",

@@ -281,6 +281,27 @@ Databricks connection: yours by default, or everyone's, for the last 24 hours or
 Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
 will confirm first and say which cluster.
 
+## Databricks workspace sync (Preview)
+
+**Workspaces > Databricks** keeps a folder of notebooks on this PC in step with a folder in a
+Databricks workspace. **Pair a folder** names the two folders and the Databricks connection to use.
+
+- **Compare reads only.** It lists each notebook (`.py`, `.ipynb`, `.sql`) directly in the folder,
+  with its state on this PC and in Databricks and what pushing would do. Reading the workspace starts
+  nothing.
+- **Never over someone else's change.** Each file remembers when Databricks last changed it at the
+  last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
+  out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
+- **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
+  pushing a delete asks again. Folders are never deleted.
+- **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
+  way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
+- **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
+- **Git folders are read only here**: a path under `/Repos`, or a Git folder, changes through Git.
+- Pushes and pulls are written as you, and each one is recorded in the audit log.
+
+Comparing a conflict side by side and picking a side come later.
+
 ## Databricks DBUs in Optimize > Cost (Preview)
 
 **Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,

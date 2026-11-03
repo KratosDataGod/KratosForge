@@ -133,13 +133,13 @@ test("signing in from the confirm carries on to the same refresh, and reads the 
   }
 });
 
-test("a dataflow Fabric won't give says why; Open in Fabric goes to its workspace", { skip }, async () => {
+test("a dataflow Fabric won't give says why; Open in Fabric goes to the dataflow", { skip }, async () => {
   await page().locator('[role="tab"]', { hasText: "Queries (M)" }).click();
   await page().locator(".df-flow-row", { hasText: "df_broken" }).click();
   await page().locator(".df-detail .error-text", { hasText: "Could not read df_broken" }).waitFor();
   await page().evaluate(() => { window.openInFabric = (url) => { window.openedUrl = url; }; });
   await page().locator(".df-detail-head button", { hasText: "Open in Fabric" }).click();
-  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/dataflows-gen2/[^/?]+\\?experience=fabric-developer$`));
   assert.strictEqual(app.calls.filter((c) => c.method === "workload_act").length, 2, "only the refreshes asked for");
 });
 

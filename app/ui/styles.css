@@ -2756,3 +2756,9 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 tr.fg-conflict { background: var(--danger-soft); }
 .git-platform .card > .pad { padding: 10px 16px; margin: 0; }
 .git-platform .table-scroll { overflow-x: auto; }
+.fg-update h3 { margin: 8px 0 0; font-size: 14px; }
+.fg-plan { border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.fg-plan-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 2fr); gap: 12px; padding: 6px 10px; }
+.fg-plan-row + .fg-plan-row { border-top: 1px solid var(--border-soft); }
+.fg-conflicts { border: 1px solid var(--danger); border-radius: 6px; padding: 10px 12px; background: var(--danger-soft); display: flex; flex-direction: column; gap: 6px; }
+.fg-conflicts legend { font-weight: 600; color: var(--danger); padding: 0 4px; }

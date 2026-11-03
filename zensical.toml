@@ -65,6 +65,7 @@ nav = [
     { "Spark functions on this PC" = "spark-functions.md" },
     { "Decision patterns" = "decision-patterns.md" },
     { "Platform support levels" = "platforms.md" },
+    { "Platform skins" = "skins.md" },
     { "Notebook comments" = "notebook-comments.md" },
     { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },
     { "Drag tables and files into a notebook" = "notebook-editor/load-data-items.md" },

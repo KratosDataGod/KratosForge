@@ -61,7 +61,7 @@ test("a page's own keys show only on that page", { skip }, async () => {
   assert.ok(!(await labels()).includes("Entity page"));
   await page().keyboard.press("Escape");
   await page().evaluate(() => { state.view = "home"; shortcutsDialog(); });
-  assert.deepStrictEqual(await labels(), ["Anywhere", "Moving around", "Menus and tabs"]);
+  assert.deepStrictEqual(await labels(), ["Anywhere", "Moving around", "Menus and tabs", "Window"]);
   await page().keyboard.press("Escape");
 });
 

@@ -932,6 +932,7 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   if (r.kind === "source" && d.copy) return confirmCopyJob(r);
+  if (r.kind === "shortcut") return confirmShortcutEnvs(r);
   if (r.kind === "exception") {
     const ok = await confirmDialog(`Grant an exception to ${d.policy_name || r.target}?`,
       `The platform records the exception for ${d.scope} ${d.scope_target} until ${d.until}, with its reason, and adds it to the policy's history. Where the policy is resolved there, it shows as "Excepted until ${d.until}" instead of applying. It ends on its own on that date.`,
@@ -939,6 +940,27 @@ async function confirmApproval(r) {
     return ok ? {} : null;
   }
   return {};
+}
+
+// Approving a shortcut request makes it where it was asked for and in the matching lakehouse of each other
+// environment, each pointing at its own environment's target. Said before anything is made.
+async function confirmShortcutEnvs(r) {
+  const d = r.detail || {};
+  const plan = await reqQuietly("shortcut_request_envs", { id: r.id });
+  const label = (e) => ENV_LABEL[e] || e;
+  const here = `${d.workspace_name || "its workspace"} / ${d.lakehouse_name || "its lakehouse"}`;
+  const rows = (plan?.places || []).map((p) => h("li", {}, p.why
+    ? h("span", { class: "muted-text" }, `${label(p.env)}: not made. ${p.why}.`)
+    : h("span", {}, `${label(p.env)}: ${p.workspace_name} / ${p.lakehouse_name}, pointing at ${p.target_workspace_name || "its target"}${p.target_lakehouse_name ? ` / ${p.target_lakehouse_name}` : ""}`)));
+  const ok = await new Promise((resolve) => showDialog(`Approve shortcut ${d.name || r.target}?`, h("div", {},
+    h("p", { class: "text" }, "As you, under the shortcut rules, KratosForge makes it in:"),
+    h("ul", { class: "text" }, h("li", {}, h("b", {}, `${plan?.env ? `${label(plan.env)}: ` : ""}${here}`), ", as asked"), ...rows),
+    plan === null ? h("p", { class: "wrn-text small" }, "The other environments couldn't be worked out now; approving says what it made.")
+      : plan.why ? h("p", { class: "muted-text small" }, `${plan.why}.`) : null,
+    h("p", { class: "muted-text small" }, "Then the request is approved. If the first one can't be made, it stays waiting and says why; one that can't be made in another environment is said, and the approval goes ahead.")), [
+    btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+    btn("Make and approve", null, () => { closeDialog(); resolve(true); }, "tool primary")]));
+  return ok ? {} : null;
 }
 
 // Where the Copy job writes, with one landing workspace: the zone comes from the request, so the
@@ -996,8 +1018,10 @@ function leftInFabric(r) {
   }
   if (r.kind === "shortcut" && made.shortcut_id) {
     const sc = `The shortcut ${d.name || r.target} in ${d.lakehouse_name || "its lakehouse"}`;
+    const env = (e) => String(e || "").charAt(0).toUpperCase() + String(e || "").slice(1);
     return [made.found ? `${sc} is in OneLake: it was there before this request, or approving it made it. Check which before removing it on OneLake > Shortcuts`
-      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`];
+      : `${sc}, made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`,
+    ...(made.also || []).map((t) => `The shortcut ${d.name || r.target} in ${t.workspace_name || "a workspace"} / ${t.lakehouse_name || "a lakehouse"} (${env(t.env)}), made by this request, is still in OneLake: remove it on OneLake > Shortcuts if it isn't wanted`)];
   }
   if (r.kind === "domain" && made.domain_id) {
     const name = d.name || r.target || made.domain_id;

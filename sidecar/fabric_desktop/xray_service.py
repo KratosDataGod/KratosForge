@@ -19,6 +19,7 @@ from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
+from .optimize.outbox import ANALYSIS
 from .onelake import FileStore, TableRef, storage_options
 from .redact import describe
 
@@ -178,9 +179,11 @@ class XRayMixin:
             records = xray.optimize_records(result)
             self._xray_progress({"phase": f"Adding findings to {conn.get('lakehouse_name') or 'the central lakehouse'}",
                                  "done": 0, "total": len(records["findings"])})
-            out = self._optimize_shared(storage_token).record_analysis(  # type: ignore[attr-defined]
-                records["run"], records["artifacts"], records["findings"], records["recommendations"])
-            return {"lakehouse": conn.get("lakehouse_name"), "findings": out["findings"]}
+            out = self._optimize_write(ANALYSIS, records, storage_token)  # type: ignore[attr-defined]
+            if out["queued"]:  # the lakehouse couldn't be reached: the findings wait on this PC
+                return {"lakehouse": conn.get("lakehouse_name"), "queued": len(records["findings"]),
+                        "error": out["error"]}
+            return {"lakehouse": conn.get("lakehouse_name"), "findings": out["sent"]}
         except Exception as exc:  # noqa: BLE001 - the scan stands without it
             _log.info("X-ray findings weren't added to the central lakehouse: %s", describe(exc))
             return {"lakehouse": conn.get("lakehouse_name"), "error": describe(exc)}

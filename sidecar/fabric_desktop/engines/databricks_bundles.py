@@ -109,31 +109,46 @@ def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
     return docs
 
 
-def _commands_in(where: str, doc: Any) -> list[str]:
+def _shown(cmd: Any, where: str) -> str:
+    raw = str(cmd)
+    if len(raw) <= 300:
+        return _text(raw, 300)
+    return f"{_text(raw[:300], 300)}… (a long command, {len(raw)} characters: open {where} to read it all)"
+
+
+def _commands_in(where: str, doc: Any) -> list[tuple[str, list[str]]]:
+    """(what is shown, the raw values it stands for) for each command this file could run."""
     if not isinstance(doc, dict):
         return []
-    found: list[str] = []
+    found: list[tuple[str, list[str]]] = []
     scopes = [("", doc)] + [(f"targets.{n}.", t) for n, t in (doc.get("targets") or {}).items() if isinstance(t, dict)]
     for prefix, scope in scopes:
         exp: dict[str, Any] = scope["experimental"] if isinstance(scope.get("experimental"), dict) else {}
         for hook, cmd in (exp.get("scripts") or {}).items() if isinstance(exp.get("scripts"), dict) else []:
-            found.append(f"{where}: {prefix}experimental.scripts.{_text(hook)}: {_text(cmd, 300)}")
-        for key in ("python", "pydabs"):
-            if exp.get(key):
-                found.append(f"{where}: {prefix}experimental.{key}: runs Python code from the bundle")
+            key = f"{prefix}experimental.scripts.{hook}"
+            found.append((f"{where}: {_text(key)}: {_shown(cmd, where)}", [where, key, json.dumps(cmd, sort_keys=True, default=str)]))
+        for name in ("python", "pydabs"):
+            if exp.get(name):
+                key = f"{prefix}experimental.{name}"
+                found.append((f"{where}: {_text(key)}: runs Python code from the bundle",
+                              [where, key, json.dumps(exp[name], sort_keys=True, default=str)]))
         if scope.get("python"):
-            found.append(f"{where}: {prefix}python: runs Python code from the bundle")
+            found.append((f"{where}: {_text(prefix)}python: runs Python code from the bundle",
+                          [where, f"{prefix}python", json.dumps(scope["python"], sort_keys=True, default=str)]))
         for name, art in (scope.get("artifacts") or {}).items() if isinstance(scope.get("artifacts"), dict) else []:
             art = art if isinstance(art, dict) else {}
-            build = art.get("build") or f"the CLI's default build for a {_text(art.get('type') or 'whl')} artifact"
-            found.append(f"{where}: {prefix}artifacts.{_text(name)}.build: {_text(build, 300)}")
+            key = f"{prefix}artifacts.{name}.build"
+            shown = _shown(art["build"], where) if art.get("build") else f"the CLI's default build for a {_text(art.get('type') or 'whl')} artifact"
+            found.append((f"{where}: {_text(key)}: {shown}", [where, key, json.dumps(art, sort_keys=True, default=str)]))
     return found
 
 
 def local_commands(folder: str) -> dict[str, Any]:
-    """Commands the bundle could make the CLI run on this PC, and their digest (empty when none)."""
-    found = [line for where, doc in _bundle_docs(folder) for line in _commands_in(where, doc)]
-    return {"commands": found, "digest": hashlib.sha256("\n".join(found).encode()).hexdigest()[:16] if found else ""}
+    """Commands the bundle could make the CLI run on this PC, and a digest of their full raw values
+    (not the shortened text shown), so any change to any of them asks again. Empty when none."""
+    found = [item for where, doc in _bundle_docs(folder) for item in _commands_in(where, doc)]
+    digest = hashlib.sha256(json.dumps([raw for _, raw in found]).encode()).hexdigest()[:32] if found else ""
+    return {"commands": [shown for shown, _ in found], "digest": digest}
 
 
 def _gate(folder: str, allow: str) -> dict[str, Any] | None:

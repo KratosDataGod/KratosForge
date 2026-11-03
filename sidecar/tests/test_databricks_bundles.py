@@ -190,3 +190,14 @@ def test_an_include_it_cant_check_refuses_before_the_cli_runs(bundle, include):
     with pytest.raises(db.BundleError):
         db.plan(bundle, "dev", "dev", cli)
     assert cli.calls == []
+
+
+def test_a_change_past_what_is_shown_still_asks_again_and_a_long_command_says_so(bundle):
+    long = "echo " + "a" * 400
+    (Path(bundle) / "databricks.yml").write_text(YML + f"experimental:\n  scripts:\n    predeploy: {long} && safe\n")
+    cli = FakeCli([SAFE])
+    held = db.plan(bundle, "dev", "dev", cli)
+    assert "a long command, 413 characters: open databricks.yml to read it all" in held["local_commands"][0]
+    (Path(bundle) / "databricks.yml").write_text(YML + f"experimental:\n  scripts:\n    predeploy: {long} && evil\n")
+    again = db.plan(bundle, "dev", "dev", cli, allow=held["commands_digest"])
+    assert again["needs_confirm"] and again["local_commands"] == held["local_commands"] and cli.calls == []

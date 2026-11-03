@@ -2,8 +2,9 @@
 built from setup, the answer run with the generated kf_learner package, grading on the tables it leaves
 (including rows it never saw and a rerun), and a pass that moves its objective in readiness.
 
-Only the pack's own reference solution and planted wrong answers run here; a learner's answer runs only
-through the Academy sandbox, so run_learner refuses until it is wired in."""
+The pack's own reference solution and planted wrong answers run in a plain ``python -I`` process; a
+learner's answer runs only through the Academy learner process (run_learner, academy/sandbox.py), and
+the tests here run it there too."""
 
 from __future__ import annotations
 
@@ -78,9 +79,46 @@ def test_a_draft_exercise_leaves_no_evidence(e19):
     assert progress.from_academy(e19["solution"], exercises.get(PACK, "E19"), registry.certification(PACK)) is None
 
 
-def test_a_learners_answer_never_runs_outside_the_sandbox(tmp_path):
-    with pytest.raises(NotImplementedError, match="Academy sandbox"):
-        pyspark_lab.run_learner(tmp_path, "print('hi')")
+# ---- a learner's answer, in the Academy learner process (sandbox.py)
+
+def _learner_grade(answer):
+    ex, ref = exercises.get(PACK, "E19"), pyspark_lab.reference(PACK, "E19")
+    return pyspark_lab.grade(ex, ref["setup"], ref["hidden"], answer, ref["solution"], pyspark_lab.run_learner)
+
+
+def test_a_learners_answer_runs_in_the_learner_process_and_is_graded():
+    ref = pyspark_lab.reference(PACK, "E19")
+    assert _learner_grade(ref["solution"])["passed"]
+    wrong = _learner_grade(ref["wrong"]["wrong-append.py"])
+    assert [r["kind"] for r in wrong["results"] if not r["passed"]] == ["idempotent"]
+
+
+@pytest.mark.parametrize("code", [
+    "import fabric_desktop",
+    "open('../../x.txt', 'w').write('x')",
+    "import socket; socket.create_connection(('example.com', 443))",
+    "import subprocess; subprocess.run(['whoami'])",
+])
+def test_what_the_learner_process_refuses_fails_the_answer(tmp_path, code):
+    work = tmp_path / "data" / "academy" / "w"
+    work.mkdir(parents=True)
+    pyspark_lab.prepare(work, exercises.file_text(PACK, "E19", "setup.sql"))
+    run = pyspark_lab.run_learner(work, code, data_root=tmp_path / "data")
+    assert run["status"] != "ok"
+    assert not (tmp_path / "x.txt").exists() and not (tmp_path / "data" / "x.txt").exists()
+
+
+def test_an_answer_file_the_last_run_made_a_link_is_refused(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    (tmp_path / "elsewhere.py").write_text("", encoding="utf-8")
+    try:
+        (work / pyspark_lab.ANSWER_FILE).symlink_to(tmp_path / "elsewhere.py")
+    except OSError:
+        pytest.skip("this PC can't make symbolic links")
+    with pytest.raises(ws.Refused):
+        pyspark_lab.run_learner(work, "print('hi')")
+    assert (tmp_path / "elsewhere.py").read_text(encoding="utf-8") == ""
 
 
 def test_the_result_label_is_honest():

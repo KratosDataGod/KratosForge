@@ -1,6 +1,6 @@
 // Day-to-day data engineering: compare a table across environments or versions (before a
 // promote), review schema drift, fix and replay quarantined rows, and freshness promises with
-// Teams alerts.
+// incident alerts (Teams, a Power Automate flow or email).
 // Loaded after meta.js. The entity page, the promote cards and Home call into this file;
 // everything else here is self-contained.
 

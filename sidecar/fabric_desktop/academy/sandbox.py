@@ -116,7 +116,7 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
     # The data root is denied for reads, but the workspace lives under it: the hook checks
     # "inside the workspace" first, so the learner reads its own folder and nothing else of the app's.
-    job_name = f"KratosForgeAcademy-{uuid.uuid4().hex}"
+    job_name = f"Local\\KratosForgeAcademy-{uuid.uuid4().hex}"   # random, per run
     cfg = {"workspace": str(work), "script": path.relative_to(work).as_posix(), "read_roots": read_roots(),
            "denied_roots": denied_roots(data_root), "blocked_modules": list(BLOCKED_MODULES),
            "lib_roots": [_check_lib_root(r, work, data_root) for r in lib_roots or []],
@@ -230,6 +230,7 @@ class _WinJob:
         self.ctypes, self.wintypes = ctypes, wintypes
         self.ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
         self.ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        self.k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         self.job = self.k.CreateJobObjectW(None, name)   # named, so the bootstrap can check it is in this job
         if self.job and self.ctypes.get_last_error() == 183:  # type: ignore[attr-defined]  # ERROR_ALREADY_EXISTS: not ours
             self.k.CloseHandle(self.job)
@@ -254,6 +255,9 @@ class _WinJob:
         handle = int(proc._handle)  # type: ignore[attr-defined]
         if not self.k.AssignProcessToJobObject(self.job, handle):
             raise OSError("Windows wouldn't put the exercise in its job, so it wasn't run.")
+        inside = self.wintypes.BOOL(False)   # ask about this job by handle, never NULL ("any job")
+        if not self.k.IsProcessInJob(handle, self.job, self.ctypes.byref(inside)) or not inside.value:
+            raise OSError("The exercise's process isn't in its job, so it wasn't run.")
         if self.ntdll.NtResumeProcess(handle) != 0:
             raise OSError("The exercise's process couldn't be started.")
 

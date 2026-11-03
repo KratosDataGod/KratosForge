@@ -253,7 +253,7 @@ def test_windows_bootstrap_wont_run_outside_a_job(lab: tuple[Path, Path]) -> Non
     (work / "answer.py").write_text("print('ran')")
     cfg = {"workspace": str(work), "script": "answer.py", "read_roots": sandbox.read_roots(),
            "denied_roots": [], "blocked_modules": list(sandbox.BLOCKED_MODULES),
-           "job_name": "KratosForgeAcademy-not-a-job"}   # the CI runner's own job mustn't count
+           "job_name": "Local\\KratosForgeAcademy-not-a-job"}   # the CI runner's own job mustn't count
     res = subprocess.run([sys.executable, "-I", "-c", sandbox.BOOTSTRAP.read_text(encoding="utf-8"), json.dumps(cfg)],
                          capture_output=True, text=True, timeout=60)
     assert res.returncode == 3 and "ran" not in res.stdout

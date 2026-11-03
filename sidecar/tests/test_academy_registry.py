@@ -56,7 +56,7 @@ def dp700():
 
 
 def test_bundled_packs_have_no_problems():
-    assert registry.pack_ids() == ["dp-700"]
+    assert registry.pack_ids() == ["dbx-de-associate", "dp-700"]
     assert registry.problems() == []
 
 

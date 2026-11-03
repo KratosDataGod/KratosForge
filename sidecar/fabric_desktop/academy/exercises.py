@@ -34,18 +34,17 @@ from . import registry
 SCHEMA = "kratosforge/academy-exercise@1"
 MODES = ("guided", "challenge", "troubleshoot")
 STATUSES = ("draft", "live", "retired")
-ADAPTERS = ("duckdb_lab", "python_lab", "delta_lab", "pipeline_lab", "config_model", "git_lab", "sqlproj_lab", "quiz",
-            "fabric")
+ADAPTERS = ("duckdb_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "config_model", "git_lab",
+            "sqlproj_lab", "quiz", *(p["adapter"] for p in registry.PLATFORMS.values()))
 # Adapters that run the learner's artifact, so a pass can be LOCAL VERIFIED.
-EXECUTING = ("duckdb_lab", "python_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
+EXECUTING = ("duckdb_lab", "python_lab", "pyspark_lab", "delta_lab", "pipeline_lab", "git_lab", "sqlproj_lab")
 # What each adapter can check today. Adapters with nothing here aren't built yet (ACD-004, 011, 012, 014).
 ADAPTER_CHECKS: dict[str, tuple[str, ...]] = {"duckdb_lab": ("result_matches", "table_shape", "integrity")}
-LABELS = {"local_verified": "LOCAL VERIFIED", "simulated": "SIMULATED", "fabric_verified": "FABRIC VERIFIED",
-          "knowledge_only": "KNOWLEDGE ONLY"}
-STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, "fabric_verified": 3}
-# A local result may not name a Fabric engine as what it proved (docs/academy/README.md, ground rules).
-FABRIC_ENGINE = re.compile(r"\b(Fabric Spark|Spark pool|Fabric Warehouse|Warehouse engine|Fabric SQL|SQL analytics endpoint)\b",
-                           re.I)
+LABELS = {"local_verified": "LOCAL VERIFIED", "simulated": "SIMULATED", "knowledge_only": "KNOWLEDGE ONLY",
+          **{p["verified"]: p["label"] for p in registry.PLATFORMS.values()}}
+STRENGTH = {"knowledge_only": 0, "simulated": 1, "local_verified": 2, **{p["verified"]: 3 for p in registry.PLATFORMS.values()}}
+# A local result may not name a platform's engine as what it proved (docs/academy/README.md, ground rules).
+FABRIC_ENGINE = registry.PLATFORMS["fabric"]["engines"]
 
 _ID = re.compile(r"^(E\d{2}|C\d)$")
 _FILE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
@@ -102,12 +101,14 @@ def label(ex: dict[str, Any]) -> dict[str, Any]:
             "verifies": list(ex["verifies"]), "does_not_verify": list(ex["does_not_verify"])}
 
 
-def completes(objective: dict[str, Any], cls: str) -> bool:
-    """Whether evidence of class ``cls`` completes ``objective`` (a registry objective)."""
-    if cls not in STRENGTH:
+def completes(objective: dict[str, Any], cls: str, platform: str = registry.DEFAULT_PLATFORM) -> bool:
+    """Whether evidence of class ``cls`` completes ``objective`` (a registry objective of a ``platform``
+    pack). Another platform's verified class never counts."""
+    plat = registry.PLATFORMS[platform]
+    if cls not in STRENGTH or (cls in registry.CLASSES[len(registry.LOCAL_CLASSES):] and cls != plat["verified"]):
         return False
-    if objective.get("fabric_required"):
-        return cls == "fabric_verified"
+    if registry.required(objective, plat):
+        return cls == plat["verified"]
     return STRENGTH[cls] >= STRENGTH.get(objective.get("best_local", "local_verified"), 2)
 
 
@@ -197,16 +198,24 @@ def _exercise_problems(pack_id: str, folder: Path, ex: dict[str, Any], cert: dic
         out.append(f"{eid}: minutes is a whole number from 1 to 240")
     if ex["status"] == "live" and not _DATE.match(str(ex.get("reviewed") or "")):
         out.append(f"{eid}: a live exercise needs the date it was last reviewed (reviewed: YYYY-MM-DD)")
-    # ACD-003: the class has to be one this adapter can honestly give.
-    if ex["class"] == "fabric_verified" and ex["adapter"] != "fabric":
-        out.append(f"{eid}: only the fabric adapter can give FABRIC VERIFIED")
-    if ex["adapter"] == "fabric" and ex["class"] != "fabric_verified":
-        out.append(f"{eid}: a fabric exercise is FABRIC VERIFIED")
+    # ACD-003: the class has to be one this adapter can honestly give, on this pack's platform.
+    plat = registry.platform(cert)
+    for other in registry.PLATFORMS.values():
+        if ex["class"] == other["verified"] and ex["adapter"] != other["adapter"]:
+            out.append(f"{eid}: only the {other['adapter']} adapter can give {other['label']}")
+        if ex["adapter"] == other["adapter"] and ex["class"] != other["verified"]:
+            out.append(f"{eid}: a {other['adapter']} exercise is {other['label']}")
+        if other is not plat and (ex["class"] == other["verified"] or ex["adapter"] == other["adapter"]):
+            out.append(f"{eid}: a {plat['name']} pack can't hold {other['name']} exercises")
     if ex["class"] == "local_verified" and ex["adapter"] not in EXECUTING:
         out.append(f"{eid}: LOCAL VERIFIED needs an adapter that runs the learner's work ({', '.join(EXECUTING)})")
-    if ex["class"] != "fabric_verified":
-        claims = [s for s in [ex["engine_label"], *ex["verifies"]] if FABRIC_ENGINE.search(str(s))]
-        out += [f"{eid}: a local result can't claim a Fabric engine: {s!r}" for s in claims]
+    for other in registry.PLATFORMS.values():
+        if ex["class"] != other["verified"]:
+            claims = [s for s in [ex["engine_label"], *ex["verifies"]] if other["engines"].search(str(s))]
+            out += [f"{eid}: a local result can't claim a {other['name']} engine: {s!r}" for s in claims]
+    for key in ("difficulty",):
+        if key in ex and ex[key] not in (1, 2, 3):
+            out.append(f"{eid}: difficulty is 1, 2 or 3")
     for key in ("verifies", "does_not_verify", "hints"):
         if not all(isinstance(s, str) and s.strip() for s in ex.get(key) or []):
             out.append(f"{eid}: {key} is a list of sentences")

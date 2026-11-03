@@ -82,8 +82,10 @@ def product_promise(raw: Any) -> dict[str, Any] | None:
     The save gate (promise_problems) checks the values, so this only shapes them."""
     if not isinstance(raw, dict) or not any(raw.get(k) not in (None, "") for k in PROMISE_KEYS[:3]):
         return None
+    envs = raw.get("envs")
     return {"within_hours": raw.get("within_hours"), "by": raw.get("by") or None,
-            "max_rejected_pct": raw.get("max_rejected_pct"), "envs": list(raw.get("envs") or PROMISE_ENVS)}
+            "max_rejected_pct": raw.get("max_rejected_pct"),
+            "envs": [str(e) for e in envs] if isinstance(envs, list) and envs else list(PROMISE_ENVS)}
 
 
 def promise_problems(where: str, raw: Any) -> list[str]:
@@ -133,14 +135,16 @@ def promises(project: Project) -> dict[str, list[dict[str, Any]]]:
     neither does a promise the save gate would refuse): entity -> [{product, within_hours, by, max_rejected_pct, envs}]."""
     out: dict[str, list[dict[str, Any]]] = {}
     for p in project.products.values():
-        promise = p.promise
-        if p.status == "draft" or not promise:
+        if p.status == "draft" or p.spec.get("promise") is None:
             continue
         problems = promise_problems(f"products/{p.name}", p.spec.get("promise"))
         if problems:
             # A promise nobody can check (a file edited past the save gate) is left out, so it can't stop
             # the other incident checks; the save gate names it.
             _log.warning("Product %s's promise is left out of incident checks: %s", p.name, "; ".join(problems))
+            continue
+        promise = p.promise
+        if not promise:
             continue
         for port in p.ports:
             entity = str(port.get("entity") or "")

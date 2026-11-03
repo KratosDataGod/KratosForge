@@ -185,7 +185,8 @@ def test_without_promises_the_signals_are_as_before():
     assert _signals([_run(hours_ago=30)], promises=None) == []
 
 
-@pytest.mark.parametrize("bad", ['max_rejected_pct = "abc"', 'within_hours = "x"', 'by = "6am"', "within_hours = 24\nenvs = []"])
+@pytest.mark.parametrize("bad", ['max_rejected_pct = "abc"', 'within_hours = "x"', 'by = "6am"', "within_hours = 24\nenvs = []",
+                                 "within_hours = 24\nenvs = 5", "within_hours = 24\nenvs = [5]"])
 def test_a_malformed_promise_is_left_out_and_other_incidents_still_open(svc, bad, caplog):
     _save(svc, {"within_hours": 24})
     path = svc._project().root / "metadata" / "products" / "customers.toml"
@@ -194,6 +195,7 @@ def test_a_malformed_promise_is_left_out_and_other_incidents_still_open(svc, bad
     with caplog.at_level("WARNING"):
         promised = mesh.promises(svc._project())
     assert promised == {} and "customers's promise is left out" in caplog.text
+    svc._project().products["customers"].summary()  # the product still reads
     got = evaluate.signals("crm", {"silver.customers": {}}, [_run(status="failed", run_id="r7")], "prod",
                            now=NOW, promises=promised)
     assert [s["kind"] for s in got] == ["run_failed"]

@@ -303,6 +303,23 @@ Databricks workspace. **Pair a folder** names the two folders and the Databricks
 
 Comparing a conflict side by side and picking a side come later.
 
+## Databricks Asset Bundles in Source control (Preview)
+
+**Source control > Bundles** works with a Databricks Asset Bundle (`databricks.yml`) in the open
+repository, or in a folder of it you pick. It runs your own Databricks CLI as one of its profiles, so
+the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
+`databricks auth login` first.
+
+- **Validate and Plan change nothing.** Validate lists problems and warnings in the files. Plan lists
+  what a deploy to the target would create, update, delete or rebuild.
+- **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
+  workspace changed meanwhile), it shows the new plan instead of deploying.
+- **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or
+  pipeline, or a target that is production (by its `mode` or its name), needs the target's name
+  typed. A rebuilt job or pipeline loses its run history.
+- **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
+- Deploys are recorded in the audit log.
+
 ## Databricks DBUs in Optimize > Cost (Preview)
 
 **Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,

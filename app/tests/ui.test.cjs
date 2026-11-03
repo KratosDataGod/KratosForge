@@ -5543,7 +5543,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
       "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
-      "Databricks workspace sync"],
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

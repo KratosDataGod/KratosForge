@@ -243,8 +243,9 @@ async function renderSourceControl() {
   if ((gitPage.tab === "platform" && !isPlatform) || (gitPage.tab === "capacity" && !isCapacity)) gitPage.tab = "changes";
   const tabs = h("div", { class: "subtabs", role: "tablist", "aria-label": "Repository" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
     isPlatform ? tab("platform", "Platform") : null, isCapacity ? tab("capacity", "Capacity") : null, tab("branches", "Branches"),
-    tab("history", "History"), tab("settings", "Repository settings"));
-  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
+    tab("history", "History"), previewShown() ? tab("bundles", ["Bundles ", previewTag()]) : null, tab("settings", "Repository settings"));
+  if (gitPage.tab === "bundles" && !previewShown()) gitPage.tab = "changes";
+  const bodies = { bundles: gitBundlesTab, changes: gitChangesTab, platform: gitPlatformTab, capacity: gitCapacityTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
   setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }

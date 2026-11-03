@@ -154,7 +154,7 @@ const fgPlural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // The three boxes on the Fabric workspace tab: this PC, the Git remote and the workspace, each with
 // a title, a commit and one line on how far apart they are. Only what Git on this PC can tell.
-function fabricGitBoxes(a) {
+function fabricGitBoxes(a, when = (t) => t) {
   if (!a) return [];
   const l = a.local || {};
   const localLine = [l.ahead_of_remote ? `${fgPlural(l.ahead_of_remote, "commit", "commits")} not pushed` : null,
@@ -175,7 +175,7 @@ function fabricGitBoxes(a) {
     const w = a.workspace;
     boxes.push({ kind: "workspace", label: "Fabric workspace (cloud)",
       title: w.commit ? `Synced to ${fgShort(w.commit)}` : "Not synced yet", commit: "",
-      line: [w.folder ? `Folder ${w.folder}` : "Repository root", w.last_sync ? `last sync ${w.last_sync}` : null].filter(Boolean).join(" · ") });
+      line: [w.folder ? `Folder ${w.folder}` : "Repository root", w.last_sync ? `last sync ${when(w.last_sync)}` : null].filter(Boolean).join(" · ") });
   }
   return boxes;
 }
@@ -1254,7 +1254,7 @@ function gitFabricTab(st) {
     o.problem ? h("div", { class: "callout git-warn small" }, icon("warning", 16), o.problem) : null,
     o.changed_in_fabric?.length ? h("div", { class: "callout git-warn small" }, icon("warning", 16),
       `Fabric now shows a different ${o.changed_in_fabric.join(" and ")} than this link. Link the workspace again to update fabric-desktop.toml.`) : null,
-    o.alignment ? h("div", { class: "fg-boxes" }, fabricGitBoxes(o.alignment).map((b) => h("div", { class: `fg-box ${b.kind}` },
+    o.alignment ? h("div", { class: "fg-boxes" }, fabricGitBoxes(o.alignment, relTime).map((b) => h("div", { class: `fg-box ${b.kind}` },
       h("span", { class: "muted-text small" }, b.label), h("b", {}, b.title),
       b.commit ? h("code", { class: "small" }, b.commit) : null, h("span", { class: "small" }, b.line)))) : null,
     o.alignment?.notes?.length ? h("ul", { class: "small fg-notes" }, o.alignment.notes.map((n) => h("li", {}, n))) : null);

@@ -128,7 +128,8 @@ def test_the_service_never_writes_route_addresses_in_the_clear(fake_dpapi, tmp_p
     foreign = "dpapi:" + __import__("base64").b64encode(b"another purpose|route").decode()
     (tmp_path / "settings.json").write_text(json.dumps({"platform_notify": {"routes": [{"name": "default", "url": foreign}]}}))
     assert svc.platform_notify_settings()["routes"][0] | {"host": ""} == {
-        "name": "default", "kinds": [], "domains": [], "url_set": False, "host": "", "unreadable": True}
+        "name": "default", "kinds": [], "domains": [], "url_set": False, "kind": "teams", "host": "",
+        "unreadable": True}
 
 
 def test_a_failed_sealing_write_is_logged_once(fake_dpapi, tmp_path, monkeypatch, caplog):

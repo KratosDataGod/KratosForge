@@ -8,11 +8,12 @@ number:
     guided            guided exercises passed
     independent       challenge exercises passed with at most one hint and the explanation closed
     troubleshooting   broken environments repaired
-    fabric_verified   exercises passed in the learner's own Fabric workspace
+    platform_verified exercises passed in the learner's own workspace on the platform (FABRIC VERIFIED,
+                      DATABRICKS VERIFIED)
     retention         exercises passed again on a day at least RETENTION_DAYS after the first pass
 
 An objective is **shown** when the learner has practical evidence whose class completes it
-(exercises.completes): an objective that needs Fabric needs FABRIC VERIFIED evidence; any other needs
+(exercises.completes): an objective that needs the platform needs its verified class; any other needs
 evidence at least as strong as the best this PC can give for it. It is **practised** when there is
 evidence that doesn't complete it, and **not started** otherwise.
 
@@ -21,7 +22,7 @@ only through the certification's ``crosswalk`` (``{old version: {old objective: 
 without one they're listed as earlier work and left out of the measures.
 
 The result is KratosForge's own estimate. It is labelled so and never presented as the vendor's score
-or as a prediction of passing (ESTIMATE_NOTE).
+or as a prediction of passing (``note()``).
 """
 
 from __future__ import annotations
@@ -35,9 +36,16 @@ from . import exercises, registry
 RETENTION_DAYS = 7
 INDEPENDENT_MAX_HINTS = 1
 ESTIMATE_LABEL = "KratosForge readiness estimate"
-ESTIMATE_NOTE = ("This is KratosForge's own estimate from the evidence on this PC. It isn't Microsoft's score and it "
+_NOTE_TEMPLATE = ("This is KratosForge's own estimate from the evidence on this PC. It isn't {vendors} score and it "
                  "doesn't promise a pass.")
-MEASURES = ("knowledge", "guided", "independent", "troubleshooting", "fabric_verified", "retention")
+
+
+def note(platform: str = registry.DEFAULT_PLATFORM) -> str:
+    """The estimate's note for a platform's certification, naming its vendor."""
+    return _NOTE_TEMPLATE.format(vendors=registry.PLATFORMS[platform]["vendors"])
+
+
+MEASURES = ("knowledge", "guided", "independent", "troubleshooting", "platform_verified", "retention")
 
 
 def _day(stamp: str | None) -> dt.date | None:
@@ -61,12 +69,13 @@ def _objectives_for(row: dict[str, Any], cert: dict[str, Any]) -> list[str] | No
 
 def _empty() -> dict[str, Any]:
     return {"knowledge": {"correct": 0, "answered": 0}, "guided": set(), "independent": set(), "troubleshooting": set(),
-            "fabric_verified": set(), "retention": set(), "classes": set(), "passes": {}}
+            "platform_verified": set(), "retention": set(), "classes": set(), "passes": {}}
 
 
 def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any]:
     """Readiness for one certification: per objective, per domain, what to do next, and the estimate's label."""
     cert = registry.certification(pack_id)
+    plat = registry.platform(cert)
     objs = registry.objectives(cert)
     acc: dict[str, dict[str, Any]] = {o["id"]: _empty() for o in objs}
     earlier = 0
@@ -88,8 +97,8 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
             eid, cls, mode = str((r.get("ref") or {}).get("id")), detail.get("class"), detail.get("mode")
             a["classes"].add(cls)
             a["passes"].setdefault(eid, []).append(_day(r.get("at")))
-            if cls == "fabric_verified":
-                a["fabric_verified"].add(eid)
+            if cls == plat["verified"]:
+                a["platform_verified"].add(eid)
             if mode == "guided":
                 a["guided"].add(eid)
             elif mode == "troubleshoot":
@@ -104,13 +113,14 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
             known = sorted(d for d in days if d)
             if known and (known[-1] - known[0]).days >= RETENTION_DAYS:
                 a["retention"].add(eid)
-        complete = any(exercises.completes(o, c) for c in a["classes"])
+        complete = any(exercises.completes(o, c, cert["platform"]) for c in a["classes"])
+        needs = registry.required(o, plat)
         state = "shown" if complete else "practised" if a["classes"] or a["knowledge"]["answered"] else "not_started"
         out.append({"id": o["id"], "text": o["text"], "domain": o["domain"], "skill": o["skill"],
-                    "fabric_required": o["fabric_required"], "state": state,
+                    "platform_required": needs, "state": state,
                     "best_class": max(a["classes"], key=lambda c: exercises.STRENGTH.get(c, -1)) if a["classes"] else None,
                     "measures": {"knowledge": dict(a["knowledge"]), **{m: sorted(a[m]) for m in MEASURES[1:]}},
-                    "needs_fabric": o["fabric_required"] and "fabric_verified" not in a["classes"],
+                    "needs_platform": needs and plat["verified"] not in a["classes"],
                     "gaps": list(o["gaps"])})
     domains = []
     for d in cert["domains"]:
@@ -118,8 +128,9 @@ def readiness(profile: dict[str, Any], pack_id: str = "dp-700") -> dict[str, Any
         domains.append({"id": d["id"], "title": d["title"], "weight": dict(d["weight"]), "objectives": len(mine),
                         "shown": sum(x["state"] == "shown" for x in mine),
                         "practised": sum(x["state"] == "practised" for x in mine),
-                        "need_fabric": sum(x["needs_fabric"] for x in mine)})
-    return {"certification": cert["id"], "version": cert["version"], "label": ESTIMATE_LABEL, "note": ESTIMATE_NOTE,
+                        "need_platform": sum(x["needs_platform"] for x in mine)})
+    return {"certification": cert["id"], "version": cert["version"], "platform": cert["platform"],
+            "platform_label": plat["label"], "label": ESTIMATE_LABEL, "note": note(cert["platform"]),
             "objectives": out, "domains": domains, "earlier_version_rows": earlier,
             "next": next_exercises(out, pack_id)}
 

@@ -182,6 +182,25 @@ def test_a_folder_inside_a_git_folder_is_refused_and_only_read(folder):
     assert "/Workspace/Users/dev@contoso.com" not in paths
 
 
+@pytest.mark.parametrize("repo", ["/Shared/repo", "/Workspace/Shared/repo", "/Users/dev@contoso.com/repo"])
+def test_a_short_path_git_folder_is_itself_checked(folder, repo):
+    ws = FakeWorkspace(repo_at=repo)
+    for remote in (repo, repo + "/nb"):
+        with pytest.raises(sync.SyncError, match="Git folder"):
+            sync.push(client(ws), pair(folder) | {"remote": remote}, ["load_orders.py"])
+    assert ws.writes() == []
+
+
+def test_a_pair_at_the_home_folder_sees_what_is_already_there(folder):
+    home = "/Workspace/Users/dev@contoso.com"
+    ws = FakeWorkspace(objects={"load_orders": {"type": "NOTEBOOK", "modified_at": 5, "content": "x"}})
+    out = sync.compare(client(ws), pair(folder) | {"remote": home})
+    assert out["remote_exists"] and rows(out)["load_orders.py"]["action"] == "conflict"
+    assert [c[2]["path"] for c in ws.calls if c[1] == "/api/2.0/workspace/get-status"] == [home]
+    with pytest.raises(sync.SyncError, match="Git folder"):
+        sync.compare(client(FakeWorkspace(repo_at=home)), pair(folder) | {"remote": home})
+
+
 def test_a_file_deleted_here_but_changed_in_databricks_is_a_conflict_not_a_delete(folder):
     ws = FakeWorkspace(exists=False)
     p = pair(folder)

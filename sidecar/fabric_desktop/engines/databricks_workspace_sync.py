@@ -144,9 +144,13 @@ def _not_in_git_folder(client: Client, remote: str) -> bool:
     get-status (GETs only); a missing one is skipped, since a Git folder can't be inside it."""
     from .databricks_sql import DatabricksError
     parts = PurePosixPath(remote).parts                      # ("/", "Workspace", "Users", "<user>", ...)
-    top = 4 if parts[1:3] == ("Workspace", "Users") else 3   # the user's home or /Workspace/Shared
+    # Parents are read down to (not including) the user's home or the Shared root, in the long
+    # (/Workspace/Users/<u>, /Workspace/Shared) and short (/Users/<u>, /Shared) forms. The folder
+    # itself is always read, even when it is that home or root.
+    top = {"Workspace/Users": 4, "Workspace/Shared": 3}.get("/".join(parts[1:3]), 0)
+    top = top or {"Users": 3, "Shared": 2}.get(parts[1] if len(parts) > 1 else "", 1)
     exists = False
-    for depth in range(len(parts), top, -1):
+    for depth in [len(parts), *range(len(parts) - 1, top, -1)]:
         try:
             reply = client.get("/api/2.0/workspace/get-status", {"path": str(PurePosixPath(*parts[:depth]))})
         except DatabricksError as exc:

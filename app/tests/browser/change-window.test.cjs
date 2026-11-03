@@ -57,8 +57,24 @@ test("an admin changes or clears the window", { skip }, async () => {
   assert.ok(await page().isChecked('.cw-days input[aria-label="Fri"]'));
   assert.ok(!(await page().isChecked('.cw-days input[aria-label="Tue"]')));
   await page().click('.dialog button:has-text("Clear")');
+  await page().waitForSelector('.dialog:has-text("Clear the change window?")');
+  assert.strictEqual(saves.length, 1, "nothing is cleared before the confirm");
+  await page().click('.dialog button.danger-solid:has-text("Clear")');
   await page().waitForFunction(() => /None set/.test(document.querySelector(".change-window")?.textContent || ""));
   assert.strictEqual(saves.at(-1), null);
+});
+
+test("changing only the times keeps a window that covers Test alone", { skip }, async () => {
+  admin = true;
+  current = { available: true, window: { days: ["mon"], start: "08:00", end: "16:00", time_zone: "UTC", envs: ["test"] } };
+  await openGovern();
+  assert.match(await page().textContent(".change-window .cw-now"), /for Test$/);
+  await page().click('.change-window button:has-text("Change")');
+  await page().waitForSelector(".cw-days");
+  await page().fill('.dialog label.field:has-text("Until") input', "18:00");
+  await page().click('.dialog button:has-text("Save")');
+  await page().waitForFunction(() => /18:00/.test(document.querySelector(".change-window .cw-now")?.textContent || ""));
+  assert.deepStrictEqual(saves.at(-1), { days: ["mon"], start: "08:00", end: "18:00", time_zone: "UTC", envs: ["test"] });
 });
 
 test("someone who isn't an admin reads it with no buttons", { skip }, async () => {

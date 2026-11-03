@@ -115,8 +115,11 @@ function changeWindowDialog(w, done) {
   const end = h("input", { type: "time", value: cur.end });
   const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
   const zone = h("input", { value: cur.time_zone, list: "cw-zones", placeholder: "Like Europe/London" });
-  const envs = h("select", {}, [["prod", "Prod"], ["test,prod", "Test and Prod"]].map(([v, t]) =>
-    h("option", { value: v, selected: (cur.envs || ["prod"]).join(",") === v ? true : null }, t)));
+  // Offer the window's own envs too (the platform takes any of test and prod), so saving keeps them.
+  const curEnvs = ["test", "prod"].filter((e) => (cur.envs?.length ? cur.envs : ["prod"]).includes(e)).join(",") || "prod";
+  const envChoices = [["prod", "Prod"], ["test,prod", "Test and Prod"]];
+  if (!envChoices.some(([v]) => v === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ({ test: "Test", prod: "Prod" }[e])).join(" and ")]);
+  const envs = h("select", {}, envChoices.map(([v, t]) => h("option", { value: v, selected: curEnvs === v ? true : null }, t)));
   const save = async (window) => {
     if (await metaCall("platform_save_change_window", { window }, "Not saved")) { closeDialog(); toast(window ? "Change window saved" : "Change window cleared"); done(); }
   };
@@ -126,7 +129,9 @@ function changeWindowDialog(w, done) {
       h("label", { class: "field" }, "Time zone", zone), h("label", { class: "field" }, "Applies to", envs)),
     h("datalist", { id: "cw-zones" }, zones.map((z) => h("option", { value: z }))),
     h("p", { class: "muted-text small" }, "Times are on the same day, from before until. The window is judged in its time zone, so every PC agrees.")), [
-    w ? btn("Clear", null, () => save(null), "tool outline") : null,
+    w ? btn("Clear", null, async () => {
+      if (await confirmDialog("Clear the change window?", "Promotes get no change window warning until an admin sets one again.", "Clear", { danger: true })) save(null);
+    }, "tool outline") : null,
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Save", "save", () => save({ days: boxes.filter((b) => b.box.checked).map((b) => b.k), start: start.value.slice(0, 5),
       end: end.value.slice(0, 5), time_zone: zone.value.trim(), envs: envs.value.split(",") }), "tool primary")].filter(Boolean));

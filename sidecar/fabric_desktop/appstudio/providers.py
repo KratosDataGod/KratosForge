@@ -1,8 +1,8 @@
 """Model connections for App Studio (AS-05): the person's own AI model, key and billing.
 
 KratosForge has no model of its own. A connection names a provider, a model and where its key is kept;
-the key itself stays in Windows Credential Manager (``credman:TARGET``) or an environment variable
-(``env:NAME``) and is read only for the request that needs it. It is never written to the connections
+the key itself stays in Windows Credential Manager (``credman:KratosForge/<name>``) or a model-key environment variable
+(``env:KRATOSFORGE_<NAME>``, ``env:OPENAI_API_KEY`` and the like) and is read only for the request that needs it. It is never written to the connections
 file, a project, a log, the audit trail, an error or a reply.
 
 Providers differ (structured output, tool calling, streaming, context size), so each adapter declares
@@ -61,7 +61,13 @@ MAX_REPLY_BYTES = 2 * 1024 * 1024
 MAX_CONTEXT_CHARS = 200_000
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
 WARN_AT = 0.8
-_REF = re.compile(r"^(env:[A-Za-z_][A-Za-z0-9_]{0,127}|credman:[A-Za-z0-9 ._:/\\-]{1,200})$")
+# A key reference may only name a model key, so a connection to a server the person picks can't be used to
+# send another secret on this PC: Credential Manager targets under KratosForge/, and environment variables
+# named for a model provider or starting KRATOSFORGE_.
+_REF = re.compile(r"^(env:(?:KRATOSFORGE_[A-Z0-9_]{1,100}|ANTHROPIC_API_KEY|OPENAI_API_KEY|AZURE_OPENAI_API_KEY"
+                  r"|GEMINI_API_KEY|GOOGLE_API_KEY)|credman:KratosForge/[A-Za-z0-9 ._:\-]{1,180})$")
+KEY_REF_HELP = ("credman:KratosForge/<name> (Windows Credential Manager), or env:KRATOSFORGE_<NAME>, env:ANTHROPIC_API_KEY, "
+                "env:OPENAI_API_KEY, env:AZURE_OPENAI_API_KEY, env:GEMINI_API_KEY or env:GOOGLE_API_KEY")
 _NAME = re.compile(r"^[^\x00-\x1f]{1,80}$")
 _MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@\-]{0,127}$")
 _DEPLOYMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,63}$")
@@ -137,9 +143,9 @@ def problems(conn: Any) -> list[str]:
         out.append(found)
     ref = conn.get("key_ref") or ""
     if ref and not (isinstance(ref, str) and _REF.fullmatch(ref)):
-        out.append("The key must be a reference (credman:TARGET or env:NAME), never the key itself.")
+        out.append(f"The key must be a reference to a model key: {KEY_REF_HELP}. Never the key itself.")
     if info["key"] is True and not ref:
-        out.append(f"{info['label']} needs a key reference (credman:TARGET or env:NAME).")
+        out.append(f"{info['label']} needs a key reference: {KEY_REF_HELP}.")
     if provider == "ollama" and ref:
         out.append("Ollama on this PC doesn't use a key.")
     if provider == "azure-openai" and not (isinstance(conn.get("deployment"), str) and _DEPLOYMENT.fullmatch(conn["deployment"])):
@@ -337,7 +343,7 @@ def resolve_key(ref: str, reader: Callable[[str], str] | None = None) -> str:
     if not ref:
         return ""
     if not _REF.fullmatch(ref):
-        raise ProviderError("The key must be a reference (credman:TARGET or env:NAME).")
+        raise ProviderError(f"The key must be a reference to a model key: {KEY_REF_HELP}.")
     if reader is not None:
         return reader(ref)
     from ..engines.databricks_auth import DatabricksAuthError, resolve_secret

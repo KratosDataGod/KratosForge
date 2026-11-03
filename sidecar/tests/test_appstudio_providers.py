@@ -79,7 +79,7 @@ def reader(ref):
     ({"notes": "password=hunter2"}, "looks like a key"),
 ])
 def test_bad_connections_refused(change, expected):
-    base = {"name": "c", "provider": "anthropic", "model": "m", "key_ref": "credman:x"}
+    base = {"name": "c", "provider": "anthropic", "model": "m", "key_ref": "credman:KratosForge/x"}
     assert any(expected in p for p in providers.problems(base | change)), providers.problems(base | change)
 
 
@@ -101,7 +101,7 @@ def test_endpoints(provider, endpoint, ok):
 
 def test_store_keeps_references_only(tmp_path):
     store = ConnectionStore(tmp_path)
-    saved = store.save({"name": "Claude", "provider": "anthropic", "model": "claude-test", "key_ref": "credman:KF/claude"})
+    saved = store.save({"name": "Claude", "provider": "anthropic", "model": "claude-test", "key_ref": "credman:KratosForge/claude"})
     store.save({"name": "Local", "provider": "ollama", "model": "llama3.1"})
     listed = store.list()
     assert listed["default"] == saved["id"] and len(listed["connections"]) == 2
@@ -109,7 +109,7 @@ def test_store_keeps_references_only(tmp_path):
     assert store.get()["name"] == "Claude"
     assert saved["consent"] == {"context": False, "sample_rows": False}  # nothing is sent until the person agrees
     with pytest.raises(ProviderError, match="already exists"):
-        store.save({"name": "Claude", "provider": "openai", "model": "gpt", "key_ref": "env:OPENAI_KEY"})
+        store.save({"name": "Claude", "provider": "openai", "model": "gpt", "key_ref": "env:OPENAI_API_KEY"})
     with pytest.raises(ProviderError):
         store.save({"name": "Leak", "provider": "openai", "model": "gpt", "key_ref": KEY})
     assert KEY not in (tmp_path / "connections.json").read_text()
@@ -258,11 +258,20 @@ def test_key_reference_rules(monkeypatch):
     assert providers.resolve_key("") == ""
     with pytest.raises(ProviderError, match="reference"):
         providers.resolve_key(KEY)
-    monkeypatch.setenv("KF_TEST_MODEL_KEY", "value-from-env")
-    assert providers.resolve_key("env:KF_TEST_MODEL_KEY") == "value-from-env"
-    monkeypatch.delenv("KF_TEST_MODEL_KEY")
+    monkeypatch.setenv("KRATOSFORGE_TEST_MODEL_KEY", "value-from-env")
+    assert providers.resolve_key("env:KRATOSFORGE_TEST_MODEL_KEY") == "value-from-env"
+    monkeypatch.delenv("KRATOSFORGE_TEST_MODEL_KEY")
     with pytest.raises(ProviderError, match="isn't set"):
-        providers.resolve_key("env:KF_TEST_MODEL_KEY")
+        providers.resolve_key("env:KRATOSFORGE_TEST_MODEL_KEY")
+
+
+@pytest.mark.parametrize("ref", ["env:PATH", "env:AWS_SECRET_ACCESS_KEY", "env:DATABRICKS_TOKEN", "credman:git:https://github.com",
+                                 "credman:databricks/prod", "credman:KratosForge/../x/../y\\z", "env:kratosforge_lower"])
+def test_references_only_reach_model_keys(ref):
+    base = {"name": "c", "provider": "openai-compatible", "model": "m", "endpoint": "https://llm.contoso.com/v1"}
+    assert any("reference to a model key" in p for p in providers.problems(base | {"key_ref": ref}))
+    with pytest.raises(ProviderError, match="model key"):
+        providers.resolve_key(ref)
 
 
 def test_model_keys_are_redacted_everywhere():

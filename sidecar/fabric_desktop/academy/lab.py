@@ -28,6 +28,7 @@ from typing import Any
 
 import duckdb
 
+from .. import jsonfile
 from ..learn import checks
 from ..learn import labs as learn_labs
 from . import exercises
@@ -65,7 +66,7 @@ def _write(folder: Path, name: str, data: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(data)
-        os.replace(tmp, target)
+        jsonfile.replace(tmp, target)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

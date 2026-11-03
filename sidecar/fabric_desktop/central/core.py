@@ -1066,10 +1066,10 @@ def checked_change_window(window: Any) -> dict[str, Any] | None:
     if not isinstance(days, list) or not days or any(d not in WEEKDAYS for d in days):
         raise PlatformError(f"The change window's days are some of {', '.join(WEEKDAYS)}")
     start, end = str(window.get("start") or ""), str(window.get("end") or "")
-    if not _HHMM.match(start) or not _HHMM.match(end) or start >= end:
+    if not _HHMM.fullmatch(start) or not _HHMM.fullmatch(end) or start >= end:
         raise PlatformError('The change window\'s start and end are times like "08:00" and "16:00", start first')
     zone = str(window.get("time_zone") or "UTC")
-    if not _ZONE.match(zone):
+    if not _ZONE.fullmatch(zone):
         raise PlatformError('The change window\'s time_zone is a name like "Europe/London" or "UTC"')
     envs = window.get("envs") or ["prod"]
     if not isinstance(envs, list) or any(e not in ("test", "prod") for e in envs):

@@ -45,7 +45,7 @@ def test_only_platform_admins_set_it(tmp_path, platform):
 @pytest.mark.parametrize("bad", [
     dict(WINDOW, days=[]), dict(WINDOW, days=["friday"]), dict(WINDOW, start="8am"), dict(WINDOW, start="16:00"),
     dict(WINDOW, end="24:00"), dict(WINDOW, time_zone="Europe London; rm"), dict(WINDOW, envs=["dev"]),
-    dict(WINDOW, soon=True), "weekdays",
+    dict(WINDOW, soon=True), "weekdays", dict(WINDOW, start="08:00\n"), dict(WINDOW, time_zone="UTC\n"),
 ])
 def test_a_window_nobody_can_check_is_refused(platform, bad):
     with pytest.raises(core.PlatformError):

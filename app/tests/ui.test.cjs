@@ -5555,6 +5555,7 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     "Where to run a notebook": ["docs/finops/placement-advice.md", /has no screen in the app yet/],
     "Semantic model best practices": ["docs/semantic-model-best-practices.md", /The screens [\s\S]*? come next/],
     "Compare with a Fabric Environment item": ["docs/notebooks.md", /a command, with no screen in the app yet/],
+    "Promises to readers": ["docs/data-mesh.md", /a setting in the product's file, with no screen of its own yet/],
   };
   const idOf = new Map(Object.entries(BY_ID).flatMap(([id, names]) => names.map((n) => [n, id])));
   for (const id of Object.keys(BY_ID)) assert.ok(ids.has(id), `${id} is in PREVIEW_FEATURES`);

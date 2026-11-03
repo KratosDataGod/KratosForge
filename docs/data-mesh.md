@@ -195,7 +195,7 @@ max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 
 envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
 ```
 
-Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing.
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing. A promise is a setting in the product's file, with no screen of its own yet: its broken promises show in Monitor > Incidents.
 
 **Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
 

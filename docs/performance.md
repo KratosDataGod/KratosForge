@@ -90,8 +90,8 @@ from Playwright 1.63). Times in milliseconds.
 | navigation, median | 2.2 | |
 | token switch, slowest | 5.2 | 25 |
 | density switch, slowest | 2.7 | 15 |
-| large list, 5,000 items | 2,959 | 2,100 |
-| large list, elements added | 76,673 | 9,000 |
+| large list, 5,000 items | 2,959 (706 now, see below) | 2,100 |
+| large list, elements added | 76,673 (3,007 now) | 9,000 |
 | editor, 200 characters | 724 | 2,500 |
 | editor, longest task | 159 | 500 |
 | JS heap | 10.3 MB | 32 MB |

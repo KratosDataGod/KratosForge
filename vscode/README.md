@@ -6,6 +6,8 @@ Preview. Windows, with KratosForge installed and open.
 
 ## Use it
 
+Install it from the [Preview release](https://github.com/KratosDataGod/KratosForge/releases/tag/latest): download `kratosforge.vsix`, then in VS Code run **Extensions: Install from VSIX…** and pick the file.
+
 1. In KratosForge, **Settings > Integrations > VS Code**: turn on **Let VS Code run notebooks**.
 2. Open a notebook from KratosForge's notebooks folder, or from a notebooks repository KratosForge has open in Source control (**Open in VS Code** on a notebook does this).
 3. Pick **KratosForge · This PC** as the kernel and run a cell. The first time, VS Code shows a pairing code and KratosForge asks whether to pair this window with the same code. Check they match and choose **Pair this window**. The pairing covers the workspace folder holding the notebook (or the notebook's own folder when none is open); a notebook in another folder pairs that folder separately.

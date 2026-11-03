@@ -59,7 +59,7 @@ class AcademyMixin:
                 "lesson": lesson, "remediation": list(ex.get("remediation") or []), "reset": ex["reset"],
                 "verification": exercises.label(ex), "hints": len(ex.get("hints") or []),
                 "checks": [c["kind"] for c in ex["validation"]],
-                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in exercises.SQL_ADAPTERS else None}  # type: ignore[attr-defined]
+                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in lab.LAB_ADAPTERS else None}  # type: ignore[attr-defined]
 
     def academy_start(self, pack_id: str, exercise_id: str) -> dict[str, Any]:
         """Make the exercise's workspace on this PC if it isn't there yet (kept across restarts)."""
@@ -70,7 +70,8 @@ class AcademyMixin:
         return {"saved": True}
 
     def academy_run(self, pack_id: str, exercise_id: str, sql: str) -> dict[str, Any]:
-        """The first rows of the learner's SQL, run in the workspace and rolled back."""
+        """The first rows of the learner's SQL, run in the workspace and rolled back; for a Python exercise,
+        the script's status and output from the learner process (no sign-in, time and memory limits)."""
         return lab.run(self.root, str(pack_id), str(exercise_id), str(sql))  # type: ignore[attr-defined]
 
     def academy_validate(self, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:

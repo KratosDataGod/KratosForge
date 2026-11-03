@@ -3,7 +3,7 @@
 Fabric's Git integration connects a workspace to one branch and folder of an Azure DevOps or
 GitHub repository. This module reads that connection (Get Connection, which needs only the
 Workspace.ReadWrite.All scope sign-in already asks for), matches it to a repository's remotes,
-keeps the link in a committed ``fabric-desktop.toml`` (ids and names, never a secret), and lines
+keeps the link in a committed ``fabric-desktop.toml`` (workspace ids and names, never a secret or the tenant id, since the repository may be public), and lines
 up three commits without asking Fabric for anything more:
 
 * this PC: the repository's ``HEAD`` and branch;
@@ -31,7 +31,7 @@ ENVS = ("dev", "test", "prod")
 _GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 # What a link keeps: ids KratosForge uses, names for people, and what Fabric said the workspace follows.
-_LINK_FIELDS = ("tenant_id", "workspace_id", "workspace_name", "provider", "owner", "project", "repository",
+_LINK_FIELDS = ("workspace_id", "workspace_name", "provider", "owner", "project", "repository",
                 "branch", "folder")
 _STATES = {"NotConnected", "Connected", "ConnectedAndInitialized"}
 
@@ -129,8 +129,12 @@ def matching_remote(conn: dict[str, Any], remotes: list[dict[str, Any]]) -> str 
 def read_links(root: str | Path) -> dict[str, Any]:
     """The workspaces this repository is linked to, per environment, from ``fabric-desktop.toml``."""
     envs: dict[str, Any] = {e: None for e in ENVS}
+    path = Path(root) / LINK_FILE
+    if path.is_symlink():  # writes replace the link itself, so reads never follow one either
+        return {"envs": envs, "problem": f"{LINK_FILE} is a link to another file; replace it with a plain file.",
+                "exists": True}
     try:
-        data = tomllib.loads((Path(root) / LINK_FILE).read_text(encoding="utf-8"))
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {"envs": envs, "problem": None, "exists": False}
     except (OSError, ValueError) as e:

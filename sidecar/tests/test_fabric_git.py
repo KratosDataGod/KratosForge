@@ -188,6 +188,20 @@ def test_unreadable_link_file_is_reported_and_never_overwritten(tmp_path):
     assert (tmp_path / fabric_git.LINK_FILE).read_text(encoding="utf-8") == "[workspaces.dev\n"
 
 
+def test_a_linked_link_file_is_refused(tmp_path):
+    target = tmp_path / "elsewhere.toml"
+    target.write_text(f'[workspaces.dev]\nworkspace_id = "{WS}"\n', encoding="utf-8")
+    (tmp_path / "repo").mkdir()
+    try:
+        (tmp_path / "repo" / fabric_git.LINK_FILE).symlink_to(target)
+    except OSError:
+        pytest.skip("this system can't make links")
+    out = fabric_git.read_links(tmp_path / "repo")
+    assert out["envs"]["dev"] is None and "link to another file" in out["problem"]
+    with pytest.raises(GitError):
+        fabric_git.write_link(tmp_path / "repo", "dev", {"workspace_id": WS})
+
+
 def test_a_link_without_a_workspace_id_is_ignored(tmp_path):
     (tmp_path / fabric_git.LINK_FILE).write_text('[workspaces.dev]\nworkspace_id = "nope"\n', encoding="utf-8")
     assert fabric_git.read_links(tmp_path)["envs"]["dev"] is None
@@ -232,7 +246,7 @@ def test_check_refuses_a_workspace_id_that_isnt_one(svc, repo):
 def test_link_writes_the_file_with_what_fabric_says(svc, repo):
     out = svc.fabric_git_link(str(repo.root), "dev", WS, "Sales Dev")
     link = out["envs"]["dev"]
-    assert link == {"tenant_id": "tenant-1", "workspace_id": WS, "workspace_name": "Sales Dev", "provider": "github",
+    assert link == {"workspace_id": WS, "workspace_name": "Sales Dev", "provider": "github",
                     "owner": "Contoso", "repository": "Sales", "branch": "main", "folder": "/fabric"}
     assert out["remote"] == "origin"
     assert any(f["path"] == fabric_git.LINK_FILE for f in out["status"]["untracked"])  # a change to commit

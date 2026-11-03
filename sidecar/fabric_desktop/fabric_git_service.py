@@ -54,11 +54,7 @@ class FabricGitMixin:
                    "remotes points to.")
         if problem and not confirm:
             return {"needs_confirm": True, "message": problem + " Link it anyway?", "connection": conn}
-        tenant = ""
-        signed_in_tenant = getattr(getattr(self, "auth", None), "signed_in_tenant", None)
-        if callable(signed_in_tenant):
-            tenant = signed_in_tenant() or ""
-        link = {"tenant_id": tenant, "workspace_id": ws, "workspace_name": workspace_name,
+        link = {"workspace_id": ws, "workspace_name": workspace_name,
                 "provider": conn["provider"], "owner": conn["owner"], "project": conn["project"],
                 "repository": conn["repository"], "branch": conn["branch"], "folder": conn["folder"]}
         out = fabric_git.write_link(r.root, env, link)

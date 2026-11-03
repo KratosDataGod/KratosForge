@@ -1,0 +1,161 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.6",
+  "questions": [
+    {
+      "id": "3.6-q1",
+      "type": "single",
+      "stem": "What is the difference between a view and a materialized view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A view runs its query each time it's read; a materialized view stores precomputed results and refreshes them"
+        },
+        {
+          "id": "b",
+          "text": "A view stores data; a materialized view doesn't"
+        },
+        {
+          "id": "c",
+          "text": "A materialized view can't be queried with SQL"
+        },
+        {
+          "id": "d",
+          "text": "They are the same"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Materialized views keep results stored and are refreshed, so reads are fast; views are just saved queries.",
+      "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.6-q2",
+      "type": "single",
+      "stem": "Which object incrementally processes append-only data as it arrives, such as new files?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A table function"
+        },
+        {
+          "id": "b",
+          "text": "A streaming table"
+        },
+        {
+          "id": "c",
+          "text": "A temporary view"
+        },
+        {
+          "id": "d",
+          "text": "A view"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Streaming tables are designed for append-only sources and process each input only once.",
+      "source": "https://docs.databricks.com/aws/en/ldp/concepts/streaming-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.6-q3",
+      "type": "single",
+      "stem": "A dashboard reads a costly aggregation over large silver tables many times a day. Which gold object fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A materialized view of the aggregation"
+        },
+        {
+          "id": "b",
+          "text": "A view of the aggregation"
+        },
+        {
+          "id": "c",
+          "text": "A CSV export"
+        },
+        {
+          "id": "d",
+          "text": "A temporary view"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A materialized view stores the result, so every dashboard read doesn't recompute it.",
+      "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.6-q4",
+      "type": "single",
+      "stem": "Which SQL creates a materialized view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SAVE VIEW sales_by_day AS SELECT ..."
+        },
+        {
+          "id": "b",
+          "text": "CREATE VIEW sales_by_day MATERIALIZE AS SELECT ..."
+        },
+        {
+          "id": "c",
+          "text": "CREATE CACHED VIEW sales_by_day AS SELECT ..."
+        },
+        {
+          "id": "d",
+          "text": "CREATE MATERIALIZED VIEW sales_by_day AS SELECT ..."
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "CREATE MATERIALIZED VIEW defines a materialized view.",
+      "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.6-q5",
+      "type": "single",
+      "stem": "When is a plain view a better gold object than a materialized view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "When the query is cheap or must always reflect the latest data at read time"
+        },
+        {
+          "id": "b",
+          "text": "When results must be stored"
+        },
+        {
+          "id": "c",
+          "text": "Never"
+        },
+        {
+          "id": "d",
+          "text": "When the query is very expensive and read often"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Views compute results on demand, so they're always current; materialized views pay off for expensive or frequently used queries.",
+      "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

@@ -23,6 +23,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import spark_builtins_sql
 from . import sql as spark_sql
 
 _ids = itertools.count()
@@ -43,8 +44,9 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_sql.spark_substring(
-        spark_sql.spark_integer_casts(sqlglot.parse_one(text, read="spark")))))
+    tree = spark_builtins_sql.mark(sqlglot.parse_one(text, read="spark"))
+    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
+        spark_sql.spark_integer_casts(tree)))))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:

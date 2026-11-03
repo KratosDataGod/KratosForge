@@ -647,6 +647,11 @@ class FabricClient:
         commit). A read: Workspace.ReadWrite.All covers it, and it changes nothing."""
         return self._request("GET", f"/workspaces/{workspace_id}/git/connection").json()
 
+    def git_status(self, workspace_id: str) -> dict[str, Any]:
+        """Which items differ between the workspace and its Git branch, and their conflicts. A
+        long-running read (Workspace.GitUpdate.All or Workspace.GitCommit.All); changes nothing."""
+        return self._wait(self._request("GET", f"/workspaces/{workspace_id}/git/status"))
+
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}").json()
 

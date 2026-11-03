@@ -28,6 +28,7 @@ IN_PLACE = {
     "central/entra_service.py:_entra_script": "a generated script the person downloads",
     "dbx_livetest.py:_finish": "the report of a finished live test, written once to its own new folder",
     "environments.py:_run": "pip's constraints file, rewritten before each install and read only by that install",
+    "environments.py:_install": "the approved folder's pins for pip, rewritten before each install and read only by that install",
     "fabric_compute.py:run_bundle": "runs on Fabric as a stand-alone bundle (no engine package there) and writes "
                                     "its result once to a new file named for the request",
     "frames.py:write_xlsx": "a member inside a new xlsx export, not a file on disk",

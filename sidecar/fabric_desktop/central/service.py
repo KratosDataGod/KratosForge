@@ -518,6 +518,18 @@ class PlatformMixin:
             return {"available": False, "problem": str(exc), "gaps": [], "checked": 0, "covered": 0, "no_owner": 0,
                     "quiet_days": core.QUIET_DAYS}
 
+    def platform_change_window(self) -> dict[str, Any]:
+        """The platform's change window ({"window": ..., "available": ...}). Only reads. An older UDF_Platform
+        has none: available is false and problem says to run Finish or repair."""
+        try:
+            return {"available": True} | call_or_repair(self._catalog(), "change_window", "keep a change window")
+        except LookupError as exc:
+            return {"available": False, "problem": str(exc), "window": None}
+
+    def platform_save_change_window(self, window: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Set the change window (days, start, end, time_zone, envs), or clear it with none. Platform admins only."""
+        return call_or_repair(self._catalog(), "save_change_window", "keep a change window", window=window or None)
+
     def platform_admins(self) -> list[dict[str, Any]]:
         return self._catalog().call("list_admins")
 
@@ -1016,7 +1028,24 @@ class PlatformMixin:
         groups = self._product_groups(self._catalog())  # type: ignore[attr-defined]
         for p in products:
             p["items"] = [g for g in groups or [] if g["product_id"] == p["id"]]
-        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None}
+        # How each product is doing now, per environment, as its team last reported it (Preview).
+        health = self._product_health()
+        for p in products:
+            p["health"] = {r["env"]: {k: r.get(k) or "" for k in ("status", "why", "latest", "latest_at", "checked_at")}
+                           for r in health or [] if r["product_id"] == p["id"]}
+        return {"project": me, "products": products, "can_follow": follows is not None, "can_group": groups is not None,
+                "can_status": health is not None}
+
+    def _product_health(self) -> list[dict[str, Any]] | None:
+        """Every product's reported status; None when the platform is older than the Status view."""
+        try:
+            return self._catalog().call("list_product_status")
+        except LookupError:
+            return None
+        except core.PlatformError as exc:
+            if "list_product_status" in str(exc):
+                return None
+            raise
 
     def _my_follows(self) -> list[str] | None:
         """The products the signed-in person follows; None when the platform is older than following."""

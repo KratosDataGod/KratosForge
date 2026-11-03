@@ -1,0 +1,167 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.4",
+  "questions": [
+    {
+      "id": "2.4-q1",
+      "type": "single",
+      "stem": "What is Lakeflow Connect for?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Running dashboards"
+        },
+        {
+          "id": "b",
+          "text": "Ingesting data from enterprise applications and databases into Unity Catalog tables through connectors"
+        },
+        {
+          "id": "c",
+          "text": "Managing Git branches"
+        },
+        {
+          "id": "d",
+          "text": "Tuning Spark shuffles"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Lakeflow Connect provides connectors that ingest from sources such as SaaS applications and databases into Unity Catalog.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.4-q2",
+      "type": "single",
+      "stem": "Quarry Lane wants its Salesforce customers in a Unity Catalog table, kept current, with as little code as possible. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A notebook that scrapes the Salesforce website"
+        },
+        {
+          "id": "b",
+          "text": "Exporting to CSV by hand each day"
+        },
+        {
+          "id": "c",
+          "text": "A Lakeflow Connect managed connector for Salesforce"
+        },
+        {
+          "id": "d",
+          "text": "COPY INTO from Salesforce"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Managed connectors in Lakeflow Connect handle the source API and incremental loads for you.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "case": "quarry-retail",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.4-q3",
+      "type": "single",
+      "stem": "Where do Lakeflow Connect connectors write the ingested data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Into Unity Catalog-governed tables"
+        },
+        {
+          "id": "b",
+          "text": "Into a notebook's output cells"
+        },
+        {
+          "id": "c",
+          "text": "Into the driver's local disk"
+        },
+        {
+          "id": "d",
+          "text": "Into a Git repository"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Connectors land data in Unity Catalog tables, so it's governed like any other table.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.4-q4",
+      "type": "multiple",
+      "stem": "Which two are benefits of a managed connector over hand-written ingestion code? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "It works without network access to the source"
+        },
+        {
+          "id": "b",
+          "text": "Databricks maintains the integration with the source"
+        },
+        {
+          "id": "c",
+          "text": "It writes only to CSV files"
+        },
+        {
+          "id": "d",
+          "text": "Incremental loading is handled for you"
+        },
+        {
+          "id": "e",
+          "text": "It removes the need for any governance"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Lakeflow Connect is a fully managed service that ingests only the data changed since the prior run; the data still needs a network path and is governed in Unity Catalog.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.4-q5",
+      "type": "single",
+      "stem": "A source is supported by a Lakeflow Connect connector, but the team is considering a custom JDBC notebook instead. What is the usual reason to prefer the connector?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Custom notebooks can't write Delta tables"
+        },
+        {
+          "id": "b",
+          "text": "More automation, with incremental ingestion built in"
+        },
+        {
+          "id": "c",
+          "text": "JDBC is never allowed"
+        },
+        {
+          "id": "d",
+          "text": "The connector is always free of compute cost"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Managed connectors are the most automated option and ingest only what changed; custom code trades automation for broader source support.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

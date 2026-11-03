@@ -1,5 +1,5 @@
 // Learn (Preview, LX-05): the lessons and labs that ship inside the app (learn_service.py), from the
-// approved mockup. Home, Paths, Labs and Best practices, and one module or lab open at a time: its
+// approved mockup. It opens from Academy > Practice (academy.js), which has its rail spot. Home, Paths, Labs and Best practices, and one module or lab open at a time: its
 // lesson, its exercises in a lab on this PC, Run, Check my answer and hints. Labs use data generated
 // here; they never read or write OneLake and never publish to Fabric.
 
@@ -691,7 +691,7 @@ async function learnReset(m) {
 registerFeature({
   id: "learn",
   preview: true,
-  rail: { label: "Learn", icon: "beaker", order: 80, bottom: true },
+  // Academy took Learn's rail spot (approved mockup, 2026-11-03); Learn opens from Academy > Practice.
   views: { learn: renderLearn },
   commands: [
     { label: "Open Learn", icon: "beaker", keywords: "learn lessons labs training practice tutorial", run: () => { learnPage.open = null; go("learn"); } },

@@ -553,6 +553,37 @@ def product_followers(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCon
     return _run(sqlDB, "product_followers", ctx, product_id=product_id)
 
 
+# ---- the change window (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def change_window(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "change_window")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, window: dict = None) -> dict:
+    return _run(sqlDB, "save_change_window", ctx, window=window)
+
+
+# ---- how each product is doing now (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_product_status(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_product_status")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def report_product_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, env: str,
+                          statuses: list) -> list:
+    return _run(sqlDB, "report_product_status", ctx, project=project, env=env, statuses=statuses)
+
+
 # ---- Entra ID groups per domain (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -878,7 +909,8 @@ def function_app() -> str:
             + _WRAPPERS)
 
 
-# The connection's item type as Fabric names it: SQL_Platform is a SQL database in Fabric ("SqlDbNative").
+# The connection's item type as Fabric names it, in the functions' bindings and in definition.json's
+# connectedDataSources: SQL_Platform is a SQL database in Fabric ("SqlDbNative").
 # Live run 3 (2026-11-03) was refused with an empty one: "Unsupported Argument: artifactType. Value: is
 # unsupported. Supported values are: Lakehouse, LakeWarehouse, MountedWarehouse, DataWarehouse, AzureSql,
 # SqlDbNative, MountedRelationalDatabase, Warehouse, Variables, EventDefinition".
@@ -922,7 +954,7 @@ def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.0.0/schema.json",
             "runtime": "PYTHON",
             "connectedDataSources": [{"alias": ALIAS, "artifactId": sql_database_id, "workspaceId": workspace_id,
-                                      "sourceType": "SqlDatabase"}],
+                                      "sourceType": SQL_ITEM_TYPE}],
             "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions]},
             indent=2),
         "resources/functions.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": functions}, indent=2),

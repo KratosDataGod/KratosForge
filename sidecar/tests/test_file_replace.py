@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,6 @@ PACKAGE = Path(__file__).resolve().parents[1] / "fabric_desktop"
 OWN = {
     "jsonfile.py": "the shared helper",
     "leases.py": "retries a shared lease file for longer (_while_shared)",
-    "notebook.py": "retries under the notebook's own write lock",
     "meta/snapshot.py": "moves a whole folder of release files into place",
 }
 
@@ -93,6 +93,26 @@ def test_a_local_data_project_is_on_disk_before_it_is_swapped_in(tmp_path, monke
     store = projects.ProjectStore(tmp_path)
     store._save_index({"p1": str(tmp_path / "p1")})
     assert events == ["fsync", "replace"] and store._index() == {"p1": str(tmp_path / "p1")}
+
+
+def test_a_notebook_save_waits_out_windows_refusing_the_swap(tmp_path, monkeypatch):
+    """A reader or a virus scanner holding the notebook for a moment doesn't fail the save."""
+    from fabric_desktop import notebook
+    target = tmp_path / "nb.ipynb"
+    target.write_text("old")
+    real, calls, waits = os.replace, [], []
+
+    def busy_twice(a, b):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        real(a, b)
+
+    monkeypatch.setattr(os, "replace", busy_twice)
+    monkeypatch.setattr(time, "sleep", waits.append)
+    notebook._write_atomic(target, "new")
+    assert target.read_text() == "new" and len(calls) == 3 and len(waits) == 2
+    assert [p.name for p in tmp_path.iterdir()] == ["nb.ipynb"]  # no temporary file left
 
 
 def test_a_notebook_save_is_on_disk_before_it_is_swapped_in(tmp_path, monkeypatch):

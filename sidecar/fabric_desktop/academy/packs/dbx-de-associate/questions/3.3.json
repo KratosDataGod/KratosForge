@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.3",
+  "questions": [
+    {
+      "id": "3.3-q1",
+      "type": "single",
+      "stem": "Which PySpark call renames column cust to customer_id?",
+      "options": [
+        {
+          "id": "a",
+          "text": "df.select(\"cust\" == \"customer_id\")"
+        },
+        {
+          "id": "b",
+          "text": "df.withColumnRenamed(\"cust\", \"customer_id\")"
+        },
+        {
+          "id": "c",
+          "text": "df.alias(\"customer_id\")"
+        },
+        {
+          "id": "d",
+          "text": "df.rename(\"cust\", \"customer_id\")"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "withColumnRenamed returns a DataFrame with the column renamed.",
+      "source": "https://docs.databricks.com/aws/en/getting-started/dataframes",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3-q2",
+      "type": "single",
+      "stem": "A column full_name holds 'First Last'. Which function splits it into an array of parts?",
+      "options": [
+        {
+          "id": "a",
+          "text": "F.explode(\"full_name\")"
+        },
+        {
+          "id": "b",
+          "text": "F.substring(\"full_name\")"
+        },
+        {
+          "id": "c",
+          "text": "F.split(\"full_name\", \" \")"
+        },
+        {
+          "id": "d",
+          "text": "F.concat(\"full_name\")"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "split splits a string around matches of a pattern and returns an array.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/functions/split",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3-q3",
+      "type": "single",
+      "stem": "Which SQL returns every column of notes except temp_notes?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT * MINUS temp_notes FROM notes"
+        },
+        {
+          "id": "b",
+          "text": "SELECT * FROM notes WHERE temp_notes IS NULL"
+        },
+        {
+          "id": "c",
+          "text": "DELETE temp_notes FROM notes"
+        },
+        {
+          "id": "d",
+          "text": "SELECT * EXCEPT (temp_notes) FROM notes"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A star clause can leave out columns with EXCEPT.",
+      "source": "https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-qry-star",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3-q4",
+      "type": "single",
+      "stem": "Which PySpark code keeps only orders over 100?",
+      "options": [
+        {
+          "id": "a",
+          "text": "df.select(F.col(\"amount\") > 100)"
+        },
+        {
+          "id": "b",
+          "text": "df.withColumn(\"amount\", 100)"
+        },
+        {
+          "id": "c",
+          "text": "df.drop(\"amount\" > 100)"
+        },
+        {
+          "id": "d",
+          "text": "df.filter(F.col(\"amount\") > 100)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "filter (or where) keeps rows that match the condition; select would return a boolean column.",
+      "source": "https://docs.databricks.com/aws/en/getting-started/dataframes",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.3-q5",
+      "type": "multiple",
+      "stem": "Which two PySpark operations change the number of rows? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "filter"
+        },
+        {
+          "id": "b",
+          "text": "orderBy"
+        },
+        {
+          "id": "c",
+          "text": "select"
+        },
+        {
+          "id": "d",
+          "text": "union"
+        },
+        {
+          "id": "e",
+          "text": "withColumnRenamed"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "filter keeps only matching rows and union adds the rows of another DataFrame. Renaming, selecting columns and sorting keep the same rows.",
+      "source": "https://docs.databricks.com/aws/en/getting-started/dataframes",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

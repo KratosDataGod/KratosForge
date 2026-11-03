@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.3.3",
+  "questions": [
+    {
+      "id": "2.3.3-q1",
+      "type": "single",
+      "stem": "What does trigger(availableNow=True) do in a Spark structured streaming query?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It processes all data available now, possibly in several batches, and then stops"
+        },
+        {
+          "id": "b",
+          "text": "It switches the query to continuous processing"
+        },
+        {
+          "id": "c",
+          "text": "It runs a micro-batch every second forever"
+        },
+        {
+          "id": "d",
+          "text": "It processes only the newest event"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "availableNow processes everything that has arrived since the last run and stops, which lets a scheduled job use streaming's checkpointing for incremental batch loads.",
+      "source": "https://learn.microsoft.com/en-us/azure/databricks/structured-streaming/triggers",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.3-q2",
+      "type": "single",
+      "stem": "A streaming query appends each new event as a row in a Delta table. Which output mode should it use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "snapshot"
+        },
+        {
+          "id": "b",
+          "text": "append"
+        },
+        {
+          "id": "c",
+          "text": "complete"
+        },
+        {
+          "id": "d",
+          "text": "overwrite"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "append writes only new rows. complete rewrites the whole result each trigger and is for aggregations.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.3-q3",
+      "type": "single",
+      "stem": "A streaming query that writes to a lakehouse table is stopped and later started again with the same checkpoint location. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It fails because the table already exists"
+        },
+        {
+          "id": "b",
+          "text": "It reprocesses the whole source from the beginning"
+        },
+        {
+          "id": "c",
+          "text": "It continues from where it stopped, without reprocessing committed data"
+        },
+        {
+          "id": "d",
+          "text": "It deletes the table and starts over"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The checkpoint records progress, so a restart picks up from the last committed point.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.3.3-q4",
+      "type": "multiple",
+      "stem": "Which two statements about Spark structured streaming with Delta tables are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "readStream returns all results at once as a pandas DataFrame"
+        },
+        {
+          "id": "b",
+          "text": "A Delta table can be the source of a streaming query"
+        },
+        {
+          "id": "c",
+          "text": "writeStream with toTable can write a stream into a lakehouse table"
+        },
+        {
+          "id": "d",
+          "text": "A streaming query can restart exactly where it stopped without a checkpoint"
+        },
+        {
+          "id": "e",
+          "text": "Streaming writes can only go to CSV files"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Delta tables work as streaming sources and sinks. Restarting where the query stopped depends on the checkpoint, and readStream returns a streaming DataFrame, not pandas.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-streaming-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

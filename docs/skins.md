@@ -55,7 +55,9 @@ platform's documentation, so a skin that has drifted can be found and reviewed.
 What a skin file can't do, because the check refuses it:
 
 - Hold anything but those keys. An unknown key is refused, not ignored.
-- Hold code, CSS text, links or images. A token value is a color like `#1b3664` and nothing else.
+- Hold code, CSS text or images, or load anything. A token value is a color like `#1b3664` and nothing
+  else, and text in a skin (its name, description and labels) is only ever shown as text: no link in it
+  is followed or loaded.
 - Set an engine, a connection, a credential, a permission or anything about a project. Those live
   elsewhere (Settings > Connections, the engine picker) and a skin can't reach them.
 - Make text unreadable. Text colors must reach 4.5:1 contrast on the surfaces they sit on.

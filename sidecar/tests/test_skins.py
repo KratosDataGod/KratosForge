@@ -59,7 +59,7 @@ def test_unknown_keys_inside_sections_are_refused():
     assert any(p.startswith("workflow has keys") for p in probs)
 
 
-@pytest.mark.parametrize("value", ["red", "url(https://example.com/x.png)", "#fff; background: url(x)", "var(--text)",
+@pytest.mark.parametrize("value", ["#fff\n", "#1b3664\n", "red", "url(https://example.com/x.png)", "#fff; background: url(x)", "var(--text)",
                                    "#12345", "expression(alert(1))", "", 7, None])
 def test_token_values_must_be_plain_colors(value):
     assert any("must be a color" in p for p in _problems(_skin(appearance={"tokens": {"light": {"--accent": value}}})))
@@ -82,7 +82,8 @@ def test_contrast_matches_wcag():
     assert round(skins.contrast("#767676", "#ffffff"), 2) == 4.54
 
 
-@pytest.mark.parametrize("name", ["<img src=x onerror=alert(1)>", "a{b}", "line\nbreak", "x" * 41, "", 5])
+@pytest.mark.parametrize("name", ["<img src=x onerror=alert(1)>", "a{b}", "line\nbreak", "x" * 41, "", 5,
+                                  "My \u202eniks", "a\u200bb"])
 def test_names_are_short_plain_text(name):
     assert any(p.startswith("name") for p in _problems(_skin(name=name)))
 
@@ -99,6 +100,25 @@ def test_ids_versions_schema_and_targets():
         assert any(p.startswith(start) for p in probs), start
 
 
+def test_ids_and_versions_refuse_a_trailing_newline():
+    probs = _problems(_skin(id="my-skin\n", version="1.0.0\n", workflow={"rail": ["home\n"], "labels": {"home\n": "Home"}}))
+    for start in ("id must", "version must", "workflow rail entries", "workflow labels key"):
+        assert any(p.startswith(start) for p in probs), start
+    assert any(p.startswith("version must") for p in _problems(_skin(version="\u0661.0.0")))  # Arabic-Indic digit
+
+
+def test_labels_refuse_text_direction_marks():
+    assert any("invisible formatting" in p for p in _problems(_skin(workflow={"labels": {"home": "\u202eemoH"}})))
+
+
+def test_a_mode_without_built_in_colors_must_set_both_sides_of_a_pair():
+    # No built-in dark colors yet, so a dark --text alone has nothing to be checked against.
+    probs = _problems(_skin(appearance={"tokens": {"dark": {"--text": "#ffffff"}}}))
+    assert any("dark sets --text, so it must also set --surface" in p for p in probs)
+    probs = _problems(_skin(appearance={"tokens": {"dark": {"--text": "#333333", "--surface": "#222222"}}}))
+    assert any("--text on --surface has contrast" in p for p in probs)
+
+
 def test_a_dark_skin_needs_dark_tokens():
     assert any("needs dark tokens" in p for p in _problems(_skin(appearance={"color_mode": "dark"})))
 
@@ -110,6 +130,8 @@ def test_files_are_capped_and_must_be_json():
         skins.parse("not json")
     with pytest.raises(skins.SkinError, match="JSON object"):
         skins.parse("[]")
+    with pytest.raises(skins.SkinError, match="nests too deeply"):
+        skins.parse("[" * (skins.MAX_BYTES - 1))
     assert skins.parse("﻿" + json.dumps(skins.KRATOSFORGE))["id"] == "kratosforge"
 
 
@@ -122,5 +144,7 @@ def test_skin_settings(tmp_path, monkeypatch):
     assert (saved["ui_skin"]["value"], saved["ui_color_mode"]["value"]) == ("my-skin", "dark")
     with pytest.raises(ValueError, match="ui_skin must be a skin id"):
         app_settings.save({"ui_skin": "../../evil"})
+    with pytest.raises(ValueError, match="ui_skin must be a skin id"):
+        app_settings.save({"ui_skin": "kratosforge\n"})
     with pytest.raises(ValueError, match="ui_color_mode must be one of"):
         app_settings.save({"ui_color_mode": "sepia"})

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import date
 from typing import Any
 
@@ -53,10 +54,11 @@ CONTRAST_PAIRS = (("--text", "--surface"), ("--text-2", "--surface"), ("--muted"
                   ("--on-accent", "--accent"), ("--danger", "--surface"))
 CONTRAST_MIN = 4.5
 
-_ID = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
-_PAGE = re.compile(r"^[a-z][A-Za-z0-9]{0,39}$")
-_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
-_VERSION = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
+# Used with fullmatch: "$" would also let a trailing newline through.
+_ID = re.compile(r"[a-z][a-z0-9-]{1,39}")
+_PAGE = re.compile(r"[a-z][A-Za-z0-9]{0,39}")
+_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
+_VERSION = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,4}", re.ASCII)
 _TEXT_BAD = re.compile(r"[\x00-\x1f\x7f<>{}\\]")
 
 KEYS = {"schema", "id", "name", "version", "description", "targets", "appearance", "workflow"}
@@ -81,6 +83,8 @@ def _text(value: Any, where: str, limit: int, problems: list[str]) -> None:
         problems.append(f"{where} is longer than {limit} characters")
     elif _TEXT_BAD.search(value):
         problems.append(f"{where} can't hold control characters, < > {{ }} or \\")
+    elif any(unicodedata.category(c) == "Cf" for c in value):
+        problems.append(f"{where} can't hold invisible formatting characters such as text-direction marks")
 
 
 def _unknown(obj: dict[str, Any], allowed: set[str], where: str, problems: list[str]) -> None:
@@ -111,12 +115,15 @@ def _tokens(tokens: Any, where: str, problems: list[str], base: dict[str, str]) 
     for name, value in tokens.items():
         if name not in TOKENS:
             problems.append(f"{where} names {name!r}, which isn't a token a skin can set")
-        elif not isinstance(value, str) or not _COLOR.match(value):
+        elif not isinstance(value, str) or not _COLOR.fullmatch(value):
             problems.append(f"{where} {name} must be a color like #1b3664")
-    good = {k: v for k, v in tokens.items() if k in TOKENS and isinstance(v, str) and _COLOR.match(v)}
+    good = {k: v for k, v in tokens.items() if k in TOKENS and isinstance(v, str) and _COLOR.fullmatch(v)}
     full = {**base, **good}
     for fg, bg in CONTRAST_PAIRS:
-        if (fg in good or bg in good) and fg in full and bg in full:
+        if (fg in good or bg in good) and not (fg in full and bg in full):
+            # Nothing to check it against (no built-in colors for this mode yet): the skin sets both.
+            problems.append(f"{where} sets {fg if fg in good else bg}, so it must also set {bg if fg in good else fg}")
+        elif fg in good or bg in good:
             ratio = contrast(full[fg], full[bg])
             if ratio < CONTRAST_MIN:
                 problems.append(f"{where} {fg} on {bg} has contrast {ratio:.2f}:1; it needs {CONTRAST_MIN}:1 to be readable")
@@ -131,10 +138,10 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
     _unknown(manifest, KEYS, "The skin", problems)
     if manifest.get("schema") != SCHEMA:
         problems.append(f"schema must be {SCHEMA!r}")
-    if not isinstance(manifest.get("id"), str) or not _ID.match(manifest["id"]):
+    if not isinstance(manifest.get("id"), str) or not _ID.fullmatch(manifest["id"]):
         problems.append("id must be 2 to 40 lower-case letters, digits or hyphens, starting with a letter")
     _text(manifest.get("name"), "name", 40, problems)
-    if not isinstance(manifest.get("version"), str) or not _VERSION.match(manifest["version"]):
+    if not isinstance(manifest.get("version"), str) or not _VERSION.fullmatch(manifest["version"]):
         problems.append("version must look like 1.0.0")
     if "description" in manifest:
         _text(manifest["description"], "description", 200, problems)
@@ -187,7 +194,7 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
     if not isinstance(rail, list) or len(rail) > MAX_RAIL:
         problems.append(f"workflow rail must be a list of at most {MAX_RAIL} page ids")
         rail = []
-    bad = [p for p in rail if not isinstance(p, str) or not _PAGE.match(p)]
+    bad = [p for p in rail if not isinstance(p, str) or not _PAGE.fullmatch(p)]
     if bad:
         problems.append("workflow rail entries must be page ids like home or workspaces")
     if len(set(map(str, rail))) != len(rail):
@@ -197,7 +204,7 @@ def validate(manifest: Any, base: dict[str, dict[str, str]] | None = None) -> di
         problems.append(f"workflow labels must be an object of at most {MAX_RAIL} page id: label")
         labels = {}
     for page, label in labels.items():
-        if not _PAGE.match(str(page)):
+        if not _PAGE.fullmatch(str(page)):
             problems.append(f"workflow labels key {page!r} isn't a page id")
         _text(label, f"workflow labels {page}", 24, problems)
 
@@ -215,6 +222,8 @@ def parse(text: str | bytes, base: dict[str, dict[str, str]] | None = None) -> d
         data = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise SkinError([f"the file isn't JSON ({exc})"]) from None
+    except RecursionError:
+        raise SkinError(["the file isn't a skin (it nests too deeply)"]) from None
     return validate(data, base)
 
 

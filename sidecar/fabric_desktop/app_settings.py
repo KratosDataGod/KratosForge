@@ -580,7 +580,7 @@ def _in_range(key: str, value: Any) -> bool:
 
 def _skin_id(value: Any) -> bool:
     from .skins import _ID
-    return isinstance(value, str) and bool(_ID.match(value))
+    return isinstance(value, str) and bool(_ID.fullmatch(value))
 
 
 def _telemetry_target(text: str) -> bool:

@@ -868,7 +868,7 @@ function advancedSection(s, locked, limitRow) {
       "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
       [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
     s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared. A new process already uses about 0.8 GB on Windows before any cell runs.",
       [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
     s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
       "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",

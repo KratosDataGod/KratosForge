@@ -301,6 +301,9 @@ test("the incident alerts dialog sends the address and choice picked; Cancel sen
   await dialog().getByText("Type the new address, or use Turn off.").waitFor();
   assert.deepStrictEqual(writes(from2), [], "an empty Save sends nothing");
   await dialog().getByRole("button", { name: "Turn off" }).click();
+  await page().locator('#dialog-root .dialog[aria-label="Turn off incident alerts?"]').waitFor();
+  assert.deepStrictEqual(writes(from2), [], "Turn off asks first");
+  await dialog().getByRole("button", { name: "Turn off" }).click();
   await toast().filter({ hasText: "Alerts are off" }).waitFor();
   assert.deepStrictEqual(writes(from2), [{ method: "meta_set_alerts", params: { teams_webhook: "", test: false } }]);
 });

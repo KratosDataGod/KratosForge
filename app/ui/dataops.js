@@ -518,12 +518,15 @@ function alertsLine() {
 async function alertsDialog() {
   // The saved address never comes back (it works like a password): only whether one is set, its kind
   // and a label (the host, or how many people). Typing a new one replaces it.
-  const cur = await rpc("meta_alerts", {}).catch(() => ({ set: false }));
+  const cur = await rpc("meta_alerts", {}).catch(() => ({ set: false, failed: true }));
   const url = h("input", { value: "", placeholder: "https://... or flow:https://... or mailto:oncall@contoso.com", spellcheck: "false" });
   const where = (kind) => ({ flow: "the flow", email: "email" }[kind] || "Teams");
   const save = async (test, off = false) => {
     const typed = url.value.trim();
     if (!off && !typed) { incRequired(url, cur.set ? "Type the new address, or use Turn off." : "Type where alerts go."); return; }
+    // The saved address can't be shown again, so turning off asks first.
+    if (off && !(await confirmDialog("Turn off incident alerts?",
+      "The saved address is removed from this PC. To turn alerts back on, paste the address again.", "Turn off", { danger: true }))) return;
     const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: off ? "" : typed, test }), test ? "Test message not sent" : "Not saved");
     if (!res) return;
     fresh.alerts = !!res.set;
@@ -538,6 +541,7 @@ async function alertsDialog() {
       h("li", {}, "A Power Automate flow: flow: and then the flow's HTTP trigger address. The flow gets the title and lines and sends them on."),
       h("li", {}, "Email: mailto: and then up to 20 addresses separated by ;. Sent through the company mail server set in Settings > Notifications.")),
     cur.unreadable ? h("p", { class: "wrn-text small" }, ALERTS_UNREADABLE) : null,
+    cur.failed ? h("p", { class: "wrn-text small" }, "Couldn't read whether alerts are set. Saving a new address replaces any saved one.") : null,
     cur.set ? h("p", { class: "muted-text small" }, `Now: ${where(cur.kind)}${cur.label ? `, ${cur.label}` : ""}. The address stays hidden; type a new one to replace it.`) : null,
     h("label", { class: "field" }, cur.set ? "New address" : "Where alerts go", url),
     h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message that doesn't go through is sent with the next check.")),

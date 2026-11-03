@@ -315,3 +315,26 @@ def test_a_refused_table_fails_its_checks_in_words(tmp_path):
                                lambda work, code: tampering(work, code) if work.name == "answer" else plain(work, code))
     assert not result["passed"]
     assert any("checkpoint" in r["detail"] for r in result["results"])
+
+
+def test_a_failure_on_hidden_data_never_echoes_the_learners_error():
+    leak = ("rows = spark.read.table('bronze.orders').collect()\n"
+            "if len(rows) != 13:   # the practice data has 13 rows, the hidden data doesn't\n"
+            "    raise Exception('LEAK ' + repr(rows))\n")
+    ref = pyspark_lab.reference(PACK, "E19")
+    result = _learner_grade(leak + ref["solution"])
+    hidden = [r for c, r in zip(exercises.get(PACK, "E19")["validation"], result["results"], strict=True)
+              if c.get("data") == "hidden"]
+    assert hidden and all(r["detail"] == pyspark_lab.HIDDEN_FAILED for r in hidden)
+    assert not any("LEAK" in r["detail"] for r in result["results"])
+
+
+def test_a_table_too_big_to_read_back_is_refused(monkeypatch, tmp_path):
+    _bronze(tmp_path)
+    monkeypatch.setattr(pyspark_lab, "MAX_TABLE_BYTES", 100)
+    with pytest.raises(ws.Refused, match="bigger than"):
+        pyspark_lab._rows(tmp_path, "bronze.orders")
+    monkeypatch.setattr(pyspark_lab, "MAX_TABLE_BYTES", 256 * 1024 * 1024)
+    monkeypatch.setattr(pyspark_lab, "MAX_TABLE_ROWS", 5)
+    with pytest.raises(ws.Refused, match="more than 5 rows"):
+        pyspark_lab._rows(tmp_path, "bronze.orders")

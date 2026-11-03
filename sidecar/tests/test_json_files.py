@@ -367,3 +367,19 @@ def test_only_the_newest_set_aside_copies_are_kept(tmp_path):
     assert not old[0].exists() and not old[0].with_name(old[0].name + "-wal").exists()
     assert old[3].with_name(old[3].name + "-wal").exists()
     assert kept_by_hand.exists() and other.exists() and dest.read_text() == "damaged"
+
+
+def test_the_copy_just_made_is_kept_even_if_the_clock_stepped_back(tmp_path, monkeypatch):
+    path = tmp_path / "store.sqlite"
+    for i in range(1, 8):
+        (tmp_path / f"store.sqlite.corrupt-2026010{i}T000000000000Z").write_text("x")
+    path.write_text("damaged")
+
+    class Past(jsonfile.dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return jsonfile.dt.datetime(2025, 1, 1, tzinfo=tz)
+    monkeypatch.setattr(jsonfile.dt, "datetime", Past)
+    dest = jsonfile.set_aside(path)
+    assert dest.read_text() == "damaged"
+    assert len([p for p in tmp_path.glob("store.sqlite.corrupt-*")]) == jsonfile.KEEP_SET_ASIDE

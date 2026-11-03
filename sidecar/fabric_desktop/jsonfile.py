@@ -90,16 +90,17 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     else:
         os.replace(path, dest)
     _log.warning("%s could not be read and was %s to %s; %s.", path, "copied" if keep else "moved", dest.name, then)
-    _prune_set_aside(path)
+    _prune_set_aside(path, dest)
     return dest
 
 
-def _prune_set_aside(path: Path) -> None:
+def _prune_set_aside(path: Path, dest: Path) -> None:
     """Remove all but the KEEP_SET_ASIDE newest ``<name>.corrupt-<timestamp>`` copies of ``path``, each
-    with its -wal and -shm. A copy renamed by hand doesn't match the pattern and is never removed."""
+    with its -wal and -shm. ``dest``, the copy just made, is always kept, even if the clock stepped back
+    and its stamp sorts first; a copy renamed by hand doesn't match the pattern and is never removed."""
     own = re.compile(re.escape(path.name) + r"\.corrupt-\d{8}T\d{12}Z")
-    copies = sorted(p for p in path.parent.glob(f"{path.name}.corrupt-*") if own.fullmatch(p.name))
-    for old in copies[:-KEEP_SET_ASIDE]:
+    copies = sorted(p for p in path.parent.glob(f"{path.name}.corrupt-*") if own.fullmatch(p.name) and p != dest)
+    for old in copies[:-(KEEP_SET_ASIDE - 1) or None]:
         for victim in (old, old.with_name(old.name + "-wal"), old.with_name(old.name + "-shm")):
             try:
                 victim.unlink(missing_ok=True)

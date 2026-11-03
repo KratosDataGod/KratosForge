@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import deltalake
+import duckdb
 import pyarrow as pa
 from duckdb.experimental.spark.context import SparkContext
 from duckdb.experimental.spark.sql import dataframe as _dataframe
@@ -29,7 +30,7 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
 from .. import spark_compat
-from ..duckdb_rows import keep_try_cast
+from ..duckdb_rows import duckdb_major
 
 TABLES = "tables"
 MODES = {"error": "error", "errorifexists": "error", "overwrite": "overwrite", "append": "append", "ignore": "ignore",
@@ -121,16 +122,43 @@ class Reader:
         path = table_path(self._s.work, name)
         if not (path / "_delta_log").is_dir():
             raise ValueError(f"There's no table {name}")
-        data = deltalake.DeltaTable(str(path)).to_pyarrow_table()
+        data = read_delta(path)
         return DataFrame(self._s.conn.from_arrow(data), self._s)
+
+
+def _settings() -> dict[str, str | bool | int | float | list[str]]:
+    """The session's DuckDB settings, given when it connects: the learner process locks every
+    connection's settings as it opens (academy/sandbox.py), so none can be SET afterwards."""
+    out: dict[str, str | bool | int | float | list[str]] = {"default_null_order": "nulls_first_on_asc_last_on_desc",   # Spark's NULL order, as SparkContext sets it
+           "TimeZone": "UTC"}
+    if duckdb_major() >= 2:
+        out["disabled_optimizers"] = "type_pushdown"   # as duckdb_rows.keep_try_cast
+    return out
+
+
+class _Context(SparkContext):
+    def __init__(self, master: str) -> None:  # noqa: ARG002 - SparkContext's signature
+        settings = _settings()
+        try:
+            self._connection = duckdb.connect(":memory:", config=settings)
+        except duckdb.InvalidInputException:
+            # No ICU extension (the learner process can't load one): DuckDB then has no time zones,
+            # so a TIMESTAMP WITH TIME ZONE is already read as UTC and the setting is left out.
+            settings.pop("TimeZone")
+            self._connection = duckdb.connect(":memory:", config=settings)
+
+
+def read_delta(path: Path) -> pa.Table:
+    """A Delta table's current rows, read by delta-rs itself (DataFusion), not through a pyarrow file
+    system: the learner process refuses pyarrow's PyFileSystem, which to_pyarrow_table uses."""
+    query = deltalake.QueryBuilder().register("t", deltalake.DeltaTable(str(path)))
+    return query.execute("SELECT * FROM t").read_all()
 
 
 class AcademySession(SparkSession):
     def __init__(self, work: Path) -> None:
-        super().__init__(SparkContext("local"))
+        super().__init__(_Context("local"))
         self.work = Path(work)
-        self.conn.execute("SET TimeZone = 'UTC'")
-        keep_try_cast(self.conn)
 
     @property
     def read(self) -> Reader:  # type: ignore[override]  # the exercise's reader, not DuckDB's

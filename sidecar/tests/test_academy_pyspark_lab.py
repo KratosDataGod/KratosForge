@@ -184,3 +184,23 @@ def test_prepare_writes_one_delta_table_per_setup_table(tmp_path):
     names = pyspark_lab.prepare(tmp_path, exercises.file_text(PACK, "E19", "setup.sql"))
     assert names == ["bronze.orders"]
     assert deltalake.DeltaTable(str(pyspark_shim.table_path(tmp_path, "bronze.orders"))).to_pyarrow_table().num_rows == 13
+
+
+def test_the_session_sets_nothing_after_it_connects(monkeypatch, tmp_path):
+    """The learner process locks each DuckDB connection's settings as it opens (academy/sandbox.py), so
+    the session's settings go in at connect time and a table is read without a pyarrow file system."""
+    import duckdb
+
+    from fabric_desktop.academy import pyspark_shim
+    connect = duckdb.connect
+
+    def locked(database=":memory:", *args, **kwargs):
+        con = connect(database, *args, **kwargs)
+        con.execute("SET lock_configuration = true")
+        return con
+
+    pyspark_lab.prepare(tmp_path, "CREATE SCHEMA bronze; CREATE TABLE bronze.t AS SELECT 1 AS x")
+    monkeypatch.setattr(duckdb, "connect", locked)
+    spark = pyspark_shim.AcademySession(tmp_path)
+    assert spark.read.table("bronze.t").collect()[0][0] == 1
+    assert spark.conn.execute("SELECT current_setting('default_null_order')").fetchone()[0].lower() == "nulls_first_on_asc_last_on_desc"

@@ -149,6 +149,7 @@ nav = [
         { "Delivery plan" = "academy/databricks/delivery-plan.md" },
         { "Verification" = "academy/databricks/verification.md" },
       ] },
+      { "Assessments" = "academy/assessments.md" },
     ] },
     { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
     { "Enterprise backlog" = "product/enterprise-backlog.md" },

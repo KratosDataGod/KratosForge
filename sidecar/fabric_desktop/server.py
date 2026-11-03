@@ -154,6 +154,11 @@ from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
 
 METHODS |= LEARN_METHODS
 
+# Academy > Assessments (Preview): practice exams, diagnostics and drills on this PC (academy_exam_service.py).
+from .academy_exam_service import METHODS as ACADEMY_EXAM_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_EXAM_METHODS
+
 # Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
 from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402
 

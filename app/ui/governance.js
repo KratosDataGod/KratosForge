@@ -94,7 +94,10 @@ function changeWindowCard(admin) {
   const card = h("div", { class: "card pad change-window" }, h("b", {}, "Change window"), loading());
   const draw = async () => {
     let res;
-    try { res = await rpc("platform_change_window", {}); } catch (err) { res = { available: false, problem: friendlyError(err).text }; }
+    try { res = await rpc("platform_change_window", {}); } catch (err) {
+      if (card.isConnected) card.replaceChildren(h("b", {}, "Change window"), errorPanel(err, { label: "Couldn't read the change window", retry: draw }));
+      return;
+    }
     if (!card.isConnected) return;
     const w = res.window;
     card.replaceChildren(h("div", { class: "row tight" }, h("b", { class: "grow" }, "Change window"), previewTag(),
@@ -110,7 +113,8 @@ function changeWindowCard(admin) {
 function changeWindowDialog(w, done) {
   const cur = w || { days: ["mon", "tue", "wed", "thu"], start: "08:00", end: "16:00", envs: ["prod"],
     time_zone: (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") };
-  const boxes = CW_DAYS.map(([k, label]) => ({ k, box: h("input", { type: "checkbox", checked: cur.days.includes(k) ? true : null, "aria-label": label }), label }));
+  const boxes = CW_DAYS.map(([k, label]) => ({ k, box: h("input", { type: "checkbox", checked: cur.days.includes(k) ? true : null }), label }));
+  const problem = h("p", { class: "error-text small cw-problem", role: "alert" });
   const start = h("input", { type: "time", value: cur.start });
   const end = h("input", { type: "time", value: cur.end });
   const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
@@ -121,14 +125,21 @@ function changeWindowDialog(w, done) {
   if (!envChoices.some(([v]) => v === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ({ test: "Test", prod: "Prod" }[e])).join(" and ")]);
   const envs = h("select", {}, envChoices.map(([v, t]) => h("option", { value: v, selected: curEnvs === v ? true : null }, t)));
   const save = async (window) => {
+    if (window) {
+      const wrong = !window.days.length ? "Tick at least one day." : !window.start || !window.end || window.end <= window.start
+        ? "Until must be later than From, on the same day." : !window.time_zone ? "Give a time zone, like Europe/London." : "";
+      problem.textContent = wrong;
+      if (wrong) return;
+    }
     if (await metaCall("platform_save_change_window", { window }, "Not saved")) { closeDialog(); toast(window ? "Change window saved" : "Change window cleared"); done(); }
   };
-  showDialog(w ? "Change the change window" : "Set a change window", h("div", { class: "scroll" },
-    h("div", { class: "field" }, "Days", h("div", { class: "row tight cw-days" }, boxes.map((b) => h("label", { class: "check" }, b.box, b.label)))),
+  showDialog(w ? "Edit the change window" : "Set a change window", h("div", { class: "scroll" },
+    h("fieldset", { class: "cw-days-set" }, h("legend", {}, "Days"), h("div", { class: "row tight cw-days" }, boxes.map((b) => h("label", { class: "check" }, b.box, b.label)))),
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "From", start), h("label", { class: "field" }, "Until", end),
       h("label", { class: "field" }, "Time zone", zone), h("label", { class: "field" }, "Applies to", envs)),
     h("datalist", { id: "cw-zones" }, zones.map((z) => h("option", { value: z }))),
-    h("p", { class: "muted-text small" }, "Times are on the same day, from before until. The window is judged in its time zone, so every PC agrees.")), [
+    h("p", { class: "muted-text small" }, "From and Until are on the same day, and Until must be later. The window uses its own time zone, so every PC agrees."),
+    problem), [
     w ? btn("Clear", null, async () => {
       if (await confirmDialog("Clear the change window?", "Promotes get no change window warning until an admin sets one again.", "Clear", { danger: true })) save(null);
     }, "tool outline") : null,

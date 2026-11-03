@@ -238,7 +238,8 @@ class IncidentMixin:
             if isinstance(exc, (LookupError, PermissionError)) or "report_product_status" in text \
                     or "no operation" in text or "members or a platform admin" in text or "has no owner yet" in text:
                 refused.add((name, env))
-            _log.info("The platform won't take %s's product status in %s; not asking again: %s", name, env, describe(exc))
+            _log.info("The platform won't take %s's product status in %s; %s: %s", name, env,
+                      "not asking again this session" if (name, env) in refused else "trying again next check", describe(exc))
             return
         except Exception as exc:  # noqa: BLE001 - readers keep the last status; the next check tries again
             _log.info("Couldn't report %s's product status in %s: %s", name, env, describe(exc))

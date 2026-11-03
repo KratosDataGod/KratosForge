@@ -1515,6 +1515,8 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   assert.match(how, /each asks first/);
   assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
   assert.match(xray, /function xrayShared\(shared\)/);
+  // PR-OPT-006: findings that couldn't reach the lakehouse wait on this PC, and the note says so, not "weren't added".
+  assert.match(xray, /if \(shared\.queued\)[\s\S]*?wait"\} on this PC\. They're added with the next scan, or when you connect to it again/);
   assert.match(how, /anyone who can read that lakehouse can read them/);
   assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");

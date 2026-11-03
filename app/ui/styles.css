@@ -201,7 +201,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cell.selected:not(.markdown) .cell-box, .cell.markdown.selected .cell-box { box-shadow: inset 3px 0 0 var(--accent); }
 .cells.editing .cell.selected .cell-box { box-shadow: inset 3px 0 0 var(--brand-orange); }
 .cell.frozen .cell-box { background: #fafafa; }
-.cell-head { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
+.cell-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px 3px 10px; min-height: 30px; border-bottom: 1px solid var(--border-soft); visibility: hidden; }
 .cell:hover .cell-head, .cell.selected .cell-head, .cell-head:has(.tag) { visibility: visible; }
 .cell.markdown:not(.selected):not(:hover) .cell-head { display: none; }
 .cell-head .spacer { flex: 1; }

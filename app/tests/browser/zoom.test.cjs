@@ -90,6 +90,11 @@ const PAGES = async (page) => {
   return [
     ...rail.map((r) => ({ id: r.id, open: (p) => p.evaluate((v) => go(v), r.view) })),
     { id: "notebook", open: (p) => p.evaluate(([cells, lh]) => { loadIntoState({ name: "Daily sales", cells, lakehouse: lh }); go("notebook"); }, [CELLS, LH]) },
+    // A selected code cell shows its whole toolbar, the widest cell head (Delete cell was cut off in CI).
+    { id: "notebook-code-cell", open: async (p) => {
+      await p.evaluate(([cells, lh]) => { loadIntoState({ name: "Daily sales", cells, lakehouse: lh }); go("notebook"); }, [CELLS, LH]);
+      await p.click(".cell.code .cm-content");
+    } },
     { id: "sql", open: (p) => p.evaluate((lh) => openSqlQuery(lh), LH) },
     // With a project open, Data mesh adds its environment picker and where it runs to the top bar.
     { id: "metadata-project", open: (p) => p.evaluate(() => {

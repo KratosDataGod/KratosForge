@@ -265,22 +265,52 @@ def _wrap_native(work):
                "open_input_stream", "open_input_file", "open_output_stream", "open_append_stream", "normalize_path")
         members = {n: _checked_method(n, 2 if n in two else 1) for n in one + two if hasattr(_local, n)}
         members["delete_root_dir_contents"] = _refused("pyarrow.fs delete_root_dir_contents")
+        _base = pa_fs.FileSystem
+
+        def from_uri(uri):
+            """A plain path in the workspace only; a local file system comes back checked."""
+            check(uri, "a pyarrow file")
+            fs, path = _base.from_uri(uri)
+            return (checked_local() if isinstance(fs, _local) else fs), path
+
+        members["from_uri"] = staticmethod(from_uri)
         checked_local = type("LocalFileSystem", (_local,), members)
 
+        class _FileSystemMeta(type):   # isinstance and issubclass still answer for the real base class
+            def __instancecheck__(cls, obj):
+                return isinstance(obj, _base)
+
+            def __subclasscheck__(cls, sub):
+                return issubclass(sub, _base)
+
+        checked_base = _FileSystemMeta("FileSystem", (), {"from_uri": staticmethod(from_uri)})
         for name in dir(pa_fs):
             if name.endswith("FileSystem") and name not in ("FileSystem", "LocalFileSystem"):
                 setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}; read and write files by their names"))
-        pa_fs.LocalFileSystem = checked_local
+        # pyarrow._fs (where the classes live) and every pyarrow module that imported them by name
+        # get the checked ones; pyarrow's native code holds its own references and isn't affected.
+        types = {id(_local): checked_local, id(_base): checked_base}
+        for modname, mod in list(sys.modules.items()):
+            if mod is not None and (modname == "pyarrow" or modname.startswith("pyarrow.")):
+                for name, value in list(vars(mod).items()):
+                    if id(value) in types and isinstance(value, type):
+                        try:
+                            setattr(mod, name, types[id(value)])
+                        except (AttributeError, TypeError):
+                            pass
         for name in ("resolve_s3_region", "initialize_s3", "copy_files"):
             if hasattr(pa_fs, name):
                 setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}"))
     pa = maybe("pyarrow")
     if pa is not None:
+        lib = sys.modules.get("pyarrow.lib")
         for name in ("OSFile", "memory_map", "create_memory_map", "input_stream", "output_stream"):
             fn = getattr(pa, name, None)
             if fn is not None:
                 wrapped = guard(fn, "a pyarrow file")
                 setattr(pa, name, wrapped)
+                if lib is not None and getattr(lib, name, None) is fn:
+                    setattr(lib, name, wrapped)   # pyarrow.lib.OSFile is a class, so rewire skips it
                 swapped[id(fn)] = wrapped
     pd = maybe("pandas")
     if pd is not None:

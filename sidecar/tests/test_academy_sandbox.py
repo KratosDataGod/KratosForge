@@ -141,6 +141,14 @@ def test_python_sockets_are_refused(lab: tuple[Path, Path], code: str) -> None:
     "import pyarrow as pa; pa.create_memory_map({outside!r}, 10)",
     "import polars.io.csv.functions as f; f.read_csv('https://example.com/x.csv')",
     "import polars as pl, polars.io.parquet.functions as f; f.read_parquet({outside!r})",
+    "import pyarrow.fs as fs; fs.FileSystem.from_uri({outside!r})[0].open_output_stream({outside!r})",
+    "import pyarrow.fs as fs; fs.FileSystem.from_uri('file://' + {outside_posix!r})",
+    "import pyarrow.fs as fs; fs.LocalFileSystem.from_uri({outside!r})",
+    "import pyarrow._fs as f; f.LocalFileSystem().open_output_stream({outside!r})",
+    "import pyarrow._fs as f; f.FileSystem.from_uri({outside!r})",
+    "import pyarrow.lib as lib; lib.OSFile({outside!r}, 'w').write(b'x')",
+    "import pyarrow.lib as lib; lib.output_stream({outside!r}).write(b'x')",
+    "import pyarrow.parquet.core as core; core.LocalFileSystem().open_output_stream({outside!r})",
 ])
 def test_native_readers_and_writers_refuse_urls_and_outside_paths(lab: tuple[Path, Path], tmp_path: Path, code: str) -> None:
     outside = tmp_path / "native-out.parquet"
@@ -278,6 +286,34 @@ def test_windows_job_can_only_be_queried_by_name() -> None:
         k.CloseHandle(query)
     finally:
         job.close()
+
+
+def test_pyarrow_still_reads_and_writes_in_the_workspace(lab: tuple[Path, Path]) -> None:
+    pytest.importorskip("pyarrow")
+    code = ("import pyarrow as pa, pyarrow.parquet as pq, pyarrow.fs as fs, os\n"
+            "pq.write_table(pa.table({'a': [1, 2]}), 'new.parquet')\n"
+            "local, path = fs.FileSystem.from_uri(os.path.abspath('new.parquet'))\n"
+            "assert isinstance(local, fs.FileSystem) and isinstance(local, fs.LocalFileSystem)\n"
+            "assert issubclass(fs.LocalFileSystem, fs.FileSystem)\n"
+            "print(pq.read_table('new.parquet').num_rows, local.get_file_info(path).size > 0)\n")
+    res = run(lab, code)
+    assert res["status"] == "ok", res["stderr"]
+    assert res["stdout"].split() == ["2", "True"]
+
+
+def test_the_command_line_stays_short(lab: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    root, work = lab
+    (work / "answer.py").write_text("print(1)")
+    seen: list[list[str]] = []
+
+    def capture(argv, *_a, **_k):
+        seen.append(argv)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sandbox, "_start", capture)
+    with pytest.raises(RuntimeError):
+        sandbox.run(work, "answer.py", root)
+    assert len(" ".join(seen[0])) < 8_000 and "def _main" not in " ".join(seen[0])   # Windows' limit is 32,767
 
 
 def test_a_linked_temp_folder_is_refused(lab: tuple[Path, Path], tmp_path: Path) -> None:

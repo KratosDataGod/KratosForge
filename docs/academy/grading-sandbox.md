@@ -117,12 +117,15 @@ How each Security condition is met:
 1. **Job before code.** On Windows the process starts with `CREATE_SUSPENDED`, goes into a Job
    Object (one active process, job memory, job CPU time, kill on close, die on unhandled
    exception, no breakaway flags), and is resumed only then (`NtResumeProcess`). The bootstrap
-   also checks `IsProcessInJob` and exits with code 3 before reading the script if it isn't in
-   one. Tests: a child process fails as the first statement with plain Python and no hook; the
+   asks Windows whether the process is in that job by its handle, and the bootstrap opens the
+   job by its random name and checks the same, exiting with code 3 before reading the script if
+   it isn't (a job the engine itself runs in, like a CI runner's, doesn't count). Others can only
+   query the job by name: its access rules grant nothing else. Tests: a child process fails as the first statement with plain Python and no hook; the
    bootstrap won't run outside a job. On Linux (CI only), the process gets its own session and
    `RLIMIT_DATA`, `RLIMIT_CPU`, `RLIMIT_FSIZE`, `RLIMIT_NOFILE` and no core file.
-2. **No engine imports, no grading reads.** The interpreter runs as `python -I -c <bootstrap>`,
-   so the script's folder is never on `sys.path`. A meta path finder and the `import` audit event
+2. **No engine imports, no grading reads.** The interpreter runs as `python -I -c`, with a short
+   line that reads `_bootstrap.py` from the install folder (a whole bootstrap on the command line
+   would near Windows' 32,767-character limit), so the script's folder is never on `sys.path`. A meta path finder and the `import` audit event
    refuse `fabric_desktop`, `msal`, `msal_extensions`, `pymsalruntime`, `azure`, `keyring`,
    `win32cred`, `mssql_python` and `mcp`. Reads and listings under the `fabric_desktop` package
    (which holds `grading/`), under those packages, and under the data folder outside the workspace
@@ -137,7 +140,9 @@ How each Security condition is met:
    `pyarrow.OSFile`, `memory_map`, `create_memory_map`, `input_stream` and `output_stream` check
    their path. `pyarrow.fs.LocalFileSystem` is a subclass whose path methods check every path
    (`SubTreeFileSystem` can't confine a file system, since it lets `..` through), and every other
-   pyarrow file system is refused. If DuckDB's default connection can't be locked, its
+   pyarrow file system is refused. `FileSystem.from_uri` takes only a checked path and hands back
+   the checked local file system. The same replacements are made in `pyarrow._fs`, `pyarrow.lib`
+   and every pyarrow module that imported these names. If DuckDB's default connection can't be locked, its
    module-level functions are refused (fail closed). These
    libraries are imported before the audit hook starts, because some (Polars, pyarrow) load
    native code through ctypes, which the hook then refuses. Learner code that deliberately
@@ -161,6 +166,11 @@ Also:
 - `lib_roots`: read-only folders put first on `sys.path`, for learner libraries the engine builds
   (the Databricks path's generated PySpark package). A folder is refused if it is a link, holds or
   sits in the engine package, or holds the workspace or the data folder.
+- What learner code can't do, by design, and what to do instead: change a DuckDB setting after
+  connecting (the configuration is locked; pass settings to `duckdb.connect(config=...)`); load
+  ICU or another extension (extensions aren't installed or autoloaded, and `HOME` is the workspace);
+  read a Delta table with `DeltaTable.to_pyarrow_table()` or `to_pyarrow_dataset()` (they go
+  through `PyFileSystem`, which is refused; use `deltalake.QueryBuilder`).
 - On Windows, `workspace.links()` opens each file the validators read to get its link count, so
   opening a OneDrive cloud-only placeholder in an exercise folder downloads it first.
 - The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a

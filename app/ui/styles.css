@@ -2701,3 +2701,12 @@ body.fabric-full .fabric-page .monitor-band h2 { font-size: 13px; }
 .cx-warn { color: var(--danger); }
 .cx-problems, .cx-part-error { color: var(--danger); }
 .cx-empty pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px; border-radius: 4px; }
+
+/* Monitor > Databricks (dbx-monitor.js, Preview) */
+.dbx-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; padding: 12px; }
+.dbx-list { flex: 3 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.dbx-list .table-wrap { overflow-x: auto; }
+.dbx-detail { flex: 2 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.dbx-tasks { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.dbx-tasks .dbx-failed { color: var(--danger); }
+.dbx-error { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 6px 8px; border-radius: 4px; margin: 4px 0 0; }

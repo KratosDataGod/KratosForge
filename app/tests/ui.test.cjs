@@ -5541,7 +5541,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
-      "Databricks workspace discovery", "Connection profiles in Settings"],
+      "Databricks workspace discovery", "Connection profiles in Settings",
+      "Databricks jobs and Lakeflow in Monitor"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

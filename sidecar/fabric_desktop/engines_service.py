@@ -19,6 +19,8 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   what a Databricks workspace offers (GETs only, so nothing starts or bills), and adding a CLI
   profile or connection to a profile by name. The host and sign-in are read from the CLI's file
   here; the app only names which one, so a profile never holds a host or secret the app made up.
+- ``databricks_runs`` and ``databricks_run`` are Monitor > Databricks (Preview): recent job runs and
+  Lakeflow pipeline updates, and one run's tasks and errors (engines/databricks_jobs.py). GETs only.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -43,7 +45,8 @@ from .engines.sessions import SessionManager, SwitchNeeded
 
 METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_select", "engine_state",
            "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close",
-           "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove"}
+           "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove",
+           "databricks_runs", "databricks_run"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -250,6 +253,33 @@ class EnginesMixin:
                     "error": redact.secrets(str(exc))}
         return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
 
+    def _runs_reader(self, connection: str) -> Any:
+        from .engines import databricks_jobs
+        conn, _, _ = self._connection(connection)
+        return databricks_jobs.Runs(self._discovery_client(conn))
+
+    def databricks_runs(self, connection: str, days: int = 1, mine: bool = True) -> dict[str, Any]:
+        """Job runs and Lakeflow pipeline updates of the last ``days`` days, newest first, from the
+        workspace of ``connection`` (a key from engine_connections). ``mine`` keeps the signed-in
+        person's own. Every request is a GET: nothing starts and nothing bills DBUs."""
+        from .engines import databricks_auth, databricks_discovery, databricks_sql
+        try:
+            reader = self._runs_reader(connection)
+            who = ""
+            if mine:
+                me = databricks_discovery._object(reader.client.get("/api/2.0/preview/scim/v2/Me"), "the signed-in user")
+                who = str(me.get("userName") or "")
+            out = reader.list(days=int(days), mine=who)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"signed_in": False, "error": redact.secrets(str(exc)), "rows": []}
+        except (databricks_sql.DatabricksError, databricks_discovery.OddReply) as exc:
+            return {"signed_in": True, "error": "Couldn't read who you're signed in as: " + redact.secrets(str(exc)), "rows": []}
+        return redact.walk(out | {"user": who})
+
+    def databricks_run(self, connection: str, run_id: str) -> dict[str, Any]:
+        """One job run with its tasks, the failed ones' errors and notebook paths, and its parameters."""
+        return redact.walk(self._runs_reader(connection).run(str(run_id)))
+
     def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
                                snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",
                                catalog: str = "", schema: str = "", label: str = "", replace: str = "") -> dict[str, Any]:
@@ -289,6 +319,8 @@ class EnginesMixin:
                 raise ValueError("Name the new profile.")
             existing = {str(p.get("id")) for p in store.list()}
             data = {"id": _new_id(existing), "name": profile_name.strip(), "kind": "local", "connections": []}
+        if replace and not any(c.get("id") == replace for c in data.get("connections") or []):
+            raise ValueError(f"The profile has no connection {replace!r} to change.")
         conns = [c for c in data.get("connections") or [] if c.get("id") != replace] if replace else \
             list(data.get("connections") or [])
         taken = {str(c.get("id")) for c in conns}

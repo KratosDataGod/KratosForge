@@ -794,7 +794,7 @@ def test_the_app_sends_alerts_to_a_flow_or_email_and_needs_a_mail_server_for_ema
     flows = []
     monkeypatch.setattr(deliver, "post_flow", lambda url, title, lines, http=None: flows.append((title, lines)))
     out = svc.meta_set_alerts("flow:https://prod-12.westeurope.logic.azure.com/workflows/abc", test=True)
-    assert out["teams_webhook"].startswith("flow:https://")
+    assert out == {"set": True, "kind": "flow", "label": "prod-12.westeurope.logic.azure.com"}
     assert flows and flows[0][0] == "KratosForge alerts are on"
     name = sorted(svc._project().entities)[0]
     monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1", message="token=abc123secret")])

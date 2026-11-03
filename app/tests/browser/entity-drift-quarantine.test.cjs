@@ -99,8 +99,11 @@ before(async () => {
       db.entities[name].freshness = within_hours || by ? { within_hours, by, envs: envs || ["test", "prod"] } : null;
       return structuredClone(db.entities[name]);
     }),
-    meta_alerts: () => ({ teams_webhook: db.alerts }),
-    meta_set_alerts: failing("meta_set_alerts", ({ teams_webhook }) => { db.alerts = teams_webhook; return { teams_webhook }; }),
+    meta_alerts: () => ({ set: !!db.alerts, kind: db.alerts ? "teams" : "", label: db.alerts ? new URL(db.alerts).hostname : "" }),
+    meta_set_alerts: failing("meta_set_alerts", ({ teams_webhook }) => {
+      db.alerts = teams_webhook;
+      return { set: !!teams_webhook, kind: teams_webhook ? "teams" : "", label: teams_webhook ? new URL(teams_webhook).hostname : "" };
+    }),
   } });
   await startupReads(app);
   for (const end = Date.now() + 15000; !app.calls.some((c) => c.method === "meta_freshness"); await new Promise((r) => setTimeout(r, 50))) {
@@ -290,10 +293,14 @@ test("the incident alerts dialog sends the address and choice picked; Cancel sen
   assert.deepStrictEqual(writes(from), [{ method: "meta_set_alerts", params: { teams_webhook: WEBHOOK, test: true } }]);
 
   await openAlerts();
-  assert.strictEqual(await dialog().getByLabel("Where alerts go").inputValue(), WEBHOOK, "the saved address is shown");
+  assert.strictEqual(await dialog().getByLabel("New address").inputValue(), "", "the saved address never comes back to the page");
+  const shown = await dialog().textContent();
+  assert.ok(shown.includes(`Now: Teams, ${new URL(WEBHOOK).hostname}`) && !shown.includes(WEBHOOK));
   const from2 = app.calls.length;
-  await dialog().getByLabel("Where alerts go").fill("");
   await dialog().getByRole("button", { name: "Save", exact: true }).click();
+  await dialog().getByText("Type the new address, or use Turn off.").waitFor();
+  assert.deepStrictEqual(writes(from2), [], "an empty Save sends nothing");
+  await dialog().getByRole("button", { name: "Turn off" }).click();
   await toast().filter({ hasText: "Alerts are off" }).waitFor();
   assert.deepStrictEqual(writes(from2), [{ method: "meta_set_alerts", params: { teams_webhook: "", test: false } }]);
 });

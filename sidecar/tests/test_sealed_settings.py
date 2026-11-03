@@ -48,13 +48,15 @@ def test_the_service_never_writes_the_address_in_the_clear(fake_dpapi, tmp_path)
     from fabric_desktop.service import Service
     svc = Service(client_id="x", root=tmp_path)
     (tmp_path / "settings.json").write_text(json.dumps({"teams_webhook": HOOK}))  # saved by an earlier version
-    assert svc.meta_alerts() == {"teams_webhook": HOOK}
+    assert svc.meta_alerts() == {"set": True, "kind": "teams", "label": "prod-01.westeurope.logic.azure.com"}
+    assert svc._settings()["teams_webhook"] == HOOK
     assert "SECRET" not in (tmp_path / "settings.json").read_text()  # sealed on first read
     svc.meta_set_alerts(HOOK.replace("abc", "def"))
     assert "SECRET" not in (tmp_path / "settings.json").read_text()
-    assert svc.meta_alerts()["teams_webhook"] == HOOK.replace("abc", "def")
+    assert svc._settings()["teams_webhook"] == HOOK.replace("abc", "def")
+    assert "SECRET" not in json.dumps(svc.meta_alerts())  # the UI never gets the address
     svc.meta_set_alerts("")
-    assert svc.meta_alerts() == {"teams_webhook": ""}
+    assert svc.meta_alerts() == {"set": False, "kind": "", "label": ""}
 
 
 def test_an_address_this_account_cant_read_is_flagged_and_kept_until_set_again(fake_dpapi, tmp_path):
@@ -62,13 +64,13 @@ def test_an_address_this_account_cant_read_is_flagged_and_kept_until_set_again(f
     svc = Service(client_id="x", root=tmp_path)
     foreign = "dpapi:" + __import__("base64").b64encode(b"another purpose|xyz").decode()  # another account's
     (tmp_path / "settings.json").write_text(json.dumps({"teams_webhook": foreign}))
-    assert svc.meta_alerts() == {"teams_webhook": "", "unreadable": True}
+    assert svc.meta_alerts() == {"set": False, "kind": "", "label": "", "unreadable": True}
     assert svc.meta_freshness()["alerts_unreadable"] is True
     svc._save_settings(meta_project="")  # an unrelated save keeps it as it was
     saved = json.loads((tmp_path / "settings.json").read_text())
     assert saved["teams_webhook"] == foreign and sealed_settings.UNREADABLE not in saved
     svc.meta_set_alerts(HOOK)  # entered again
-    assert svc.meta_alerts() == {"teams_webhook": HOOK}
+    assert svc.meta_alerts()["set"] is True and svc._settings()["teams_webhook"] == HOOK
     assert svc.meta_freshness()["alerts_unreadable"] is False
 
 
@@ -143,5 +145,5 @@ def test_a_failed_sealing_write_is_logged_once(fake_dpapi, tmp_path, monkeypatch
         raise OSError(5, "Access is denied")
     monkeypatch.setattr(meta_service, "write_json", refuse)
     for _ in range(3):
-        assert svc.meta_alerts()["teams_webhook"] == HOOK
+        assert svc._settings()["teams_webhook"] == HOOK
     assert sum("Couldn't encrypt" in r.getMessage() for r in caplog.records) == 1

@@ -325,8 +325,12 @@ class DataOpsMixin:
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
 
     def meta_alerts(self) -> dict[str, Any]:
+        """Whether incident alerts are set, their kind and what the UI may show (deliver.label: a host,
+        or how many people). Never the address: a webhook or flow URL works like a password."""
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
+        out: dict[str, Any] = {"set": bool(url), "kind": deliver.kind(url) if url else "",
+                               "label": deliver.label(url, self._mail_server()) if url else ""}  # type: ignore[attr-defined]
+        return out | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
         """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)

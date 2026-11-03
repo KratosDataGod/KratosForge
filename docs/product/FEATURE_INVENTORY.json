@@ -1949,6 +1949,11 @@
       "verification": "Partially Verified",
       "evidence": [
         {
+          "kind": "smoke",
+          "ref": "Direct Lake live check on the test workspace, 2026-11-03",
+          "note": "a 100-row zstd Delta table written by publish() framed in a Direct Lake model; a DAX COUNTROWS and SUM returned the rows written"
+        },
+        {
           "kind": "test",
           "ref": "sidecar/tests/test_meta.py::test_00b_tables_follow_the_fabric_delta_profile",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
@@ -2023,7 +2028,7 @@
         1293,
         1326
       ],
-      "next_action": "#612 SF10 streaming in quality per memory; Direct Lake on zstd is Chris's call (Snappy fallback); verify MERGE on OneLake in the live test (PB-003).",
+      "next_action": "#612 SF10 streaming in quality per memory; verify MERGE on OneLake in the live test (PB-003). Direct Lake on zstd passed a live check on 2026-11-03 (kf_tenant_test).",
       "backlog": [
         "PB-002",
         "PB-003",

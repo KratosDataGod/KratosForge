@@ -89,6 +89,7 @@ engine_catalog engine_connections engine_prepare engine_state engine_poll_cell
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns
 pbi_embed_token pbi_embed_content
+appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

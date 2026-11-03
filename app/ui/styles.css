@@ -57,7 +57,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .breadcrumb .current:hover { background: var(--hover); }
 .breadcrumb .crumb { background: none; border: 0; padding: 2px 4px; color: var(--muted); cursor: pointer; border-radius: 4px; }
 .breadcrumb .crumb:hover { background: var(--hover); color: var(--text); }
-.search-wrap { flex: 1 1 200px; display: flex; justify-content: center; }
+.search-wrap { flex: 1 1 200px; min-width: 0; display: flex; justify-content: center; }
+/* Zoomed to 200% (Ctrl+=) the default window is about 720 px wide: the lettering and the Ctrl+K hint
+   and the Data mesh environment label give their room, so the account button and Runs on stay whole (PB-063). */
+@media (max-width: 860px) {
+  .brand .brand-name, .search kbd, .env-label > .muted-text { display: none; }  /* the picker keeps its name: aria-label "Environment" */
+  .topbar { gap: 10px; padding: 0 10px; }
+}
 .search {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px;
   min-height: 32px; padding: 0 10px; border: 1px solid var(--border-input); border-radius: 4px;

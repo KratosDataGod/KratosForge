@@ -2023,6 +2023,7 @@ async fn pop_out_open(app: tauri::AppHandle, section: String, on_top: Option<boo
     let builder = tauri::WebviewWindowBuilder::new(&app, &label, url)
         .title(format!("KratosForge · {title}"))
         .min_inner_size(360.0, 260.0)
+        .zoom_hotkeys_enabled(true)  // Ctrl+= / Ctrl+- / Ctrl+0, as in the main window (tauri.conf.json)
         .always_on_top(on_top.unwrap_or(false))
         .on_navigation(app_page);
     let screens: Vec<_> = app.available_monitors().unwrap_or_default().iter()

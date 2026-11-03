@@ -951,11 +951,13 @@ def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
     return {
         "function_app.py": function_app(),
         "definition.json": json.dumps({
-            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.0.0/schema.json",
+            # Schema 1.1.0 with a libraries block, as Fabric's own getDefinition returns (probe, 2026-11-03).
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.1.0/schema.json",
             "runtime": "PYTHON",
             "connectedDataSources": [{"alias": ALIAS, "artifactId": sql_database_id, "workspaceId": workspace_id,
                                       "sourceType": SQL_ITEM_TYPE}],
-            "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions]},
+            "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions],
+            "libraries": {"public": [], "private": []}},
             indent=2),
         "resources/functions.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": functions}, indent=2),
     }

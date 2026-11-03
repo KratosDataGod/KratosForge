@@ -292,6 +292,10 @@ def test_the_definition_lists_every_function_or_fabric_refuses_it():
     described = json.loads(parts["resources/functions.json"])["functionsMetadata"]
     assert set(core.OPERATIONS) <= set(listed) == {f["name"] for f in described}
     assert all(f["isPublicEndpointEnabled"] for f in json.loads(parts["definition.json"])["functions"])
+    # The shape Fabric's own getDefinition returns: schema 1.1.0 and a libraries block (probe, 2026-11-03)
+    body = json.loads(parts["definition.json"])
+    assert body["$schema"].endswith("/definition/1.1.0/schema.json")
+    assert body["libraries"] == {"public": [], "private": []}
     key_table = next(f for f in described if f["name"] == "ensure_key_table")
     assert [(b["type"], b["name"]) for b in key_table["bindings"]] == [
         ("HttpTrigger", "req"), ("FabricItem", "sqlDB"), ("UserDataFunctionContext", "ctx")]

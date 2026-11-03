@@ -408,7 +408,7 @@ A governance policy can name these rules in **Checked by**, like `NB003, NB006` 
 | --- | --- | --- |
 | `notebook_practices(sources, scheduled?, settings?)` | Findings for the code cells' sources, worst first, with each finding's cell and line | Nothing |
 | `notebook_practice_rules()` | The rules above, for a template to list | Nothing |
-| `governance_practice_settings(kind)` | How the open project's policies set the `notebook` or `sql` rules: `{settings, policies, note}` | Nothing |
+| `governance_practice_settings(kind)` | How the open project's policies set the `notebook` or `sql` rules: `{settings, policies, guidance, note}`; `guidance` is the team's default guidance level (`{level, policy}`, [team guidance](governance.md#team-guidance)) or null | Nothing |
 
 Findings have the same shape as the semantic model best practices check:
 severity, rule, category, object, description and URL, plus `rule_id`, `cell` and `line`.

@@ -632,7 +632,8 @@
         "docs/product/enterprise-gap-analysis.md FD-111 partial",
         "compute_check parses each Python cell, follows aliases and assignments, follows %run and notebook.run into notebooks on this PC, and reports Unknown with a reason; Prove, Validate, the advisor and the risk check read Unknown as not blocked and not fine (#1190, #1262, #1275, #1300, #1305, #1324) on main at b3c5b223. Criterion 2 (Unknown shown in the ribbon) not confirmed here: the notebook's note shows only for blockers",
         "Implementation review docs/product/reviews/PB-014-1190.md (2026-10-31): Changes Required on criterion 2 only; the notebook doesn't show Unknown cells. Criteria 1 and 3 are met",
-        "Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written"
+        "Chris chose 'UX mockup first' for showing Unknown cells in the notebook on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp7wX9jGv3RDs2b4yLmUw237; criterion 2 stays as written",
+        "The notebook names the cells the check can't read in a grey note of their own, with reason and line, built from the mockup Chris approved on 2026-11-02 (#1663) on main at 9367abf7; criterion 2 to be re-reviewed"
       ],
       "features": [
         "FEAT-NB-07"
@@ -661,7 +662,7 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "computed": {
         "benefit": 3.9,
         "cost": 2.5,
@@ -674,7 +675,8 @@
         1275,
         1300,
         1305,
-        1324
+        1324,
+        1663
       ]
     },
     {
@@ -2267,6 +2269,7 @@
         1038,
         1041,
         1045,
+        1166,
         1200,
         1205,
         1213,
@@ -2678,7 +2681,8 @@
         "app/tests/ui.test.cjs static checks",
         "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
         "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
-        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet"
+        "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet",
+        "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2723,7 +2727,9 @@
         1294,
         1297,
         1334,
-        1339
+        1339,
+        1640,
+        1690
       ],
       "issues": [
         880,
@@ -3630,7 +3636,8 @@
         "PR #127 merged 2026-10-17; awaiting implementation review",
         "acceptance batch of 2026-10-28 (product-management/in-review-acceptance-batch.html): kept In review (Chris 'I approve all of these move these forward', 2026-10-28, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpFeQHvbSrE9FwPZyTzr8ao4): The criterion, one Teams message per late table, isn't met yet.",
         "acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): kept In review (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b): The criterion isn't met yet.",
-        "Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges"
+        "Chris chose fix (a), only incidents post to Teams (#1553), on the decision card, 2026-11-02, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp9E69mHnrLDZd1KveHm86SM; stays In review until #1553 merges",
+        "Fix (a) merged: only incidents post to Teams, once when a table goes late and once when it recovers, with Preview on or off (#1553) on main at 9367abf7"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3657,7 +3664,8 @@
       "confidence": "High",
       "state": "In review",
       "prs": [
-        127
+        127,
+        1553
       ],
       "computed": {
         "benefit": 2.05,
@@ -4418,14 +4426,22 @@
         1602,
         1608,
         1610,
+        1611,
         1612,
         1613,
         1615,
+        1616,
         1618,
         1619,
         1620,
         1621,
-        1628
+        1623,
+        1628,
+        1629,
+        1631,
+        1639,
+        1654,
+        1686
       ]
     },
     {
@@ -4636,9 +4652,25 @@
         1624,
         1627,
         1630,
+        1634,
         1636,
         1637,
-        1638
+        1638,
+        1644,
+        1655,
+        1662,
+        1683,
+        1685,
+        1688,
+        1689,
+        1691,
+        1692,
+        1693,
+        1694,
+        1695,
+        1696,
+        1698,
+        1699
       ],
       "issues": [
         910,
@@ -4827,6 +4859,7 @@
         1230,
         1234,
         1240,
+        1246,
         1258,
         1290,
         1298,
@@ -4882,7 +4915,8 @@
         1536,
         1537,
         1544,
-        1565
+        1565,
+        1697
       ]
     },
     {
@@ -5049,7 +5083,8 @@
         949,
         985,
         1112,
-        1181
+        1181,
+        1641
       ],
       "mandatory": "none",
       "state": "In progress",
@@ -5850,7 +5885,10 @@
         1607,
         1609,
         1625,
-        1626
+        1626,
+        1643,
+        1648,
+        1649
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -5896,7 +5934,8 @@
       "prs": [
         1126,
         1134,
-        1135
+        1135,
+        1642
       ],
       "problem": "Reports and semantic models can't be viewed or tested inside the app.",
       "capability": "An isolated Power BI embed host frame with its own policy, tokens kept in memory, and no service principal secrets.",
@@ -6039,7 +6078,8 @@
         "Fixes merged on main at 375e27c4: EA-001 value-changing appends stop (#1576, #1600); EA-003, EA-004, EA-012 to EA-017 Spark semantics; EA-008, EA-011, EA-023 schedules and the agent queue; EA-020 hashed engine build (#1573, #1636, #1637); EA-021 log bounds; EA-022 durable saves; EA-025 OneLake clock for leases; EA-027 lint; EA-028 shared writers; EA-029 benchmark (#1608)",
         "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
         "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
-        "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps"
+        "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
+        "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6098,12 +6138,14 @@
         1600,
         1601,
         1602,
+        1604,
         1605,
         1606,
         1607,
         1608,
         1609,
         1613,
+        1614,
         1615,
         1617,
         1624,
@@ -6115,7 +6157,8 @@
         1637,
         1638,
         1645,
-        1646
+        1646,
+        1647
       ],
       "issues": [],
       "computed": {
@@ -6128,16 +6171,19 @@
     {
       "id": "PB-125",
       "title": "Learn ranks and profile pictures",
-      "state": "Proposed",
+      "state": "In review",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "M",
-      "prs": [],
+      "prs": [
+        1657
+      ],
       "problem": "Learn records what a person has done, but there is no earned rank to show progress, and Profile has no picture.",
       "capability": "Earned ranks on the Profile page, themed on the Kratos Forge, wolves and Greek myth (no rank is \"Data God\"), each with a prompt people can use to generate a profile picture, and a profile picture people upload themselves.",
       "evidence": [
         "Chris asked for a full curriculum, ranks, picture prompts and profile pictures on 2026-11-02 15:28Z (project message cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV, and cmsg_018T4o2pQdpbLBNhHpgVNNGp1k35SemD6R8jw5XvsfWGDS for pictures). Design doc by the Learn curriculum thread: https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp",
-        "Nothing built. Builds as draft PRs once Chris approves the rank ladder"
+        "Nothing built. Builds as draft PRs once Chris approves the rank ladder",
+        "Thirteen ranks in three tiers (the Forge, the Pack, the Myth) earned from verified work on this PC, a Copy picture prompt per rank, and a profile picture kept as a 256 px PNG of at most 512 KB (#1657) on main at 9367abf7"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6174,16 +6220,24 @@
     {
       "id": "PB-126",
       "title": "Learn curriculum content batches by path",
-      "state": "Proposed",
+      "state": "In review",
       "owner": "Learning experience (LX)",
       "category": "Developer Experience and Productivity",
       "effort": "L",
-      "prs": [],
+      "prs": [
+        1658,
+        1659,
+        1660,
+        1677,
+        1684,
+        1687
+      ],
       "problem": "Learn v1 has the first lessons and labs only, so no path is a full curriculum.",
       "capability": "A full curriculum by path: lessons LM-13 to LM-35 and labs LAB-05 to LAB-12, landed in six content PRs, each lesson tied to catalog rules and each lab run on this PC with generated data.",
       "evidence": [
         "From the Learn curriculum design of 2026-11-02 (https://claude.ai/artifact/Y2v967W2BQnbbF4Hsvbesp), after Chris's ask the same day (cmsg_018T4o2pQdpbLBNhHpgVNNGpHu3o5eNMTWVc6SYVukbYHV). Takes over PB-123's platform comparison lessons (Databricks and Snowflake porting, LM-26 to LM-29, LAB-08, LAB-09)",
-        "Nothing built. Each batch needs Chris's go before it is built"
+        "Nothing built. Each batch needs Chris's go before it is built",
+        "All six batches merged: Data Fundamentals and SQL (#1658), Python and Data Engineering (#1659), Microsoft Fabric (#1660), Databricks and Snowflake porting (#1677), Enterprise Architecture (#1684) and The Forge Trial capstone lab LAB-12 (#1687) on main at 9367abf7"
       ],
       "features": [
         "FEAT-DEV-04"

@@ -3,10 +3,17 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-02 11:42 UTC, main 32cbd98f.** Covers the PRs merged from #135 to #1638.
+**Product check of 2026-11-02 23:42 UTC, main 9367abf7.** Covers the PRs merged from #135 to #1699.
 
 ## Summary
 
+- Evening check, 2026-11-02: 58 PRs merged after 32cbd98f (#1166 to #1699). 7 were product data,
+  docs audit and operations PRs; the other 51 were linked. The whole Learn curriculum landed (PB-126,
+  six batches with the Forge Trial capstone lab), and Profile has ranks earned from verified work and
+  a profile picture (PB-125). The notebook names the cells the compatibility check can't read, from
+  the approved mockup (PB-014). A late table now reaches Teams once (PB-084, #1553). More enterprise
+  audit fixes merged (PB-124), and a keyboard-only pass covers every rail page. PB-014, PB-125 and
+  PB-126 moved to In review.
 - Decisions, 2026-11-02: the product owner accepted PB-119 (Learn v1) and PB-005 (token cache, with documented
   limitations until a Windows check with a second account), chose fix (a) for PB-084 (only incidents post to
   Teams, #1553), and asked for a UX mockup of Unknown cells before PB-014 is re-reviewed.
@@ -68,7 +75,7 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 16 are Proposed, 28 In progress, 3 In review and 67 Accepted.
+- Backlog: 114 items (6 P0, 32 P1, 59 P2, 17 P3). 14 are Proposed, 27 In progress, 6 In review and 67 Accepted.
 - PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
   product owner's ask of 2026-11-02; they build once the rank ladder is approved.
 - PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
@@ -95,7 +102,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 3 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 6 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

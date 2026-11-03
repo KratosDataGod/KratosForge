@@ -112,6 +112,7 @@ const PREVIEW_FEATURES = {
   runSeveral: "Run several notebooks from Home",
   itemPins: "Items pinned to Home",
   learn: "Learn",
+  academy: "Academy",
   appStudio: "App Studio",
 };
 

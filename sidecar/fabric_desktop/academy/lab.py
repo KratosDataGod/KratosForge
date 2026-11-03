@@ -15,6 +15,7 @@ workspace folder, which is always a folder under ``<data>/academy/<pack>``.
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +103,7 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
     con = _connect(folder)
+    began = time.perf_counter()
     try:
         checks.guard(con, sql)
         con.begin()
@@ -117,7 +119,8 @@ def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) 
             con.rollback()
     finally:
         con.close()
-    return {"columns": cols, "rows": [[learn_labs._cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit}
+    return {"columns": cols, "rows": [[learn_labs._cell(v) for v in r] for r in rows[:limit]], "more": len(rows) > limit,
+            "ms": round((time.perf_counter() - began) * 1000)}
 
 
 def _connect(folder: Path) -> duckdb.DuckDBPyConnection:

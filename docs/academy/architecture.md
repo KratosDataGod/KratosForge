@@ -148,6 +148,8 @@ Academy writes evidence rows to the existing profile (`progress.py`, rules v4):
 | `academy.assessment` | An exam or diagnostic is finished | per-objective correct and total, item ids, timing |
 | `academy.fabric` | A FABRIC VERIFIED check passes | as `academy.exercise`, plus the workspace and item ids (no tokens, no data) |
 
+Today `academy.exercise` rows are written by `progress.from_academy()` and read by
+`academy/readiness.py`; they are evidence only and earn no XP until a later ladder version says so.
 Rows are never edited. A new certification version adds a crosswalk (old objective → new
 objective). Readiness for the new version reads old rows through the crosswalk and shows them as
 "earned under 2026-10-30"; the old version's results stay as they were.

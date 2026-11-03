@@ -106,3 +106,44 @@ def test_a_twin_that_cant_be_made_never_stops_the_approval(envs_svc, monkeypatch
 
 def conflict():
     return FabricError("A shortcut with that name already exists", code="ItemAlreadyExists", status=409)
+
+
+def test_copies_in_other_environments_follow_the_approvers_own_rights(envs_svc, monkeypatch):
+    """A product owner who may approve the Dev request doesn't decide for Test and Prod: with the rule that
+    only admins make shortcuts, those copies wait for someone who may."""
+    svc = envs_svc
+    req = svc.shortcut_request("ws-dev", "lh-1", "Tables/dbo", "supplier", SRC, "", "LH_Silver", "Sales Dev", "Finance Dev")
+    catalog = type(svc)._catalog
+    owner = {"user": "dana@contoso.com", "admin": False}
+
+    class Catalog:
+        def __init__(self, real):
+            self.real = real
+
+        def call(self, method, **kw):
+            if method == "whoami":
+                return owner
+            if method == "shortcut_rules":
+                return {"who_creates": "admins"}
+            if method == "list_requests":
+                return [r | {"can_decide": True} for r in self.real.call(method, **kw)]
+            if method == "list_products":
+                return [{"id": "p-dev", "owner": "dana@contoso.com", "ports": [
+                    {"workspace_id": "ws-dev2", "lakehouse_id": "lh-gold-dev", "table_name": "supplier"}]},
+                        {"id": "p-test", "owner": "dana@contoso.com", "ports": [
+                            {"workspace_id": "ws-test2", "lakehouse_id": "lh-gold-test", "table_name": "supplier"}]},
+                        {"id": "p-prod", "owner": "lee@contoso.com", "ports": [
+                            {"workspace_id": "ws-prod", "lakehouse_id": "lh-gold", "table_name": "supplier"}]}]
+            return self.real.call(method, **kw)
+
+    monkeypatch.setattr(type(svc), "_catalog", lambda self: Catalog(catalog(self)))
+    out = svc.platform_decide(req["id"], True)
+    assert out["status"] == "approved" and svc.api.items["lh-1"][-1]["name"] == "supplier"
+    assert "Also made in Test: Sales Test / LH_Silver" in out["next"]
+    assert not svc.api.items.get("lh-1p")
+    assert any(n.startswith("Not made in Prod") and "Only platform admins" in n for n in out["next"])
+
+    owner["admin"] = True
+    assert svc._sc_may_decide_twin(owner, {"workspace_id": "ws-prod1"})
+    owner.update(admin=False, user="")
+    assert not svc._sc_may_decide_twin(owner, {"workspace_id": "ws-prod1"})

@@ -619,6 +619,7 @@ class ShortcutMixin:
             return [plan["why"]]
         said: list[str] = []
         made: list[dict[str, str]] = []
+        me = self._sc_me()
         for p in plan["places"]:
             label = p["env"].title()
             if p.get("why"):
@@ -629,7 +630,8 @@ class ShortcutMixin:
                 self._create_shortcut(p["workspace_id"], p["lakehouse_id"], d["where"], d["name"], p["source"],  # type: ignore[attr-defined]
                                       p["lakehouse_name"], workspace_name=p["workspace_name"],
                                       target_workspace_name=p["target_workspace_name"],
-                                      note=f"{why} ({label} copy of the request)".strip(), via_request=True)
+                                      note=f"{why} ({label} copy of the request)".strip(),
+                                      via_request=self._sc_may_decide_twin(me, p))
             except FabricError as exc:
                 if exc.status == 409 or "AlreadyExists" in str(exc.code or ""):
                     said.append(self._sc_twin_there(p, d, where))
@@ -645,6 +647,28 @@ class ShortcutMixin:
         if made:
             self._rq_progress(req, {"also": made})  # type: ignore[attr-defined]
         return said
+
+    def _sc_me(self) -> dict[str, Any]:
+        """The approver as the catalog sees them: {user, admin}. Unknown means neither."""
+        try:
+            who = self._catalog().call("whoami")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - unknown: the twins get the plain rules
+            _log.info("Couldn't ask the shortcut catalog who is approving: %s", describe(exc))
+            return {"user": "", "admin": False}
+        return {"user": str(who.get("user") or "").strip().lower(), "admin": bool(who.get("admin"))}
+
+    def _sc_may_decide_twin(self, me: dict[str, Any], p: dict[str, Any]) -> bool:
+        """Whether the approver could approve this environment's copy on its own: a platform admin, or an
+        owner of the data product that copy points at. Approving one request decides only for the product
+        it names, so anyone else gets the plain rules for the other environments, and a rule that only
+        admins make shortcuts stops that copy (and says so)."""
+        if me.get("admin"):
+            return True
+        if not me.get("user"):
+            return False
+        product = self._sc_new(p["workspace_id"], p["workspace_name"], p["source"],
+                               p.get("target_workspace_name", "")).get("product") or {}
+        return me["user"] in center.owners(product.get("owner"))
 
     def _sc_twin_there(self, p: dict[str, Any], d: dict[str, Any], where: str) -> str:
         """Fabric refused an environment's copy because a shortcut of that name is there: kept when it points

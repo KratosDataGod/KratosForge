@@ -238,6 +238,11 @@ def moved_candidates(name: str, gone_id: str, lakehouses: list[dict[str, Any]]) 
             and l.get("lakehouse_id") != gone_id]
 
 
+def owners(value: Any) -> set[str]:
+    """People in a data product's owner field, as the catalog reads it: separated by commas or semicolons."""
+    return {x.strip().lower() for x in re.split(r"[,;]", str(value or "")) if x.strip()}
+
+
 def port_index(products: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Where each published product port lives, keyed like a OneLake shortcut's target."""
     out = {}

@@ -27,7 +27,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "With shortcut caching on, files read through shortcuts to external storage such as S3 are kept in OneLake for a retention period, so repeat reads don't go back to the source.",
+      "explanation": "With shortcut caching on (a OneLake setting in the workspace settings), files read through Amazon S3, S3-compatible, Google Cloud Storage and on-premises gateway shortcuts are kept in OneLake for a retention period of 1 to 28 days, so repeat reads don't go back to the source.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
       "version": 1,
       "status": "live",
@@ -58,7 +58,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "The retention period is counted from the last access. An unused file leaves the cache, and the next read goes to the source and caches it again. The source is never changed.",
+      "explanation": "Each access resets the retention period. A file not read within it is purged from the cache, and the next read goes to the source and caches it again. The source is never changed.",
       "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-shortcuts",
       "version": 1,
       "status": "live",

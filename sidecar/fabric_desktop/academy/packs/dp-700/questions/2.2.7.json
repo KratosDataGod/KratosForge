@@ -28,7 +28,7 @@
         "d"
       ],
       "explanation": "Flattening related attributes into one dimension per subject gives a star schema that reporting tools query with few joins. It stores some values more than once, which is the accepted trade-off.",
-      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-medallion-lakehouse-architecture",
+      "source": "https://learn.microsoft.com/en-us/power-bi/guidance/star-schema",
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"

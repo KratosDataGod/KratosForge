@@ -106,7 +106,7 @@
         },
         {
           "id": "b",
-          "text": "Start time"
+          "text": "Time range"
         },
         {
           "id": "c",
@@ -125,7 +125,7 @@
         "e",
         "b"
       ],
-      "explanation": "The Monitoring hub filters by status, start time, item type, submitter and location.",
+      "explanation": "The Monitor hub's job runs filter by time range, item type, status and workspace.",
       "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
       "version": 1,
       "status": "live",

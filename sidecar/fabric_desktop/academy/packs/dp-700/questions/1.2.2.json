@@ -67,30 +67,30 @@
     {
       "id": "1.2.2-q3",
       "type": "single",
-      "stem": "A CI/CD pipeline must apply a built .dacpac to a test warehouse. Which tool does this from the command line?",
+      "stem": "What happens when you publish a SQL project's built .dacpac to a target warehouse?",
       "options": [
         {
           "id": "a",
-          "text": "AzCopy"
+          "text": "The .dacpac's data is copied into every table"
         },
         {
           "id": "b",
-          "text": "The Fabric CLI's onelake upload"
+          "text": "Nothing changes until someone runs the ALTER scripts by hand"
         },
         {
           "id": "c",
-          "text": "Notepad"
+          "text": "The difference between the .dacpac and the target is calculated, and only the changes needed are applied"
         },
         {
           "id": "d",
-          "text": "SqlPackage with the Publish action"
+          "text": "The target warehouse is dropped and recreated from scratch"
         }
       ],
       "answer": [
-        "d"
+        "c"
       ],
-      "explanation": "SqlPackage Publish compares a .dacpac with a target database and applies the schema changes.",
-      "source": "https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-publish",
+      "explanation": "Publishing calculates the difference between the source .dacpac and the target database and deploys the changes, so the target ends up matching the project.",
+      "source": "https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/sql-database-projects",
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"

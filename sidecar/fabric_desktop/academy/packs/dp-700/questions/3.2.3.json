@@ -98,30 +98,30 @@
     {
       "id": "3.2.3-q4",
       "type": "single",
-      "stem": "Two notebooks append to and update the same Delta table at once, and one fails with a concurrent modification conflict. Which approach helps?",
+      "stem": "A notebook works when you run it, but fails with a path-not-found error on Files/raw/orders.csv when it's run from another workspace with no default lakehouse attached. Which path works wherever it runs?",
       "options": [
         {
           "id": "a",
-          "text": "Turn off the checkpoint"
+          "text": "`https://<workspace>.blob.core.windows.net/orders.csv`"
         },
         {
           "id": "b",
-          "text": "Retry the failed write, or make the jobs write to separate partitions so they don't conflict"
+          "text": "`C:/Files/raw/orders.csv`"
         },
         {
           "id": "c",
-          "text": "Convert the table to CSV"
+          "text": "`/lakehouse/orders.csv` on the driver's local disk"
         },
         {
           "id": "d",
-          "text": "Delete the _delta_log folder"
+          "text": "`abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>.Lakehouse/Files/raw/orders.csv`"
         }
       ],
       "answer": [
-        "b"
+        "d"
       ],
-      "explanation": "Delta uses optimistic concurrency: conflicting commits fail and can be retried, and writers that touch separate partitions conflict far less.",
-      "source": "https://learn.microsoft.com/en-us/azure/databricks/optimizations/isolation-level",
+      "explanation": "A relative Files/ path depends on the lakehouse attached to the notebook. A full OneLake address names the workspace and item, so it resolves the same way from any notebook with access to the data.",
+      "source": "https://learn.microsoft.com/en-us/fabric/onelake/onelake-access-api",
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"

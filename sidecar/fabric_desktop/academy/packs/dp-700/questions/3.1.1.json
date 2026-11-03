@@ -36,30 +36,30 @@
     {
       "id": "3.1.1-q2",
       "type": "single",
-      "stem": "A Copy activity ran slower than usual. Where do you see how many rows it read and wrote, and its throughput?",
+      "stem": "You need to see only the ingestion jobs that failed in the last 24 hours across your workspaces. What do you do in the Monitor hub's job runs?",
       "options": [
         {
           "id": "a",
-          "text": "In the Git history"
+          "text": "Set the time range to 24 hours and filter by status"
         },
         {
           "id": "b",
-          "text": "In the activity's run details for the pipeline run"
+          "text": "Open each lakehouse's table properties"
         },
         {
           "id": "c",
-          "text": "In the lakehouse's table properties"
+          "text": "Read the Git history"
         },
         {
           "id": "d",
-          "text": "In the deployment pipeline"
+          "text": "Run a deployment pipeline"
         }
       ],
       "answer": [
-        "b"
+        "a"
       ],
-      "explanation": "A pipeline run's details show each activity's duration, and a Copy activity's details include data read and written, rows and throughput.",
-      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitor-pipeline-runs",
+      "explanation": "The job runs list filters by time range, item type, status and workspace, and supports keyword search.",
+      "source": "https://learn.microsoft.com/en-us/fabric/admin/monitoring-hub-jobs",
       "version": 1,
       "status": "live",
       "reviewed": "2026-11-03"

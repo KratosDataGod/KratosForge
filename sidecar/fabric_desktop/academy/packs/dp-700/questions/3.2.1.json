@@ -106,7 +106,7 @@
         },
         {
           "id": "b",
-          "text": "Fix the cause and rerun from the failed activity"
+          "text": "Fix the cause and run the pipeline again"
         },
         {
           "id": "c",
@@ -123,7 +123,7 @@
         "c",
         "b"
       ],
-      "explanation": "You find the run, then the failed activity, then its error message, and fix and rerun. A pipeline can be rerun from the failed activity so earlier successful steps aren't repeated.",
+      "explanation": "You find the run, then the failed activity, then its error message, and only then fix the cause and run the pipeline again.",
       "source": "https://learn.microsoft.com/en-us/fabric/data-factory/monitor-pipeline-runs",
       "version": 1,
       "status": "live",

@@ -21,6 +21,8 @@ from typing import Any
 
 import duckdb
 
+from ..duckdb_rows import one_row
+
 MAX_FILE_BYTES = 256 * 1024 * 1024   # one data file a validator reads
 MAX_JSON_BYTES = 4 * 1024 * 1024     # a settings document, pipeline or Delta log entry
 MAX_FILES = 20_000                   # files a validator lists under one folder
@@ -183,7 +185,7 @@ def load_table(con: duckdb.DuckDBPyConnection, workspace: Path, rel: str, name: 
     # the SQL text is fixed; the path list is a bound value, so a file name can't change the SQL
     con.execute(f'CREATE OR REPLACE TEMP TABLE "{name}" AS SELECT * FROM {_READERS[fmt]}(?) LIMIT ?',
                 [target, max_rows + 1])
-    rows = int(con.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0])  # type: ignore[index]
+    rows = int(one_row(con.execute(f'SELECT count(*) FROM "{name}"'))[0])  # type: ignore[index]
     if rows > max_rows:
         con.execute(f'DROP TABLE "{name}"')
         raise Refused(f"{rel} has more than {max_rows:,} rows; an exercise answer has fewer.")

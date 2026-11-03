@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from . import access as access_mod
@@ -19,6 +20,7 @@ from . import governance_notices as notices
 from . import shortcut_center as center
 from . import shortcut_watch as watch
 from . import shortcuts as shortcuts_mod
+from . import sql_exec
 from .auth import ONELAKE_SCOPES
 from .central import core
 from .errors import NotSetUp
@@ -146,6 +148,22 @@ class ShortcutMixin:
                 "counts": center.counts(rows, week, requests), "needs": center.needs(rows, requests),
                 "requests": requests, "checked_at": max((r["checked_at"] for r in rows), default=""),
                 "admin": self._sc_admin()}
+
+    def shortcut_export(self, lakehouses: list[dict[str, str]], ids: list[str] | None = None) -> dict[str, Any]:
+        """The shortcuts the All view shows (``ids``, in that order; every one when None) as a new CSV in
+        Downloads. Never replaces a file."""
+        data = self.shortcut_center(lakehouses)
+        if data.get("pending"):
+            raise ValueError("The shortcuts are still being read: try again in a moment")
+        rows = data["rows"]
+        if ids is not None:
+            by_id = {r["id"]: r for r in rows}
+            rows = [by_id[i] for i in dict.fromkeys(ids) if i in by_id]
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = sql_exec._reserve(folder, "KratosForge shortcuts", ".csv")
+        path.write_text(center.to_csv(rows), encoding="utf-8-sig")  # the mark tells Excel it's UTF-8
+        return {"path": str(path), "rows": len(rows)}
 
     # ---- health
 

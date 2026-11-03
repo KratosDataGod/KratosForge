@@ -291,3 +291,33 @@ def test_readers_gap_counts_readers_the_target_leaves_out():
     assert (out["gap"], out["target"], [m["id"] for m in out["missing"]]) == (2, 1, ["u2", "u3"])
     assert out["text"] == "2 of 3 see it empty: they have no access to the target"
     assert center.readers_gap(here, here, "identity")["gap"] == 0
+
+
+def test_export_writes_the_listed_shortcuts_to_a_new_csv_in_downloads(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr(shortcut_service.Path, "home", lambda: tmp_path)
+    rows = center_of(svc)["rows"]
+    ids = [r["id"] for r in rows if r["name"] == "events"]
+    out = svc.shortcut_export([LH], ids)
+    assert out["rows"] == 1 and out["path"].endswith("KratosForge shortcuts.csv")
+    text = (tmp_path / "Downloads" / "KratosForge shortcuts.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert text[0].startswith("Shortcut,Path,Workspace,Lakehouse,Environment,Points at,Target")
+    assert len(text) == 2 and text[1].startswith("events,Files/raw,Sales Dev,LH_Silver,Dev,")
+    again = svc.shortcut_export([LH])  # never replaces a file; None means every shortcut
+    assert again["rows"] == 2 and again["path"].endswith("KratosForge shortcuts (2).csv")
+
+
+def test_csv_cells_never_run_as_formulas_and_leave_secrets_out():
+    row = {"name": "=HYPERLINK(\"x\")", "path": "Files/raw", "workspace_name": "+ws", "lakehouse_name": "@lh",
+           "host_env": "dev", "target_type": "Amazon S3", "target": "https://b.s3.amazonaws.com/x?sig=abcdefabcdefabcdef1234",
+           "health": "broken", "health_detail": "-1 refused", "risks": [{"kind": "duplicate", "text": "Same target"},
+                                                                       {"kind": "cross_env", "text": "x", "accepted": {"by": "a"}}],
+           "used_by": [{"entity": "orders"}], "last_change": {"kind": "added", "at": "2026-11-03", "how": "scan"}}
+    lines = center.to_csv([row]).splitlines()
+    cells = next(iter(__import__("csv").reader([lines[1]])))
+    head = center.CSV_HEADER
+    assert cells[head.index("Shortcut")] == "'=HYPERLINK(\"x\")"
+    assert cells[head.index("Workspace")] == "'+ws" and cells[head.index("Lakehouse")] == "'@lh"
+    assert cells[head.index("Health detail")] == "'-1 refused" and cells[head.index("Health")] == "Broken"
+    assert "abcdefabcdef" not in cells[head.index("Target")]
+    assert cells[head.index("Worth a look")] == "Same target"  # an accepted risk isn't listed
+    assert cells[head.index("Last change by")] == "Seen at scan" and cells[head.index("Used by")] == "orders"

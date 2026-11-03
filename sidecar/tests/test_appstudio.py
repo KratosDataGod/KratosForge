@@ -385,5 +385,5 @@ def test_import_refuses_too_many_files_and_caps_versions(tmp_path, monkeypatch):
         project.import_(_zip(too_many), tmp_path / "a")
     assert not (tmp_path / "a").exists()
     monkeypatch.setattr(project, "MAX_VERSIONS", 3)
-    dest = project.import_(_zip(base | {f"versions/{n:04d}.json": version for n in range(1, 8)}), tmp_path / "b")
+    dest = project.import_(_zip(base | {f"versions/{n:04d}.json": version for n in range(1, 6)}), tmp_path / "b")
     assert len(list((dest / "versions").glob("*.json"))) == 3

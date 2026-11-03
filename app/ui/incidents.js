@@ -368,6 +368,8 @@ const INC_GUIDE = {
     "Tell the people who read the table if it will miss its promise.", "It closes itself once a good run lands."],
   needs_decision: ["Open the run: it is waiting for a person to choose, such as replaying quarantined rows.", "Make the choice there; it closes itself once the run goes on."],
   objective: ["Look at the recent runs to see what missed the objective: failures, lateness or slow runs.", "Fix the cause, or change the objective if it no longer fits. It closes itself once the objective is met again."],
+  promise: ["A data product built on this table broke what it promises its readers: freshness, or how many rows it may reject.",
+    "Fix the load the same way as a late or failed table, and tell the product's readers if they will notice.", "It closes itself once the promise holds again."],
   agent_offline: ["Check the agent's machine: is it on, signed in and running the agent?", "Its requests are taken over only where take-over is turned on.", "It closes itself when the agent reports again."],
   cant_evaluate: ["KratosForge couldn't read this environment, so it can't say whether anything failed.", "Check access to the environment's workspace and LH_Meta.", "It closes itself once a check can read it again."],
   reported: ["Acknowledge it and say what you're doing in a note, so the reporter sees it.", "Set the priority if the reporter's guess was off; say why.",

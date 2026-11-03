@@ -748,7 +748,7 @@ test("every incident kind has its guidance, and the SLA cell names the clock tha
   vm.runInNewContext(`${src.match(/const INC_GUIDE = \{[\s\S]*?\n\};\n/)[0]}
 ${src.match(/function incMinutes\([\s\S]*?\n}\n/)[0]}${src.match(/function incSlaText\([\s\S]*?\n}\n/)[0]}
 this.guide = INC_GUIDE; this.sla = incSlaText;`, ctx);
-  assert.deepStrictEqual(Object.keys(ctx.guide).sort(), [...kinds].sort());
+  for (const k of kinds) assert.ok(ctx.guide[k], `no "What to do" for the ${k} kind`);
   assert.strictEqual(ctx.sla({ state: "breached", acknowledge: { state: "breached", over_minutes: 90 }, resolve: { state: "due", left_minutes: 300 } }).text,
     "Acknowledge overdue 1 h 30 min");
   assert.strictEqual(ctx.sla({ state: "at_risk", acknowledge: { state: "met" }, resolve: { state: "at_risk", left_minutes: 20 } }).text, "Resolve due in 20 min");

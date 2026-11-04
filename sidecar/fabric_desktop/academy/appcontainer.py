@@ -376,9 +376,19 @@ def mirror_back(src: Path, dst: Path) -> None:
     except BaseException:
         shutil.rmtree(incoming, ignore_errors=True)
         raise
+    from .. import jsonfile   # waits out a virus scanner or indexer holding a file open
     old = dst.with_name(f".{dst.name}.old-{uuid.uuid4().hex[:8]}")
-    os.replace(dst, old)
-    os.replace(incoming, dst)
+    try:
+        jsonfile.replace(dst, old)
+    except BaseException:
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    try:
+        jsonfile.replace(incoming, dst)
+    except BaseException:
+        jsonfile.replace(old, dst)   # put the learner's folder back as it was
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
     shutil.rmtree(old, ignore_errors=True)
 
 

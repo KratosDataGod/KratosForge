@@ -21,7 +21,8 @@ from .redact import describe
 _log = logging.getLogger(__name__)
 
 METHODS = {"academy_catalog", "academy_exercise", "academy_start", "academy_save", "academy_run", "academy_validate",
-           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status"}
+           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status",
+           "academy_sandbox_remove_grants"}
 
 _SUMMARY = ("id", "title", "objectives", "minutes", "mode", "class", "adapter", "status", "version")
 
@@ -110,3 +111,9 @@ class AcademyMixin:
         why), and how many paths hold the runtime grant. Reads only."""
         return {**appcontainer.status(), "enabled": sandbox.USE_APPCONTAINER,
                 "granted": appcontainer.granted_count(self.root)}  # type: ignore[attr-defined]
+
+    def academy_sandbox_remove_grants(self) -> dict[str, Any]:
+        """Settings > Advanced > Exercise sandbox: take the AppContainer's read permission off
+        KratosForge's Python. ``{removed, failed}``; a folder Windows wouldn't change is listed, and
+        the next exercise run grants it again. Audited (it changes permissions on this PC)."""
+        return appcontainer.revoke_runtime(self.root)  # type: ignore[attr-defined]

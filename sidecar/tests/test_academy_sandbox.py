@@ -245,8 +245,8 @@ def test_windows_job_stops_a_child_process_even_without_the_hook(lab: tuple[Path
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n"
             "try:\n    subprocess.run([sys.executable, '-c', 'pass'])\n"
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n")
-    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30,
-                                   "Local\\KratosForgeAcademy-test-" + os.urandom(8).hex())
+    job = sandbox._WinJob(sandbox.MEMORY_LIMIT, 30, "Local\\KratosForgeAcademy-test-" + os.urandom(8).hex())
+    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30, job)
     try:
         out, _ = proc.communicate(timeout=60)
     finally:

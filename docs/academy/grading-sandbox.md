@@ -68,7 +68,7 @@ on these conditions:
 
 ACD-005b (Windows AppContainer, no `internetClient` capability, no access to
 `%LOCALAPPDATA%\FabricDesktop`, read only on the runtime folder) is required before imported or
-third-party packs, or any "sandboxed" claim.
+third-party packs, or any "sandboxed" claim. It is built: see "The AppContainer (ACD-005b)" below.
 
 ## Grading material
 
@@ -178,6 +178,103 @@ Also:
   opening a OneDrive cloud-only placeholder in an exercise folder downloads it first.
 - The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a
   link, a path outside the workspace or a device name is refused before anything runs.
+
+## The AppContainer (ACD-005b)
+
+`academy/appcontainer.py`. On Windows, `sandbox.run` can start the learner process in an
+AppContainer, on top of everything above (the Job Object, the audit hook, the wrappers). It is **off
+by default** (`KRATOSFORGE_ACADEMY_APPCONTAINER=1` turns it on) until the open points below are
+settled; the UI keeps the v1 wording.
+
+What Windows CI showed on the first run (2026-11-04):
+
+- The kernel layer holds. A bare Python in the AppContainer couldn't read files outside its folder
+  (`CreateFileW` included), write outside, reach loopback or the internet, open the engine's pipe,
+  read a saved credential, or import the engine package.
+- **DPAPI still unseals.** An AppContainer process can unseal a blob sealed with the person's DPAPI
+  key. The token cache stays safe only because the AppContainer can't read the sealed file.
+- **Folders readable by every AppContainer.** Anything whose ACL grants ALL APPLICATION PACKAGES is
+  readable inside, such as Program Files and, on the CI image, the whole Python install (msal
+  imported). An engine installed under Program Files would expose `grading/` the same way, so the
+  install needs a deny or a moved grading folder before this layer can be claimed.
+- **Exercise libraries.** DuckDB's allowed-directories check and delta-rs's path resolution failed
+  inside the AppContainer: DuckDB said file access was disabled, and delta-rs got "Access is denied"
+  resolving a relative table path. The Python guards' "outside the workspace" check also didn't
+  refuse `..` there. Until these are fixed, a run in an AppContainer can't do the exercises.
+
+Before it is turned on by default (Security's musts):
+
+1. **Install deny.** The engine package and `grading/` get deny ACEs for ALL APPLICATION PACKAGES
+   (S-1-15-2-1) and ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2), or the engine lives where
+   neither can read. A test in AppContainer mode, with the hook off, shows `grading/` can't be read.
+2. **DPAPI, a standing rule.** An AppContainer process can unseal the person's DPAPI blobs, so no
+   DPAPI-sealed file may ever be in a folder an AppContainer can read: not the workspace, not the
+   profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
+3. **The guard fails closed.** If the Python guard can't resolve a path inside an AppContainer, it
+   refuses. This is fixed together with the library path work.
+
+- **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
+  The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows
+  grants to that SID, and copied home after the Job has ended, refusing links both ways (2,000 files,
+  1 GB). No ACL of the person's folders is changed. Closing the profile deletes its folder.
+- **The runtime grant.** Read and execute for a capability SID (`KratosForgeAcademyRuntime`) on the
+  interpreter, its standard library and only the learner packages (Polars, pyarrow, delta-rs,
+  DuckDB, pandas, NumPy, sqlglot and what their metadata says they need). It's granted once per engine
+  start, never on a whole site-packages folder and never on the engine's package, so `grading/` stays
+  unreadable. The bootstrap is copied into the profile beside the workspace, not inside it.
+  These grants are persistent ACEs on the person's Python install. They're recorded in
+  `<data>/academy/appcontainer-grants.json` (the capability's SID and each path) and made again only
+  when that record or the interpreter's own ACE is missing. Paths that no longer exist (an engine
+  start's temporary `kf_learner` folder) drop out of the record. `appcontainer.revoke_runtime()`
+  removes the grants with `icacls` (always `%SystemRoot%\System32\icacls.exe`) `/remove:g` and lists
+  any path it couldn't change. It removes only the SID derived from the capability's name, never one
+  read from the record (anything running as the person can write that file), and uses only absolute,
+  plain paths from it. It isn't an engine method yet: it changes ACLs on the person's Python, so it
+  arrives with a confirmed Diagnostics action (and uninstall), once that screen's mockup is agreed.
+  `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
+- **Copying home.** Files come home only from an empty job. If the job's processes aren't all gone
+  after it is ended, nothing is copied and the run fails in words. The copy goes into a new folder
+  beside the workspace and is swapped in only once it's whole and within the caps, so a refused copy
+  leaves the learner's workspace as it was; `run()` then raises `workspace.Refused`, with the reason in
+  words.
+- **Profiles a crash left behind.** On the first run after the engine starts, profiles named
+  `KratosForge.Academy.*` (found under `HKCU\Software\Classes\Local Settings\Software\Microsoft\
+  Windows\CurrentVersion\AppContainer\Mappings`) whose folder hasn't changed for 10 minutes are
+  deleted with `DeleteAppContainerProfile`.
+- **Package names are visible.** The runtime grant gives site-packages read on the folder itself,
+  so imports can find the learner packages. A script can therefore list the names of every installed
+  package, but it can't read any package the grant doesn't name: `import msal` makes an empty
+  namespace package, and `msal/__init__.py` can't be opened. Accepted by Security.
+- **No disk quota.** Nothing caps how much a script writes in the profile's folder, the same as v1.
+  The copy home is capped (2,000 files, 1 GB).
+- **The process.** `CreateProcessW` with `SECURITY_CAPABILITIES` (that one capability, no network
+  capability) and a `HANDLE_LIST` of its two pipes and a QUERY-only handle to its job. It starts
+  suspended and runs `-I -X utf8 -B`, with TEMP in the workspace's `.tmp`. The bootstrap checks the job
+  through that handle (an AppContainer has its own object namespace, so it never looks the job up by
+  name) and checks that its token is an AppContainer's (`TokenIsAppContainer`). Otherwise it stops
+  with exit 3 before the script runs.
+- **Wording.** A run in an AppContainer says "an AppContainer on this PC: no network and no access to
+  your own files, with time and memory limits". It never says "files only in the exercise folder"
+  while folders every AppContainer can read (below) are open. If Windows refuses a step before the script
+  starts (an old Windows, a policy that blocks AppContainers, a runtime folder whose ACL can't be
+  changed), the run uses the v1 learner process and its v1 wording, and `appcontainer.status()` says
+  why.
+- **Tests (Windows CI, `test_academy_appcontainer.py`).** A bare Python in the AppContainer, with no
+  hook and no wrappers, can't:
+  - read a file outside the workspace, the engine package or `grading/`, even through `CreateFileW`;
+  - write outside the workspace;
+  - connect to loopback or the internet;
+  - open the engine's named pipe;
+  - read the person's saved credential (`CredReadW`);
+  - import the engine package or msal, or read the token cache in the data folder.
+
+  The tests also check:
+  - a run's files come home, but only from an empty job, and a refused copy leaves the workspace as
+    it was;
+  - the profile is deleted, and a crash's leftover profiles are swept while a fresh one is kept;
+  - the grants are recorded, removed and made again;
+  - the fallback works and gives its reason;
+  - a v1 process told it's in an AppContainer stops.
 
 ## Python and Delta exercises (ACD-011)
 

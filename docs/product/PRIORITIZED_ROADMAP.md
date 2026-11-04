@@ -78,6 +78,7 @@ required items are never below P1, whatever their score. Each states why.
 | [PB-007](PRODUCT_BACKLOG.md#pb-007) | Audit trail of runs and changes | required | 2.08 | P1 | Enterprise compliance needs an audit record of changes to shared data. |
 | [PB-005](PRODUCT_BACKLOG.md#pb-005) | Encrypt the token cache | required | 1.96 | P1 | Refresh tokens on disk unencrypted are a security finding any enterprise review will raise. |
 | [PB-008](PRODUCT_BACKLOG.md#pb-008) | Keep the embedded Fabric view on Fabric hosts | required | 1.84 | P1 | The embedded view holds saved Fabric sign-in cookies. |
+| [PB-131](PRODUCT_BACKLOG.md#pb-131) | Remove Academy's runtime access grants on uninstall | required | 1.84 | P1 | The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808). |
 | [PB-052](PRODUCT_BACKLOG.md#pb-052) | Verify the central platform on a tenant | required | 1.8 | P1 | Central business keys are shared data; a defect would corrupt keys across every domain. |
 | [PB-009](PRODUCT_BACKLOG.md#pb-009) | Local data retention | required | 1.72 | P1 | Sensitive data protection policy needs bounded local copies. |
 | [PB-064](PRODUCT_BACKLOG.md#pb-064) | Per-build release assets, pinning and rollback | required | 1.72 | P1 | Enterprise update control needs rollback. |
@@ -152,7 +153,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 | [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | L | Medium | none | Enterprise readiness |
 
-### P1 (32 items)
+### P1 (33 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -182,6 +183,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-007](PRODUCT_BACKLOG.md#pb-007) | Audit trail of runs and changes | 1 | 1 | 5 | 2 | 4 | 2 | 2 | 2.6 | 2.0 | 2.08 | required | M | High | none | Enterprise readiness |
 | [PB-005](PRODUCT_BACKLOG.md#pb-005) | Encrypt the token cache | 1 | 1 | 5 | 1 | 4 | 2 | 2 | 2.45 | 2.0 | 1.96 | required | S | High | none | Enterprise readiness |
 | [PB-008](PRODUCT_BACKLOG.md#pb-008) | Keep the embedded Fabric view on Fabric hosts | 1 | 1 | 4 | 1 | 3 | 1 | 2 | 2.05 | 1.5 | 1.84 | required | S | Medium | PB-071 | Enterprise readiness |
+| [PB-131](PRODUCT_BACKLOG.md#pb-131) | Remove Academy's runtime access grants on uninstall | 2 | 1 | 4 | 1 | 3 | 2 | 2 | 2.3 | 2.0 | 1.84 | required | S | Medium | none | Academy |
 | [PB-052](PRODUCT_BACKLOG.md#pb-052) | Verify the central platform on a tenant | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | required | M | Medium | PB-002 | Master product (unassigned) |
 | [PB-009](PRODUCT_BACKLOG.md#pb-009) | Local data retention | 1 | 1 | 5 | 1 | 4 | 2 | 3 | 2.45 | 2.5 | 1.72 | required | S | High | none | Enterprise readiness |
 | [PB-064](PRODUCT_BACKLOG.md#pb-064) | Per-build release assets, pinning and rollback | 1 | 1 | 5 | 1 | 4 | 3 | 2 | 2.45 | 2.5 | 1.72 | required | M | Medium | none | Enterprise readiness |

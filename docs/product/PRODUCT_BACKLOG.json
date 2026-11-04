@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-03",
+  "updated": "2026-11-04",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -751,16 +751,14 @@
       "evidence": [
         "envprofile.py classifies imports only",
         "fabric_api.py has no Environment item calls",
-        "Package-source decision open (Prove)",
-        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb"
+        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb",
+        "Package source decided by the product owner on 2026-11-03 (10:09 UTC): the IT-approved wheel folder first, then PyPI only if policy allows; shipped in #1765"
       ],
       "features": [
         "FEAT-PRV-04",
         "FEAT-FAB-09"
       ],
-      "external_dependencies": [
-        "Product-owner decision: package source for environment profiles (Prove)"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "A notebook's profile installs the same versions on the PC that its Fabric Environment declares",
         "The app can attach a notebook to an existing Environment item",
@@ -5031,7 +5029,8 @@
       "evidence": [
         "Chris's unit testing, 2026-10-18, item 33",
         "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
-        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb"
+        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb",
+        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -5063,7 +5062,10 @@
         "priority": "P3"
       },
       "prs": [
-        1735
+        1735,
+        1799,
+        1800,
+        1802
       ]
     },
     {
@@ -6426,13 +6428,21 @@
         1783,
         1784,
         1785,
+        1786,
         1788,
+        1790,
         1791,
         1793,
         1794,
         1795,
         1796,
-        1801
+        1797,
+        1801,
+        1804,
+        1806,
+        1807,
+        1808,
+        1809
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6440,7 +6450,9 @@
         "Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z)",
         "Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb",
         "Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant",
-        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)"
+        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)",
+        "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
+        "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it."
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6566,9 +6578,7 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "In progress",
-      "external_dependencies": [
-        "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
-      ],
+      "external_dependencies": [],
       "prs": [
         1737,
         1744,
@@ -6584,6 +6594,51 @@
         "cost": 3.0,
         "score": 1.8,
         "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-131",
+      "title": "Remove Academy's runtime access grants on uninstall",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.",
+      "capability": "The grants are removed on uninstall, or by a confirmed Diagnostics action, using the existing revoke_runtime().",
+      "evidence": [
+        "Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does",
+        "Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere",
+        "A test shows grants before and none after"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 1,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "required",
+      "owner": "Academy",
+      "source_refs": [
+        "ACD-005b"
+      ],
+      "duplicates": [],
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "Proposed",
+      "mandatory_reason": "The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).",
+      "prs": [],
+      "computed": {
+        "benefit": 2.3,
+        "cost": 2.0,
+        "score": 1.84,
+        "priority": "P1"
       }
     }
   ]

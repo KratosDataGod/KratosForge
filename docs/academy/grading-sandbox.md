@@ -197,10 +197,18 @@ What Windows CI showed on the first run (2026-11-04):
   readable inside, such as Program Files and, on the CI image, the whole Python install (msal
   imported). An engine installed under Program Files would expose `grading/` the same way, so the
   install needs a deny or a moved grading folder before this layer can be claimed.
-- **Exercise libraries.** DuckDB's allowed-directories check and delta-rs's path resolution failed
-  inside the AppContainer: DuckDB said file access was disabled, and delta-rs got "Access is denied"
-  resolving a relative table path. The Python guards' "outside the workspace" check also didn't
-  refuse `..` there. Until these are fixed, a run in an AppContainer can't do the exercises.
+- **Exercise libraries.** Inside an AppContainer, Windows refuses `GetFinalPathNameByHandleW` with
+  DOS drive letters, the call `os.path.realpath` and Rust's `canonicalize` use to resolve a path, and
+  the folders above the profile can't be read. What that meant and what changed:
+  - The Python guards used `realpath`, which handed `work\..` back as given, so `os.chdir('..')`
+    looked inside the workspace. The guards now collapse `.` and `..` first, as Windows itself does
+    (`GetFullPathNameW`). In an AppContainer, where links can't be resolved, a path inside the
+    workspace is checked folder by folder and refused if any part is a link or can't be checked.
+  - DuckDB compares its allowed directories with case, and was given the workspace lowercased. It now
+    gets the workspace as Windows spells it, and DuckDB and Polars read exercise files.
+  - delta-rs still fails ("Access is denied") for every path form: relative, absolute, `file://` and
+    `\\?\`. It resolves table paths with `canonicalize`. Until delta-rs handles this, Delta exercises
+    can't run in an AppContainer. A strict xfail test pins it, so a delta-rs that fixes it shows up.
 
 Before it is turned on by default (Security's musts):
 
@@ -210,12 +218,14 @@ Before it is turned on by default (Security's musts):
 2. **DPAPI, a standing rule.** An AppContainer process can unseal the person's DPAPI blobs, so no
    DPAPI-sealed file may ever be in a folder an AppContainer can read: not the workspace, not the
    profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
-3. **The guard fails closed.** If the Python guard can't resolve a path inside an AppContainer, it
-   refuses. This is fixed together with the library path work.
+3. **The guard fails closed.** Done: inside an AppContainer a path in the workspace that has a link
+   in it, or a folder that can't be checked, is refused, and `..` is collapsed before any check.
 4. **A way to remove the grants.** The runtime grants are persistent ACEs on the person's Python
    install, and today nothing the person can reach removes them. A confirmed Diagnostics action, an
    uninstall step, or both, call `appcontainer.revoke_runtime()` and show any path it couldn't
    change. The Diagnostics screen needs its mockup agreed first.
+5. **Delta exercises.** delta-rs resolves paths in a way an AppContainer is denied (above). Delta
+   exercises need a delta-rs that doesn't, or keep running in the v1 learner process.
 
 - **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
   The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows

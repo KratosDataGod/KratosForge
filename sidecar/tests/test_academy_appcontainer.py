@@ -392,46 +392,83 @@ def test_a_tampered_grants_record_only_ever_removes_the_capabilitys_own_ace(tmp_
 
 
 
-_DELTA_PROBE = r"""
-import json, os, sys
-sys.path.insert(0, SITE)
-out = {}
-import pyarrow as pa
-from deltalake import write_deltalake, DeltaTable
-cwd = os.getcwd()
-fwd = cwd.replace("\\", "/")
-for name, where in (("file3", "file:///" + fwd + "/t1"), ("file2", "file://" + fwd + "/t2"),
-                    ("unc", "\\\\?\\" + cwd + "\\t3"), ("rel_dot", "./t4")):
-    try:
-        write_deltalake(where, pa.table({"x": [1, 2]}))
-        out[name] = DeltaTable(where).to_pyarrow_table().num_rows
-    except BaseException as e:
-        out[name] = "ERR " + repr(e)
-    out[name + "_exists"] = os.listdir(cwd)
-print(json.dumps(out))
-"""
+def test_dot_dot_out_of_the_workspace_is_refused_by_the_guard_too(tmp_path):
+    """Inside an AppContainer ``realpath`` can't resolve anything (GetFinalPathNameByHandleW is denied
+    there) and once handed back ``work\\..`` as is, which looked inside. The guard collapses ``..``
+    first, as Windows does."""
+    work = tmp_path / "ws"
+    (work / "sub").mkdir(parents=True)
+    (work / "sub" / "keep.txt").write_text("k", encoding="utf-8")
+    (work / "main.py").write_text(
+        "import os\nout = []\n"
+        "tries = (('chdir', lambda: os.chdir('..')), ('write', lambda: open('../x.txt', 'w').write('x')),\n"
+        "         ('deep', lambda: open('sub/../../y.txt', 'w').write('y')),\n"
+        "         ('read', lambda: open('../boot/_bootstrap.py').read()))\n"
+        "for name, fn in tries:\n"
+        "    try:\n        fn()\n        out.append(name + ' ran')\n"
+        "    except PermissionError:\n        out.append(name + ' refused')\n"
+        "print('|'.join(out))\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60)
+    assert got["status"] == "ok", got["stderr"]
+    assert got["runs_as"] == appcontainer.RUNS_AS
+    assert got["stdout"].strip() == "chdir refused|write refused|deep refused|read refused"
 
 
-def test_diagnostic_paths_inside_the_appcontainer(tmp_path):
-    """Temporary (diagnostic draft only): round 2."""
-    import duckdb
-    site = str(Path(duckdb.__file__).resolve().parent.parent)
-    rc, err, out = bare_out(tmp_path, f"SITE = {site!r}\n" + _DELTA_PROBE)
-    work = tmp_path / "hooked"
+def _bootstrap_resolver():
+    """The bootstrap's ``_resolver``, on its own (the file runs ``_main`` when executed whole)."""
+    import ast
+    import os
+    tree = ast.parse(sandbox.BOOTSTRAP.read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_resolver")
+    scope: dict = {"os": os}
+    exec(compile(ast.Module([fn], []), str(sandbox.BOOTSTRAP), "exec"), scope)  # noqa: S102 - our own file
+    return scope["_resolver"]
+
+
+def test_the_appcontainer_resolver_fails_closed_on_links(tmp_path):
+    import os
+    import subprocess
+    work = tmp_path / "w"
+    (work / "d").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(work / "j"), str(outside)], check=True, capture_output=True)
+    resolve = _bootstrap_resolver()(True, str(work))
+    same = os.path.normcase
+    assert same(resolve(str(work / "d" / ".." / ".."))) == same(str(tmp_path))
+    assert same(resolve(str(work / "new" / "file.txt"))) == same(str(work / "new" / "file.txt"))
+    for target in (work / "j", work / "j" / "x.txt", work / "d" / ".." / "j" / "x.txt"):
+        with pytest.raises(PermissionError, match="link"):
+            resolve(str(target))
+    assert same(resolve(str(outside / "x.txt"))) == same(str(outside / "x.txt"))   # outside: the guard's roots decide
+
+
+def test_duckdb_and_polars_read_the_exercise_files_inside_the_appcontainer(tmp_path):
+    """DuckDB compares its allowed directories with case, so the bootstrap gives it the workspace as
+    Windows spells it, not lowercased."""
+    work = tmp_path / "ws"
     work.mkdir()
     (work / "a.csv").write_text("x\n1\n2\n", encoding="utf-8")
     (work / "main.py").write_text(
-        "import os\n"
-        "def t(name, fn):\n    try:\n        print(name, 'ok', fn())\n    except BaseException as e:\n        print(name, 'ERR', repr(e))\n"
-        "import duckdb\n"
-        "t('duck_mod', lambda: duckdb.sql(\"select count(*) from 'a.csv'\").fetchall())\n"
-        "t('duck_con', lambda: duckdb.connect().execute(\"select count(*) from 'a.csv'\").fetchall())\n"
-        "t('duck_abs', lambda: duckdb.connect().execute(\"select count(*) from '\" + os.path.join(os.getcwd(), 'a.csv') + \"'\").fetchall())\n"
-        "t('duck_setting', lambda: duckdb.connect().execute(\"select current_setting('allowed_directories')\").fetchall())\n"
-        "import pyarrow as pa\nfrom deltalake import write_deltalake\n"
-        "t('delta_rel', lambda: write_deltalake('t', pa.table({'x': [1]})))\n"
-        "import polars as pl\n"
-        "t('polars_rel', lambda: pl.read_csv('a.csv').height)\n",
+        "import duckdb, polars\n"
+        "print(duckdb.sql(\"select count(*) from 'a.csv'\").fetchall()[0][0],\n"
+        "      duckdb.connect().execute(\"select count(*) from 'a.csv'\").fetchall()[0][0],\n"
+        "      polars.read_csv('a.csv').height)\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=90)
+    assert got["status"] == "ok", got["stderr"]
+    assert got["runs_as"] == appcontainer.RUNS_AS
+    assert got["stdout"].split() == ["2", "2", "2"]
+
+
+@pytest.mark.xfail(strict=True, reason="delta-rs resolves table paths with GetFinalPathNameByHandleW, which an "
+                   "AppContainer is denied: the reason the AppContainer stays opt-in (docs/academy/grading-sandbox.md)")
+def test_delta_rs_writes_a_table_inside_the_appcontainer(tmp_path):
+    work = tmp_path / "ws"
+    work.mkdir()
+    (work / "main.py").write_text(
+        "import pyarrow as pa\nfrom deltalake import write_deltalake, DeltaTable\n"
+        "write_deltalake('t', pa.table({'x': [1, 2]}))\nprint(DeltaTable('t').to_pyarrow_table().num_rows)\n",
         encoding="utf-8")
     got = sandbox.run(work, "main.py", tmp_path, time_limit=90)
-    pytest.fail(f"bare rc={rc}\nstderr={err}\nprobe={out}\nhooked={json.dumps(got, default=str)}")
+    assert got["status"] == "ok", got["stderr"]
+    assert got["stdout"].strip() == "2"

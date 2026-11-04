@@ -145,7 +145,7 @@ def self_test(folder: Path, grading: Path, ex: dict[str, Any], lib_roots: list[P
             work = ws.workspace_dir(data_root, "selftest", ex["id"])
             work.mkdir(parents=True)
             prepare(work, folder, ex, source.read_text(encoding="utf-8"))
-            return grade(work, ex["starter"], ex["validation"], data_root, lib_roots)
+            return grade(work, ex["starter"], ex["validation"], data_root, lib_roots, appcontainer_ok=appcontainer_ok(ex))
 
     return {"solution": one(grading / "solution.py"),
             "wrong": {p.name: one(p) for p in sorted(grading.glob("wrong-*.py"))}}

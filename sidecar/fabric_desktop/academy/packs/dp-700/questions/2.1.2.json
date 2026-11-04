@@ -1,0 +1,138 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.1.2",
+  "questions": [
+    {
+      "id": "2.1.2-q1",
+      "type": "single",
+      "stem": "Why does a dimension table in a star schema usually get its own surrogate key instead of using the source system's key?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A surrogate key stays stable when source keys change or collide, and it lets one business key have several historical versions"
+        },
+        {
+          "id": "b",
+          "text": "A surrogate key removes the need to load the fact table"
+        },
+        {
+          "id": "c",
+          "text": "Surrogate keys are required before a table can be stored as Delta"
+        },
+        {
+          "id": "d",
+          "text": "Surrogate keys make the source system's updates faster"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A surrogate key is assigned by the warehouse, so it doesn't change when a source system reuses or renumbers keys, keys from two sources can't collide, and a slowly changing dimension can keep several rows for one business key, each with its own surrogate key.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.2-q2",
+      "type": "single",
+      "stem": "A customer moves from Leeds to York. Reports must show past sales under Leeds and new sales under York. How should the Customer dimension handle the change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a new row for the customer with a new surrogate key and the new city, and mark the old row as no longer current"
+        },
+        {
+          "id": "b",
+          "text": "Delete the customer and their sales, then reload them"
+        },
+        {
+          "id": "c",
+          "text": "Add a CurrentCity column and keep the old city in the original column"
+        },
+        {
+          "id": "d",
+          "text": "Overwrite the city on the existing row"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Keeping history this way is a type 2 slowly changing dimension: the old row keeps the old city and stays linked to past facts, and new facts use the new row's surrogate key. Overwriting (type 1) loses history, and an extra column (type 3) keeps only one previous value.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.2-q3",
+      "type": "multiple",
+      "stem": "Which two columns does a type 2 slowly changing dimension typically add to each row? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A foreign key to the fact table"
+        },
+        {
+          "id": "b",
+          "text": "The date the row version stopped being valid, or a flag for the current row"
+        },
+        {
+          "id": "c",
+          "text": "A copy of the fact table's measures"
+        },
+        {
+          "id": "d",
+          "text": "The name of the pipeline that loaded the row"
+        },
+        {
+          "id": "e",
+          "text": "The date the row version became valid"
+        }
+      ],
+      "answer": [
+        "e",
+        "b"
+      ],
+      "explanation": "Start and end dates (or a current-row flag) say which version of a member was true at a point in time, so facts can be matched to the right version. Dimensions don't hold foreign keys to facts or copies of their measures; facts point to dimensions.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-dimension-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1.2-q4",
+      "type": "order",
+      "stem": "Put the steps of a nightly dimensional load in order.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Land the changed source rows in staging tables"
+        },
+        {
+          "id": "b",
+          "text": "Look up each fact row's dimension surrogate keys"
+        },
+        {
+          "id": "c",
+          "text": "Insert the fact rows"
+        },
+        {
+          "id": "d",
+          "text": "Insert new dimension members and apply changes to existing ones"
+        }
+      ],
+      "answer": [
+        "a",
+        "d",
+        "b",
+        "c"
+      ],
+      "explanation": "Dimensions are loaded before facts so every fact row can find its dimension members' surrogate keys. Loading facts first would leave rows pointing at members that don't exist yet.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-warehouse/dimensional-modeling-load-tables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

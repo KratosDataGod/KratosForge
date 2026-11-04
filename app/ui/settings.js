@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
 
@@ -111,17 +112,22 @@ function redactReport(text, level = "support") {
     .replace(/(\bauthorization\s*[:=]\s*basic\s+)[A-Za-z0-9+/=]{4,}/gi, "$1[removed]")
     .replace(/(\b(?:basic|Basic|BASIC)\s+)(?=[A-Za-z0-9+/]*(?:[0-9+/=]|[a-z][A-Z]))[A-Za-z0-9+/]{8,}={0,2}/g, "$1[removed]")
     .replace(/(\bsig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/\b(?:fdt|kfp)_[A-Za-z0-9_\-]{20,}/g, "[removed]")
+    .replace(/(--(?:password|passwd|pwd)\s+)(?:"[^"\n]*"?|'[^'\n]*'?|[^\s"']+)/gi, "$1[removed]")
+    .replace(/(\b(?:set-)?cookie\s*:(?![ \t]*\[removed\])[ \t]*)[^\r\n]+/gi, "$1[removed]")
+    .replace(/([?&#]code=)[^&\s"'<>#]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
     .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
     .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bdose[0-9a-f]{32}\b/g, "[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
-    .replace(/("(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
-    .replace(/('(?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/("(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)"\s*:\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
+    .replace(/('(?:client_secret|(?:set-)?cookie|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)'\s*:\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*")(?:(?:[^"\\]|\\.)*(?=")|(?:[^"\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\b((?:client_secret|password|passwd|(?:[a-z0-9]+[_-])*passphrase|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)\s*[=:]\s*')(?:(?:[^'\\]|\\.)*(?=')|(?:[^'\\\n]|\\.)*)/gi, "$1[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
@@ -132,7 +138,7 @@ function redactReport(text, level = "support") {
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
-    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+/gi, "$1[site]")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
     .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
@@ -178,6 +184,20 @@ function reportProblem() {
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
   [btn("Copy only", null, () => copyText(report(), "Report"), "tool outline"), h("span", { class: "spacer" }),
     btn("Cancel", null, closeDialog, "tool outline"), btn("Send", null, send, "tool primary")]);
+}
+
+// The policy file's SHA-256 and its last change (policy_watch.py, #1670), for IT to compare with the
+// hash of the file they pushed (Get-FileHash). Shown only when there is a file.
+function policyRecordRows(r) {
+  if (!r?.sha256) return null;
+  const when = r.changed_at ? dateTimeText(r.changed_at) : "";
+  const how = r.first ? `First seen ${when}` : `Last changed ${when}`;
+  return [
+    h("dt", {}, "Its SHA-256"), h("dd", { class: "mono" }, r.sha256),
+    h("dt", {}, "Changes"), h("dd", {}, r.managed === false
+      ? `${how}, while the account signed in to this PC could change the file: not the way IT pushes it. Compare the SHA-256 with the file IT shipped. The audit log has each change.`
+      : `${how}. The audit log has each change.`),
+  ];
 }
 
 // ---------- Check for updates ----------
@@ -561,6 +581,7 @@ function motionSettingsCard(s, locked) {
         onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),
@@ -776,8 +797,11 @@ async function renderSettings() {
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
       h("dt", {}, "Engine Python"), h("dd", {}, state.python || "unknown"),
       h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
+      policyRecordRows(s.policy_record),
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allow_signed_out_schedules?.value === false ? [h("dt", {}, "Schedules on this PC"),
+        h("dd", {}, "Only while you're signed in to Windows: your organization turned off runs while signed out")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
         // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
         h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
@@ -786,12 +810,14 @@ async function renderSettings() {
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
-  const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
+  // Connections (connections.js) is a tab too: Databricks and Snowflake connection profiles.
+  const tab = previewShown() && ["integrations", "connections"].includes(state.settingsTab) ? state.settingsTab : "general";
   const tabs = previewShown() ? h("div", { class: "subtabs", role: "tablist", "aria-label": "Settings" },
-    [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
+    [["general", "General"], ["connections", "Connections"], ["integrations", "Integrations"]].map(([id, label]) =>
       h("button", { class: `tab${tab === id ? " active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { state.settingsTab = id; render(); } },
-        label, id === "integrations" ? previewTag() : null))) : null;
+        label, id === "general" ? null : previewTag()))) : null;
   const integrations = h("div", { class: "integrations" });
+  const connections = h("div", { class: "connections" });
   // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
   const platform = previewShown() ? h("section", { class: "card pad platform-link" },
     h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
@@ -802,9 +828,13 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       pageIntro("How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : tab === "connections" ? connections : [account, updates, display, previews, usage, platform, notify, about, advanced].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
+    return;
+  }
+  if (tab === "connections") {
+    renderConnectionsTab(connections);
     return;
   }
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
@@ -847,7 +877,7 @@ function advancedSection(s, locked, limitRow) {
       "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
       [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
     s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
-      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared. A new process already uses about 0.8 GB on Windows before any cell runs.",
       [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
     s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
       "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",

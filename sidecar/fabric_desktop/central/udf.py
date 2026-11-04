@@ -9,6 +9,7 @@ Catalog app (translytical task flows) call the save_* functions, which return te
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import re
@@ -552,6 +553,37 @@ def product_followers(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCon
     return _run(sqlDB, "product_followers", ctx, product_id=product_id)
 
 
+# ---- the change window (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def change_window(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "change_window")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_change_window(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, window: dict = None) -> dict:
+    return _run(sqlDB, "save_change_window", ctx, window=window)
+
+
+# ---- how each product is doing now (Preview)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_product_status(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_product_status")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def report_product_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: str, env: str,
+                          statuses: list) -> list:
+    return _run(sqlDB, "report_product_status", ctx, project=project, env=env, statuses=statuses)
+
+
 # ---- Entra ID groups per domain (Preview)
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -877,16 +909,55 @@ def function_app() -> str:
             + _WRAPPERS)
 
 
+# The connection's item type as Fabric names it, in the functions' bindings and in definition.json's
+# connectedDataSources: SQL_Platform is a SQL database in Fabric ("SqlDbNative").
+# Live run 3 (2026-11-03) was refused with an empty one: "Unsupported Argument: artifactType. Value: is
+# unsupported. Supported values are: Lakehouse, LakeWarehouse, MountedWarehouse, DataWarehouse, AzureSql,
+# SqlDbNative, MountedRelationalDatabase, Warehouse, Variables, EventDefinition".
+SQL_ITEM_TYPE = "SqlDbNative"
+
+
+def _functions() -> list[dict]:
+    """Each function in _WRAPPERS, as resources/functions.json describes it: its parameters and
+    return type, and its bindings (the HTTP trigger, the SQL_Platform connection, Fabric's context)."""
+    out = []
+    for node in ast.parse(_WRAPPERS).body:
+        if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
+            continue
+        bindings: list[dict[str, object]] = [{"methods": ["POST"], "route": "", "authLevel": "Anonymous", "name": "req",
+                     "direction": "In", "type": "HttpTrigger"}]
+        params = []
+        for arg in node.args.args:
+            kind = ast.unparse(arg.annotation) if arg.annotation else "str"
+            if kind == "fn.FabricSqlConnection":
+                bindings.append({"itemType": SQL_ITEM_TYPE, "subType": "FabricSqlConnection", "alias": ALIAS,
+                                 "name": arg.arg, "direction": "In", "type": "FabricItem"})
+            elif kind == "fn.UserDataFunctionContext":
+                bindings.append({"name": arg.arg, "direction": "In", "type": "UserDataFunctionContext"})
+            else:
+                params.append({"dataType": kind, "name": arg.arg})
+        out.append({"name": node.name, "scriptFile": "function_app.py", "bindings": bindings,
+                    "fabricProperties": {"fabricMetadataSchemaVersion": "1.1.0", "fabricFunctionParameters": params,
+                                         "fabricFunctionReturnType": ast.unparse(node.returns) if node.returns else "str"}})
+    return out
+
+
 def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:
-    """The item's definition files: the source, and its connection to SQL_Platform as alias "platform"."""
+    """The item's definition files: the source, its functions, and its connection to SQL_Platform as
+    alias "platform". Fabric refuses a definition that lists no functions ("Functions is null or empty").
+    Public endpoint on: the app calls each function at its invoke URL (client.py), which Fabric serves only
+    with public access enabled. Callers still need an Entra token and Execute on the item."""
+    functions = _functions()
     return {
         "function_app.py": function_app(),
         "definition.json": json.dumps({
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.0.0/schema.json",
             "runtime": "PYTHON",
             "connectedDataSources": [{"alias": ALIAS, "artifactId": sql_database_id, "workspaceId": workspace_id,
-                                      "sourceType": "SqlDatabase"}],
-            "functionsMetadata": []}, indent=2),
+                                      "sourceType": SQL_ITEM_TYPE}],
+            "functions": [{"name": f["name"], "description": "", "isPublicEndpointEnabled": True} for f in functions]},
+            indent=2),
+        "resources/functions.json": json.dumps({"runtime": "PYTHON", "functionsMetadata": functions}, indent=2),
     }
 
 

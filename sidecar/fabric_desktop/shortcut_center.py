@@ -13,9 +13,13 @@ Two ways a shortcut decides who reads it:
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from typing import Any
+
+from . import redact
 
 ENV_ORDER = ("dev", "test", "prod")
 _ENV_WORDS = {"dev": ("dev", "development", "sandbox"), "test": ("test", "uat", "qa", "staging"),
@@ -139,11 +143,108 @@ def same_env_target(s: dict[str, Any], envs: dict[str, str], lakehouses: list[di
     return None
 
 
+def _without_env(workspace_name: str) -> str:
+    """A workspace name with its environment words taken out: "Sales Dev" and "Sales Prod" give "sales"."""
+    every = set().union(*_ENV_WORDS.values())
+    return " ".join(w for w in re.split(r"[^a-z0-9]+", str(workspace_name or "").lower()) if w and w not in every)
+
+
+def env_workspace(workspace_id: str, workspace_name: str, env: str, envs: dict[str, str],
+                  lakehouses: list[dict[str, Any]], groups: list[dict[str, str]]) -> dict[str, str] | None:
+    """The workspace that is ``workspace_id``'s counterpart in ``env``: the metadata project's own say
+    (``groups``, each {env: workspace id}) first, else the one workspace in ``env`` whose name differs only
+    by its environment word. None when there is none, or more than one could be meant."""
+    names = {l["workspace_id"]: l.get("workspace_name") or "" for l in lakehouses}
+    for g in groups:
+        if workspace_id in g.values() and g.get(env):
+            return {"workspace_id": g[env], "workspace_name": names.get(g[env], "")}
+    stem = _without_env(workspace_name)
+    if not stem:
+        return None
+    found = {i for i, n in names.items() if i != workspace_id and _without_env(n) == stem and env_of(i, n, envs) == env}
+    if len(found) != 1:
+        return None
+    wid = found.pop()
+    return {"workspace_id": wid, "workspace_name": names[wid]}
+
+
+def _lakehouse_in(workspace_id: str, name: str, lakehouses: list[dict[str, Any]]) -> dict[str, Any] | None:
+    found = [l for l in lakehouses if l["workspace_id"] == workspace_id
+             and str(l.get("lakehouse_name") or "").lower() == str(name or "").lower()]
+    return found[0] if len(found) == 1 else None
+
+
+def env_twins(detail: dict[str, Any], envs: dict[str, str], lakehouses: list[dict[str, Any]],
+              groups: list[dict[str, str]]) -> dict[str, Any]:
+    """Where a shortcut request's shortcut goes in the other environments, so approving makes it in Dev, Test
+    and Prod, each pointing at its own environment. ``detail`` is the request's; ``lakehouses`` every one
+    the approver can list [{workspace_id, workspace_name, lakehouse_id, lakehouse_name}].
+
+    Returns {env, why, places: [{env, workspace_id, workspace_name, lakehouse_id, lakehouse_name, source,
+    target_workspace_name}] or [{env, why}]}. ``why`` at the top says why there are no other environments at
+    all. A place is skipped, with why, rather than pointed at another environment or guessed: no matching
+    workspace or lakehouse, or more than one."""
+    host_env = env_of(detail.get("workspace_id") or "", detail.get("workspace_name") or "", envs)
+    if not host_env:
+        return {"env": "", "why": f"{detail.get('workspace_name') or 'Its workspace'} isn't a Dev, Test or Prod "
+                                  "workspace, so the shortcut is made only where it was asked for", "places": []}
+    source = dict(detail.get("source") or {})
+    if source.get("type") != "oneLake":
+        return {"env": host_env, "why": "A storage shortcut reads with its connection, so it's made only where it was "
+                                        "asked for. Make it in the other environments with New shortcut if they need it",
+                "places": []}
+    by_id = {l["lakehouse_id"]: l for l in lakehouses}
+    target = by_id.get(str(source.get("item_id") or ""))
+    target_env = env_of(target["workspace_id"], target.get("workspace_name") or "", envs) if target else ""
+    places: list[dict[str, Any]] = []
+    for env in ENV_ORDER:
+        if env == host_env:
+            continue
+        label = env.title()
+        ws = env_workspace(detail.get("workspace_id") or "", detail.get("workspace_name") or "", env, envs, lakehouses, groups)
+        lh = _lakehouse_in(ws["workspace_id"], detail.get("lakehouse_name") or "", lakehouses) if ws else None
+        if lh is None:
+            places.append({"env": env, "why": (f"No {label} workspace matches {detail.get('workspace_name') or 'its workspace'}"
+                                               if ws is None else f"No one {detail.get('lakehouse_name') or 'lakehouse'} "
+                                               f"in {_workspace_label(ws, lakehouses)} that you can see")})
+            continue
+        where = {"env": env, "workspace_id": lh["workspace_id"], "workspace_name": lh.get("workspace_name") or "",
+                 "lakehouse_id": lh["lakehouse_id"], "lakehouse_name": lh.get("lakehouse_name") or ""}
+        if target is None:
+            places.append({"env": env, "why": "Its target lakehouse isn't one you can see, so its match can't be found"})
+        elif not target_env:  # a lakehouse in no environment (shared): every environment reads the same one
+            places.append(where | {"source": source, "target_workspace_name": target.get("workspace_name") or ""})
+        elif target_env != host_env:
+            places.append({"env": env, "why": f"It points at {target_env.title()}, not {host_env.title()}, so there's no "
+                                              f"{label} target to match"})
+        else:
+            tws = env_workspace(target["workspace_id"], target.get("workspace_name") or "", env, envs, lakehouses, groups)
+            tlh = _lakehouse_in(tws["workspace_id"], target.get("lakehouse_name") or "", lakehouses) if tws else None
+            if tlh is None:
+                places.append({"env": env, "why": f"No {label} match for its target {target.get('lakehouse_name') or ''} "
+                                                  f"in {target.get('workspace_name') or 'its workspace'}"})
+            else:
+                places.append(where | {"source": source | {"workspace_id": tlh["workspace_id"], "item_id": tlh["lakehouse_id"]},
+                                       "target_workspace_name": tlh.get("workspace_name") or "",
+                                       "target_lakehouse_name": tlh.get("lakehouse_name") or ""})
+    return {"env": host_env, "why": "", "places": places}
+
+
+def _workspace_label(ws: dict[str, str], lakehouses: list[dict[str, Any]]) -> str:
+    return ws.get("workspace_name") or next((l.get("workspace_name") or "" for l in lakehouses
+                                             if l["workspace_id"] == ws["workspace_id"]), "") or "that workspace"
+
+
 def moved_candidates(name: str, gone_id: str, lakehouses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Lakehouses with the lost lakehouse's name (any case), other than the lost one itself."""
     name = str(name or "").strip().lower()
     return [l for l in lakehouses if name and str(l.get("lakehouse_name") or "").lower() == name
             and l.get("lakehouse_id") != gone_id]
+
+
+def owners(value: Any) -> set[str]:
+    """People in a data product's owner field, as the catalog reads it: separated by commas or semicolons."""
+    return {x.strip().lower() for x in re.split(r"[,;]", str(value or "")) if x.strip()}
 
 
 def port_index(products: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -250,3 +351,45 @@ def readers_gap(here: list[dict[str, Any]], there: list[dict[str, Any]] | None, 
 
 def same_definition(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
     return json.dumps(a or {}, sort_keys=True) == json.dumps(b or {}, sort_keys=True)
+
+
+CSV_HEADER = ["Shortcut", "Path", "Workspace", "Lakehouse", "Environment", "Points at", "Target", "Target path",
+              "Target workspace", "Target lakehouse", "Target environment", "Data product", "Health", "Health detail",
+              "Checked at", "Worth a look", "Used by", "Last change", "Last change at", "Last change by"]
+_FORMULA = ("=", "+", "-", "@", "\t", "\r")  # Excel runs a cell starting with one of these as a formula
+_HEALTH_WORDS = {"healthy": "Healthy", "broken": "Broken", "unreachable": "Unreachable", "not_checked": "Not checked"}
+
+
+def _cell(value: Any) -> str:
+    """A CSV cell Excel won't run as a formula: a shortcut or target name is anyone's text."""
+    text = str(value if value is not None else "")
+    return "'" + text if text[:1] in _FORMULA else text
+
+
+def to_csv(rows: list[dict[str, Any]]) -> str:
+    """The command center's rows as CSV, one shortcut a line, in the order given. Names, paths and
+    targets only: who can read a shortcut and connection details stay in the app."""
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\r\n")
+    w.writerow(CSV_HEADER)
+    for r in rows:
+        onelake = r.get("target_type") == "OneLake"
+        product = r.get("product") or {}
+        change = r.get("last_change") or {}
+        how = change.get("how")
+        by = (change.get("by_user") or "KratosForge") if how == "app" else "Health check" if how == "check" else \
+            "Seen at scan" if change else ""
+        worth = [x.get("text") or x.get("kind") or "" for x in open_risks(r)]
+        w.writerow([_cell(x) for x in (
+            r.get("name"), r.get("path"), r.get("workspace_name"), r.get("lakehouse_name"),
+            str(r.get("host_env") or "").title(), r.get("target_type"),
+            "" if onelake else redact.secrets(str(r.get("target") or "")), r.get("target_path") if onelake else "",
+            r.get("target_workspace_name") if onelake else "", r.get("target_lakehouse_name") if onelake else "",
+            str(r.get("target_env") or "").title(),
+            (product.get("name") or "") + (" (deprecated)" if product.get("status") == "deprecated" else ""),
+            _HEALTH_WORDS.get(r.get("health") or "not_checked", r.get("health")),
+            redact.secrets(str(r.get("health_detail") or "")),
+            r.get("checked_at"), "; ".join(worth),
+            "; ".join(str(u.get("entity") or "") for u in r.get("used_by") or []),
+            change.get("kind") or "", change.get("at") or "", by)])
+    return out.getvalue()

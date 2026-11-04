@@ -25,6 +25,10 @@ refuses to register an engine that claims more than it has an adapter and tests 
 | Translated | The code is rewritten for another engine first. Spark SQL and Snowflake SQL on DuckDB are translated by sqlglot. |
 | Unsupported | Not available. Anything not listed is unsupported. |
 
+Which Spark SQL built-in functions a notebook can use on this PC is in
+[Spark functions on this PC](spark-functions.md): every Spark 3.5 built-in, each checked against
+Apache Spark's own value for its documented example, and kept current by CI.
+
 ### Compatibility matrix
 
 "Tested" means automated tests in this repository, on Linux and Windows CI, with no cloud. Nothing
@@ -34,7 +38,7 @@ APIs and clients, and stay Preview until they have.
 
 | Engine | Where it runs | Languages | SQL | Cancel | Plan | Variables | Whole result | Billed | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Native | No | Native | No | Nothing | Tested |
+| Python (this PC) | This PC, its own process | Python native; PySpark simulated | (use a SQL engine) | Partial (DuckDB queries stop, also on a notebook's own duckdb.connect; Polars, and queries on connections opened in threads the cell starts, finish first) | No | Native | No | Nothing | Tested |
 | DuckDB (this PC) | This PC | SQL | DuckDB native; Spark SQL, Databricks SQL and Snowflake SQL translated | Native | Native | No | Native | Nothing | Tested |
 | SQLite (this PC) | This PC | SQL | SQLite native | Native | Native | No | Native | Nothing | Tested |
 | Polars SQL (this PC) | This PC | SQL | Polars SQL partial | **No** (the query finishes) | Native | No | No | Nothing | Tested |
@@ -197,6 +201,8 @@ here or below hasn't been checked.
 
 Translated Spark SQL and Databricks SQL run with the session time zone set to UTC, the default for Spark sessions in Fabric and Databricks, so a timestamp reads the same here as there whatever this PC's time zone. DuckDB SQL cells keep the session's own zone.
 
+Casts to TINYINT, SMALLINT, INT or BIGINT answer as Spark does, in Spark SQL, Databricks SQL, `F.expr` and `Column.cast`: a fraction is truncated (`CAST(3.7 AS INT)` is 3, not 4), and text is read as Spark reads it (`CAST('1.9' AS INT)` is 1 with ANSI off, NULL for `try_cast`, and stops in Databricks SQL's ANSI `CAST`).
+
 `from_json` runs here when its schema is written out as text, such as `'a INT, b STRING'` or `'ARRAY<STRUCT<n: BIGINT>>'`, with fields of INT, BIGINT, SMALLINT, TINYINT, DOUBLE, FLOAT, DECIMAL, STRING, BOOLEAN, DATE, TIMESTAMP, ARRAY and STRUCT. JSON keys match field names case-sensitively, as in Databricks. Values are read as Databricks' JSON reader reads them: DOUBLE also takes "NaN" and "Infinity", DECIMAL also takes a number written as text ("1,000.5"), and TIMESTAMP also takes a whole number of seconds since 1970. A value that doesn't fit its field (text in an INT field, for example) gives NULL for that field, as Databricks does with partial results on; text that isn't JSON gives a struct of NULLs. An object that repeats one of the schema's keys stops with a message, since Databricks keeps the last value. A number read into a STRING field is written as DuckDB writes it, which can differ from Databricks for very large or very small numbers (1e20). A schema with MAP or TIMESTAMP_NTZ fields, a schema that isn't written-out text, from_json options, and a JSON array read with a struct schema are refused with a message, so nothing runs with a different answer. `str_to_map` splits on regular expressions, as Databricks does. `schema_of_json` of JSON written out as text is worked out when the query is translated, as Databricks infers it with default options, so `from_json(x, schema_of_json('...'))` runs too; options, a whole number too big for BIGINT, and a repeated key are refused.
 
 <!-- Generated from databricks_sql_parity.table_markdown(); a test keeps this table equal to the code. -->
@@ -205,19 +211,17 @@ Of 209 checks on commonly used Databricks SQL built-in functions, these are the 
 
 | Function | Group | On this PC | What to know |
 | --- | --- | --- | --- |
-| `percentile_approx` | Aggregate | Different result | Approximate on both, but the estimates differ. |
 | `get_json_object (every element)` | JSON | Not translated | Refused here: a [*] path would give a list, not the JSON text '[1,2]'. Read the values with from_json, or use a path to one element. |
-| `json_tuple` | JSON | Doesn't run | DuckDB has no json_tuple. Use get_json_object for each field. |
-| `json_tuple (in the select list)` | JSON | Doesn't run | DuckDB has no json_tuple. Use get_json_object for each field. |
+| `json_tuple` | JSON | Doesn't run | json_tuple runs in the select list here, not in FROM. Write SELECT json_tuple(...) or use get_json_object for each field. |
 
-These 205 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`, `transform (with index)`, `filter (with index)`, `filter (drop NULLs)`, `exists (looking for NULL)`, `forall`, `forall (all match)`, `forall (NULL and a miss)`, `forall (NULL and no miss)`, `aggregate (finish)`, `aggregate (struct accumulator)`, `reduce`, `reduce (finish)`, `array_sort (comparator)`, `array_sort (descending comparator)`, `zip_with`, `zip_with (strings)`, `zip_with (unequal lengths)`, `map_filter`, `transform_keys`, `transform_keys (key and value)`, `transform_values`, `transform_values (key and value)`, `map_from_arrays`, `map_concat`, `map_from_entries`, `map_entries`, `str_to_map`, `str_to_map (no value)`, `element_at (map)`, `element_at (map, missing key)`, `element_at (negative index)`, `try_element_at`, `map_contains_key`, `map_contains_key (missing key)`, `get_json_object (nested)`, `get_json_object (array index)`, `get_json_object (bracket name)`, `get_json_object (no match)`, `from_json`, `from_json (name case)`, `to_json (array of structs)`, `to_json (map)`, `schema_of_json`, `lag`, `lag (default)`, `lag (offset 2)`, `lead`, `lead (default)`, `nth_value`, `nth_value (too few rows)`, `ntile`, `percent_rank`, `cume_dist`, `rank`, `dense_rank`, `row_number`.
+These 207 checks answer the same as on Databricks: `concat`, `concat_ws`, `upper`, `lower`, `length`, `substring`, `substr`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `replace`, `instr`, `locate`, `position`, `split`, `split_part`, `regexp_replace`, `regexp_extract`, `regexp_like`, `initcap`, `reverse`, `repeat`, `left`, `right`, `startswith`, `endswith`, `contains`, `md5`, `sha2`, `base64`, `ascii`, `chr`, `translate`, `format_number`, `levenshtein`, `soundex`, `abs`, `round`, `round (negative half)`, `bround`, `ceil`, `floor`, `mod (%)`, `pmod`, `div`, `power`, `sqrt`, `ln`, `log10`, `log`, `greatest`, `least`, `sign`, `try_divide`, `hex`, `bin`, `conv`, `factorial`, `date_add`, `date_sub`, `datediff`, `add_months`, `last_day`, `year`, `month`, `dayofmonth`, `dayofweek`, `weekofyear`, `quarter`, `date_format`, `to_date`, `to_timestamp`, `date_trunc`, `trunc`, `make_date`, `next_day`, `months_between`, `array`, `size`, `array_contains`, `element_at`, `array_distinct`, `array_sort`, `sort_array`, `array_join`, `array_max`, `array_min`, `flatten`, `slice`, `sequence`, `array_position`, `arrays_overlap`, `array_union`, `array_intersect`, `array_except`, `transform`, `filter`, `aggregate`, `exists`, `explode`, `map_keys`, `map_values`, `coalesce`, `nvl`, `ifnull`, `nullif`, `nvl2`, `if`, `iff`, `decode`, `get_json_object`, `to_json`, `json_array_length`, `count_if`, `collect_list`, `collect_set`, `array_agg`, `max_by`, `min_by`, `bool_and`, `bool_or`, `median`, `percentile`, `percentile_approx`, `approx_count_distinct`, `stddev`, `variance`, `any_value`, `sort_array (descending)`, `arrays_overlap (only NULL could match)`, `array_union (NULLs)`, `pmod (negative divisor)`, `pmod (both negative)`, `dayofweek (Sunday)`, `array_intersect (order and NULL)`, `array_except (order and NULL)`, `array_distinct (order and NULL)`, `bround (one argument, odd)`, `bround (negative places)`, `conv (negative to a signed base)`, `conv (negative to an unsigned base)`, `conv (stops at an invalid digit)`, `conv (base out of range)`, `soundex (H and W keep a run)`, `soundex (not a letter first)`, `format_number (no decimals)`, `format_number (half-even)`, `exists (NULL and no match)`, `transform (with index)`, `filter (with index)`, `filter (drop NULLs)`, `exists (looking for NULL)`, `forall`, `forall (all match)`, `forall (NULL and a miss)`, `forall (NULL and no miss)`, `aggregate (finish)`, `aggregate (struct accumulator)`, `reduce`, `reduce (finish)`, `array_sort (comparator)`, `array_sort (descending comparator)`, `zip_with`, `zip_with (strings)`, `zip_with (unequal lengths)`, `map_filter`, `transform_keys`, `transform_keys (key and value)`, `transform_values`, `transform_values (key and value)`, `map_from_arrays`, `map_concat`, `map_from_entries`, `map_entries`, `str_to_map`, `str_to_map (no value)`, `element_at (map)`, `element_at (map, missing key)`, `element_at (negative index)`, `try_element_at`, `map_contains_key`, `map_contains_key (missing key)`, `get_json_object (nested)`, `get_json_object (array index)`, `get_json_object (bracket name)`, `get_json_object (no match)`, `from_json`, `from_json (name case)`, `to_json (array of structs)`, `to_json (map)`, `json_tuple (in the select list)`, `schema_of_json`, `lag`, `lag (default)`, `lag (offset 2)`, `lead`, `lead (default)`, `nth_value`, `nth_value (too few rows)`, `ntile`, `percent_rank`, `cume_dist`, `rank`, `dense_rank`, `row_number`.
 
 `array_sort` with a comparator compares every pair of elements, so it sorts up to 3,000 elements per array on this PC; a longer array stops with a message (use `array_sort` or `sort_array` without a comparator, or run it on Databricks).
 
 ## Databricks workspace discovery (Preview)
 
 To find a SQL warehouse or a cluster without copying IDs from the Databricks UI, ask the workspace
-what you can use. Discovery is a command, with no screen in the app yet:
+what you can use: **Settings > Connections > Check workspace** in the app (below), or the command:
 
 ```
 fabric-desktop databricks-discover --profile dev
@@ -240,6 +244,26 @@ warehouse and a cluster to try first.
   it couldn't sign in. Use `--no-catalogs` to leave the catalogs out.
 
 It's tested against fakes of those APIs, not yet against a live workspace.
+
+## Connection profiles in Settings (Preview)
+
+**Settings > Connections** lists the connection profiles on this PC and adds a connection to one.
+
+- **Sign in with the CLI first.** A Databricks connection uses a profile of the Databricks CLI
+  (`databricks auth login --host <workspace URL> --profile dev`); a Snowflake one uses a connection
+  of the Snowflake CLI (`snow connection add`). You pick it by name: the workspace address or account
+  and the sign-in are read from the CLI's own file, so the app never types or keeps a token. A CLI
+  profile that keeps a personal access token in plain text says so.
+- **Check workspace** runs discovery for the CLI profile you picked and lists the warehouses, the
+  clusters Databricks Connect can use, and the catalogs, with the suggested ones already picked.
+  Nothing starts and nothing bills DBUs.
+- **Save connection** adds it to a profile, or to a new one, with the warehouse, cluster, catalog and
+  schema you picked. The engine picker lists it at once. A profile with connections to two platforms
+  becomes a hybrid profile. A value that looks like a token is refused and nothing is written.
+- **Remove** takes one connection out of a profile, after you confirm. The CLI's own profile or
+  connection stays as it is.
+
+Checking a Snowflake account from Settings, and switching the profile in use, come later.
 
 ## Databricks Connect (Preview)
 
@@ -466,7 +490,8 @@ adapter has one.
 
 ## Not yet
 
-- No profile setup screen: connection profiles are read, not edited, by the engine picker.
+- Settings > Connections adds CLI-based connections only: service principals and the other sign-in
+  methods are set in the profile file for now, and the profile in use isn't switched from Settings yet.
 - Snowflake: the three engines above are listed so the plan is visible, but none runs a cell yet.
   Snowflake SQL and Snowpark Connect will run on your Snowflake warehouse and use credits, so they
   will ask first, as every remote engine does. Snowpark on this PC will be simulated by Snowflake's

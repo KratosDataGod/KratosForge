@@ -402,6 +402,27 @@ function productDialog(p, x, done) {
   const access = h("select", {}, Object.entries(ACCESS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.access || "domain") === id ? true : null }, label)));
   const status = h("select", {}, Object.entries(STATUS_LABEL).map(([id, label]) => h("option", { value: id, selected: (x?.status || "draft") === id ? true : null }, label)));
   const deprecated = h("input", { type: "date", value: x?.deprecated_on || "" });
+  // What readers can count on ([promise] in the product file). A broken promise opens an incident.
+  const pr = x?.promise || {};
+  const within = h("input", { type: "number", min: "0", step: "any", value: pr.within_hours ?? "", placeholder: "Like 24" });
+  const by = h("input", { type: "time", value: pr.by || "" });
+  const rejected = h("input", { type: "number", min: "0", max: "99.99", step: "any", value: pr.max_rejected_pct ?? "", placeholder: "Like 1" });
+  // The file may name any of dev, test and prod: offer what it says, so saving the dialog keeps it.
+  const ENV_NAME = { dev: "Dev", test: "Test", prod: "Prod" };
+  const curEnvs = ["dev", "test", "prod"].filter((e) => (Array.isArray(pr.envs) && pr.envs.length ? pr.envs : ["prod"]).includes(e)).join(",") || "prod";
+  const envChoices = [["prod", "Prod"], ["test,prod", "Test and Prod"]];
+  if (!envChoices.some(([id]) => id === curEnvs)) envChoices.push([curEnvs, curEnvs.split(",").map((e) => ENV_NAME[e]).join(" and ")]);
+  const promiseEnvs = h("select", {}, envChoices.map(([id, label]) =>
+    h("option", { value: id, selected: curEnvs === id ? true : null }, label)));
+  const promiseOf = () => {
+    const out = {};
+    if (within.value.trim()) out.within_hours = Number(within.value);
+    if (by.value) out.by = by.value.slice(0, 5);
+    if (rejected.value.trim()) out.max_rejected_pct = Number(rejected.value);
+    if (!Object.keys(out).length) return null;
+    if (promiseEnvs.value !== "prod") out.envs = promiseEnvs.value.split(",");
+    return out;
+  };
   const chosen = Object.fromEntries((x?.ports || []).map((port) => [port.entity, port.name]));
   const portRows = p.entities.map((e) => {
     const box = h("input", { type: "checkbox", checked: chosen[e.name] ? true : null });
@@ -413,6 +434,11 @@ function productDialog(p, x, done) {
       h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Steward", steward), h("label", { class: "field" }, "Open to", access),
       h("label", { class: "field" }, "Status", status), h("label", { class: "field" }, "Ends on (deprecated only)", deprecated)),
     h("label", { class: "field" }, "Description", description),
+    h("fieldset", { class: "field product-promise-fields" }, h("legend", {}, "Promise to readers (optional, Preview)"),
+      h("div", { class: "form-grid" }, h("label", { class: "field" }, "Loaded at least every (hours)", within),
+        h("label", { class: "field" }, "Loaded by, each day", by), h("label", { class: "field" }, "Under this % of rows rejected", rejected),
+        h("label", { class: "field" }, "Applies in", promiseEnvs)),
+      h("p", { class: "muted-text small" }, "Readers see it before they link. A late load or too many rejected rows opens a Promise broken incident.")),
     h("div", { class: "field" }, "Ports: the tables other teams may read, and the name they use", h("div", { class: "port-list" }, portRows.map((r) => r.row)))), [
     x ? btn("Delete", "delete", async () => {
       if (!(await confirmDialog(`Delete ${x.title}?`, "The product file is removed. Teams that link to it keep their links until they remove them; their runs fail once it's gone from the catalog.", "Delete", { danger: true }))) return;
@@ -423,7 +449,7 @@ function productDialog(p, x, done) {
       const ports = portRows.filter((r) => r.box.checked).map((r) => ({ name: r.port.value.trim(), entity: r.e.name }));
       const res = await metaCall("mesh_save_product", { product: { name: name.value.trim(), title: title.value.trim(),
         description: description.value.trim(), owner: owner.value.trim(), steward: steward.value.trim(), access: access.value, status: status.value,
-        deprecated_on: deprecated.value, version: x?.version || 1, ports }, original: x?.name || "" }, "Not saved");
+        deprecated_on: deprecated.value, version: x?.version || 1, promise: promiseOf(), ports }, original: x?.name || "" }, "Not saved");
       if (res) { closeDialog(); toast("Saved"); done(); }
     }, "tool primary")].filter(Boolean));
 }

@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.4",
+  "questions": [
+    {
+      "id": "2.2.4-q1",
+      "type": "single",
+      "stem": "What does Fabric mirroring do with a supported operational database?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It moves the database into a Fabric warehouse and shuts down the source"
+        },
+        {
+          "id": "b",
+          "text": "It makes a one-time backup of the database in OneLake"
+        },
+        {
+          "id": "c",
+          "text": "It caches query results from the source in Power BI"
+        },
+        {
+          "id": "d",
+          "text": "It keeps a near real-time replica of the database's tables in OneLake as Delta tables"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Mirroring continuously replicates the source's data into OneLake in Delta format, so it can be analyzed in Fabric without building ETL pipelines.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.4-q2",
+      "type": "multiple",
+      "stem": "Which three sources can Fabric mirroring replicate? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Azure Cosmos DB"
+        },
+        {
+          "id": "b",
+          "text": "Snowflake"
+        },
+        {
+          "id": "c",
+          "text": "Azure SQL Database"
+        },
+        {
+          "id": "d",
+          "text": "A CSV file share"
+        },
+        {
+          "id": "e",
+          "text": "A Power BI semantic model"
+        }
+      ],
+      "answer": [
+        "c",
+        "b",
+        "a"
+      ],
+      "explanation": "Azure SQL Database, Snowflake and Azure Cosmos DB are among the databases mirroring supports. File shares and semantic models aren't mirroring sources.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.4-q3",
+      "type": "single",
+      "stem": "After a database is mirrored into Fabric, how can analysts query the replica with T-SQL?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only by connecting to the source database"
+        },
+        {
+          "id": "b",
+          "text": "Only through KQL"
+        },
+        {
+          "id": "c",
+          "text": "Through the mirrored database's SQL analytics endpoint"
+        },
+        {
+          "id": "d",
+          "text": "They can't; the replica is visible only to Spark"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A mirrored database comes with a SQL analytics endpoint for read-only T-SQL queries over the replicated tables.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.4-q4",
+      "type": "single",
+      "stem": "You need a continuously updated copy of an Azure SQL database in OneLake, with as little to build and maintain as possible and no transformation on the way. What should you use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A Dataflow Gen2"
+        },
+        {
+          "id": "b",
+          "text": "A pipeline with a Copy activity scheduled every five minutes"
+        },
+        {
+          "id": "c",
+          "text": "Mirroring"
+        },
+        {
+          "id": "d",
+          "text": "A Spark notebook polling the source"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Mirroring is set up once and keeps the replica current with no pipelines or schedules to maintain. Pipelines and notebooks suit loads that need transformation or a source mirroring doesn't support.",
+      "source": "https://learn.microsoft.com/en-us/fabric/mirroring/overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

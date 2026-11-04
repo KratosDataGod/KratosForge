@@ -46,7 +46,10 @@ def test_policy_problems_are_reported_not_applied(policy):
 
 def test_service_shows_problems(policy):
     policy({"show_preview": "no"})
-    assert Service.app_settings(None)["policy_problems"] == [  # type: ignore[arg-type]
+    class NoRecord:  # app_settings without a data folder: the policy file's change record isn't the point here
+        def policy_record(self):
+            return None
+    assert Service.app_settings(NoRecord())["policy_problems"] == [  # type: ignore[arg-type]
         "show_preview should be bool, not str, so it takes its most restrictive value"]
 
 

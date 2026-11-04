@@ -326,7 +326,7 @@ def test_reading_a_project_file_refuses_what_import_would(svc):
 def test_a_model_kept_in_git_exports_offline(svc, monkeypatch):
     from fabric_desktop import semantic
     root = Path(svc._project().root)
-    assert svc.meta_model_ossie_folders() == {"folders": []}
+    assert svc.meta_model_ossie_folders() == {"folders": [], "unavailable": ""}
     svc.meta_model_tmdl_save("test", "SM_Gold")  # what Save TMDL to Git writes
     fact = semantic.ModelTable("fact_sales", "gold.fact_sales", "dbo", "fact_sales", [("amount", "double")])
     for path, text in semantic.build([fact], [], "srv", "ep").items():
@@ -375,7 +375,7 @@ def test_export_folder_refuses_links_junctions_and_a_bim_that_isnt_a_model(svc, 
     out = svc.meta_model_ossie_export_folder("semantic/Good.SemanticModel")
     assert "Sales" not in out["yaml"] and "Keep" in out["yaml"]
     monkeypatch.setattr(model_ossie_service, "_is_link", lambda st: st.st_ino == os.stat(root / "semantic").st_ino)
-    assert svc.meta_model_ossie_folders() == {"folders": []}
+    assert svc.meta_model_ossie_folders() == {"folders": [], "unavailable": ""}
     monkeypatch.setattr(model_ossie_service, "_is_link", real)
     (root / "semantic" / "List.SemanticModel").mkdir()
     (root / "semantic" / "List.SemanticModel" / "model.bim").write_text("[1, 2]", encoding="utf-8")

@@ -40,6 +40,10 @@
     {"level": "secrets", "in": "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA rejected", "out": "token [removed] rejected"},
     {"level": "secrets", "in": "client secret abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx expired", "out": "client secret [removed] expired"},
     {"level": "secrets", "in": "key AKIAABCDEFGHIJKLMNOP and xoxb-1234567890-abcdef", "out": "key [removed] and [removed]"},
+    {"level": "secrets", "in": ["model key sk-", "ant-api03-", "abcdefghijklmnopqrstuvwxyz012345 end"], "out": "model key [removed] end"},
+    {"level": "secrets", "in": ["openai sk-", "proj-", "abcdefghijklmnopqrstuvwxyz0123456789AB end"], "out": "openai [removed] end"},
+    {"level": "secrets", "in": ["gemini AI", "za", "SyA0123456789abcdefghijklmnopqrstuv end"], "out": "gemini [removed] end"},
+    {"level": "secrets", "in": "risk-assessment-for-the-quarterly-planning-cycle stays", "out": "risk-assessment-for-the-quarterly-planning-cycle stays"},
     {"level": "secrets", "in": ["Databricks said 401 for dapi", "0123456789abcdef0123456789abcdef-2 today"], "out": "Databricks said 401 for [removed] today"},
     {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"},
     {"level": "secrets", "in": ["key: -----BEGIN ", "PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY----- done"], "out": "key: [removed] done"},
@@ -55,6 +59,9 @@
     {"level": "support", "in": "Saved in OneDrive - Fabrikam Ltd: access denied, retry 2", "out": "Saved in OneDrive - [organization]: access denied, retry 2"},
     {"level": "support", "in": "GET https://fabrikam.sharepoint.com/sites/FabrikamFinance/Shared Documents and https://fabrikam-my.sharepoint.com/personal/ann_fabrikam_com/Documents failed", "out": "GET https://[tenant].sharepoint.com/sites/[site]/Shared Documents and https://[tenant]-my.sharepoint.com/personal/[user]/Documents failed"},
     {"level": "support", "in": "Admin center FABRIKAM-ADMIN.SharePoint.com and gov.sharepoint.us/teams/Fabrikam-Ops?web=1", "out": "Admin center [tenant]-ADMIN.SharePoint.com and [tenant].sharepoint.us/teams/[site]?web=1"},
+    {"level": "support", "in": "GET https://fabrikam.sharepoint.com/sites/Fabrikam Finance Team/Shared Documents/a.csv failed", "out": "GET https://[tenant].sharepoint.com/sites/[site]/Shared Documents/a.csv failed"},
+    {"level": "support", "in": "Couldn't open https://fabrikam.sharepoint.com/teams/Fabrikam Ops\nnext line", "out": "Couldn't open https://[tenant].sharepoint.com/teams/[site]\nnext line"},
+    {"level": "support", "in": "Link \"https://fabrikam.sharepoint.com/sites/Fabrikam Finance\" and https://fabrikam.sharepoint.com/sites/Ops/a.csv in 3s", "out": "Link \"https://[tenant].sharepoint.com/sites/[site]\" and https://[tenant].sharepoint.com/sites/[site]/a.csv in 3s"},
     {"level": "support", "in": "Docs at learn.microsoft.com/sharepoint and sharepoint.com stay", "out": "Docs at learn.microsoft.com/sharepoint and sharepoint.com stay"},
     {"level": "support", "in": "Opened C:\\Users\\ann\\OneDrive - Fabrikam Ltd\\Notebooks\\sales.ipynb", "out": "Opened C:\\Users\\[user]\\OneDrive - [organization]\\Notebooks\\sales.ipynb"},
     {"level": "secrets", "in": "guest ann_contoso.com#EXT#@fabrikam.onmicrosoft.com in OneDrive - Fabrikam Ltd", "out": "guest ann_contoso.com#EXT#@fabrikam.onmicrosoft.com in OneDrive - Fabrikam Ltd"},
@@ -72,6 +79,16 @@
     {"level": "secrets", "in": "private_key=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\" next", "out": "private_key=\"[removed]\" next"},
     {"level": "secrets", "in": "{'passphrase': '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----'}", "out": "{'passphrase': '[removed]'}"},
     {"level": "secrets", "in": "copy failed: sig=AbC%2Bdef%3D se=2026-01-01 sp=r", "out": "copy failed: sig=[removed] se=2026-01-01 sp=r"},
-    {"level": "secrets", "in": "design=keep", "out": "design=keep"}
+    {"level": "secrets", "in": "design=keep", "out": "design=keep"},
+    {"level": "secrets", "in": ["X-Api-Key: fdt_", "Qm9vazEyMzQ1Njc4OTBhYmNkZWZnaGlqa2xtbm9w", " sent"], "out": "X-Api-Key: [removed] sent"},
+    {"level": "secrets", "in": ["pair ok kfp_", "aBcD-eFgH_1234567890ijklMNOPqrstUVWXyz0123", " keep 8h"], "out": "pair ok [removed] keep 8h"},
+    {"level": "secrets", "in": "snowsql -a acct --user ann --password Hunter2pass --role r", "out": "snowsql -a acct --user ann --password [removed] --role r"},
+    {"level": "secrets", "in": "tool --password \"two words\" --db x", "out": "tool --password [removed] --db x"},
+    {"level": "secrets", "in": "Cookie: session=abc123; csrftoken=xyz\nHost: x", "out": "Cookie: [removed]\nHost: x"},
+    {"level": "secrets", "in": "set-cookie: SID=31d4d96e407aad42; Path=/; Secure", "out": "set-cookie: [removed]"},
+    {"level": "secrets", "in": "GET /callback?code=0.AXEA-abc_123&state=s1 302", "out": "GET /callback?code=[removed]&state=s1 302"},
+    {"level": "secrets", "in": "exit code=1 and error code=500 stay; fdt_short stays", "out": "exit code=1 and error code=500 stay; fdt_short stays"},
+    {"level": "secrets", "in": "headers={'Cookie': 'sess=XYZ; theme=dark', 'Accept': 'json'}", "out": "headers={'Cookie': '[removed]', 'Accept': 'json'}"},
+    {"level": "secrets", "in": "{\"Set-Cookie\": \"SID=31d4d96e; Path=/\", \"status\": 200}", "out": "{\"Set-Cookie\": \"[removed]\", \"status\": 200}"}
   ]
 }

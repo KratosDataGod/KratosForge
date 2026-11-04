@@ -3,10 +3,51 @@
 The state of development at the end of the last product management cycle. It's replaced each
 cycle, and the history is in Git. The counts come from `python docs/product/tools/product_data.py summary`.
 
-**Product check of 2026-11-01 23:42 UTC, main 761a7949.** Covers the PRs merged from #135 to #1549.
+**Product check of 2026-11-03 23:42 UTC, main 9b7848eb.** Covers the PRs merged from #135 to #1801.
 
 ## Summary
 
+- Evening check, 2026-11-03: 55 PRs merged after 5f8144f7. 2 were product data PRs; the other 53 were
+  linked. Three new In progress items record work already merged: PB-128 KratosForge Academy (DP-700 and
+  Databricks Data Engineer Associate plans, objective registries, exercises graded on what a learner writes,
+  an exam engine, Assessments, and Academy replacing Learn in the rail, all Preview), PB-129 platform skins
+  (P0 from Chris's brief: skin manifest, the KratosForge and Fabric-familiar skins, parity levels) and PB-130
+  data product promises (Kept or Broken, Status, change window). PB-040 Fabric workspace Git moved to In
+  progress (link, differences, Update from Git), and PB-123 too (Profile Impact tab). Also: incidents
+  stage 2, App Studio's page and local preview, Databricks and Snowflake CLI connections, Spark result
+  fixes, a per-user MSI and environments from the IT wheel folder.
+- Morning check, 2026-11-03: 35 PRs merged after 9367abf7. 5 were product data, docs audit and queue PRs;
+  the other 30 were linked. Fabric App Studio started (new PB-127): its design, the app specification
+  with undo, model connections that use the person's own model and key, sanitized semantic model
+  metadata and a compiler to a Power BI report definition. It is the first place KratosForge itself
+  calls a model, and it stays off until a model is connected. Also: the Optimize plan (PB-104), a team
+  guidance level set by policy (GD-09), an installable VS Code extension on Preview (PB-109), window
+  zoom with every page fitting at 200% (PB-063), shortcut requests made in every environment, and
+  schedules that run while you're signed out.
+- Acceptance, 2026-11-03: the product owner accepted PB-014, PB-125 and PB-126, and PB-084 with documented
+  limitations (no Windows or live Teams run).
+- Evening check, 2026-11-02: 58 PRs merged after 32cbd98f (#1166 to #1699). 7 were product data,
+  docs audit and operations PRs; the other 51 were linked. The whole Learn curriculum landed (PB-126,
+  six batches with the Forge Trial capstone lab), and Profile has ranks earned from verified work and
+  a profile picture (PB-125). The notebook names the cells the compatibility check can't read, from
+  the approved mockup (PB-014). A late table now reaches Teams once (PB-084, #1553). More enterprise
+  audit fixes merged (PB-124), and a keyboard-only pass covers every rail page. PB-014, PB-125 and
+  PB-126 moved to In review.
+- Decisions, 2026-11-02: the product owner accepted PB-119 (Learn v1) and PB-005 (token cache, with documented
+  limitations until a Windows check with a second account), chose fix (a) for PB-084 (only incidents post to
+  Teams, #1553), and asked for a UX mockup of Unknown cells before PB-014 is re-reviewed.
+- Morning check, 2026-11-02: 66 PRs merged after 761a7949 (#1550 to #1638). 3 were product data
+  PRs; the other 63 were linked. An enterprise engineering audit (#1571, docs/audits/) scored
+  readiness 54/100 and opened the EA remediation backlog, and its first fixes landed: Spark casts,
+  division by zero, dates, CSV options and hash() now answer as Spark does or refuse, Cancel stops
+  queries a notebook opened, and a killed scheduled run no longer holds its schedule. The engine
+  build installs from hashed pins and checks its Python and source hashes. Local T-SQL casts, LIKE
+  ranges, DATEDIFF(week) and window averages answer as T-SQL does. OneLake leases are judged on
+  OneLake's clock, and publish overwrites commit against the version they read. The sign-in cache
+  is changed under a lock (PB-005 finding 1). Lab time and memory limits now have tests (#1552),
+  so PB-119's criterion 2 names them.
+- PB-119 split (2026-11-01, #1551): Learn v1 is In review, Guided Development is PB-122 (In progress,
+  8 of 10 rows merged) and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
 - Evening check, 2026-11-01: 35 PRs merged after 063b84ed. 5 were product data and docs PRs; the other 30 were linked.
   The engine's pyproject allows DuckDB 2 (#1401, decision D-E10), while the app keeps 1.5.6. Learn
   adds Query profile notes, decision patterns and a guidance level per subject (GD-04, GD-05,
@@ -53,9 +94,11 @@ cycle, and the history is in Git. The counts come from `python docs/product/tool
   decide. PB-015 stays In progress for its live Prove run.
 - Inventory: 143 features. 121 are Implemented, 13 Partially Implemented, 3 Implemented but Not Exposed, 2 Missing and 4 Planned.
   3 are Verified, 129 Partially Verified and 11 Unverified. Fabric sign-in, listing and Spark SQL now have one recorded live run.
-- Backlog: 111 items (5 P0, 32 P1, 57 P2, 17 P3). 14 are Proposed, 27 In progress, 5 In review and 65 Accepted.
-- PB-119 split (2026-11-01): Learn v1 is In review, Guided Development is PB-122 (In progress, 8 of 10 rows merged)
-  and Learn phase 2 is PB-123 (Proposed; each slice needs the product owner's go).
+- Backlog: 118 items (7 P0, 32 P1, 60 P2, 19 P3). 12 are Proposed, 33 In progress, 2 In review and 71 Accepted.
+- PB-125 (Learn ranks and profile pictures) and PB-126 (Learn curriculum content batches) are new and Proposed, from the
+  product owner's ask of 2026-11-02; they build once the rank ladder is approved.
+- PB-124 (new, In progress, P0 like PB-101): the enterprise audit's EA remediation backlog (docs/audits/), tracked as its own item.
+  44 of its PRs are merged; it tracks fixes only.
 
 ## Workstreams
 
@@ -78,7 +121,7 @@ See GitHub for the live list. Every queued story with an open PR is In progress 
 ## Blocked on the product owner
 
 Trusted Signing (PB-001) and a non-production workspace for the live harness (PB-002, PB-003) are the
-two release gates. Also waiting: acceptance of the 5 In review items, a tenant run of
+two release gates. Also waiting: acceptance of the 2 In review items, a tenant run of
 the Data Factory writes and the BPA run, governance steps 8 and 12, Direct Lake on zstd, and the privacy
 and support details.
 

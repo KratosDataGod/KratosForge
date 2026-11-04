@@ -1,0 +1,80 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-16",
+  "kind": "module",
+  "title": "CTEs: queries you can read top to bottom",
+  "path": "sql-development",
+  "level": "intermediate",
+  "minutes": 15,
+  "objectives": [
+    "Name each step of a query with WITH",
+    "Compare against a figure worked out in an earlier step",
+    "Check each step on its own before trusting the whole"
+  ],
+  "prerequisites": [
+    "LM-04"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "above-average",
+      "prompt": "List the customers whose total 2026 spend is above the average customer's 2026 spend, with that total as total, in customer order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter has two mistakes. Which years does it add up, and what does its AVG average?",
+        "First work out each customer's 2026 total in a CTE. The average to compare with is the average of those totals, not of single orders.",
+        "WITH spend AS (SELECT customer, sum(amount) AS total FROM orders WHERE order_date >= DATE '2026-01-01' AND order_date < DATE '2027-01-01' GROUP BY customer) SELECT customer, total FROM spend WHERE total > (SELECT avg(total) FROM spend) ORDER BY customer"
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        },
+        {
+          "kind": "no_findings",
+          "rules": [
+            "SQ002"
+          ]
+        }
+      ],
+      "expected": {
+        "columns": [
+          "customer",
+          "total"
+        ],
+        "rows": [
+          [
+            "Contoso",
+            200.0
+          ],
+          [
+            "Tailspin",
+            300.0
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [
+    "SQ002"
+  ],
+  "docs": [
+    "sql-best-practices.md#sq002",
+    "https://duckdb.org/docs/sql/query_syntax/with"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

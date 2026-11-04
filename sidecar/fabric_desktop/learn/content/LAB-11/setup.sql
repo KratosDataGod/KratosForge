@@ -1,0 +1,12 @@
+CREATE TABLE load_log (batch_id VARCHAR, arrived_at TIMESTAMP, sla_at TIMESTAMP, rows_loaded INTEGER);
+INSERT INTO load_log VALUES
+    ('B1', TIMESTAMP '2026-11-01 06:00', TIMESTAMP '2026-11-01 07:00', 2),
+    ('B2', TIMESTAMP '2026-11-01 08:30', TIMESTAMP '2026-11-01 08:00', 2),
+    ('B3', TIMESTAMP '2026-11-01 09:00', TIMESTAMP '2026-11-01 10:00', 2),
+    ('B3-retry', TIMESTAMP '2026-11-01 10:45', TIMESTAMP '2026-11-01 10:00', 2);
+CREATE TABLE sales (sale_id INTEGER, batch_id VARCHAR, sold_on DATE, amount DECIMAL(10, 2));
+INSERT INTO sales VALUES
+    (1, 'B1', DATE '2026-10-31', 10.00), (2, 'B1', DATE '2026-10-31', 20.00),
+    (3, 'B2', DATE '2026-10-31', 30.00), (4, 'B2', DATE '2026-11-01', 40.00),
+    (5, 'B3', DATE '2026-11-01', 50.00), (6, 'B3', DATE '2026-11-01', 60.00),
+    (5, 'B3-retry', DATE '2026-11-01', 50.00), (6, 'B3-retry', DATE '2026-11-01', 60.00);

@@ -336,7 +336,7 @@ def to_ipynb_text(cells: list[dict[str, Any]], outputs: bool, lakehouse: dict[st
     """The notebook as .ipynb; with ``outputs``, each code cell's outputs and run count as well."""
     nb = to_ipynb(cells, lakehouse)
     if outputs:
-        for cell, c in zip(nb["cells"], cells):
+        for cell, c in zip(nb["cells"], cells, strict=True):
             if cell["cell_type"] != "code":
                 continue
             cell["outputs"] = [x for x in (_nb_output(o) for o in c.get("outputs") or [] if isinstance(o, dict)) if x]

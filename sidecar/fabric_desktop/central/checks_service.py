@@ -39,6 +39,7 @@ import requests
 from .. import governance_checks as gc
 from ..filenames import file_stem
 from ..jsonfile import read_json, write_json
+from ..learn.team import GUIDANCE_RULE, team_level
 from ..meta import mesh
 from ..redact import describe
 from . import core
@@ -92,12 +93,14 @@ def last_load(runs: list[dict[str, Any]], entities: list[str], unavailable: dict
     partial = ""
     for env in ENVS_HIGH_FIRST:
         here = [latest.get((env, e)) for e in entities]
-        if all(here):
-            rows = [r.get("rows_written") for r in here]
-            return {"last_load": min(str(r["started_at"]) for r in here), "load_env": env,
-                    "last_rows": None if any(x is None for x in rows) else min(int(x) for x in rows)}
+        loaded = [r for r in here if r]
+        if len(loaded) == len(here):
+            rows = [r.get("rows_written") for r in loaded]
+            counts = [x for x in rows if x is not None]
+            return {"last_load": min(str(r["started_at"]) for r in loaded), "load_env": env,
+                    "last_rows": None if len(counts) != len(rows) else min(int(x) for x in counts)}
         if any(here) and not partial:
-            missing = [e for e, r in zip(entities, here) if not r]
+            missing = [e for e, r in zip(entities, here, strict=True) if not r]
             partial = f"{', '.join(missing)} hasn't loaded in {env.title()} yet."
     why = partial or "No successful load is recorded in any run log this PC can read."
     if unavailable:
@@ -189,7 +192,8 @@ class ChecksMixin:
         try:
             resolved = self.governance_resolve()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - the panel still checks with the rules as built
-            return {"settings": {}, "policies": [], "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
+            return {"settings": {}, "policies": [], "guidance": None,
+                    "note": f"The policies couldn't be read, so every rule is on as built: {describe(exc)}"}
         out: dict[str, dict[str, Any]] = {}
         names: list[str] = []
         for pol in resolved.get("policies") or []:
@@ -208,7 +212,11 @@ class ChecksMixin:
                     out[rid] = {"enabled": was["enabled"], "severity": worse}
             if named:
                 names.append(str(pol.get("name") or pol.get("id") or ""))
-        return {"settings": out, "policies": names, "note": ""}
+        # A team's default guidance level (GD-09, learn/team.py): a preference, never a rule setting.
+        team = team_level(resolved.get("policies") or [], kind,
+                          lambda pol: GUIDANCE_RULE in gc.rule_ids(pol.get("rule")))
+        guidance = {"level": team["level"], "policy": team["policy"]} if team["level"] else None
+        return {"settings": out, "policies": names, "guidance": guidance, "note": " ".join(team["problems"])}
 
     # ---- Check now
 
@@ -460,6 +468,8 @@ class ChecksMixin:
             entry |= {"rules": ids, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
                       "exception": pol.get("exception")}
             for rid in ids:
+                if rid == GUIDANCE_RULE:  # a team's guidance level (GD-09): nothing to check
+                    continue
                 found = gc.find_rule(rid)
                 if found is None:
                     entry["missing"].append(rid)
@@ -480,22 +490,25 @@ class ChecksMixin:
             if note:
                 for f in entry["findings"] + entry["unknown"]:
                     f["excepted"] = note
-            entry["status"] = ("not_checked" if not ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
+            checked_ids = [rid for rid in ids if rid != GUIDANCE_RULE]
+            entry["status"] = ("not_checked" if not checked_ids or (entry["missing"] and not entry["checked"] and not entry["not_run"])
                                else "excepted" if note and entry["findings"]
                                else "findings" if entry["findings"]
                                else "unknown" if entry["unknown"]
                                else "not_run" if entry["not_run"] and not entry["checked"]
                                else "not_checked" if (entry.get("no_items") or entry.get("off")) and not entry["checked"]
                                else "pass")
-            if not ids:
+            if ids and not checked_ids:
+                entry["note"] = "It sets the team's learning guidance level, a preference with nothing to check."
+            elif not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
             elif entry["missing"]:
                 entry["note"] = f"No checker on this PC has the rule {', '.join(entry['missing'])}."
             elif entry["status"] == "not_checked" and not entry.get("no_items"):
                 entry["note"] = "Its parameters turn its rules off (enabled = false), so nothing checks it."
             elif entry["status"] == "not_checked":
-                kinds = ", ".join(sorted(set(entry["no_items"])))
-                entry["note"] = f"Check now found nothing for its {kinds} rules to check."
+                empty = ", ".join(sorted(set(entry["no_items"])))
+                entry["note"] = f"Check now found nothing for its {empty} rules to check."
             entry.pop("no_items", None)
             entry.pop("off", None)
             policies.append(entry)
@@ -574,11 +587,11 @@ class ChecksMixin:
             found = [(f"{f['object']}: " if f.get("object") else "") + str(f.get("description") or f.get("rule") or "")
                      for f in pol["findings"]]
             if pol["status"] == "excepted":
-                exc = pol.get("exception") or {}
-                by = f" Approved by {exc['approved_by']}." if exc.get("approved_by") else ""
+                waiver = pol.get("exception") or {}
+                by = f" Approved by {waiver['approved_by']}." if waiver.get("approved_by") else ""
                 out["notes"].append(f"{name}: {len(found)} finding{'s' if len(found) != 1 else ''} let through by an "
-                                    f"exception. {exc.get('note') or ''}{by}".rstrip())
-                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": exc})
+                                    f"exception. {waiver.get('note') or ''}{by}".rstrip())
+                out["excepted"].append({"policy": pol["id"], "name": pol["name"], "findings": found, "exception": waiver})
                 continue
             out["errors"] += [f"{name}: {text}" for text in found[:GATE_LISTED]]
             if len(found) > GATE_LISTED:
@@ -637,9 +650,10 @@ class ChecksMixin:
             item["status"] = "published"  # the checklist is what publishing it would need
         rows = []
         for rid, label in CHECKLIST:
-            checker, rule = gc.find_rule(rid) or (None, None)
-            if checker is None:
+            known = gc.find_rule(rid)
+            if known is None:
                 continue
+            checker, rule = known
             settings = gc.settings_for(rule, source.get("severity") or "", params)
             settings["thresholds"] = {k: v for k, v in settings["thresholds"].items() if k in rule.get("default_thresholds", {})}
             found = [f for f in (checker.check(item, {rid: settings}) or []) if f["rule_id"] == rid]

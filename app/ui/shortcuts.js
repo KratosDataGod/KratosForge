@@ -156,7 +156,12 @@ async function renderShortcuts() {
       sel("Points at", sp.type, [opt("all", "Points at anything", sp.type), ...types.map((t) => opt(t, t, sp.type))], (v) => { sp.type = v; }),
       sel("Health", sp.health, [opt("all", "Any health", sp.health), ...Object.entries(SC_HEALTH).map(([k, [, l]]) => opt(k, l, sp.health)), opt("risky", "Worth a look", sp.health)], (v) => { sp.health = v; }),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text small" }, sp.data.checked_at ? `Last checked ${relTime(sp.data.checked_at)}` : "Not checked yet"));
+      h("span", { class: "muted-text small" }, sp.data.checked_at ? `Last checked ${relTime(sp.data.checked_at)}` : "Not checked yet"),
+      btn("Export CSV", "arrowDownload", async () => {
+        const rows = filtered();
+        const res = await attempt(() => rpc("shortcut_export", { lakehouses: scRefs(lakehouses), ids: rows.map((s) => s.id) }), "Not exported");
+        if (res) toast(`Saved ${scPlural(res.rows, "shortcut")} to ${res.path}`, false, { log: true });
+      }, "tool outline small", { title: "The shortcuts listed here, with these filters, as a new CSV in Downloads" }));
     function drawTable() {
       const rows = filtered();
       const wide = !sp.selected;  // with the panel open, only what picks a row

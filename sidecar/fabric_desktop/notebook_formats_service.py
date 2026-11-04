@@ -78,7 +78,7 @@ class NotebookFormatsMixin:
              "languages": sorted({(c["source"].split("\n", 1)[0] if c["source"].startswith("%%") else "python")
                                   for c in nb["cells"] if c["type"] == "code"}),
              "notes": nb.get("notes", [])}
-            for name, nb in zip(names, read["notebooks"])]}
+            for name, nb in zip(names, read["notebooks"], strict=True)]}
 
     def notebook_formats_import(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
         """Creates a new notebook for each one in the file, in the app's own notebooks folder.

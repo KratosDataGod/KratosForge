@@ -104,7 +104,7 @@ def _clock(baseline, mine, runs: int = 3):
     base = baseline if isinstance(baseline, list) else [baseline] * runs
     own = mine if isinstance(mine, list) else [mine] * runs
     times, t = [], 0.0
-    for b, m in zip(base, own):
+    for b, m in zip(base, own, strict=True):
         for d in (b, m):
             times += [t, t + d]
             t += d

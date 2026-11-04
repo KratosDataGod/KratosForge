@@ -1,0 +1,62 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E19",
+  "version": 1,
+  "status": "draft",
+  "title": "Clean bronze orders into a silver Delta table with PySpark",
+  "objectives": ["3.1"],
+  "objective_text": "Read a bronze table with PySpark, clean nulls, standardize types and write a silver Delta table.",
+  "scenario": "The orders feed lands in bronze.orders as text. Finance's daily revenue report reads silver.orders and has been wrong twice this month: amounts with thousands separators went missing, half the dates didn't parse, and a retried load counted some orders twice. Build silver.orders so the report can trust it.",
+  "difficulty": 1,
+  "minutes": 25,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "bronze.orders", "rows": 13, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A Delta table bronze.orders (13 rows, all text columns) in the exercise folder, and a starter answer.py.",
+  "required": [
+    "Drop rows without an order_id.",
+    "order_id and customer_id are trimmed bigints.",
+    "order_date is a date read from order_ts, which comes as yyyy-MM-dd HH:mm:ss or MM/dd/yyyy.",
+    "amount is decimal(10,2) with thousands commas removed; a blank amount is NULL.",
+    "status is trimmed and lower case; a blank status is 'unknown'.",
+    "One row per order_id.",
+    "Write silver.orders with columns order_id, customer_id, order_date, amount, status, so that running the code again leaves the same table."
+  ],
+  "expected": {"description": "silver.orders has 10 rows, orders 1001 to 1010, each once, with no NULL order_id."},
+  "verifies": [
+    "Your PySpark reads a bronze Delta table and writes a silver Delta table with the right types, keys and rows, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, so it doesn't show Spark's own cast rules (ANSI mode), partitions or the table in Unity Catalog."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.orders", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.orders", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.orders",
+     "columns": {"order_id": "BIGINT", "customer_id": "BIGINT", "order_date": "DATE", "amount": "DECIMAL(10,2)", "status": "VARCHAR"},
+     "unique": ["order_id"], "not_null": ["order_id"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.orders", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "Filter out rows with a NULL order_id first, so nothing later has to cope with them.",
+    "F.coalesce(F.to_date(col, 'yyyy-MM-dd HH:mm:ss'), F.to_date(col, 'MM/dd/yyyy')) takes whichever format parses.",
+    "Remove commas with F.regexp_replace before .cast('decimal(10,2)'), and turn a blank into NULL with F.when.",
+    "Trim before lower-casing status: ' Shipped ' and 'shipped' are the same status.",
+    "mode('overwrite') makes the write safe to repeat; append adds the rows again."
+  ],
+  "explanation": "Filter the rows that can't be keyed, then standardize each column on the way to silver: trim and cast the ids, coalesce one to_date per format, strip separators and blank amounts before the decimal cast, trim and lower-case the status with a default, drop the exact duplicates by key, and overwrite the table so a rerun can't double it. The same steps in Spark SQL are a CREATE OR REPLACE TABLE ... AS SELECT (exercise E20).",
+  "troubleshooting": [
+    "\"Could not convert string\" means a value reached a cast before it was cleaned: check the order of withColumn steps.",
+    "If order_date is NULL for some rows, one of the two formats isn't being parsed.",
+    "If the rerun check fails, the table is being appended to; overwrite it."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/lakehouse/medallion", "https://docs.databricks.com/aws/en/getting-started/dataframes"],
+  "reset": "Reset rebuilds bronze.orders from setup.sql, removes silver.orders and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

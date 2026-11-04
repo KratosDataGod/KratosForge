@@ -333,6 +333,14 @@ def _plain_path(p: Any) -> bool:
     return isinstance(p, str) and os.path.isabs(p) and not p.startswith(("/", "-")) and "\0" not in p
 
 
+def granted_count(data_root: Path) -> int:
+    """How many folders and files the record says hold the runtime grant and still exist (read only)."""
+    from .. import jsonfile
+    had = jsonfile.read_json(_grants_file(data_root), {})
+    listed: list[Any] = had["paths"] if isinstance(had, dict) and isinstance(had.get("paths"), list) else []
+    return len([p for p in {p for p in listed if _plain_path(p)} if os.path.exists(p)])
+
+
 def revoke_runtime(data_root: Path) -> dict[str, Any]:
     """Remove the runtime capability's ACE from the paths it was granted on, then the record.
     ``{removed, failed}``: paths icacls couldn't change are listed, not hidden.

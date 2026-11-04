@@ -14,7 +14,7 @@ import logging
 from typing import Any
 
 from . import progress
-from .academy import appcontainer, exercises, lab, readiness, registry
+from .academy import appcontainer, exercises, lab, readiness, registry, sandbox
 from .learn import content as learn_content
 from .redact import describe
 
@@ -106,5 +106,7 @@ class AcademyMixin:
         return readiness.readiness(progress.load(self._profile_path()), str(pack_id))  # type: ignore[attr-defined]
 
     def academy_sandbox_status(self) -> dict[str, Any]:
-        """For Diagnostics: whether exercise scripts run in an AppContainer on this PC, and if not, why."""
-        return appcontainer.status()
+        """For Settings: whether exercise scripts can and do run in an AppContainer on this PC (if not,
+        why), and how many paths hold the runtime grant. Reads only."""
+        return {**appcontainer.status(), "enabled": sandbox.USE_APPCONTAINER,
+                "granted": appcontainer.granted_count(self.root)}  # type: ignore[attr-defined]

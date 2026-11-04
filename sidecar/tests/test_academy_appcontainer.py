@@ -310,6 +310,21 @@ def test_grants_are_recorded_checked_and_removed(tmp_path):
     assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
 
 
+def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    box = appcontainer.Box(work, sandbox.BOOTSTRAP, data_root=tmp_path)
+    try:
+        got = appcontainer.revoke_runtime(tmp_path)
+        assert got["removed"] == 0 and "running" in got["why"]
+        assert (tmp_path / "academy" / appcontainer.GRANTS_FILE).exists()
+    finally:
+        box.close()
+    box.close()   # closing twice counts once
+    assert appcontainer._open_boxes == 0
+    assert appcontainer.revoke_runtime(tmp_path)["removed"] >= 1
+
+
 def _script(work: Path) -> Path:
     work.mkdir()
     (work / "main.py").write_text("print('ran')\n", encoding="utf-8")

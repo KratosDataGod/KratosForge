@@ -191,14 +191,14 @@ def test_readiness_for_the_databricks_path_starts_empty_and_labelled():
 
 @pytest.fixture
 def dbx_exercise(tmp_path):
-    """A copy of DP-700's E36 placed in the Databricks pack as E33 (objective 3.1), to check exercise rules."""
+    """A copy of DP-700's E36 placed in the Databricks pack as E22 (objective 3.2), to check exercise rules."""
     root = tmp_path / "packs"
     shutil.copytree(registry.ROOT, root)
     for part in ("exercises", "grading"):
-        shutil.copytree(root / "dp-700" / part / "E36", root / PACK / part / "E33")
-    path = root / PACK / "exercises" / "E33" / "exercise.json"
+        shutil.copytree(root / "dp-700" / part / "E36", root / PACK / part / "E22")
+    path = root / PACK / "exercises" / "E22" / "exercise.json"
     base = json.loads(path.read_text(encoding="utf-8"))
-    base.update(id="E33", objectives=["3.1"], status="draft")
+    base.update(id="E22", objectives=["3.2"], status="draft")
 
     def edit(change):
         path.write_text(json.dumps({**base, **change}), encoding="utf-8")

@@ -303,6 +303,8 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                         if rrun["status"] != "ok":
                             raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
                         refs[key] = _rows(rw, table)
+                        if refs[key] is None:
+                            raise RuntimeError(f"{ex['id']}: the reference solution didn't write {table}")
                     want = refs[key]
                     where = "on data you haven't seen" if data == "hidden" else "on the exercise data"
                     if got is None:

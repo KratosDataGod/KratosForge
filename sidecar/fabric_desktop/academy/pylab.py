@@ -32,8 +32,8 @@ from . import workspace as ws
 
 ADAPTERS = ("python_lab", "delta_lab")
 # delta-rs resolves table paths with a call an AppContainer is denied (docs/academy/grading-sandbox.md),
-# so these run in the v1 learner process even where the AppContainer is on. Prototype: Chris decides
-# between this and waiting for a delta-rs that works inside one.
+# so these run in the v1 learner process even where the AppContainer is on (Chris's choice, 2026-11-04,
+# over waiting for a delta-rs that works inside one).
 V1_ONLY_ADAPTERS = ("delta_lab",)
 
 

@@ -40,6 +40,9 @@ CAPABILITY = "KratosForgeAcademyRuntime"
 # What learner scripts may import, with everything they need (found from installed metadata).
 LEARNER_PACKAGES = ("polars", "pyarrow", "deltalake", "duckdb", "pandas", "numpy", "sqlglot")
 NEVER = re.compile(r"^(fabric[_-]desktop|msal|azure|keyring|win32|pywin32|mssql|mcp|pymsalruntime)", re.I)
+# ALL APPLICATION PACKAGES and ALL RESTRICTED APPLICATION PACKAGES: every AppContainer token matches one.
+APP_PACKAGES = ("S-1-15-2-1", "S-1-15-2-2")
+ENGINE_PACKAGE = Path(__file__).resolve().parent.parent   # fabric_desktop, grading/ included
 MAX_COPY_FILES = 2_000
 MAX_COPY_BYTES = 1024 * 1024 * 1024
 
@@ -47,6 +50,7 @@ RUNS_AS = "an AppContainer on this PC: no network and no access to your own file
 
 _lock = threading.Lock()
 _granted: dict[str, bool] = {}
+_denied: set[str] = set()
 _why_not = ""
 
 
@@ -275,6 +279,22 @@ def _grant(api: Any, path: Path, sid_string: str, inherit: bool) -> None:
 def _has_grant(path: Path, sid_string: str) -> bool:
     got = _icacls(str(path))
     return got.returncode == 0 and sid_string.encode("ascii") in got.stdout
+
+
+def deny_app_packages(paths: list[Path]) -> None:
+    """Deny every AppContainer read and execute on ``paths`` and all they hold. Folders that grant ALL
+    APPLICATION PACKAGES (Program Files does, and some Python installs) are readable inside any
+    AppContainer, and an explicit deny outranks an allow there or inherited from above. Done once per
+    engine start, since an engine update brings in new folders. These ACEs stay: they only ever keep
+    AppContainers out of the app's own package."""
+    for path in paths:
+        key = str(path)
+        if key in _denied:
+            continue
+        for sid in APP_PACKAGES:
+            if _icacls(key, "/deny", f"*{sid}:(OI)(CI)(RX)").returncode != 0:
+                raise OSError(f"Windows wouldn't let the app keep exercises out of {path.name}.")
+        _denied.add(key)
 
 
 def _grants_file(data_root: Path) -> Path:
@@ -551,6 +571,7 @@ class Box:
             self.api = _api()
             with _lock:
                 sweep(self.api)
+                deny_app_packages([ENGINE_PACKAGE])   # before any run: grading/ is never readable
                 self.cap_sid, cap = capability_sid(self.api)
                 grant_runtime(self.api, cap, [Path(p) for p in lib_roots or []], data_root)
             self.profile = Profile(self.api)

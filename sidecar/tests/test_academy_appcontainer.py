@@ -472,3 +472,31 @@ def test_delta_rs_writes_a_table_inside_the_appcontainer(tmp_path):
     got = sandbox.run(work, "main.py", tmp_path, time_limit=90)
     assert got["status"] == "ok", got["stderr"]
     assert got["stdout"].strip() == "2"
+
+
+def test_a_folder_every_appcontainer_could_read_is_closed_by_the_install_deny(tmp_path):
+    """Folders that grant ALL APPLICATION PACKAGES (Program Files, some Python installs) are readable in
+    any AppContainer. The deny the engine puts on its own package outranks that, with the hook off."""
+    pkg = tmp_path / "pkg"
+    (pkg / "grading").mkdir(parents=True)
+    answer = pkg / "grading" / "answer.py"
+    answer.write_text("SOLUTION = 42\n", encoding="utf-8")
+    for sid in appcontainer.APP_PACKAGES:   # as Program Files grants it
+        assert appcontainer._icacls(str(pkg), "/grant", f"*{sid}:(OI)(CI)(RX)").returncode == 0
+    code = f"open({str(answer)!r}).read()"
+    rc, err = bare(tmp_path, code)
+    assert rc == 0, f"the control read failed, so this test shows nothing: {err}"
+    appcontainer.deny_app_packages([pkg])
+    assert "PermissionError" in denied(tmp_path, code)
+    assert "PermissionError" in denied(tmp_path, f"import os; os.listdir({str(pkg / 'grading')!r})")
+
+
+def test_the_engine_package_carries_the_deny_before_any_run(tmp_path):
+    assert appcontainer.ENGINE_PACKAGE == sandbox.PACKAGE_DIR
+    work = tmp_path / "w"
+    work.mkdir()
+    appcontainer.Box(work, sandbox.BOOTSTRAP).close()
+    for p in (appcontainer.ENGINE_PACKAGE, appcontainer.ENGINE_PACKAGE / "academy",
+              appcontainer.ENGINE_PACKAGE / "academy" / "sandbox.py"):   # set on the package, inherited below
+        acl = appcontainer._icacls(str(p)).stdout.decode("ascii", "replace")
+        assert acl.count("DENY") >= 2, acl

@@ -45,6 +45,27 @@ def bare(tmp_path: Path, code: str) -> tuple[int, str]:
         box.close()
 
 
+def bare_out(tmp_path: Path, code: str) -> tuple[int, str, str]:
+    """As ``bare``, also returning stdout."""
+    work = tmp_path / f"w-{uuid.uuid4().hex[:6]}"
+    work.mkdir()
+    box = appcontainer.Box(work, sandbox.BOOTSTRAP)
+    job = sandbox._WinJob(sandbox.MEMORY_LIMIT, sandbox.CPU_LIMIT, f"Local\\KFTest-{uuid.uuid4().hex}")
+    try:
+        proc = box.start([sys.executable, "-I", "-B", "-c", code], sandbox.environment(box.work))
+        try:
+            job.hold(proc)
+            rc = proc.wait(timeout=60)
+            out = proc.stdout.read().decode("utf-8", "replace")
+            err = proc.stderr.read().decode("utf-8", "replace")
+        finally:
+            proc.close()
+        return rc, err, out
+    finally:
+        job.close()
+        box.close()
+
+
 def denied(tmp_path: Path, code: str) -> str:
     rc, err = bare(tmp_path, code)
     assert rc != 0, f"expected the AppContainer to refuse this, but it ran: {code}"
@@ -236,16 +257,23 @@ def test_the_app_and_sign_in_packages_cant_be_imported_at_the_kernel_layer(tmp_p
         return
     folder = Path(msal.__file__).resolve().parent
     site = str(folder.parent)
-    rc, err = bare(tmp_path, f"import sys; sys.path.insert(0, {site!r}); import msal")
-    if rc == 0:
-        # Only acceptable when the folder was already readable by every AppContainer before this app
-        # came along (ALL APPLICATION PACKAGES, as under Program Files and on some CI images): this
-        # app's own grant never names it.
-        listing = appcontainer._icacls(str(folder)).stdout.decode("ascii", "replace")
-        assert "APPLICATION PACKAGES" in listing or "S-1-15-2-1" in listing, listing
-        assert folder not in [p for p, _ in appcontainer.runtime_paths()]
-    else:
-        assert "PermissionError" in err or "ModuleNotFoundError" in err or "ImportError" in err
+    probe = (f"import sys, json; sys.path.insert(0, {site!r})\n"
+             "out = {'path': sys.path, 'flags': str(sys.flags)}\n"
+             f"try:\n    out['open'] = len(open({str(folder / '__init__.py')!r}, 'rb').read(64))\n"
+             "except OSError as e:\n    out['open'] = repr(e)\n"
+             "try:\n    import msal\n    out['file'] = msal.__file__\n"
+             "except Exception as e:\n    out['import'] = repr(e)\n"
+             "print(json.dumps(out))\n"
+             "raise SystemExit(0 if 'file' in out else 9)\n")
+    rc, err, out = bare_out(tmp_path, probe)
+    if rc != 9:
+        # It imported: say exactly from where and what the ACLs allow, all the way up.
+        acls = []
+        for p in [folder / "__init__.py", folder, *folder.parents]:
+            acls.append(f"--- {p}\n" + appcontainer._icacls(str(p)).stdout.decode("ascii", "replace"))
+        granted = [str(p) for p, _ in appcontainer.runtime_paths()]
+        pytest.fail(f"msal imported inside the AppContainer.\nchild: {out}\nstderr: {err}\n"
+                    f"our grant paths: {granted}\nACLs:\n" + "\n".join(acls))
 
 
 def test_the_token_cache_in_the_data_folder_is_refused(tmp_path):

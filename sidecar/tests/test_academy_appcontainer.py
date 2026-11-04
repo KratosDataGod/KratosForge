@@ -535,9 +535,10 @@ def test_a_delta_exercise_runs_the_v1_way_and_says_so(tmp_path):
     work.mkdir()
     (work / "main.py").write_text(
         "import pyarrow as pa\nfrom deltalake import write_deltalake, DeltaTable\n"
-        "write_deltalake('t', pa.table({'x': [1, 2]}))\nprint(DeltaTable('t').to_pyarrow_table().num_rows)\n",
-        encoding="utf-8")
+        "write_deltalake('t', pa.table({'x': [1, 2]}))\nprint(DeltaTable('t').version())\n",
+        encoding="utf-8")   # (the guards refuse to_pyarrow_table's PyFileSystem; validators read the table)
     got = sandbox.run(work, "main.py", tmp_path, time_limit=90, appcontainer_ok=False)
     assert got["status"] == "ok", got["stderr"]
     assert got["runs_as"] == sandbox.RUNS_AS   # the v1 wording: it never claims the AppContainer
-    assert got["stdout"].strip() == "2"
+    assert got["stdout"].strip() == "0"
+    assert (work / "t" / "_delta_log").is_dir()   # copied home: it's the person's workspace in v1

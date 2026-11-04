@@ -29,7 +29,7 @@ import hashlib
 import json
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 import yaml
@@ -96,7 +96,10 @@ def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
     docs = [(main.name, first)]
     for pattern in (first.get("include") or []) if isinstance(first, dict) else []:
         pattern = str(pattern)
-        if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
+        # Path.anchor also catches "/etc/x" and "C:x" on Windows, which aren't is_absolute() there
+        # and which glob refuses with NotImplementedError; the posix view catches "/x" written either way.
+        here, posix = Path(pattern), PurePosixPath(pattern.replace("\\", "/"))
+        if here.anchor or posix.is_absolute() or ".." in here.parts or ".." in posix.parts:
             raise BundleError(f"The include {_text(pattern)!r} points out of the bundle folder.")
         found = sorted(p for p in root.glob(pattern) if p.is_file())
         if not found:
@@ -105,7 +108,7 @@ def _bundle_docs(folder: str) -> list[tuple[str, Any]]:
             real = path.resolve()
             if not real.is_relative_to(root):
                 raise BundleError(f"The include {_text(pattern)!r} points out of the bundle folder.")
-            docs.append((str(path.relative_to(root)), _load(real)))
+            docs.append((path.relative_to(root).as_posix(), _load(real)))
     return docs
 
 

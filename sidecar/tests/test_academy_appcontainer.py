@@ -19,7 +19,8 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="AppContainers a
 
 
 @pytest.fixture(autouse=True)
-def appcontainer_available():
+def appcontainer_available(monkeypatch):
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)   # off by default for now
     if not appcontainer.status()["available"]:
         pytest.skip(f"AppContainers aren't available here: {appcontainer.status()['why_not']}")
 
@@ -166,7 +167,11 @@ def test_the_persons_saved_credentials_are_refused(tmp_path):
         adv.CredDeleteW(target, 1, 0)
 
 
-def test_the_persons_dpapi_secrets_are_refused(tmp_path):
+def test_dpapi_still_unseals_so_sealed_files_must_stay_unreadable(tmp_path):
+    """Found on Windows CI: an AppContainer process can unseal a blob the person's DPAPI key sealed
+    (DPAPI keys follow the user, not the token's package). What keeps the token cache safe is that the
+    AppContainer can't read the sealed file at all (the token cache test). This test pins that
+    behaviour, so a Windows change in either direction is noticed."""
     import ctypes
     from ctypes import wintypes
 
@@ -188,7 +193,7 @@ def test_the_persons_dpapi_secrets_are_refused(tmp_path):
             " ctypes.byref(out))\n"
             "raise SystemExit(7 if ok else 0)\n")
     rc, _err = bare(tmp_path, code)
-    assert rc == 0, "the AppContainer unsealed a secret the engine sealed with DPAPI"
+    assert rc == 7, "Windows no longer lets an AppContainer unseal the person's DPAPI blobs; update the docs"
 
 
 def test_the_bootstrap_refuses_a_token_that_isnt_an_appcontainers(tmp_path, monkeypatch):
@@ -199,7 +204,7 @@ def test_the_bootstrap_refuses_a_token_that_isnt_an_appcontainers(tmp_path, monk
     work = tmp_path / "w"
     work.mkdir()
     (work / "main.py").write_text("print('should not run')\n", encoding="utf-8")
-    monkeypatch.setattr(sandbox, "_box", lambda work, libs: None)
+    monkeypatch.setattr(sandbox, "_box", lambda work, libs, data_root: None)
     for handle in (0, None):
         said = types.SimpleNamespace(dumps=lambda cfg, h=handle: json.dumps({**cfg, "appcontainer": True,
                                                                               "job_handle": h}))
@@ -229,9 +234,18 @@ def test_the_app_and_sign_in_packages_cant_be_imported_at_the_kernel_layer(tmp_p
         import msal
     except ImportError:
         return
-    site = str(Path(msal.__file__).resolve().parent.parent)
-    err = denied(tmp_path, f"import sys; sys.path.insert(0, {site!r}); import msal")
-    assert "PermissionError" in err or "ModuleNotFoundError" in err or "ImportError" in err
+    folder = Path(msal.__file__).resolve().parent
+    site = str(folder.parent)
+    rc, err = bare(tmp_path, f"import sys; sys.path.insert(0, {site!r}); import msal")
+    if rc == 0:
+        # Only acceptable when the folder was already readable by every AppContainer before this app
+        # came along (ALL APPLICATION PACKAGES, as under Program Files and on some CI images): this
+        # app's own grant never names it.
+        listing = appcontainer._icacls(str(folder)).stdout.decode("ascii", "replace")
+        assert "APPLICATION PACKAGES" in listing or "S-1-15-2-1" in listing, listing
+        assert folder not in [p for p, _ in appcontainer.runtime_paths()]
+    else:
+        assert "PermissionError" in err or "ModuleNotFoundError" in err or "ImportError" in err
 
 
 def test_the_token_cache_in_the_data_folder_is_refused(tmp_path):

@@ -292,9 +292,9 @@ def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None
     paths += [(Path(lib), True) for lib in lib_roots or []]
     wanted = sorted({str(p) for p, _ in paths})
     key = cap_string + "|" + "|".join(wanted)
-    if _granted.get(key):
-        return
     record = _grants_file(data_root) if data_root else None
+    if _granted.get(key) and (record is None or record.exists()):
+        return
     had = jsonfile.read_json(record, {}) if record else {}
     done = set(had.get("paths") or []) if had.get("sid") == cap_string else set()
     if not set(wanted) <= done or not _has_grant(Path(sys.base_prefix), cap_string):
@@ -520,7 +520,7 @@ def sweep(api: Any) -> int:
                     name = str(winreg.QueryValueEx(key, "Moniker")[0])  # type: ignore[attr-defined,unused-ignore]
             except OSError:
                 continue
-            if not name.startswith(PROFILE_PREFIX):
+            if not name.lower().startswith(PROFILE_PREFIX.lower()):   # Windows keeps monikers in lower case
                 continue
             path = api.wt.LPWSTR()
             if api.env.GetAppContainerFolderPath(sid, api.ctypes.byref(path)) == 0:

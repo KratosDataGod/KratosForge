@@ -50,8 +50,9 @@ FILE_LIMIT = 512 * 1024 ** 2   # largest file the process may write (POSIX)
 KILL_WAIT = 15.0               # seconds an ended process may take to be gone
 BOOTSTRAP = Path(__file__).with_name("_bootstrap.py")
 RUNS_AS = "you on this PC, without your sign-in, with time and memory limits"
-# Windows: run in an AppContainer when this PC allows it (ACD-005b), else the v1 learner process.
-USE_APPCONTAINER = os.environ.get("KRATOSFORGE_ACADEMY_APPCONTAINER", "1") != "0"
+# Windows: run in an AppContainer (ACD-005b) only when turned on, until the exercise libraries work
+# inside one (DuckDB and delta-rs resolve paths in ways an AppContainer refuses); else the v1 process.
+USE_APPCONTAINER = os.environ.get("KRATOSFORGE_ACADEMY_APPCONTAINER", "0") == "1"
 PACKAGE_DIR = Path(__file__).resolve().parent.parent       # fabric_desktop, grading/ included
 # Packages that hold or reach the person's sign-in, and the engine itself.
 BLOCKED_MODULES = ("fabric_desktop", "msal", "msal_extensions", "pymsalruntime", "azure", "keyring",

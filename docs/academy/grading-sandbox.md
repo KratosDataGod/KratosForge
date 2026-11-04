@@ -181,8 +181,26 @@ Also:
 
 ## The AppContainer (ACD-005b)
 
-`academy/appcontainer.py`. On Windows, `sandbox.run` starts the learner process in an AppContainer
-when the PC allows it, on top of everything above (the Job Object, the audit hook, the wrappers):
+`academy/appcontainer.py`. On Windows, `sandbox.run` can start the learner process in an
+AppContainer, on top of everything above (the Job Object, the audit hook, the wrappers). It is **off
+by default** (`KRATOSFORGE_ACADEMY_APPCONTAINER=1` turns it on) until the open points below are
+settled; the UI keeps the v1 wording.
+
+What Windows CI showed on the first run (2026-11-04):
+
+- The kernel layer holds. A bare Python in the AppContainer couldn't read files outside its folder
+  (`CreateFileW` included), write outside, reach loopback or the internet, open the engine's pipe,
+  read a saved credential, or import the engine package.
+- **DPAPI still unseals.** An AppContainer process can unseal a blob sealed with the person's DPAPI
+  key. The token cache stays safe only because the AppContainer can't read the sealed file.
+- **Folders readable by every AppContainer.** Anything whose ACL grants ALL APPLICATION PACKAGES is
+  readable inside, such as Program Files and, on the CI image, the whole Python install (msal
+  imported). An engine installed under Program Files would expose `grading/` the same way, so the
+  install needs a deny or a moved grading folder before this layer can be claimed.
+- **Exercise libraries.** DuckDB's allowed-directories check and delta-rs's path resolution failed
+  inside the AppContainer: DuckDB said file access was disabled, and delta-rs got "Access is denied"
+  resolving a relative table path. The Python guards' "outside the workspace" check also didn't
+  refuse `..` there. Until these are fixed, a run in an AppContainer can't do the exercises.
 
 - **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
   The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows
@@ -224,7 +242,7 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   the exercise folder, with time and memory limits". If Windows refuses a step before the script
   starts (an old Windows, a policy that blocks AppContainers, a runtime folder whose ACL can't be
   changed), the run uses the v1 learner process and its v1 wording, and `appcontainer.status()` says
-  why. `KRATOSFORGE_ACADEMY_APPCONTAINER=0` turns it off.
+  why.
 - **Tests (Windows CI, `test_academy_appcontainer.py`).** A bare Python in the AppContainer, with no
   hook and no wrappers, can't:
   - read a file outside the workspace, the engine package or `grading/`, even through `CreateFileW`;
@@ -232,7 +250,6 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   - connect to loopback or the internet;
   - open the engine's named pipe;
   - read the person's saved credential (`CredReadW`);
-  - unseal a DPAPI secret the engine sealed;
   - import the engine package or msal, or read the token cache in the data folder.
 
   The tests also check:

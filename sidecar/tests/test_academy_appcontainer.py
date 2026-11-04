@@ -6,6 +6,7 @@ wrappers) and expect every reach outside the exercise folder to fail."""
 
 from __future__ import annotations
 
+import json
 import socket
 import sys
 import uuid
@@ -261,13 +262,19 @@ def test_the_app_and_sign_in_packages_cant_be_imported_at_the_kernel_layer(tmp_p
              "out = {'path': sys.path, 'flags': str(sys.flags)}\n"
              f"try:\n    out['open'] = len(open({str(folder / '__init__.py')!r}, 'rb').read(64))\n"
              "except OSError as e:\n    out['open'] = repr(e)\n"
-             "try:\n    import msal\n    out['file'] = msal.__file__\n"
+             "try:\n    import msal\n    out['file'] = msal.__file__\n    out['names'] = sorted(vars(msal))[:20]\n"
              "except Exception as e:\n    out['import'] = repr(e)\n"
              "print(json.dumps(out))\n"
              "raise SystemExit(0 if 'file' in out else 9)\n")
     rc, err, out = bare_out(tmp_path, probe)
     assert rc in (0, 9), f"the probe itself didn't run (exit {rc}): {err}"
-    if '"file"' in out:
+    got = json.loads(out.strip().splitlines()[-1])
+    # Windows CI showed what happens: site-packages may be listed (our grant lets imports find the
+    # learner packages), so "import msal" finds the msal folder, can't read msal/__init__.py, and
+    # Python makes an empty namespace package (__file__ None) without reading a byte of msal. That
+    # isn't a read; a real one would give msal.__file__ as a path.
+    assert not isinstance(got["open"], int), f"msal's code was readable inside the AppContainer: {got}"
+    if isinstance(got.get("file"), str):
         # It imported: say exactly from where and what the ACLs allow, all the way up.
         acls = []
         for p in [folder / "__init__.py", folder, *folder.parents]:

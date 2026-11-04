@@ -2973,4 +2973,4 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-pair.on { border-color: var(--accent); }
 .dbx-pair .mono { overflow-wrap: anywhere; }
 .dbx-add { display: flex; flex-direction: column; gap: 8px; }
-.dbx-sync-table tr.dbx-conflict td, .dbx-sync-table tr.dbx-blocked td { background: #fdf0ee; }
+.dbx-sync-table tr.dbx-conflict td, .dbx-sync-table tr.dbx-blocked td { background: var(--danger-soft); }

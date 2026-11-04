@@ -37,8 +37,6 @@ _EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 
 NO_UI_CALLER: dict[str, str] = {
-    # Academy: for Diagnostics, whose screen waits on its mockup.
-    "academy_sandbox_status": "Academy Diagnostics (the AppContainer status) has no screen yet; it waits on its mockup",
     # Best practices check (semantic-link-labs in Fabric).
     "model_bpa_status": _BPA,
     "model_bpa_risk": _BPA,

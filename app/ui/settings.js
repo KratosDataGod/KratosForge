@@ -905,7 +905,58 @@ function advancedSection(s, locked, limitRow) {
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, exerciseSandboxSection(), sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// PB-131: Academy exercise scripts run in a Windows AppContainer, which KratosForge lets read its
+// Python on this PC. The row says whether runs use it and how many folders hold that permission, and
+// removes the permission (academy_sandbox_remove_grants). The next exercise run adds it back.
+function exerciseSandboxSection() {
+  const side = h("div", { class: "sandbox-status" }, h("div", { class: "muted-text small" }, "Looking..."));
+  const result = h("div", { class: "sandbox-result" });
+  const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
+  const load = () => rpc("academy_sandbox_status").then((st) => {
+    const on = st.enabled && st.available;
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC while the AppContainer is in Preview." : "");
+    side.replaceChildren(...[
+      h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
+        : "Off: exercises run in a limited process on this PC"),
+      why ? h("div", { class: "muted-text small" }, `Why: ${why}`) : null,
+      h("div", { class: "muted-text small" }, st.granted
+        ? `Read permission on ${folders(st.granted)} of KratosForge's Python`
+        : on ? "No permissions held now. The next exercise adds them back." : "No permissions held."),
+      st.granted ? btn("Remove exercise permissions", null, () => remove(st.granted), "tool outline small") : null].filter(Boolean));
+  }, (err) => {
+    side.replaceChildren(errorPanel(err, { label: "Couldn't read the exercise sandbox status", retry: load }) || "");
+  });
+  const remove = async (n) => {
+    if (!(await confirmDialog("Remove exercise permissions?",
+      [`The AppContainer loses its read permission on KratosForge's Python (${folders(n)}). Your files and exercises aren't touched.`,
+        h("span", { class: "muted-text small confirm-note" },
+          "The next exercise you run adds the permission back. To keep it off, don't run exercises on this PC.")], "Remove"))) return;
+    const res = await attempt(() => rpc("academy_sandbox_remove_grants"), "Not removed");
+    if (!res) return;
+    if (res.why) { toast(res.why, true); return; }
+    if (!res.failed.length) {
+      result.replaceChildren();
+      toast(`Removed the exercise permissions from ${folders(res.removed)}`);
+    } else {
+      const list = res.failed.join("\n");
+      result.replaceChildren(h("div", { class: "callout git-warn small sandbox-failed", role: "alert" },
+        h("b", {}, icon("warning", 16), ` Removed from ${folders(res.removed)}. Windows wouldn't change ${res.failed.length}:`),
+        h("ul", { class: "mono" }, res.failed.map((p) => h("li", {}, p))),
+        h("div", { class: "row wrap" }, h("span", { class: "muted-text" }, "A program may have them open. Close other apps and try again."),
+          btn("Try again", null, () => remove(res.failed.length), "tool link small"),
+          btn("Copy the list", null, () => copyText(list, "The list"), "tool link small"))));
+    }
+    load();
+  };
+  load();
+  return h("div", { class: "advanced-group" }, h("h3", {}, "Exercise sandbox"),
+    settingRow("Academy exercises",
+      "When the AppContainer is on, exercise scripts (except Delta and PySpark ones) run in a Windows AppContainer: no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
+      side),
+    result);
 }
 
 // How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the

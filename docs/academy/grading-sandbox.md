@@ -224,10 +224,11 @@ Before it is turned on by default (Security's musts):
    profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
 3. **The guard fails closed.** Done: inside an AppContainer a path in the workspace that has a link
    in it, or a folder that can't be checked, is refused, and `..` is collapsed before any check.
-4. **A way to remove the grants.** The runtime grants are persistent ACEs on the person's Python
-   install, and today nothing the person can reach removes them. A confirmed Diagnostics action, an
-   uninstall step, or both, call `appcontainer.revoke_runtime()` and show any path it couldn't
-   change. The Diagnostics screen needs its mockup agreed first.
+4. **A way to remove the grants.** Done in Settings (PB-131): Settings > Advanced > Exercise
+   sandbox says whether runs use an AppContainer and how many folders hold the runtime grant, and
+   "Remove exercise permissions" (after a confirm) calls `academy_sandbox_remove_grants`, which runs
+   `appcontainer.revoke_runtime()` under the setup lock and lists any folder Windows wouldn't change.
+   The next exercise run grants them again. Still to come: the same removal at uninstall.
 5. **Delta exercises.** delta-rs resolves paths in a way an AppContainer is denied (above). Delta
    exercises need a delta-rs that doesn't, or keep running in the v1 learner process. Decided
    (Chris, 2026-11-04): they keep running in the v1 learner process. `pylab.appcontainer_ok(ex)` is
@@ -251,9 +252,9 @@ Before it is turned on by default (Security's musts):
   removes the grants with `icacls` (always `%SystemRoot%\System32\icacls.exe`) `/remove:g` and lists
   any path it couldn't change. It removes only the SID derived from the capability's name, never one
   read from the record (anything running as the person can write that file), and uses only absolute,
-  plain paths from it. It isn't an engine method yet: it changes ACLs on the person's Python, so it
-  arrives with a confirmed Diagnostics action (and uninstall), once that screen's mockup is agreed.
-  `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
+  plain paths from it. Settings calls it through `academy_sandbox_remove_grants` (audited) after a
+  confirm. It never removes the install deny. `academy_sandbox_status` says whether runs use an
+  AppContainer and, if not, why, and how many recorded paths hold the grant.
 - **Copying home.** Files come home only from an empty job. If the job's processes aren't all gone
   after it is ended, nothing is copied and the run fails in words. The copy goes into a new folder
   beside the workspace and is swapped in only once it's whole and within the caps, so a refused copy

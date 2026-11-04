@@ -360,16 +360,17 @@ def revoke_runtime(data_root: Path) -> dict[str, Any]:
     listed = had.get("paths") if isinstance(had, dict) and isinstance(had.get("paths"), list) else []
     paths = {p for p in listed if _plain_path(p)} | {str(p) for p, _ in runtime_paths()}
     removed, failed = 0, []
-    for p in sorted(paths):
-        if not os.path.exists(p):
-            continue
-        if _icacls(p, "/remove:g", f"*{sid}").returncode == 0:
-            removed += 1
-        else:
-            failed.append(p)
-    if not failed and record.exists():
-        record.unlink()
+    # Under the setup lock, so a run starting now grants after this, not half-way through it.
     with _lock:
+        for p in sorted(paths):
+            if not os.path.exists(p):
+                continue
+            if _icacls(p, "/remove:g", f"*{sid}").returncode == 0:
+                removed += 1
+            else:
+                failed.append(p)
+        if not failed and record.exists():
+            record.unlink()
         _granted.clear()
     return {"removed": removed, "failed": failed}
 

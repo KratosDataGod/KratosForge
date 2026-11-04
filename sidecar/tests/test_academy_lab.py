@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from fabric_desktop import audit, progress, server
-from fabric_desktop.academy import exercises, lab
+from fabric_desktop.academy import appcontainer, exercises, lab
 from fabric_desktop.academy_service import METHODS, AcademyMixin
 
 PACK = "dp-700"
@@ -42,7 +42,7 @@ def test_methods_are_served_and_the_writes_are_audited():
     for m in ("academy_catalog", "academy_exercise", "academy_run", "academy_validate", "academy_hint", "academy_readiness",
               "academy_sandbox_status"):
         assert not audit.audited(m)
-    for m in ("academy_start", "academy_save", "academy_explanation", "academy_reset"):
+    for m in ("academy_start", "academy_save", "academy_explanation", "academy_reset", "academy_sandbox_remove_grants"):
         assert audit.audited(m)
 
 
@@ -288,3 +288,14 @@ def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
     jsonfile.write_json(record, {"sid": "S-1-15-3-1", "paths": [str(real), str(tmp_path / "gone"), "-bad", "rel/x", 7]})
     # Only absolute, plain Windows paths that still exist (a record path starting "/" or "-" is never used).
     assert svc.academy_sandbox_status()["granted"] == (1 if sys.platform == "win32" else 0)
+
+
+def test_removing_the_sandbox_grants_answers_removed_and_failed(svc, monkeypatch):
+    # Settings calls it; off Windows there is nothing to remove, and the answer has the same shape.
+    calls = []
+    monkeypatch.setattr(appcontainer, "revoke_runtime", lambda root: calls.append(root) or {"removed": 2, "failed": ["C:\\x"]})
+    assert svc.academy_sandbox_remove_grants() == {"removed": 2, "failed": ["C:\\x"]}
+    assert calls == [svc.root]
+    monkeypatch.undo()
+    if sys.platform != "win32":
+        assert svc.academy_sandbox_remove_grants() == {"removed": 0, "failed": []}

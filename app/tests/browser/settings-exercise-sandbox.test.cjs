@@ -47,6 +47,9 @@ test("the row says On with the folder count, and Remove asks first, then says ho
   const row = group(page);
   await row.locator("text=On: exercises run in an AppContainer").waitFor();
   assert.match(await row.textContent(), /Read permission on 9 folders of KratosForge's Python/);
+  // It never claims more than the AppContainer gives, and says it isn't always used.
+  assert.match(await row.textContent(), /When the AppContainer is on, exercise scripts \(except Delta and PySpark ones\)/);
+  assert.match(await row.textContent(), /no network and no access to your own files/);
   await shot(page, row, "exercise-sandbox-row.png");
 
   await row.getByRole("button", { name: "Remove exercise permissions" }).click();

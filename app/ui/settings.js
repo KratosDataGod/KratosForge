@@ -954,7 +954,7 @@ function exerciseSandboxSection() {
   load();
   return h("div", { class: "advanced-group" }, h("h3", {}, "Exercise sandbox"),
     settingRow("Academy exercises",
-      "Exercise scripts run in a Windows AppContainer: no network, and only the exercise's own folder. To make that work, KratosForge lets the AppContainer read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
+      "When the AppContainer is on, exercise scripts (except Delta and PySpark ones) run in a Windows AppContainer: no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
       side),
     result);
 }

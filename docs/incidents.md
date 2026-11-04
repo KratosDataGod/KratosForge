@@ -61,6 +61,19 @@ Wrong numbers in a report, a dashboard nobody can open, a source a team says is 
 
 **Report a problem** in the account menu is different: it reports a problem with the KratosForge app itself.
 
+## In the bell
+
+Incidents assigned to you, in any environment, are under **For you** in the bell (Activity). The ones still waiting on you (open, not acknowledged) count on the bell and come first, then by priority and SLA. Each one has **Acknowledge** (it asks first) and **Open**. The app reads them when it starts, when you open the bell and every 15 minutes while its window has focus. That's one small read of each environment's incident file, and nothing is written. For an environment in Fabric that read is from OneLake, which uses capacity. An environment it couldn't read is named.
+
+## Teams, a flow or email
+
+Where new incidents are sent, as each one opens, recovers or escalates:
+
+- **The app** (**Settings > Notifications > Incident alerts**): a Teams Workflows webhook address, a Power Automate flow's HTTP trigger as `flow:https://...`, or `mailto:` and up to 20 addresses separated by `;`. Email goes through the company mail server set once in **Settings > Notifications**, with its password only in Windows Credential Manager. The flow gets JSON with `title`, `lines`, `text` and `source`, and sends it on however your admin built it.
+- **An agent** (`[[incidents.route]]` and `alerts.teams_webhook_env` in agent.toml): the variable can hold a Teams address or `flow:https://...`. An agent has no mail server, so a `mailto:` route is left out with a warning in its log; send email from an agent through a flow.
+
+Every kind gets the same text: one line each, credential-shaped values removed, at most 500 characters a line and 200 lines, of which Teams and email show 20 and say how many more. A message that doesn't go through waits in the outbox and is sent with the next try, marked as delayed. Delivery is `workloads/deliver.py`, shared with platform notices.
+
 ## Who's affected (Preview)
 
 For an incident about a metadata table, the incident page lists the published data products whose ports carry that table in the environment, the projects linked to them, and who to tell (owners, people who linked a project, followers). **Tell them** posts one `incident.impact` notice through the platform's Teams routes, naming only the people you confirm, and a note on the incident records who was told. Details in the [user guide](user-guide.md#whos-affected-preview).
@@ -80,8 +93,8 @@ KratosForge doesn't try to be a full service desk: change management, problem re
 | --- | --- | --- |
 | 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released |
 | 1b | Every incident change copied to the central KratosForge lakehouse, kept for good | Released (nothing starts a copy until stage 4) |
-| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident**, **Change priority** | This release |
-| 3 | Incidents and requests that need you in the bell; Teams or email delivery | Planned |
+| 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident**, **Change priority** | Released |
+| 3 | Incidents that need you in the bell; Teams, flow or email delivery | This release |
 | 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Planned |
 | 5 | Your service desk: ServiceNow, Jira Service Management or another tool | Planned |
 
@@ -94,6 +107,7 @@ The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and 
 | Call | What it does |
 | --- | --- |
 | `incidents_board(env, include_resolved)` | The list with each incident's priority and SLA state, and counts: open, mine, unassigned, at risk, breached |
+| `incidents_for_me()` | The bell's **For you** list: active incidents assigned to the signed-in person in every environment, waiting on you first, and the environments that couldn't be read |
 | `incident_report(env, title, text, priority, workload, name)` | Reports a problem |
 | `incident_set_priority(env, id, priority, note)` | Sets the priority; the note is required |
 | `incident_sla_policy()` | The targets in effect, where they come from, and what in the policy was ignored |

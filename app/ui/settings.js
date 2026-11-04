@@ -694,6 +694,20 @@ function settingRow(title, help, control, source) {
     h("div", { class: "setting-control" }, control));
 }
 
+// With preview features hidden, Notifications still shows the company mail server (platform-notices.js),
+// since email incident alerts send through it.
+function mailServerOnly() {
+  const box = h("div", { class: "pn-settings" }, h("p", { class: "muted-text small" }, "Loading the mail server..."));
+  const draw = async () => {
+    const s = await rpc("platform_notify_settings", {}).catch((e) => ({ error: e }));
+    box.replaceChildren(s.error
+      ? h("p", { class: "fail-text small" }, `Couldn't read the mail server settings: ${friendlyError(s.error).text}`)
+      : mailServerCard(s.mail_server || { set: false }, draw));
+  };
+  draw();
+  return box;
+}
+
 async function renderSettings() {
   setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
   const s = await loadSettings();
@@ -782,9 +796,9 @@ async function renderSettings() {
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
-    settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
+    settingRow("Incident alerts", "Send late and failed tables to a Teams channel, a Power Automate flow or email. The bell always shows them.",
       btn("Set up", "alert", () => alertsDialog(), "tool outline")),
-    await platformNoticesSection());
+    previewShown() ? await platformNoticesSection() : mailServerOnly());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),

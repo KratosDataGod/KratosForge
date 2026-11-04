@@ -1,0 +1,165 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "6.2",
+  "questions": [
+    {
+      "id": "6.2-q1",
+      "type": "single",
+      "stem": "A job's silver task failed, and the gold task that depends on it did not run. What status does the gold task show?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Upstream failed"
+        },
+        {
+          "id": "b",
+          "text": "Running"
+        },
+        {
+          "id": "c",
+          "text": "Timed out"
+        },
+        {
+          "id": "d",
+          "text": "Succeeded"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "With the default Run if condition (All succeeded), a task whose dependency failed is marked Upstream failed and does not run.",
+      "source": "https://docs.databricks.com/aws/en/jobs/run-if",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.2-q2",
+      "type": "single",
+      "stem": "After fixing the cause, what reruns only the failed task and the tasks that depend on it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Repair run"
+        },
+        {
+          "id": "b",
+          "text": "Reset the trigger"
+        },
+        {
+          "id": "c",
+          "text": "Run now on the whole job"
+        },
+        {
+          "id": "d",
+          "text": "Clone the job"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Repair run reruns only failed and skipped tasks, so successful tasks are not redone.",
+      "source": "https://docs.databricks.com/aws/en/jobs/repair-job-failures",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.2-q3",
+      "type": "order",
+      "stem": "Arrange the steps to recover a failed job run.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Fix the cause"
+        },
+        {
+          "id": "b",
+          "text": "Open the failed run and find the failed task"
+        },
+        {
+          "id": "c",
+          "text": "Repair the run"
+        },
+        {
+          "id": "d",
+          "text": "Read the task's output and error"
+        }
+      ],
+      "answer": [
+        "b",
+        "d",
+        "a",
+        "c"
+      ],
+      "explanation": "Find the failed task, read its error, fix the cause, then repair the run.",
+      "source": "https://docs.databricks.com/aws/en/jobs/repair-job-failures",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.2-q4",
+      "type": "single",
+      "stem": "Where in a run do you find which task blocked the rest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The cluster's Spark config"
+        },
+        {
+          "id": "b",
+          "text": "The workspace admin settings"
+        },
+        {
+          "id": "c",
+          "text": "The run's task graph, where each task shows its status"
+        },
+        {
+          "id": "d",
+          "text": "The table history"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The run's graph shows each task's status, so the first failed task stands out.",
+      "source": "https://docs.databricks.com/aws/en/jobs/monitor",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.2-q5",
+      "type": "multiple",
+      "stem": "A job run failed in its third of five chained tasks. Which statements are true? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "All five tasks must be rerun from scratch"
+        },
+        {
+          "id": "b",
+          "text": "The fourth and fifth tasks did not run"
+        },
+        {
+          "id": "c",
+          "text": "The first two tasks will show as failed"
+        },
+        {
+          "id": "d",
+          "text": "A repair run can rerun from the failed task"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "Downstream tasks are blocked, and repair reruns the failed task and its dependents.",
+      "source": "https://docs.databricks.com/aws/en/jobs/repair-job-failures",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

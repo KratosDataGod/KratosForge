@@ -1,0 +1,4981 @@
+[
+ {
+  "name": "!",
+  "group": "predicate_funcs",
+  "example": "SELECT ! true",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "!=",
+  "group": "other"
+ },
+ {
+  "name": "%",
+  "group": "math_funcs",
+  "example": "SELECT 2 % 1.8",
+  "value": [
+   [
+    "decimal:0.2"
+   ]
+  ]
+ },
+ {
+  "name": "&",
+  "group": "bitwise_funcs",
+  "example": "SELECT 3 & 5",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "*",
+  "group": "math_funcs",
+  "example": "SELECT 2 * 3",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "+",
+  "group": "math_funcs",
+  "example": "SELECT 1 + 2",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "-",
+  "group": "math_funcs",
+  "example": "SELECT 2 - 1",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "/",
+  "group": "math_funcs",
+  "example": "SELECT 3 / 2",
+  "value": [
+   [
+    "float:1.5"
+   ]
+  ]
+ },
+ {
+  "name": "<",
+  "group": "predicate_funcs",
+  "example": "SELECT 1 < 2",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "<=",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 <= 2",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "<=>",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 <=> 2",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "<>",
+  "group": "other"
+ },
+ {
+  "name": "=",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 = 2",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "==",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 == 2",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": ">",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 > 1",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": ">=",
+  "group": "predicate_funcs",
+  "example": "SELECT 2 >= 1",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "^",
+  "group": "bitwise_funcs",
+  "example": "SELECT 3 ^ 5",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "abs",
+  "group": "math_funcs",
+  "example": "SELECT abs(-1)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "acos",
+  "group": "math_funcs",
+  "example": "SELECT acos(1)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "acosh",
+  "group": "math_funcs",
+  "example": "SELECT acosh(1)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "add_months",
+  "group": "datetime_funcs",
+  "example": "SELECT add_months('2016-08-31', 1)",
+  "value": [
+   [
+    "date:2016-09-30"
+   ]
+  ]
+ },
+ {
+  "name": "aes_decrypt",
+  "group": "misc_funcs",
+  "example": "SELECT aes_decrypt(unhex('83F16B2AA704794132802D248E6BFD4E380078182D1544813898AC97E709B28A94'), '0000111122223333')",
+  "value": [
+   [
+    "binary:537061726b"
+   ]
+  ]
+ },
+ {
+  "name": "aes_encrypt",
+  "group": "misc_funcs",
+  "example": "SELECT hex(aes_encrypt('Spark', '0000111122223333'))",
+  "value": [
+   [
+    "BCA3F90C2C2769A99CACEB357F0CE0DC3618037DD3B3CC9F5786EAD625289FD9A1"
+   ]
+  ]
+ },
+ {
+  "name": "aggregate",
+  "group": "lambda_funcs",
+  "example": "SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "and",
+  "group": "predicate_funcs",
+  "example": "SELECT true and true",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "any",
+  "group": "agg_funcs",
+  "example": "SELECT any(col) FROM VALUES (true), (false), (false) AS tab(col)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "any_value",
+  "group": "agg_funcs",
+  "example": "SELECT any_value(col) FROM VALUES (10), (5), (20) AS tab(col)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "approx_count_distinct",
+  "group": "agg_funcs",
+  "example": "SELECT approx_count_distinct(col1) FROM VALUES (1), (1), (2), (2), (3) tab(col1)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "approx_percentile",
+  "group": "agg_funcs",
+  "example": "SELECT approx_percentile(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)",
+  "value": [
+   [
+    [
+     1,
+     1,
+     0
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array",
+  "group": "array_funcs",
+  "example": "SELECT array(1, 2, 3)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_agg",
+  "group": "agg_funcs",
+  "example": "SELECT array_agg(col) FROM VALUES (1), (2), (1) AS tab(col)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     1
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_append",
+  "group": "array_funcs",
+  "example": "SELECT array_append(array('b', 'd', 'c', 'a'), 'd')",
+  "value": [
+   [
+    [
+     "b",
+     "d",
+     "c",
+     "a",
+     "d"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_compact",
+  "group": "array_funcs",
+  "example": "SELECT array_compact(array(1, 2, 3, null))",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_contains",
+  "group": "array_funcs",
+  "example": "SELECT array_contains(array(1, 2, 3), 2)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "array_distinct",
+  "group": "array_funcs",
+  "example": "SELECT array_distinct(array(1, 2, 3, null, 3))",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3,
+     null
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_except",
+  "group": "array_funcs",
+  "example": "SELECT array_except(array(1, 2, 3), array(1, 3, 5))",
+  "value": [
+   [
+    [
+     2
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_insert",
+  "group": "array_funcs",
+  "example": "SELECT array_insert(array(1, 2, 3, 4), 5, 5)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3,
+     4,
+     5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_intersect",
+  "group": "array_funcs",
+  "example": "SELECT array_intersect(array(1, 2, 3), array(1, 3, 5))",
+  "value": [
+   [
+    [
+     1,
+     3
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_join",
+  "group": "array_funcs",
+  "example": "SELECT array_join(array('hello', 'world'), ' ')",
+  "value": [
+   [
+    "hello world"
+   ]
+  ]
+ },
+ {
+  "name": "array_max",
+  "group": "array_funcs",
+  "example": "SELECT array_max(array(1, 20, null, 3))",
+  "value": [
+   [
+    20
+   ]
+  ]
+ },
+ {
+  "name": "array_min",
+  "group": "array_funcs",
+  "example": "SELECT array_min(array(1, 20, null, 3))",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "array_position",
+  "group": "array_funcs",
+  "example": "SELECT array_position(array(312, 773, 708, 708), 708)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "array_prepend",
+  "group": "array_funcs",
+  "example": "SELECT array_prepend(array('b', 'd', 'c', 'a'), 'd')",
+  "value": [
+   [
+    [
+     "d",
+     "b",
+     "d",
+     "c",
+     "a"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_remove",
+  "group": "array_funcs",
+  "example": "SELECT array_remove(array(1, 2, 3, null, 3), 3)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     null
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_repeat",
+  "group": "array_funcs",
+  "example": "SELECT array_repeat('123', 2)",
+  "value": [
+   [
+    [
+     "123",
+     "123"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_size",
+  "group": "collection_funcs",
+  "example": "SELECT array_size(array('b', 'd', 'c', 'a'))",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "array_sort",
+  "group": "lambda_funcs",
+  "example": "SELECT array_sort(array(5, 6, 1), (left, right) -> case when left < right then -1 when left > right then 1 else 0 end)",
+  "value": [
+   [
+    [
+     1,
+     5,
+     6
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "array_union",
+  "group": "array_funcs",
+  "example": "SELECT array_union(array(1, 2, 3), array(1, 3, 5))",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3,
+     5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "arrays_overlap",
+  "group": "array_funcs",
+  "example": "SELECT arrays_overlap(array(1, 2, 3), array(3, 4, 5))",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "arrays_zip",
+  "group": "array_funcs",
+  "example": "SELECT arrays_zip(array(1, 2, 3), array(2, 3, 4))",
+  "value": [
+   [
+    [
+     {
+      "struct": [
+       [
+        "0",
+        1
+       ],
+       [
+        "1",
+        2
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "0",
+        2
+       ],
+       [
+        "1",
+        3
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "0",
+        3
+       ],
+       [
+        "1",
+        4
+       ]
+      ]
+     }
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "ascii",
+  "group": "string_funcs",
+  "example": "SELECT ascii('222')",
+  "value": [
+   [
+    50
+   ]
+  ]
+ },
+ {
+  "name": "asin",
+  "group": "math_funcs",
+  "example": "SELECT asin(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "asinh",
+  "group": "math_funcs",
+  "example": "SELECT asinh(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "assert_true",
+  "group": "misc_funcs",
+  "example": "SELECT assert_true(0 < 1)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "atan",
+  "group": "math_funcs",
+  "example": "SELECT atan(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "atan2",
+  "group": "math_funcs",
+  "example": "SELECT atan2(0, 0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "atanh",
+  "group": "math_funcs",
+  "example": "SELECT atanh(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "avg",
+  "group": "agg_funcs",
+  "example": "SELECT avg(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:2"
+   ]
+  ]
+ },
+ {
+  "name": "base64",
+  "group": "string_funcs",
+  "example": "SELECT base64('Spark SQL')",
+  "value": [
+   [
+    "U3BhcmsgU1FM"
+   ]
+  ]
+ },
+ {
+  "name": "between",
+  "group": "other"
+ },
+ {
+  "name": "bigint",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "bin",
+  "group": "math_funcs",
+  "example": "SELECT bin(13)",
+  "value": [
+   [
+    "1101"
+   ]
+  ]
+ },
+ {
+  "name": "binary",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "bit_and",
+  "group": "agg_funcs",
+  "example": "SELECT bit_and(col) FROM VALUES (3), (5) AS tab(col)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "bit_count",
+  "group": "bitwise_funcs",
+  "example": "SELECT bit_count(0)",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "bit_get",
+  "group": "bitwise_funcs",
+  "example": "SELECT bit_get(11, 0)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "bit_length",
+  "group": "string_funcs",
+  "example": "SELECT bit_length('Spark SQL')",
+  "value": [
+   [
+    72
+   ]
+  ]
+ },
+ {
+  "name": "bit_or",
+  "group": "agg_funcs",
+  "example": "SELECT bit_or(col) FROM VALUES (3), (5) AS tab(col)",
+  "value": [
+   [
+    7
+   ]
+  ]
+ },
+ {
+  "name": "bit_xor",
+  "group": "agg_funcs",
+  "example": "SELECT bit_xor(col) FROM VALUES (3), (5) AS tab(col)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "bitmap_bit_position",
+  "group": "misc_funcs",
+  "example": "SELECT bitmap_bit_position(1)",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "bitmap_bucket_number",
+  "group": "misc_funcs",
+  "example": "SELECT bitmap_bucket_number(123)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "bitmap_construct_agg",
+  "group": "agg_funcs",
+  "example": "SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "070000"
+   ]
+  ]
+ },
+ {
+  "name": "bitmap_count",
+  "group": "misc_funcs",
+  "example": "SELECT bitmap_count(X '1010')",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "bitmap_or_agg",
+  "group": "agg_funcs",
+  "example": "SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)",
+  "value": [
+   [
+    "700000"
+   ]
+  ]
+ },
+ {
+  "name": "bool_and",
+  "group": "agg_funcs",
+  "example": "SELECT bool_and(col) FROM VALUES (true), (true), (true) AS tab(col)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "bool_or",
+  "group": "agg_funcs",
+  "example": "SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "boolean",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "bround",
+  "group": "math_funcs",
+  "example": "SELECT bround(2.5, 0)",
+  "value": [
+   [
+    "decimal:2"
+   ]
+  ]
+ },
+ {
+  "name": "btrim",
+  "group": "string_funcs",
+  "example": "SELECT btrim(' SparkSQL ')",
+  "value": [
+   [
+    "SparkSQL"
+   ]
+  ]
+ },
+ {
+  "name": "cardinality",
+  "group": "collection_funcs",
+  "example": "SELECT cardinality(array('b', 'd', 'c', 'a'))",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "case",
+  "group": "other"
+ },
+ {
+  "name": "cast",
+  "group": "conversion_funcs",
+  "example": "SELECT cast('10' as int)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "cbrt",
+  "group": "math_funcs",
+  "example": "SELECT cbrt(27.0)",
+  "value": [
+   [
+    "float:3"
+   ]
+  ]
+ },
+ {
+  "name": "ceil",
+  "group": "math_funcs",
+  "example": "SELECT ceil(-0.1)",
+  "value": [
+   [
+    "decimal:0"
+   ]
+  ]
+ },
+ {
+  "name": "ceiling",
+  "group": "math_funcs",
+  "example": "SELECT ceiling(-0.1)",
+  "value": [
+   [
+    "decimal:0"
+   ]
+  ]
+ },
+ {
+  "name": "char",
+  "group": "string_funcs",
+  "example": "SELECT char(65)",
+  "value": [
+   [
+    "A"
+   ]
+  ]
+ },
+ {
+  "name": "char_length",
+  "group": "string_funcs",
+  "example": "SELECT char_length('Spark SQL ')",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "character_length",
+  "group": "string_funcs",
+  "example": "SELECT character_length('Spark SQL ')",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "chr",
+  "group": "string_funcs",
+  "example": "SELECT chr(65)",
+  "value": [
+   [
+    "A"
+   ]
+  ]
+ },
+ {
+  "name": "coalesce",
+  "group": "conditional_funcs",
+  "example": "SELECT coalesce(NULL, 1, NULL)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "collect_list",
+  "group": "agg_funcs",
+  "example": "SELECT collect_list(col) FROM VALUES (1), (2), (1) AS tab(col)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     1
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "collect_set",
+  "group": "agg_funcs",
+  "example": "SELECT collect_set(col) FROM VALUES (1), (2), (1) AS tab(col)",
+  "value": [
+   [
+    [
+     1,
+     2
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "concat",
+  "group": "collection_funcs",
+  "example": "SELECT concat('Spark', 'SQL')",
+  "value": [
+   [
+    "SparkSQL"
+   ]
+  ]
+ },
+ {
+  "name": "concat_ws",
+  "group": "string_funcs",
+  "example": "SELECT concat_ws(' ', 'Spark', 'SQL')",
+  "value": [
+   [
+    "Spark SQL"
+   ]
+  ]
+ },
+ {
+  "name": "contains",
+  "group": "string_funcs",
+  "example": "SELECT contains('Spark SQL', 'Spark')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "conv",
+  "group": "math_funcs",
+  "example": "SELECT conv('100', 2, 10)",
+  "value": [
+   [
+    "4"
+   ]
+  ]
+ },
+ {
+  "name": "convert_timezone",
+  "group": "datetime_funcs",
+  "example": "SELECT convert_timezone('Europe/Brussels', 'America/Los_Angeles', timestamp_ntz'2021-12-06 00:00:00')",
+  "value": [
+   [
+    "timestamp:2021-12-05T15:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "corr",
+  "group": "agg_funcs",
+  "example": "SELECT corr(c1, c2) FROM VALUES (3, 2), (3, 3), (6, 4) as tab(c1, c2)",
+  "value": [
+   [
+    "float:0.866025403784"
+   ]
+  ]
+ },
+ {
+  "name": "cos",
+  "group": "math_funcs",
+  "example": "SELECT cos(0)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "cosh",
+  "group": "math_funcs",
+  "example": "SELECT cosh(0)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "cot",
+  "group": "math_funcs",
+  "example": "SELECT cot(1)",
+  "value": [
+   [
+    "float:0.642092615934"
+   ]
+  ]
+ },
+ {
+  "name": "count",
+  "group": "agg_funcs",
+  "example": "SELECT count(*) FROM VALUES (NULL), (5), (5), (20) AS tab(col)",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "count_if",
+  "group": "agg_funcs",
+  "example": "SELECT count_if(col % 2 = 0) FROM VALUES (NULL), (0), (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "count_min_sketch",
+  "group": "agg_funcs",
+  "example": "SELECT hex(count_min_sketch(col, 0.5d, 0.5d, 1)) FROM VALUES (1), (2), (1) AS tab(col)",
+  "value": [
+   [
+    "0000000100000000000000030000000100000004000000005D8D6AB90000000000000000000000000000000200000000000000010000000000000000"
+   ]
+  ]
+ },
+ {
+  "name": "covar_pop",
+  "group": "agg_funcs",
+  "example": "SELECT covar_pop(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)",
+  "value": [
+   [
+    "float:0.666666666667"
+   ]
+  ]
+ },
+ {
+  "name": "covar_samp",
+  "group": "agg_funcs",
+  "example": "SELECT covar_samp(c1, c2) FROM VALUES (1,1), (2,2), (3,3) AS tab(c1, c2)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "crc32",
+  "group": "hash_funcs",
+  "example": "SELECT crc32('Spark')",
+  "value": [
+   [
+    1557323817
+   ]
+  ]
+ },
+ {
+  "name": "csc",
+  "group": "math_funcs",
+  "example": "SELECT csc(1)",
+  "value": [
+   [
+    "float:1.18839510578"
+   ]
+  ]
+ },
+ {
+  "name": "cume_dist",
+  "group": "window_funcs",
+  "example": "SELECT a, b, cume_dist() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    "float:0.666666666667"
+   ],
+   [
+    "A1",
+    1,
+    "float:0.666666666667"
+   ],
+   [
+    "A1",
+    2,
+    "float:1"
+   ],
+   [
+    "A2",
+    3,
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "curdate",
+  "group": "datetime_funcs",
+  "example": "SELECT curdate()",
+  "value": [
+   [
+    "date:2026-11-03"
+   ]
+  ]
+ },
+ {
+  "name": "current_catalog",
+  "group": "misc_funcs",
+  "example": "SELECT current_catalog()",
+  "value": [
+   [
+    "spark_catalog"
+   ]
+  ]
+ },
+ {
+  "name": "current_database",
+  "group": "misc_funcs",
+  "example": "SELECT current_database()",
+  "value": [
+   [
+    "default"
+   ]
+  ]
+ },
+ {
+  "name": "current_date",
+  "group": "datetime_funcs",
+  "example": "SELECT current_date()",
+  "value": [
+   [
+    "date:2026-11-03"
+   ]
+  ]
+ },
+ {
+  "name": "current_schema",
+  "group": "misc_funcs",
+  "example": "SELECT current_schema()",
+  "value": [
+   [
+    "default"
+   ]
+  ]
+ },
+ {
+  "name": "current_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT current_timestamp()",
+  "value": [
+   [
+    "timestamp:2026-11-03T01:47:58.532878"
+   ]
+  ]
+ },
+ {
+  "name": "current_timezone",
+  "group": "datetime_funcs",
+  "example": "SELECT current_timezone()",
+  "value": [
+   [
+    "UTC"
+   ]
+  ]
+ },
+ {
+  "name": "current_user",
+  "group": "misc_funcs",
+  "example": "SELECT current_user()",
+  "value": [
+   [
+    "root"
+   ]
+  ]
+ },
+ {
+  "name": "date",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "date_add",
+  "group": "datetime_funcs",
+  "example": "SELECT date_add('2016-07-30', 1)",
+  "value": [
+   [
+    "date:2016-07-31"
+   ]
+  ]
+ },
+ {
+  "name": "date_diff",
+  "group": "datetime_funcs",
+  "example": "SELECT date_diff('2009-07-31', '2009-07-30')",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "date_format",
+  "group": "datetime_funcs",
+  "example": "SELECT date_format('2016-04-08', 'y')",
+  "value": [
+   [
+    "2016"
+   ]
+  ]
+ },
+ {
+  "name": "date_from_unix_date",
+  "group": "datetime_funcs",
+  "example": "SELECT date_from_unix_date(1)",
+  "value": [
+   [
+    "date:1970-01-02"
+   ]
+  ]
+ },
+ {
+  "name": "date_part",
+  "group": "datetime_funcs",
+  "example": "SELECT date_part('YEAR', TIMESTAMP '2019-08-12 01:00:00.123456')",
+  "value": [
+   [
+    2019
+   ]
+  ]
+ },
+ {
+  "name": "date_sub",
+  "group": "datetime_funcs",
+  "example": "SELECT date_sub('2016-07-30', 1)",
+  "value": [
+   [
+    "date:2016-07-29"
+   ]
+  ]
+ },
+ {
+  "name": "date_trunc",
+  "group": "datetime_funcs",
+  "example": "SELECT date_trunc('YEAR', '2015-03-05T09:32:05.359')",
+  "value": [
+   [
+    "timestamp:2015-01-01T00:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "dateadd",
+  "group": "datetime_funcs",
+  "example": "SELECT dateadd('2016-07-30', 1)",
+  "value": [
+   [
+    "date:2016-07-31"
+   ]
+  ]
+ },
+ {
+  "name": "datediff",
+  "group": "datetime_funcs",
+  "example": "SELECT datediff('2009-07-31', '2009-07-30')",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "datepart",
+  "group": "datetime_funcs",
+  "example": "SELECT datepart('YEAR', TIMESTAMP '2019-08-12 01:00:00.123456')",
+  "value": [
+   [
+    2019
+   ]
+  ]
+ },
+ {
+  "name": "day",
+  "group": "datetime_funcs",
+  "example": "SELECT day('2009-07-30')",
+  "value": [
+   [
+    30
+   ]
+  ]
+ },
+ {
+  "name": "dayofmonth",
+  "group": "datetime_funcs",
+  "example": "SELECT dayofmonth('2009-07-30')",
+  "value": [
+   [
+    30
+   ]
+  ]
+ },
+ {
+  "name": "dayofweek",
+  "group": "datetime_funcs",
+  "example": "SELECT dayofweek('2009-07-30')",
+  "value": [
+   [
+    5
+   ]
+  ]
+ },
+ {
+  "name": "dayofyear",
+  "group": "datetime_funcs",
+  "example": "SELECT dayofyear('2016-04-09')",
+  "value": [
+   [
+    100
+   ]
+  ]
+ },
+ {
+  "name": "decimal",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "decode",
+  "group": "string_funcs",
+  "example": "SELECT decode(encode('abc', 'utf-8'), 'utf-8')",
+  "value": [
+   [
+    "abc"
+   ]
+  ]
+ },
+ {
+  "name": "degrees",
+  "group": "math_funcs",
+  "example": "SELECT degrees(3.141592653589793)",
+  "value": [
+   [
+    "float:180"
+   ]
+  ]
+ },
+ {
+  "name": "dense_rank",
+  "group": "window_funcs",
+  "example": "SELECT a, b, dense_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    2,
+    2
+   ],
+   [
+    "A2",
+    3,
+    1
+   ]
+  ]
+ },
+ {
+  "name": "div",
+  "group": "math_funcs",
+  "example": "SELECT 3 div 2",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "double",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "e",
+  "group": "math_funcs",
+  "example": "SELECT e()",
+  "value": [
+   [
+    "float:2.71828182846"
+   ]
+  ]
+ },
+ {
+  "name": "element_at",
+  "group": "map_funcs",
+  "example": "SELECT element_at(array(1, 2, 3), 2)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "elt",
+  "group": "string_funcs",
+  "example": "SELECT elt(1, 'scala', 'java')",
+  "value": [
+   [
+    "scala"
+   ]
+  ]
+ },
+ {
+  "name": "encode",
+  "group": "string_funcs",
+  "example": "SELECT encode('abc', 'utf-8')",
+  "value": [
+   [
+    "binary:616263"
+   ]
+  ]
+ },
+ {
+  "name": "endswith",
+  "group": "string_funcs",
+  "example": "SELECT endswith('Spark SQL', 'SQL')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "equal_null",
+  "group": "misc_funcs",
+  "example": "SELECT equal_null(3, 3)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "every",
+  "group": "agg_funcs",
+  "example": "SELECT every(col) FROM VALUES (true), (true), (true) AS tab(col)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "exists",
+  "group": "lambda_funcs",
+  "example": "SELECT exists(array(1, 2, 3), x -> x % 2 == 0)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "exp",
+  "group": "math_funcs",
+  "example": "SELECT exp(0)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "explode",
+  "group": "generator_funcs",
+  "example": "SELECT explode(array(10, 20))",
+  "value": [
+   [
+    10
+   ],
+   [
+    20
+   ]
+  ]
+ },
+ {
+  "name": "explode_outer",
+  "group": "generator_funcs",
+  "example": "SELECT explode_outer(array(10, 20))",
+  "value": [
+   [
+    10
+   ],
+   [
+    20
+   ]
+  ]
+ },
+ {
+  "name": "expm1",
+  "group": "math_funcs",
+  "example": "SELECT expm1(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "extract",
+  "group": "datetime_funcs",
+  "example": "SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')",
+  "value": [
+   [
+    2019
+   ]
+  ]
+ },
+ {
+  "name": "factorial",
+  "group": "math_funcs",
+  "example": "SELECT factorial(5)",
+  "value": [
+   [
+    120
+   ]
+  ]
+ },
+ {
+  "name": "filter",
+  "group": "lambda_funcs",
+  "example": "SELECT filter(array(1, 2, 3), x -> x % 2 == 1)",
+  "value": [
+   [
+    [
+     1,
+     3
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "find_in_set",
+  "group": "string_funcs",
+  "example": "SELECT find_in_set('ab','abc,b,ab,c,def')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "first",
+  "group": "agg_funcs",
+  "example": "SELECT first(col) FROM VALUES (10), (5), (20) AS tab(col)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "first_value",
+  "group": "agg_funcs",
+  "example": "SELECT first_value(col) FROM VALUES (10), (5), (20) AS tab(col)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "flatten",
+  "group": "array_funcs",
+  "example": "SELECT flatten(array(array(1, 2), array(3, 4)))",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3,
+     4
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "float",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "floor",
+  "group": "math_funcs",
+  "example": "SELECT floor(-0.1)",
+  "value": [
+   [
+    "decimal:-1"
+   ]
+  ]
+ },
+ {
+  "name": "forall",
+  "group": "lambda_funcs",
+  "example": "SELECT forall(array(1, 2, 3), x -> x % 2 == 0)",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "format_number",
+  "group": "string_funcs",
+  "example": "SELECT format_number(12332.123456, 4)",
+  "value": [
+   [
+    "12,332.1235"
+   ]
+  ]
+ },
+ {
+  "name": "format_string",
+  "group": "string_funcs",
+  "example": "SELECT format_string(\"Hello World %d %s\", 100, \"days\")",
+  "value": [
+   [
+    "Hello World 100 days"
+   ]
+  ]
+ },
+ {
+  "name": "from_csv",
+  "group": "csv_funcs",
+  "example": "SELECT from_csv('1, 0.8', 'a INT, b DOUBLE')",
+  "value": [
+   [
+    {
+     "struct": [
+      [
+       "a",
+       1
+      ],
+      [
+       "b",
+       "float:0.8"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "from_json",
+  "group": "json_funcs",
+  "example": "SELECT from_json('{\"a\":1, \"b\":0.8}', 'a INT, b DOUBLE')",
+  "value": [
+   [
+    {
+     "struct": [
+      [
+       "a",
+       1
+      ],
+      [
+       "b",
+       "float:0.8"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "from_unixtime",
+  "group": "datetime_funcs",
+  "example": "SELECT from_unixtime(0, 'yyyy-MM-dd HH:mm:ss')",
+  "value": [
+   [
+    "1970-01-01 00:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "from_utc_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')",
+  "value": [
+   [
+    "timestamp:2016-08-31T09:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "get",
+  "group": "array_funcs",
+  "example": "SELECT get(array(1, 2, 3), 0)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "get_json_object",
+  "group": "json_funcs",
+  "example": "SELECT get_json_object('{\"a\":\"b\"}', '$.a')",
+  "value": [
+   [
+    "b"
+   ]
+  ]
+ },
+ {
+  "name": "getbit",
+  "group": "bitwise_funcs",
+  "example": "SELECT getbit(11, 0)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "greatest",
+  "group": "math_funcs",
+  "example": "SELECT greatest(10, 9, 2, 4, 3)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "grouping",
+  "group": "agg_funcs",
+  "example": "SELECT name, grouping(name), sum(age) FROM VALUES (2, 'Alice'), (5, 'Bob') people(age, name) GROUP BY cube(name)",
+  "value": [
+   [
+    "Alice",
+    0,
+    2
+   ],
+   [
+    "Bob",
+    0,
+    5
+   ],
+   [
+    null,
+    1,
+    7
+   ]
+  ]
+ },
+ {
+  "name": "grouping_id",
+  "group": "agg_funcs",
+  "example": "SELECT name, grouping_id(), sum(age), avg(height) FROM VALUES (2, 'Alice', 165), (5, 'Bob', 180) people(age, name, height) GROUP BY cube(name, height)",
+  "value": [
+   [
+    "Alice",
+    0,
+    2,
+    "float:165"
+   ],
+   [
+    "Alice",
+    1,
+    2,
+    "float:165"
+   ],
+   [
+    "Bob",
+    0,
+    5,
+    "float:180"
+   ],
+   [
+    "Bob",
+    1,
+    5,
+    "float:180"
+   ],
+   [
+    null,
+    2,
+    2,
+    "float:165"
+   ],
+   [
+    null,
+    2,
+    5,
+    "float:180"
+   ],
+   [
+    null,
+    3,
+    7,
+    "float:172.5"
+   ]
+  ]
+ },
+ {
+  "name": "hash",
+  "group": "hash_funcs",
+  "example": "SELECT hash('Spark', array(123), 2)",
+  "value": [
+   [
+    -1321691492
+   ]
+  ]
+ },
+ {
+  "name": "hex",
+  "group": "math_funcs",
+  "example": "SELECT hex(17)",
+  "value": [
+   [
+    "11"
+   ]
+  ]
+ },
+ {
+  "name": "histogram_numeric",
+  "group": "agg_funcs",
+  "example": "SELECT histogram_numeric(col, 5) FROM VALUES (0), (1), (2), (10) AS tab(col)",
+  "value": [
+   [
+    [
+     {
+      "struct": [
+       [
+        "x",
+        0
+       ],
+       [
+        "y",
+        "float:1"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "x",
+        1
+       ],
+       [
+        "y",
+        "float:1"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "x",
+        2
+       ],
+       [
+        "y",
+        "float:1"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "x",
+        10
+       ],
+       [
+        "y",
+        "float:1"
+       ]
+      ]
+     }
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "hll_sketch_agg",
+  "group": "agg_funcs",
+  "example": "SELECT hll_sketch_estimate(hll_sketch_agg(col, 12)) FROM VALUES (1), (1), (2), (2), (3) tab(col)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "hll_sketch_estimate",
+  "group": "misc_funcs",
+  "example": "SELECT hll_sketch_estimate(hll_sketch_agg(col)) FROM VALUES (1), (1), (2), (2), (3) tab(col)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "hll_union",
+  "group": "misc_funcs",
+  "example": "SELECT hll_sketch_estimate(hll_union(hll_sketch_agg(col1), hll_sketch_agg(col2))) FROM VALUES (1, 4), (1, 4), (2, 5), (2, 5), (3, 6) tab(col1, col2)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "hll_union_agg",
+  "group": "agg_funcs",
+  "example": "SELECT hll_sketch_estimate(hll_union_agg(sketch, true)) FROM (SELECT hll_sketch_agg(col) as sketch FROM VALUES (1) tab(col) UNION ALL SELECT hll_sketch_agg(col, 20) as sketch FROM VALUES (1) tab(col))",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "hour",
+  "group": "datetime_funcs",
+  "example": "SELECT hour('2009-07-30 12:58:59')",
+  "value": [
+   [
+    12
+   ]
+  ]
+ },
+ {
+  "name": "hypot",
+  "group": "math_funcs",
+  "example": "SELECT hypot(3, 4)",
+  "value": [
+   [
+    "float:5"
+   ]
+  ]
+ },
+ {
+  "name": "if",
+  "group": "conditional_funcs",
+  "example": "SELECT if(1 < 2, 'a', 'b')",
+  "value": [
+   [
+    "a"
+   ]
+  ]
+ },
+ {
+  "name": "ifnull",
+  "group": "conditional_funcs",
+  "example": "SELECT ifnull(NULL, array('2'))",
+  "value": [
+   [
+    [
+     "2"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "ilike",
+  "group": "predicate_funcs",
+  "example": "SELECT ilike('Spark', '_Park')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "in",
+  "group": "predicate_funcs",
+  "example": "SELECT 1 in(1, 2, 3)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "initcap",
+  "group": "string_funcs",
+  "example": "SELECT initcap('sPark sql')",
+  "value": [
+   [
+    "Spark Sql"
+   ]
+  ]
+ },
+ {
+  "name": "inline",
+  "group": "generator_funcs",
+  "example": "SELECT inline(array(struct(1, 'a'), struct(2, 'b')))",
+  "value": [
+   [
+    1,
+    "a"
+   ],
+   [
+    2,
+    "b"
+   ]
+  ]
+ },
+ {
+  "name": "inline_outer",
+  "group": "generator_funcs",
+  "example": "SELECT inline_outer(array(struct(1, 'a'), struct(2, 'b')))",
+  "value": [
+   [
+    1,
+    "a"
+   ],
+   [
+    2,
+    "b"
+   ]
+  ]
+ },
+ {
+  "name": "input_file_block_length",
+  "group": "misc_funcs",
+  "example": "SELECT input_file_block_length()",
+  "value": [
+   [
+    -1
+   ]
+  ]
+ },
+ {
+  "name": "input_file_block_start",
+  "group": "misc_funcs",
+  "example": "SELECT input_file_block_start()",
+  "value": [
+   [
+    -1
+   ]
+  ]
+ },
+ {
+  "name": "input_file_name",
+  "group": "misc_funcs",
+  "example": "SELECT input_file_name()",
+  "value": [
+   [
+    ""
+   ]
+  ]
+ },
+ {
+  "name": "instr",
+  "group": "string_funcs",
+  "example": "SELECT instr('SparkSQL', 'SQL')",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "int",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "isnan",
+  "group": "predicate_funcs",
+  "example": "SELECT isnan(cast('NaN' as double))",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "isnotnull",
+  "group": "predicate_funcs",
+  "example": "SELECT isnotnull(1)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "isnull",
+  "group": "predicate_funcs",
+  "example": "SELECT isnull(1)",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "java_method",
+  "group": "misc_funcs",
+  "example": "SELECT java_method('java.util.UUID', 'randomUUID')",
+  "value": [
+   [
+    "f4cb5d27-eb61-4bbe-acd8-9c1ff9271ef9"
+   ]
+  ]
+ },
+ {
+  "name": "json_array_length",
+  "group": "json_funcs",
+  "example": "SELECT json_array_length('[1,2,3,4]')",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "json_object_keys",
+  "group": "json_funcs",
+  "example": "SELECT json_object_keys('{}')",
+  "value": [
+   [
+    []
+   ]
+  ]
+ },
+ {
+  "name": "json_tuple",
+  "group": "json_funcs",
+  "example": "SELECT json_tuple('{\"a\":1, \"b\":2}', 'a', 'b')",
+  "value": [
+   [
+    "1",
+    "2"
+   ]
+  ]
+ },
+ {
+  "name": "kurtosis",
+  "group": "agg_funcs",
+  "example": "SELECT kurtosis(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)",
+  "value": [
+   [
+    "float:-0.701436804753"
+   ]
+  ]
+ },
+ {
+  "name": "lag",
+  "group": "window_funcs",
+  "example": "SELECT a, b, lag(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    null
+   ],
+   [
+    "A1",
+    2,
+    1
+   ],
+   [
+    "A2",
+    3,
+    null
+   ]
+  ]
+ },
+ {
+  "name": "last",
+  "group": "agg_funcs",
+  "example": "SELECT last(col) FROM VALUES (10), (5), (20) AS tab(col)",
+  "value": [
+   [
+    20
+   ]
+  ]
+ },
+ {
+  "name": "last_day",
+  "group": "datetime_funcs",
+  "example": "SELECT last_day('2009-01-12')",
+  "value": [
+   [
+    "date:2009-01-31"
+   ]
+  ]
+ },
+ {
+  "name": "last_value",
+  "group": "agg_funcs",
+  "example": "SELECT last_value(col) FROM VALUES (10), (5), (20) AS tab(col)",
+  "value": [
+   [
+    20
+   ]
+  ]
+ },
+ {
+  "name": "lcase",
+  "group": "string_funcs",
+  "example": "SELECT lcase('SparkSql')",
+  "value": [
+   [
+    "sparksql"
+   ]
+  ]
+ },
+ {
+  "name": "lead",
+  "group": "window_funcs",
+  "example": "SELECT a, b, lead(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    2
+   ],
+   [
+    "A1",
+    2,
+    null
+   ],
+   [
+    "A2",
+    3,
+    null
+   ]
+  ]
+ },
+ {
+  "name": "least",
+  "group": "math_funcs",
+  "example": "SELECT least(10, 9, 2, 4, 3)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "left",
+  "group": "string_funcs",
+  "example": "SELECT left('Spark SQL', 3)",
+  "value": [
+   [
+    "Spa"
+   ]
+  ]
+ },
+ {
+  "name": "len",
+  "group": "string_funcs",
+  "example": "SELECT len('Spark SQL ')",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "length",
+  "group": "string_funcs",
+  "example": "SELECT length('Spark SQL ')",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "levenshtein",
+  "group": "string_funcs",
+  "example": "SELECT levenshtein('kitten', 'sitting')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "like",
+  "group": "predicate_funcs",
+  "example": "SELECT like('Spark', '_park')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "ln",
+  "group": "math_funcs",
+  "example": "SELECT ln(1)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "localtimestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT localtimestamp()",
+  "value": [
+   [
+    "timestamp:2026-11-03T01:48:05.702992"
+   ]
+  ]
+ },
+ {
+  "name": "locate",
+  "group": "string_funcs",
+  "example": "SELECT locate('bar', 'foobarbar')",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "log",
+  "group": "math_funcs",
+  "example": "SELECT log(10, 100)",
+  "value": [
+   [
+    "float:2"
+   ]
+  ]
+ },
+ {
+  "name": "log10",
+  "group": "math_funcs",
+  "example": "SELECT log10(10)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "log1p",
+  "group": "math_funcs",
+  "example": "SELECT log1p(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "log2",
+  "group": "math_funcs",
+  "example": "SELECT log2(2)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "lower",
+  "group": "string_funcs",
+  "example": "SELECT lower('SparkSql')",
+  "value": [
+   [
+    "sparksql"
+   ]
+  ]
+ },
+ {
+  "name": "lpad",
+  "group": "string_funcs",
+  "example": "SELECT lpad('hi', 5, '??')",
+  "value": [
+   [
+    "???hi"
+   ]
+  ]
+ },
+ {
+  "name": "ltrim",
+  "group": "string_funcs",
+  "example": "SELECT ltrim(' SparkSQL ')",
+  "value": [
+   [
+    "SparkSQL "
+   ]
+  ]
+ },
+ {
+  "name": "luhn_check",
+  "group": "string_funcs",
+  "example": "SELECT luhn_check('8112189876')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "make_date",
+  "group": "datetime_funcs",
+  "example": "SELECT make_date(2013, 7, 15)",
+  "value": [
+   [
+    "date:2013-07-15"
+   ]
+  ]
+ },
+ {
+  "name": "make_dt_interval",
+  "group": "datetime_funcs",
+  "example": "SELECT make_dt_interval(1, 12, 30, 01.001001)",
+  "value": [
+   [
+    "interval:131401.001001"
+   ]
+  ]
+ },
+ {
+  "name": "make_interval",
+  "group": "datetime_funcs",
+  "example": "SELECT make_interval(100, 11, 1, 1, 12, 30, 01.001001)",
+  "spark_error": "Undefined error message parameter for error class: CANNOT_PARSE_DATATYPE. Parameters: {'error': 'interval'}"
+ },
+ {
+  "name": "make_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT make_timestamp(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "make_timestamp_ltz",
+  "group": "datetime_funcs",
+  "example": "SELECT make_timestamp_ltz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "make_timestamp_ntz",
+  "group": "datetime_funcs",
+  "example": "SELECT make_timestamp_ntz(2014, 12, 28, 6, 30, 45.887)",
+  "value": [
+   [
+    "timestamp:2014-12-28T06:30:45.887000"
+   ]
+  ]
+ },
+ {
+  "name": "make_ym_interval",
+  "group": "datetime_funcs",
+  "example": "SELECT make_ym_interval(1, 2)",
+  "value": [
+   [
+    14
+   ]
+  ]
+ },
+ {
+  "name": "map",
+  "group": "map_funcs",
+  "example": "SELECT map(1.0, '2', 3.0, '4')",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       "decimal:1.0",
+       "2"
+      ],
+      [
+       "decimal:3.0",
+       "4"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "map_concat",
+  "group": "map_funcs",
+  "example": "SELECT map_concat(map(1, 'a', 2, 'b'), map(3, 'c'))",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       1,
+       "a"
+      ],
+      [
+       2,
+       "b"
+      ],
+      [
+       3,
+       "c"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "map_contains_key",
+  "group": "map_funcs",
+  "example": "SELECT map_contains_key(map(1, 'a', 2, 'b'), 1)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "map_entries",
+  "group": "map_funcs",
+  "example": "SELECT map_entries(map(1, 'a', 2, 'b'))",
+  "value": [
+   [
+    [
+     {
+      "struct": [
+       [
+        "key",
+        1
+       ],
+       [
+        "value",
+        "a"
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "key",
+        2
+       ],
+       [
+        "value",
+        "b"
+       ]
+      ]
+     }
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "map_filter",
+  "group": "lambda_funcs",
+  "example": "SELECT map_filter(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v)",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       1,
+       0
+      ],
+      [
+       3,
+       -1
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "map_from_arrays",
+  "group": "map_funcs",
+  "example": "SELECT map_from_arrays(array(1.0, 3.0), array('2', '4'))",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       "decimal:1.0",
+       "2"
+      ],
+      [
+       "decimal:3.0",
+       "4"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "map_from_entries",
+  "group": "map_funcs",
+  "example": "SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       1,
+       "a"
+      ],
+      [
+       2,
+       "b"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "map_keys",
+  "group": "map_funcs",
+  "example": "SELECT map_keys(map(1, 'a', 2, 'b'))",
+  "value": [
+   [
+    [
+     1,
+     2
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "map_values",
+  "group": "map_funcs",
+  "example": "SELECT map_values(map(1, 'a', 2, 'b'))",
+  "value": [
+   [
+    [
+     "a",
+     "b"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "map_zip_with",
+  "group": "lambda_funcs",
+  "example": "SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2))",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       1,
+       "ax"
+      ],
+      [
+       2,
+       "by"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "mask",
+  "group": "string_funcs",
+  "example": "SELECT mask('abcd-EFGH-8765-4321')",
+  "value": [
+   [
+    "xxxx-XXXX-nnnn-nnnn"
+   ]
+  ]
+ },
+ {
+  "name": "max",
+  "group": "agg_funcs",
+  "example": "SELECT max(col) FROM VALUES (10), (50), (20) AS tab(col)",
+  "value": [
+   [
+    50
+   ]
+  ]
+ },
+ {
+  "name": "max_by",
+  "group": "agg_funcs",
+  "example": "SELECT max_by(x, y) FROM VALUES ('a', 10), ('b', 50), ('c', 20) AS tab(x, y)",
+  "value": [
+   [
+    "b"
+   ]
+  ]
+ },
+ {
+  "name": "md5",
+  "group": "hash_funcs",
+  "example": "SELECT md5('Spark')",
+  "value": [
+   [
+    "8cde774d6f7333752ed72cacddb05126"
+   ]
+  ]
+ },
+ {
+  "name": "mean",
+  "group": "agg_funcs",
+  "example": "SELECT mean(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:2"
+   ]
+  ]
+ },
+ {
+  "name": "median",
+  "group": "agg_funcs",
+  "example": "SELECT median(col) FROM VALUES (0), (10) AS tab(col)",
+  "value": [
+   [
+    "float:5"
+   ]
+  ]
+ },
+ {
+  "name": "min",
+  "group": "agg_funcs",
+  "example": "SELECT min(col) FROM VALUES (10), (-1), (20) AS tab(col)",
+  "value": [
+   [
+    -1
+   ]
+  ]
+ },
+ {
+  "name": "min_by",
+  "group": "agg_funcs",
+  "example": "SELECT min_by(x, y) FROM VALUES ('a', 10), ('b', 50), ('c', 20) AS tab(x, y)",
+  "value": [
+   [
+    "a"
+   ]
+  ]
+ },
+ {
+  "name": "minute",
+  "group": "datetime_funcs",
+  "example": "SELECT minute('2009-07-30 12:58:59')",
+  "value": [
+   [
+    58
+   ]
+  ]
+ },
+ {
+  "name": "mod",
+  "group": "math_funcs",
+  "example": "SELECT 2 % 1.8",
+  "value": [
+   [
+    "decimal:0.2"
+   ]
+  ]
+ },
+ {
+  "name": "mode",
+  "group": "agg_funcs",
+  "example": "SELECT mode(col) FROM VALUES (0), (10), (10) AS tab(col)",
+  "value": [
+   [
+    10
+   ]
+  ]
+ },
+ {
+  "name": "monotonically_increasing_id",
+  "group": "misc_funcs",
+  "example": "SELECT monotonically_increasing_id()",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "month",
+  "group": "datetime_funcs",
+  "example": "SELECT month('2016-07-30')",
+  "value": [
+   [
+    7
+   ]
+  ]
+ },
+ {
+  "name": "months_between",
+  "group": "datetime_funcs",
+  "example": "SELECT months_between('1997-02-28 10:30:00', '1996-10-30')",
+  "value": [
+   [
+    "float:3.94959677"
+   ]
+  ]
+ },
+ {
+  "name": "named_struct",
+  "group": "struct_funcs",
+  "example": "SELECT named_struct(\"a\", 1, \"b\", 2, \"c\", 3)",
+  "value": [
+   [
+    {
+     "struct": [
+      [
+       "a",
+       1
+      ],
+      [
+       "b",
+       2
+      ],
+      [
+       "c",
+       3
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "nanvl",
+  "group": "conditional_funcs",
+  "example": "SELECT nanvl(cast('NaN' as double), 123)",
+  "value": [
+   [
+    "float:123"
+   ]
+  ]
+ },
+ {
+  "name": "negative",
+  "group": "math_funcs",
+  "example": "SELECT negative(1)",
+  "value": [
+   [
+    -1
+   ]
+  ]
+ },
+ {
+  "name": "next_day",
+  "group": "datetime_funcs",
+  "example": "SELECT next_day('2015-01-14', 'TU')",
+  "value": [
+   [
+    "date:2015-01-20"
+   ]
+  ]
+ },
+ {
+  "name": "not",
+  "group": "predicate_funcs",
+  "example": "SELECT not true",
+  "value": [
+   [
+    false
+   ]
+  ]
+ },
+ {
+  "name": "now",
+  "group": "datetime_funcs",
+  "example": "SELECT now()",
+  "value": [
+   [
+    "timestamp:2026-11-03T01:48:08.779034"
+   ]
+  ]
+ },
+ {
+  "name": "nth_value",
+  "group": "window_funcs",
+  "example": "SELECT a, b, nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    2,
+    1
+   ],
+   [
+    "A2",
+    3,
+    null
+   ]
+  ]
+ },
+ {
+  "name": "ntile",
+  "group": "window_funcs",
+  "example": "SELECT a, b, ntile(2) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    2,
+    2
+   ],
+   [
+    "A2",
+    3,
+    1
+   ]
+  ]
+ },
+ {
+  "name": "nullif",
+  "group": "conditional_funcs",
+  "example": "SELECT nullif(2, 2)",
+  "value": [
+   [
+    null
+   ]
+  ]
+ },
+ {
+  "name": "nvl",
+  "group": "conditional_funcs",
+  "example": "SELECT nvl(NULL, array('2'))",
+  "value": [
+   [
+    [
+     "2"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "nvl2",
+  "group": "conditional_funcs",
+  "example": "SELECT nvl2(NULL, 2, 1)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "octet_length",
+  "group": "string_funcs",
+  "example": "SELECT octet_length('Spark SQL')",
+  "value": [
+   [
+    9
+   ]
+  ]
+ },
+ {
+  "name": "or",
+  "group": "predicate_funcs",
+  "example": "SELECT true or false",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "overlay",
+  "group": "string_funcs",
+  "example": "SELECT overlay('Spark SQL' PLACING '_' FROM 6)",
+  "value": [
+   [
+    "Spark_SQL"
+   ]
+  ]
+ },
+ {
+  "name": "parse_url",
+  "group": "url_funcs",
+  "example": "SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')",
+  "value": [
+   [
+    "spark.apache.org"
+   ]
+  ]
+ },
+ {
+  "name": "percent_rank",
+  "group": "window_funcs",
+  "example": "SELECT a, b, percent_rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    "float:0"
+   ],
+   [
+    "A1",
+    1,
+    "float:0"
+   ],
+   [
+    "A1",
+    2,
+    "float:1"
+   ],
+   [
+    "A2",
+    3,
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "percentile",
+  "group": "agg_funcs",
+  "example": "SELECT percentile(col, 0.3) FROM VALUES (0), (10) AS tab(col)",
+  "value": [
+   [
+    "float:3"
+   ]
+  ]
+ },
+ {
+  "name": "percentile_approx",
+  "group": "agg_funcs",
+  "example": "SELECT percentile_approx(col, array(0.5, 0.4, 0.1), 100) FROM VALUES (0), (1), (2), (10) AS tab(col)",
+  "value": [
+   [
+    [
+     1,
+     1,
+     0
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "pi",
+  "group": "math_funcs",
+  "example": "SELECT pi()",
+  "value": [
+   [
+    "float:3.14159265359"
+   ]
+  ]
+ },
+ {
+  "name": "pmod",
+  "group": "math_funcs",
+  "example": "SELECT pmod(10, 3)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "posexplode",
+  "group": "generator_funcs",
+  "example": "SELECT posexplode(array(10,20))",
+  "value": [
+   [
+    0,
+    10
+   ],
+   [
+    1,
+    20
+   ]
+  ]
+ },
+ {
+  "name": "posexplode_outer",
+  "group": "generator_funcs",
+  "example": "SELECT posexplode_outer(array(10,20))",
+  "value": [
+   [
+    0,
+    10
+   ],
+   [
+    1,
+    20
+   ]
+  ]
+ },
+ {
+  "name": "position",
+  "group": "string_funcs",
+  "example": "SELECT position('bar', 'foobarbar')",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "positive",
+  "group": "math_funcs",
+  "example": "SELECT positive(1)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "pow",
+  "group": "math_funcs",
+  "example": "SELECT pow(2, 3)",
+  "value": [
+   [
+    "float:8"
+   ]
+  ]
+ },
+ {
+  "name": "power",
+  "group": "math_funcs",
+  "example": "SELECT power(2, 3)",
+  "value": [
+   [
+    "float:8"
+   ]
+  ]
+ },
+ {
+  "name": "printf",
+  "group": "string_funcs",
+  "example": "SELECT printf(\"Hello World %d %s\", 100, \"days\")",
+  "value": [
+   [
+    "Hello World 100 days"
+   ]
+  ]
+ },
+ {
+  "name": "quarter",
+  "group": "datetime_funcs",
+  "example": "SELECT quarter('2016-08-31')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "radians",
+  "group": "math_funcs",
+  "example": "SELECT radians(180)",
+  "value": [
+   [
+    "float:3.14159265359"
+   ]
+  ]
+ },
+ {
+  "name": "raise_error",
+  "group": "misc_funcs",
+  "example": "SELECT raise_error('custom error message')",
+  "spark_error": "An error occurred while calling o1695.collectToPython."
+ },
+ {
+  "name": "rand",
+  "group": "math_funcs",
+  "example": "SELECT rand()",
+  "value": [
+   [
+    "float:0.359324489484"
+   ]
+  ]
+ },
+ {
+  "name": "randn",
+  "group": "math_funcs",
+  "example": "SELECT randn()",
+  "value": [
+   [
+    "float:-0.821827638225"
+   ]
+  ]
+ },
+ {
+  "name": "random",
+  "group": "math_funcs",
+  "example": "SELECT random()",
+  "value": [
+   [
+    "float:0.452496257571"
+   ]
+  ]
+ },
+ {
+  "name": "range",
+  "group": "other"
+ },
+ {
+  "name": "rank",
+  "group": "window_funcs",
+  "example": "SELECT a, b, rank(b) OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    2,
+    3
+   ],
+   [
+    "A2",
+    3,
+    1
+   ]
+  ]
+ },
+ {
+  "name": "reduce",
+  "group": "lambda_funcs",
+  "example": "SELECT reduce(array(1, 2, 3), 0, (acc, x) -> acc + x)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "reflect",
+  "group": "misc_funcs",
+  "example": "SELECT reflect('java.util.UUID', 'randomUUID')",
+  "value": [
+   [
+    "812aecfc-4daa-4b2d-9970-1a1ecf420a76"
+   ]
+  ]
+ },
+ {
+  "name": "regexp",
+  "group": "predicate_funcs",
+  "example": "SELECT regexp('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
+  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `regexp` is invalid: '%SystemDrive%\\\\Users.*'."
+ },
+ {
+  "name": "regexp_count",
+  "group": "string_funcs",
+  "example": "SELECT regexp_count('Steven Jones and Stephen Smith are the best players', 'Ste(v|ph)en')",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "regexp_extract",
+  "group": "string_funcs",
+  "example": "SELECT regexp_extract('100-200', '(\\\\d+)-(\\\\d+)', 1)",
+  "value": [
+   [
+    "100"
+   ]
+  ]
+ },
+ {
+  "name": "regexp_extract_all",
+  "group": "string_funcs",
+  "example": "SELECT regexp_extract_all('100-200, 300-400', '(\\\\d+)-(\\\\d+)', 1)",
+  "value": [
+   [
+    [
+     "100",
+     "300"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "regexp_instr",
+  "group": "string_funcs",
+  "example": "SELECT regexp_instr('user@spark.apache.org', '@[^.]*')",
+  "value": [
+   [
+    5
+   ]
+  ]
+ },
+ {
+  "name": "regexp_like",
+  "group": "predicate_funcs",
+  "example": "SELECT regexp_like('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
+  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `regexp_like` is invalid: '%SystemDrive%\\\\Users.*'."
+ },
+ {
+  "name": "regexp_replace",
+  "group": "string_funcs",
+  "example": "SELECT regexp_replace('100-200', '(\\\\d+)', 'num')",
+  "value": [
+   [
+    "num-num"
+   ]
+  ]
+ },
+ {
+  "name": "regexp_substr",
+  "group": "string_funcs",
+  "example": "SELECT regexp_substr('Steven Jones and Stephen Smith are the best players', 'Ste(v|ph)en')",
+  "value": [
+   [
+    "Steven"
+   ]
+  ]
+ },
+ {
+  "name": "regr_avgx",
+  "group": "agg_funcs",
+  "example": "SELECT regr_avgx(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:2.75"
+   ]
+  ]
+ },
+ {
+  "name": "regr_avgy",
+  "group": "agg_funcs",
+  "example": "SELECT regr_avgy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:1.75"
+   ]
+  ]
+ },
+ {
+  "name": "regr_count",
+  "group": "agg_funcs",
+  "example": "SELECT regr_count(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "regr_intercept",
+  "group": "agg_funcs",
+  "example": "SELECT regr_intercept(y, x) FROM VALUES (1,1), (2,2), (3,3) AS tab(y, x)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "regr_r2",
+  "group": "agg_funcs",
+  "example": "SELECT regr_r2(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:0.272727272727"
+   ]
+  ]
+ },
+ {
+  "name": "regr_slope",
+  "group": "agg_funcs",
+  "example": "SELECT regr_slope(y, x) FROM VALUES (1,1), (2,2), (3,3) AS tab(y, x)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "regr_sxx",
+  "group": "agg_funcs",
+  "example": "SELECT regr_sxx(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:2.75"
+   ]
+  ]
+ },
+ {
+  "name": "regr_sxy",
+  "group": "agg_funcs",
+  "example": "SELECT regr_sxy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:0.75"
+   ]
+  ]
+ },
+ {
+  "name": "regr_syy",
+  "group": "agg_funcs",
+  "example": "SELECT regr_syy(y, x) FROM VALUES (1, 2), (2, 2), (2, 3), (2, 4) AS tab(y, x)",
+  "value": [
+   [
+    "float:0.75"
+   ]
+  ]
+ },
+ {
+  "name": "repeat",
+  "group": "string_funcs",
+  "example": "SELECT repeat('123', 2)",
+  "value": [
+   [
+    "123123"
+   ]
+  ]
+ },
+ {
+  "name": "replace",
+  "group": "string_funcs",
+  "example": "SELECT replace('ABCabc', 'abc', 'DEF')",
+  "value": [
+   [
+    "ABCDEF"
+   ]
+  ]
+ },
+ {
+  "name": "reverse",
+  "group": "collection_funcs",
+  "example": "SELECT reverse('Spark SQL')",
+  "value": [
+   [
+    "LQS krapS"
+   ]
+  ]
+ },
+ {
+  "name": "right",
+  "group": "string_funcs",
+  "example": "SELECT right('Spark SQL', 3)",
+  "value": [
+   [
+    "SQL"
+   ]
+  ]
+ },
+ {
+  "name": "rint",
+  "group": "math_funcs",
+  "example": "SELECT rint(12.3456)",
+  "value": [
+   [
+    "float:12"
+   ]
+  ]
+ },
+ {
+  "name": "rlike",
+  "group": "predicate_funcs",
+  "example": "SELECT rlike('%SystemDrive%\\Users\\John', '%SystemDrive%\\\\Users.*')",
+  "spark_error": "[INVALID_PARAMETER_VALUE.PATTERN] The value of parameter(s) `regexp` in `rlike` is invalid: '%SystemDrive%\\\\Users.*'."
+ },
+ {
+  "name": "round",
+  "group": "math_funcs",
+  "example": "SELECT round(2.5, 0)",
+  "value": [
+   [
+    "decimal:3"
+   ]
+  ]
+ },
+ {
+  "name": "row_number",
+  "group": "window_funcs",
+  "example": "SELECT a, b, row_number() OVER (PARTITION BY a ORDER BY b) FROM VALUES ('A1', 2), ('A1', 1), ('A2', 3), ('A1', 1) tab(a, b)",
+  "value": [
+   [
+    "A1",
+    1,
+    1
+   ],
+   [
+    "A1",
+    1,
+    2
+   ],
+   [
+    "A1",
+    2,
+    3
+   ],
+   [
+    "A2",
+    3,
+    1
+   ]
+  ]
+ },
+ {
+  "name": "rpad",
+  "group": "string_funcs",
+  "example": "SELECT rpad('hi', 5, '??')",
+  "value": [
+   [
+    "hi???"
+   ]
+  ]
+ },
+ {
+  "name": "rtrim",
+  "group": "string_funcs",
+  "example": "SELECT rtrim(' SparkSQL ')",
+  "value": [
+   [
+    " SparkSQL"
+   ]
+  ]
+ },
+ {
+  "name": "schema_of_csv",
+  "group": "csv_funcs",
+  "example": "SELECT schema_of_csv('1,abc')",
+  "value": [
+   [
+    "STRUCT<_c0: INT, _c1: STRING>"
+   ]
+  ]
+ },
+ {
+  "name": "schema_of_json",
+  "group": "json_funcs",
+  "example": "SELECT schema_of_json('[{\"col\":0}]')",
+  "value": [
+   [
+    "ARRAY<STRUCT<col: BIGINT>>"
+   ]
+  ]
+ },
+ {
+  "name": "sec",
+  "group": "math_funcs",
+  "example": "SELECT sec(0)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "second",
+  "group": "datetime_funcs",
+  "example": "SELECT second('2009-07-30 12:58:59')",
+  "value": [
+   [
+    59
+   ]
+  ]
+ },
+ {
+  "name": "sentences",
+  "group": "string_funcs",
+  "example": "SELECT sentences('Hi there! Good morning.')",
+  "value": [
+   [
+    [
+     [
+      "Hi",
+      "there"
+     ],
+     [
+      "Good",
+      "morning"
+     ]
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "sequence",
+  "group": "array_funcs",
+  "example": "SELECT sequence(1, 5)",
+  "value": [
+   [
+    [
+     1,
+     2,
+     3,
+     4,
+     5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "session_window",
+  "group": "datetime_funcs",
+  "example": "SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start",
+  "value": [
+   [
+    "A1",
+    "timestamp:2021-01-01T00:00:00",
+    "timestamp:2021-01-01T00:09:30",
+    2
+   ],
+   [
+    "A1",
+    "timestamp:2021-01-01T00:10:00",
+    "timestamp:2021-01-01T00:15:00",
+    1
+   ],
+   [
+    "A2",
+    "timestamp:2021-01-01T00:01:00",
+    "timestamp:2021-01-01T00:06:00",
+    1
+   ]
+  ]
+ },
+ {
+  "name": "sha",
+  "group": "hash_funcs",
+  "example": "SELECT sha('Spark')",
+  "value": [
+   [
+    "85f5955f4b27a9a4c2aab6ffe5d7189fc298b92c"
+   ]
+  ]
+ },
+ {
+  "name": "sha1",
+  "group": "hash_funcs",
+  "example": "SELECT sha1('Spark')",
+  "value": [
+   [
+    "85f5955f4b27a9a4c2aab6ffe5d7189fc298b92c"
+   ]
+  ]
+ },
+ {
+  "name": "sha2",
+  "group": "hash_funcs",
+  "example": "SELECT sha2('Spark', 256)",
+  "value": [
+   [
+    "529bc3b07127ecb7e53a4dcf1991d9152c24537d919178022b2c42657f79a26b"
+   ]
+  ]
+ },
+ {
+  "name": "shiftleft",
+  "group": "math_funcs",
+  "example": "SELECT shiftleft(2, 1)",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "shiftright",
+  "group": "bitwise_funcs",
+  "example": "SELECT shiftright(4, 1)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "shiftrightunsigned",
+  "group": "bitwise_funcs",
+  "example": "SELECT shiftrightunsigned(4, 1)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "shuffle",
+  "group": "array_funcs",
+  "example": "SELECT shuffle(array(1, 20, 3, 5))",
+  "value": [
+   [
+    [
+     20,
+     3,
+     1,
+     5
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "sign",
+  "group": "math_funcs",
+  "example": "SELECT sign(40)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "signum",
+  "group": "math_funcs",
+  "example": "SELECT signum(40)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "sin",
+  "group": "math_funcs",
+  "example": "SELECT sin(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "sinh",
+  "group": "math_funcs",
+  "example": "SELECT sinh(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "size",
+  "group": "collection_funcs",
+  "example": "SELECT size(array('b', 'd', 'c', 'a'))",
+  "value": [
+   [
+    4
+   ]
+  ]
+ },
+ {
+  "name": "skewness",
+  "group": "agg_funcs",
+  "example": "SELECT skewness(col) FROM VALUES (-10), (-20), (100), (1000) AS tab(col)",
+  "value": [
+   [
+    "float:1.1135657469"
+   ]
+  ]
+ },
+ {
+  "name": "slice",
+  "group": "array_funcs",
+  "example": "SELECT slice(array(1, 2, 3, 4), 2, 2)",
+  "value": [
+   [
+    [
+     2,
+     3
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "smallint",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "some",
+  "group": "agg_funcs",
+  "example": "SELECT some(col) FROM VALUES (true), (false), (false) AS tab(col)",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "sort_array",
+  "group": "array_funcs",
+  "example": "SELECT sort_array(array('b', 'd', null, 'c', 'a'), true)",
+  "value": [
+   [
+    [
+     null,
+     "a",
+     "b",
+     "c",
+     "d"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "soundex",
+  "group": "string_funcs",
+  "example": "SELECT soundex('Miller')",
+  "value": [
+   [
+    "M460"
+   ]
+  ]
+ },
+ {
+  "name": "space",
+  "group": "string_funcs",
+  "example": "SELECT concat(space(2), '1')",
+  "value": [
+   [
+    "  1"
+   ]
+  ]
+ },
+ {
+  "name": "spark_partition_id",
+  "group": "misc_funcs",
+  "example": "SELECT spark_partition_id()",
+  "value": [
+   [
+    0
+   ]
+  ]
+ },
+ {
+  "name": "split",
+  "group": "string_funcs",
+  "example": "SELECT split('oneAtwoBthreeC', '[ABC]')",
+  "value": [
+   [
+    [
+     "one",
+     "two",
+     "three",
+     ""
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "split_part",
+  "group": "string_funcs",
+  "example": "SELECT split_part('11.12.13', '.', 3)",
+  "value": [
+   [
+    "13"
+   ]
+  ]
+ },
+ {
+  "name": "sql_keywords",
+  "group": "other"
+ },
+ {
+  "name": "sqrt",
+  "group": "math_funcs",
+  "example": "SELECT sqrt(4)",
+  "value": [
+   [
+    "float:2"
+   ]
+  ]
+ },
+ {
+  "name": "stack",
+  "group": "generator_funcs",
+  "example": "SELECT stack(2, 1, 2, 3)",
+  "value": [
+   [
+    1,
+    2
+   ],
+   [
+    3,
+    null
+   ]
+  ]
+ },
+ {
+  "name": "startswith",
+  "group": "string_funcs",
+  "example": "SELECT startswith('Spark SQL', 'Spark')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "std",
+  "group": "agg_funcs",
+  "example": "SELECT std(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "stddev",
+  "group": "agg_funcs",
+  "example": "SELECT stddev(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "stddev_pop",
+  "group": "agg_funcs",
+  "example": "SELECT stddev_pop(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:0.816496580928"
+   ]
+  ]
+ },
+ {
+  "name": "stddev_samp",
+  "group": "agg_funcs",
+  "example": "SELECT stddev_samp(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "str_to_map",
+  "group": "map_funcs",
+  "example": "SELECT str_to_map('a:1,b:2,c:3', ',', ':')",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       "a",
+       "1"
+      ],
+      [
+       "b",
+       "2"
+      ],
+      [
+       "c",
+       "3"
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "string",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "struct",
+  "group": "struct_funcs",
+  "example": "SELECT struct(1, 2, 3)",
+  "value": [
+   [
+    {
+     "struct": [
+      [
+       "col1",
+       1
+      ],
+      [
+       "col2",
+       2
+      ],
+      [
+       "col3",
+       3
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "substr",
+  "group": "string_funcs",
+  "example": "SELECT substr('Spark SQL', 5)",
+  "value": [
+   [
+    "k SQL"
+   ]
+  ]
+ },
+ {
+  "name": "substring",
+  "group": "string_funcs",
+  "example": "SELECT substring('Spark SQL', 5)",
+  "value": [
+   [
+    "k SQL"
+   ]
+  ]
+ },
+ {
+  "name": "substring_index",
+  "group": "string_funcs",
+  "example": "SELECT substring_index('www.apache.org', '.', 2)",
+  "value": [
+   [
+    "www.apache"
+   ]
+  ]
+ },
+ {
+  "name": "sum",
+  "group": "agg_funcs",
+  "example": "SELECT sum(col) FROM VALUES (5), (10), (15) AS tab(col)",
+  "value": [
+   [
+    30
+   ]
+  ]
+ },
+ {
+  "name": "tan",
+  "group": "math_funcs",
+  "example": "SELECT tan(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "tanh",
+  "group": "math_funcs",
+  "example": "SELECT tanh(0)",
+  "value": [
+   [
+    "float:0"
+   ]
+  ]
+ },
+ {
+  "name": "timestamp",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "timestamp_micros",
+  "group": "datetime_funcs",
+  "example": "SELECT timestamp_micros(1230219000123123)",
+  "value": [
+   [
+    "timestamp:2008-12-25T15:30:00.123123"
+   ]
+  ]
+ },
+ {
+  "name": "timestamp_millis",
+  "group": "datetime_funcs",
+  "example": "SELECT timestamp_millis(1230219000123)",
+  "value": [
+   [
+    "timestamp:2008-12-25T15:30:00.123000"
+   ]
+  ]
+ },
+ {
+  "name": "timestamp_seconds",
+  "group": "datetime_funcs",
+  "example": "SELECT timestamp_seconds(1230219000)",
+  "value": [
+   [
+    "timestamp:2008-12-25T15:30:00"
+   ]
+  ]
+ },
+ {
+  "name": "tinyint",
+  "group": "conversion_funcs"
+ },
+ {
+  "name": "to_binary",
+  "group": "string_funcs",
+  "example": "SELECT to_binary('abc', 'utf-8')",
+  "value": [
+   [
+    "binary:616263"
+   ]
+  ]
+ },
+ {
+  "name": "to_char",
+  "group": "string_funcs",
+  "example": "SELECT to_char(454, '999')",
+  "value": [
+   [
+    "454"
+   ]
+  ]
+ },
+ {
+  "name": "to_csv",
+  "group": "csv_funcs",
+  "example": "SELECT to_csv(named_struct('a', 1, 'b', 2))",
+  "value": [
+   [
+    "1,2"
+   ]
+  ]
+ },
+ {
+  "name": "to_date",
+  "group": "datetime_funcs",
+  "example": "SELECT to_date('2009-07-30 04:17:52')",
+  "value": [
+   [
+    "date:2009-07-30"
+   ]
+  ]
+ },
+ {
+  "name": "to_json",
+  "group": "json_funcs",
+  "example": "SELECT to_json(named_struct('a', 1, 'b', 2))",
+  "value": [
+   [
+    "{\"a\":1,\"b\":2}"
+   ]
+  ]
+ },
+ {
+  "name": "to_number",
+  "group": "string_funcs",
+  "example": "SELECT to_number('454', '999')",
+  "value": [
+   [
+    "decimal:454"
+   ]
+  ]
+ },
+ {
+  "name": "to_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT to_timestamp('2016-12-31 00:12:00')",
+  "value": [
+   [
+    "timestamp:2016-12-31T00:12:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_timestamp_ltz",
+  "group": "datetime_funcs",
+  "example": "SELECT to_timestamp_ltz('2016-12-31 00:12:00')",
+  "value": [
+   [
+    "timestamp:2016-12-31T00:12:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_timestamp_ntz",
+  "group": "datetime_funcs",
+  "example": "SELECT to_timestamp_ntz('2016-12-31 00:12:00')",
+  "value": [
+   [
+    "timestamp:2016-12-31T00:12:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_unix_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')",
+  "value": [
+   [
+    1460073600
+   ]
+  ]
+ },
+ {
+  "name": "to_utc_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT to_utc_timestamp('2016-08-31', 'Asia/Seoul')",
+  "value": [
+   [
+    "timestamp:2016-08-30T15:00:00"
+   ]
+  ]
+ },
+ {
+  "name": "to_varchar",
+  "group": "string_funcs",
+  "example": "SELECT to_varchar(454, '999')",
+  "value": [
+   [
+    "454"
+   ]
+  ]
+ },
+ {
+  "name": "transform",
+  "group": "lambda_funcs",
+  "example": "SELECT transform(array(1, 2, 3), x -> x + 1)",
+  "value": [
+   [
+    [
+     2,
+     3,
+     4
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "transform_keys",
+  "group": "lambda_funcs",
+  "example": "SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + 1)",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       2,
+       1
+      ],
+      [
+       3,
+       2
+      ],
+      [
+       4,
+       3
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "transform_values",
+  "group": "lambda_funcs",
+  "example": "SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1)",
+  "value": [
+   [
+    {
+     "map": [
+      [
+       1,
+       2
+      ],
+      [
+       2,
+       3
+      ],
+      [
+       3,
+       4
+      ]
+     ]
+    }
+   ]
+  ]
+ },
+ {
+  "name": "translate",
+  "group": "string_funcs",
+  "example": "SELECT translate('AaBbCc', 'abc', '123')",
+  "value": [
+   [
+    "A1B2C3"
+   ]
+  ]
+ },
+ {
+  "name": "trim",
+  "group": "string_funcs",
+  "example": "SELECT trim(' SparkSQL ')",
+  "value": [
+   [
+    "SparkSQL"
+   ]
+  ]
+ },
+ {
+  "name": "trunc",
+  "group": "datetime_funcs",
+  "example": "SELECT trunc('2019-08-04', 'week')",
+  "value": [
+   [
+    "date:2019-07-29"
+   ]
+  ]
+ },
+ {
+  "name": "try_add",
+  "group": "math_funcs",
+  "example": "SELECT try_add(1, 2)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "try_aes_decrypt",
+  "group": "misc_funcs",
+  "example": "SELECT try_aes_decrypt(unhex('6E7CA17BBB468D3084B5744BCA729FB7B2B7BCB8E4472847D02670489D95FA97DBBA7D3210'), '0000111122223333', 'GCM')",
+  "value": [
+   [
+    "binary:537061726b2053514c"
+   ]
+  ]
+ },
+ {
+  "name": "try_avg",
+  "group": "agg_funcs",
+  "example": "SELECT try_avg(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:2"
+   ]
+  ]
+ },
+ {
+  "name": "try_divide",
+  "group": "math_funcs",
+  "example": "SELECT try_divide(3, 2)",
+  "value": [
+   [
+    "float:1.5"
+   ]
+  ]
+ },
+ {
+  "name": "try_element_at",
+  "group": "map_funcs",
+  "example": "SELECT try_element_at(array(1, 2, 3), 2)",
+  "value": [
+   [
+    2
+   ]
+  ]
+ },
+ {
+  "name": "try_multiply",
+  "group": "math_funcs",
+  "example": "SELECT try_multiply(2, 3)",
+  "value": [
+   [
+    6
+   ]
+  ]
+ },
+ {
+  "name": "try_subtract",
+  "group": "math_funcs",
+  "example": "SELECT try_subtract(2, 1)",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "try_sum",
+  "group": "agg_funcs",
+  "example": "SELECT try_sum(col) FROM VALUES (5), (10), (15) AS tab(col)",
+  "value": [
+   [
+    30
+   ]
+  ]
+ },
+ {
+  "name": "try_to_binary",
+  "group": "string_funcs",
+  "example": "SELECT try_to_binary('abc', 'utf-8')",
+  "value": [
+   [
+    "binary:616263"
+   ]
+  ]
+ },
+ {
+  "name": "try_to_number",
+  "group": "string_funcs",
+  "example": "SELECT try_to_number('454', '999')",
+  "value": [
+   [
+    "decimal:454"
+   ]
+  ]
+ },
+ {
+  "name": "try_to_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT try_to_timestamp('2016-12-31 00:12:00')",
+  "value": [
+   [
+    "timestamp:2016-12-31T00:12:00"
+   ]
+  ]
+ },
+ {
+  "name": "typeof",
+  "group": "misc_funcs",
+  "example": "SELECT typeof(1)",
+  "value": [
+   [
+    "int"
+   ]
+  ]
+ },
+ {
+  "name": "ucase",
+  "group": "string_funcs",
+  "example": "SELECT ucase('SparkSql')",
+  "value": [
+   [
+    "SPARKSQL"
+   ]
+  ]
+ },
+ {
+  "name": "unbase64",
+  "group": "string_funcs",
+  "example": "SELECT unbase64('U3BhcmsgU1FM')",
+  "value": [
+   [
+    "binary:537061726b2053514c"
+   ]
+  ]
+ },
+ {
+  "name": "unhex",
+  "group": "math_funcs",
+  "example": "SELECT decode(unhex('537061726B2053514C'), 'UTF-8')",
+  "value": [
+   [
+    "Spark SQL"
+   ]
+  ]
+ },
+ {
+  "name": "unix_date",
+  "group": "datetime_funcs",
+  "example": "SELECT unix_date(DATE(\"1970-01-02\"))",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "unix_micros",
+  "group": "datetime_funcs",
+  "example": "SELECT unix_micros(TIMESTAMP('1970-01-01 00:00:01Z'))",
+  "value": [
+   [
+    1000000
+   ]
+  ]
+ },
+ {
+  "name": "unix_millis",
+  "group": "datetime_funcs",
+  "example": "SELECT unix_millis(TIMESTAMP('1970-01-01 00:00:01Z'))",
+  "value": [
+   [
+    1000
+   ]
+  ]
+ },
+ {
+  "name": "unix_seconds",
+  "group": "datetime_funcs",
+  "example": "SELECT unix_seconds(TIMESTAMP('1970-01-01 00:00:01Z'))",
+  "value": [
+   [
+    1
+   ]
+  ]
+ },
+ {
+  "name": "unix_timestamp",
+  "group": "datetime_funcs",
+  "example": "SELECT unix_timestamp()",
+  "value": [
+   [
+    1793670498
+   ]
+  ]
+ },
+ {
+  "name": "upper",
+  "group": "string_funcs",
+  "example": "SELECT upper('SparkSql')",
+  "value": [
+   [
+    "SPARKSQL"
+   ]
+  ]
+ },
+ {
+  "name": "url_decode",
+  "group": "url_funcs",
+  "example": "SELECT url_decode('https%3A%2F%2Fspark.apache.org')",
+  "value": [
+   [
+    "https://spark.apache.org"
+   ]
+  ]
+ },
+ {
+  "name": "url_encode",
+  "group": "url_funcs",
+  "example": "SELECT url_encode('https://spark.apache.org')",
+  "value": [
+   [
+    "https%3A%2F%2Fspark.apache.org"
+   ]
+  ]
+ },
+ {
+  "name": "user",
+  "group": "misc_funcs",
+  "example": "SELECT user()",
+  "value": [
+   [
+    "root"
+   ]
+  ]
+ },
+ {
+  "name": "uuid",
+  "group": "misc_funcs",
+  "example": "SELECT uuid()",
+  "value": [
+   [
+    "0d5b197e-b5fe-4149-be93-c042e2c0abd7"
+   ]
+  ]
+ },
+ {
+  "name": "var_pop",
+  "group": "agg_funcs",
+  "example": "SELECT var_pop(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:0.666666666667"
+   ]
+  ]
+ },
+ {
+  "name": "var_samp",
+  "group": "agg_funcs",
+  "example": "SELECT var_samp(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "variance",
+  "group": "agg_funcs",
+  "example": "SELECT variance(col) FROM VALUES (1), (2), (3) AS tab(col)",
+  "value": [
+   [
+    "float:1"
+   ]
+  ]
+ },
+ {
+  "name": "version",
+  "group": "misc_funcs",
+  "example": "SELECT version()",
+  "value": [
+   [
+    "3.5.5 7c29c664cdc9321205a98a14858aaf8daaa19db2"
+   ]
+  ]
+ },
+ {
+  "name": "weekday",
+  "group": "datetime_funcs",
+  "example": "SELECT weekday('2009-07-30')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "weekofyear",
+  "group": "datetime_funcs",
+  "example": "SELECT weekofyear('2008-02-20')",
+  "value": [
+   [
+    8
+   ]
+  ]
+ },
+ {
+  "name": "when",
+  "group": "conditional_funcs",
+  "example": "SELECT CASE WHEN 1 > 0 THEN 1 WHEN 2 > 0 THEN 2.0 ELSE 1.2 END",
+  "value": [
+   [
+    "decimal:1.0"
+   ]
+  ]
+ },
+ {
+  "name": "width_bucket",
+  "group": "math_funcs",
+  "example": "SELECT width_bucket(5.3, 0.2, 10.6, 5)",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "window",
+  "group": "datetime_funcs",
+  "example": "SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start",
+  "value": [
+   [
+    "A1",
+    "timestamp:2021-01-01T00:00:00",
+    "timestamp:2021-01-01T00:05:00",
+    2
+   ],
+   [
+    "A1",
+    "timestamp:2021-01-01T00:05:00",
+    "timestamp:2021-01-01T00:10:00",
+    1
+   ],
+   [
+    "A2",
+    "timestamp:2021-01-01T00:00:00",
+    "timestamp:2021-01-01T00:05:00",
+    1
+   ]
+  ]
+ },
+ {
+  "name": "window_time",
+  "group": "datetime_funcs",
+  "example": "SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)",
+  "value": [
+   [
+    "A1",
+    "timestamp:2021-01-01T00:00:00",
+    "timestamp:2021-01-01T00:05:00",
+    "timestamp:2021-01-01T00:04:59.999999",
+    2
+   ],
+   [
+    "A1",
+    "timestamp:2021-01-01T00:05:00",
+    "timestamp:2021-01-01T00:10:00",
+    "timestamp:2021-01-01T00:09:59.999999",
+    1
+   ],
+   [
+    "A2",
+    "timestamp:2021-01-01T00:00:00",
+    "timestamp:2021-01-01T00:05:00",
+    "timestamp:2021-01-01T00:04:59.999999",
+    1
+   ]
+  ]
+ },
+ {
+  "name": "xpath",
+  "group": "xml_funcs",
+  "example": "SELECT xpath('<a><b>b1</b><b>b2</b><b>b3</b><c>c1</c><c>c2</c></a>','a/b/text()')",
+  "value": [
+   [
+    [
+     "b1",
+     "b2",
+     "b3"
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "xpath_boolean",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_boolean('<a><b>1</b></a>','a/b')",
+  "value": [
+   [
+    true
+   ]
+  ]
+ },
+ {
+  "name": "xpath_double",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_double('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    "float:3"
+   ]
+  ]
+ },
+ {
+  "name": "xpath_float",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_float('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    "float:3"
+   ]
+  ]
+ },
+ {
+  "name": "xpath_int",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_int('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "xpath_long",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_long('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "xpath_number",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_number('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    "float:3"
+   ]
+  ]
+ },
+ {
+  "name": "xpath_short",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_short('<a><b>1</b><b>2</b></a>', 'sum(a/b)')",
+  "value": [
+   [
+    3
+   ]
+  ]
+ },
+ {
+  "name": "xpath_string",
+  "group": "xml_funcs",
+  "example": "SELECT xpath_string('<a><b>b</b><c>cc</c></a>','a/c')",
+  "value": [
+   [
+    "cc"
+   ]
+  ]
+ },
+ {
+  "name": "xxhash64",
+  "group": "hash_funcs",
+  "example": "SELECT xxhash64('Spark', array(123), 2)",
+  "value": [
+   [
+    5602566077635097486
+   ]
+  ]
+ },
+ {
+  "name": "year",
+  "group": "datetime_funcs",
+  "example": "SELECT year('2016-07-30')",
+  "value": [
+   [
+    2016
+   ]
+  ]
+ },
+ {
+  "name": "zip_with",
+  "group": "lambda_funcs",
+  "example": "SELECT zip_with(array(1, 2, 3), array('a', 'b', 'c'), (x, y) -> (y, x))",
+  "value": [
+   [
+    [
+     {
+      "struct": [
+       [
+        "y",
+        "a"
+       ],
+       [
+        "x",
+        1
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "y",
+        "b"
+       ],
+       [
+        "x",
+        2
+       ]
+      ]
+     },
+     {
+      "struct": [
+       [
+        "y",
+        "c"
+       ],
+       [
+        "x",
+        3
+       ]
+      ]
+     }
+    ]
+   ]
+  ]
+ },
+ {
+  "name": "|",
+  "group": "bitwise_funcs",
+  "example": "SELECT 3 | 5",
+  "value": [
+   [
+    7
+   ]
+  ]
+ },
+ {
+  "name": "||",
+  "group": "other"
+ },
+ {
+  "name": "~",
+  "group": "bitwise_funcs",
+  "example": "SELECT ~ 0",
+  "value": [
+   [
+    -1
+   ]
+  ]
+ }
+]

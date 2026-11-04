@@ -181,13 +181,37 @@ entity = "gold.dim_customer"
 
 A reader that hasn't listed its columns counts as relying on every column of the port it links to.
 
+**The change window (Preview).** A platform can agree when changes reach Prod, for example Monday to Thursday, 08:00 to 16:00 London time. A promote to an environment the window covers (Prod unless it says otherwise) that changes products other projects read, outside the window, gets a warning naming those projects. It never blocks: you can still promote, and the promote's answer repeats the warning. A project nobody else reads, a platform without a window, and a platform made before change windows get no warning. Platform admins set it in Platform > Govern > Governance, on the Change window card (shown when Preview features are on): pick the days, the From and Until times on the same day, the time zone and whether it covers Prod or Test and Prod, or clear it. Everyone else sees it there read only. Behind the screen it's the platform's `save_change_window` operation (`days` from mon to sun, `start` and `end` as "HH:MM", `time_zone` such as "Europe/London", `envs` from test and prod), and anyone can read it with `change_window`. The time is judged in the window's time zone, so it's the same on every PC.
+
 **Deprecating a product.** Set `status = "deprecated"` and `deprecated_on`, then promote or publish. The first publish as deprecated, or one with a new date, sends one Teams notice (`product.deprecated`) to the projects that link to it, through the platform's Teams routes (see [the governance guide](governance-guide.md#teams-notices-for-requests-and-shortcuts)); the publish's answer lists who was told. A notice that can't be sent never stops the publish: the answer says so. From the date on, the catalog takes no new links to it, and a project that still links to it can't promote until it moves the link (before the date, its promote gets a note saying when). Runs aren't stopped: a running pipeline keeps reading until its team moves it.
+
+## Promises to readers (Preview)
+
+A product can promise its readers how fresh and how clean its data is, in its own file:
+
+```toml
+[promise]
+within_hours = 24        # a successful load at most this long ago
+by = "06:00"             # and/or: loaded today by this time (the clock of the PC or agent that checks)
+max_rejected_pct = 1     # and/or: the newest load rejected (quarantined) under 1 % of the rows it read
+envs = ["prod"]          # where it applies; Prod when left out, because that's what readers read
+```
+
+Any one of `within_hours`, `by` and `max_rejected_pct` is enough. The save gate checks the values, and a draft promises nothing.
+
+**On screen.** On the open project, **Data mesh > Project > Products and links > Data products**, a product's dialog has **Promise to readers**: loaded at least every so many hours, loaded by a time each day, under a percentage of rows rejected, and whether it applies in Prod or in Test and Prod. Saving writes `[promise]` in the product's file; leaving all three empty removes it. A product's page (**Data mesh > Products >** the product) shows a **Promise to readers** card to everyone. Its own team, with the product's project open, also sees **Kept** or **Broken** on each line, read from the open incidents on its ports, with a link to the incident.
+
+**Where readers see it.** Publishing the product (on promote, or **Publish to the catalog**) keeps the promise with it in the catalog (`catalog.product.promise`), so `list_products` returns it to anyone deciding whether to link. Publishing without a `[promise]` takes it away. A platform made before promises gets the column the first time a product is published; reading never adds it.
+
+**When it's broken.** Each incident check (an agent on its timer, the app every 10 minutes, or **Check now** on Monitor > Incidents) checks every port's table against its products' promises, from the run log alone. A late load or too many rejected rows opens one **Promise broken** incident for that table, naming the products and why, and it resolves itself once a later load keeps the promise. When the table's own `[freshness]` already reports it late, the promise doesn't report the same lateness again. From there it's an incident like any other: who's affected, Teams notices and the incident's SLA.
 
 ## Follow a product (Preview)
 
 **Follow** on a product's page (**Data mesh > Products >** the product) tells you in Teams when a promote to Prod changes it: it's deprecated (and when it stops), it has a new version, or a port's columns are added, removed or retyped. Whoever links a project to a product follows it without asking, so its readers hear too. **Following** on the list shows only the products you follow; choose **Following** on a product's page to stop.
 
 Only Prod counts, because that's what readers' projects read. Each environment keeps what it last published (`catalog.product_env`), so a change is told once, when it reaches Prod, not again on the next promote. The notice goes to the platform's Teams routes as `product.changed`, naming the people it's for ([governance-guide.md](governance-guide.md)), except whoever promoted it. Who follows a product is personal data: only its owners and platform admins can list its followers. People a deprecation was already sent to as `product.deprecated` don't get it again in `product.changed`; other followers do. A platform made before following shows no Follow button until a platform admin runs **Finish or repair** once.
+
+**How each product is doing now (Preview).** **Status** on **Data mesh > Products** shows each product as Red, Amber or Green in one environment (Prod unless you pick Test or Dev). Red means an open incident stops its load: a failed load of one of its tables, or an agent offline when no other agent in that environment is live. Amber means one of its tables is late, it broke its promise to readers, or an agent is offline while another live agent carries on. Green means nothing is open. Red rows come first. Each row says why (the kind of problem and the table, for example "Load failed: silver.orders"), how many readers a Red product affects, and what its team last did (for example "Acknowledged by its team"). Incident text, notes and people's names stay with the team. Readers can't see a team's incidents, so the team's own incident check reports the status: the app while it's open, or the team's agent when one checks the environment. It writes `catalog.product_status` only when a product's status changed, and only a project's own members or a platform admin can report for it. A product nobody has checked shows **Not checked**, and a status older than a day says when it was last checked. A platform made before the Status view shows no **Status** button until a platform admin runs **Finish or repair** once.
 
 ## Endorsement and business terms
 

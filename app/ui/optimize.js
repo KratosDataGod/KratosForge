@@ -22,11 +22,12 @@ async function renderOptimize() {
   // The page layout every tabbed page shares (docs/ui-guidelines.md): which lakehouse results are shared
   // through is the line under the title, setting one up is the page's buttons, then the tabs and Refresh.
   const band = h("p", { class: "sub optimize-band" }, "Reading Optimize's settings...");
+  const sync = h("p", { class: "sub optimize-sync", hidden: true });
   const actions = h("div", { class: "head-actions" });
   const body = h("div", { class: "optimize-body" });
   setView(h("div", { class: "page optimize" },
     h("div", { class: "page-head" }, h("div", {},
-      h("h1", {}, "Optimize ", previewTag()), band,
+      h("h1", {}, "Optimize ", previewTag()), band, sync,
       pageIntro("What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
         learnMore("optimize-preview"))), actions),
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
@@ -42,6 +43,9 @@ async function renderOptimize() {
   if (state.view !== "optimize" || !band.isConnected) return;
   const [line, buttons] = optimizeBand(status);
   band.replaceChildren(...line);
+  const synced = status?.allowed && status.active ? optimizeSyncLine(status.outbox) : null;
+  sync.hidden = !synced;
+  sync.replaceChildren(...(synced || []));
   actions.replaceChildren(...buttons);
   actions.classList.toggle("optimize-setup", !!status?.allowed && !status.active);
   if (optimizePage.tab === "cost" || optimizePage.tab === "settings") return;
@@ -79,6 +83,37 @@ function optimizeBand(status) {
   const access = { write: "Read and write", read: "Read only", none: "No access" }[c.access] || c.access;
   return [["Shared through lakehouse ", h("b", {}, c.lakehouse_name || c.lakehouse_id), c.workspace_name ? ` in ${c.workspace_name}` : "", ` · ${access}`],
     [btn("Lakehouses", "settings", () => { state.settingsTab = "general"; go("settings"); }, "tool outline")]];
+}
+
+// Under the band, for a connected lakehouse (PR-OPT-006, mockup approved 2026-11-03): whether everything
+// this PC wrote reached the lakehouse, what waits on this PC because it couldn't, and what was dropped.
+// Nothing sends from here: waiting results go with the next scan or share, or a connect or switch.
+function optimizeSyncLine(o) {
+  if (!o) return null;
+  const details = h("a", { href: "#", onclick: (e) => { e.preventDefault(); optimizeSyncDetails(o); } }, "Details");
+  if (o.pending) {
+    return [h("span", { class: "pill-s wrn" }, "Waiting on this PC"), " ",
+      `${o.pending} result${o.pending === 1 ? "" : "s"} (${o.pending_rows} row${o.pending_rows === 1 ? "" : "s"}) couldn't reach the lakehouse`,
+      o.last_error ? `: ${o.last_error}` : "", ". They go with the next scan, or when you connect again. ", details];
+  }
+  if (o.dropped) {
+    return [h("span", { class: "pill-s fail" }, `${o.dropped} dropped`), " ",
+      "Older than 30 days or over the 200-item limit before the lakehouse could be reached. Run the X-ray again to record them. ", details];
+  }
+  if (o.last_sync) return ["Everything from this PC is in the lakehouse · last sent ", when(o.last_sync)];
+  return null;
+}
+
+function optimizeSyncDetails(o) {
+  const row = (label, value) => [h("span", { class: "muted-text" }, label), h("span", {}, value)];
+  showDialog("Sync with the lakehouse", h("div", {},
+    h("div", { class: "optimize-sync-grid" },
+      ...row("Waiting", o.pending ? [`${o.pending} result${o.pending === 1 ? "" : "s"}, ${o.pending_rows} rows, oldest `, when(o.oldest)] : "Nothing"),
+      ...row("Last sent", o.last_sync ? when(o.last_sync) : "Not yet"),
+      ...row("Last error", o.last_error ? `${o.last_error} (secrets removed)` : "None"),
+      ...row("Dropped", String(o.dropped || 0))),
+    h("p", { class: "muted-text small" }, "Nothing sends in the background. Waiting results never count in Overview's totals until they're in the lakehouse.")),
+  [btn("Close", null, () => closeDialog(), "tool outline")]);
 }
 
 // Before a shared lakehouse is connected: this PC's last Estate X-ray findings, most severe first,

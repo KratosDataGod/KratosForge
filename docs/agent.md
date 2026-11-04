@@ -167,7 +167,7 @@ fabric-desktop agent status                          # queue counts, next schedu
 fabric-desktop agent enqueue prod                     # run every Prod entity now
 fabric-desktop agent enqueue prod silver.orders gold.fact_sales
 fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # rebuild it and everything downstream
-fabric-desktop agent requeue job-20261025-020000-ab12cd  # run a dead or failed job again, attempts reset
+fabric-desktop agent requeue job-20261025-020000-ab12cd34ef56  # run a dead or failed job again, attempts reset
 fabric-desktop agent prune --dry-run                  # list the finished jobs prune would remove
 ```
 

@@ -24,7 +24,7 @@ from . import audit, net_trust, rpc_params
 from .redact import secrets
 from .service import Service
 
-METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
+METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "skins_list", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark", "item_pins", "set_item_pin",
            "notebook_details", "notebook_batch_start", "notebook_batch", "notebook_batch_stop", "notebook_batch_fabric",
            "list_tables", "list_files", "history",
@@ -32,7 +32,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "save_notebook", "notebook_inputs", "notebook_inputs_set", "notebook_onelake_writes_set", "rename_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_create_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "mesh_home", "platform_glossary", "platform_save_term", "platform_audit",
-           "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
+           "platform_whoami", "platform_change_window", "platform_save_change_window", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_landing_setup",
            "platform_create_landing_zone", "platform_delete_landing_zone", "platform_switch_landing_reads", "platform_requests", "platform_request",
@@ -67,15 +67,16 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge",
            "model_bpa_status", "model_bpa_risk", "model_bpa_check",
            "create_shortcut", "delete_shortcut", "shortcut_connections",
-           "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
+           "shortcut_center", "shortcut_export", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
-           "shortcut_request", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
+           "shortcut_request", "shortcut_request_envs", "shortcut_find_moved", "shortcut_repoint_many", "shortcut_accept_risk", "shortcut_withdraw_risk",
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "update_pc_schedule", "set_pc_schedule_signed_out", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "update_fabric_schedule", "time_zones", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_staging_preview", "xray_remove_staging",
+           "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
@@ -92,6 +93,9 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "replay_delete_outputs",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_sessions", "stop_kernel_process", "kernel_session_share", "kernel_session_leave", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
            "notebook_dependencies", "side_by_side_writes", "side_by_side_cores", "side_by_side_cores_set",
+           "fabric_item_support", "fabric_git_links", "fabric_git_check", "fabric_git_link",
+           "fabric_git_unlink", "fabric_git_overview", "fabric_git_status",
+           "fabric_git_update",
            "git_info", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_commit", "git_log", "git_commit_detail",
@@ -150,6 +154,21 @@ METHODS |= ACCESS_CACHE_METHODS
 from .learn_service import METHODS as LEARN_METHODS  # noqa: E402
 
 METHODS |= LEARN_METHODS
+
+# Academy (Preview): certification packs, exercises and readiness on this PC (academy_service.py).
+from .academy_service import METHODS as ACADEMY_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_METHODS
+
+# Academy > Assessments (Preview): practice exams, diagnostics and drills on this PC (academy_exam_service.py).
+from .academy_exam_service import METHODS as ACADEMY_EXAM_METHODS  # noqa: E402
+
+METHODS |= ACADEMY_EXAM_METHODS
+
+# Fabric App Studio (Preview): projects, Design changes and the local preview (appstudio_service.py).
+from .appstudio_service import METHODS as APPSTUDIO_METHODS  # noqa: E402
+
+METHODS |= APPSTUDIO_METHODS
 
 # Settings > Advanced > OneLake writes: the local write folders (local_writes_service.py).
 from .local_writes_service import METHODS as LOCAL_WRITES_METHODS  # noqa: E402

@@ -36,6 +36,7 @@ function profileTabs(p) {
     tab("overview", "Overview"), p.settings.progression ? tab("journey", "Journey") : null,
     p.settings.progression ? tab("ranks", "Ranks") : null,
     p.settings.progression ? tab("achievements", "Achievements") : null,
+    tab("impact", "Impact"), tab("goals", "Goals"),
     tab("report", "Professional report"), tab("settings", "Settings"));
 }
 
@@ -57,7 +58,7 @@ async function renderProfile() {
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
   // Journey and Achievements are progression: with it off they aren't shown.
   if (!p.settings.progression && ["journey", "ranks", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
-  const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, report: profileReport,
+  const body = { overview: profileOverview, journey: profileJourney, ranks: profileRanks, achievements: profileAchievements, impact: profileImpact, goals: profileGoals, report: profileReport,
     settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
@@ -366,11 +367,108 @@ function profileHowItWorks() {
   return howItWorks("profile", {
     reads: "Notebooks that pass Validate with a clean run, and proofs whose tables all matched (the results and run receipts already kept on this PC). Nothing else yet.",
     changes: "Writes one line per verified accomplishment to a file in %LOCALAPPDATA%\\FabricDesktop\\profile\\, for the account you're signed in with: "
-      + "what passed, when, and the id of the Validate result or run receipt. It never stores code, cell outputs, table rows, passwords or tokens.",
-    results: "Only on this PC. Nothing is sent anywhere, no Fabric job is started and no telemetry is added. Reports and exports go to Downloads as new files.",
+      + "what passed, when, and the id of the Validate result or run receipt, plus the goals you set. It never stores code, cell outputs, table rows, passwords or tokens.",
+    results: "Only on this PC. Nothing is sent anywhere, no Fabric job is started and no telemetry is added. Reports (Markdown or PDF) and exports go to Downloads as new files.",
     more: [["Fair by design", "Running the same code again adds nothing. XP comes from milestones, never from hours, run counts or compute used. "
       + "KratosForge can't tell who wrote a notebook, so it records what was validated, not who authored it."]],
   });
+}
+
+// ---------- Impact (KF-DX-009): measured results only ----------
+
+const PROFILE_SECONDS = (v) => (typeof v === "number" ? `${v < 10 ? Number(v.toFixed(2)) : Math.round(v * 10) / 10} s` : "Not measured");
+
+function profileImpact(p) {
+  const im = p.impact;
+  const o = im.outcomes;
+  const stat = (n, label) => h("div", { class: "qprofile-stat" }, h("b", {}, String(n)), h("span", {}, label));
+  const outcomes = h("section", { class: "card pad" }, h("h2", {}, "Verified outcomes"),
+    h("div", { class: "qprofile-stats" },
+      stat(o.notebooks_validated, "notebooks validated with a clean run"),
+      stat(o.fixes_checked, "fixes checked: the same rows as written and as fixed"),
+      stat(o.quality_labs, "data quality exercises: every planted problem found"),
+      stat(o.notebooks_proven, "notebooks proven the same on this PC and in Fabric")),
+    h("p", { class: "muted-text small" }, "Counts of verified work in your profile. Exclude an accomplishment on Overview to leave it out here too."));
+  const row = (x) => {
+    let figures;
+    if (x.kind === "proof") figures = `This PC ${PROFILE_SECONDS(x.this_pc_seconds)} · Fabric ${PROFILE_SECONDS(x.fabric_seconds)}, end to end in the same proof`;
+    else {
+      const change = x.kind === "speed" && typeof x.speedup === "number" ? `${x.speedup}× faster`
+        : typeof x.change_percent === "number" ? (x.change_percent >= 0 ? `${x.change_percent}% less time` : `${-x.change_percent}% more time`) : "";
+      figures = `${PROFILE_SECONDS(x.before_seconds)} before · ${PROFILE_SECONDS(x.after_seconds)} after${change ? ` · ${change}` : ""}`;
+    }
+    return h("div", { class: "profile-row" }, h("div", { class: "grow" },
+      h("div", { class: "row wrap" }, h("b", {}, x.what), h("span", { class: "pill-s pass" }, "Measured")),
+      h("div", {}, figures),
+      h("div", { class: "muted-text small" }, `${x.source} · ${dateTimeText(x.at)}`)));
+  };
+  const measured = h("section", { class: "card pad" },
+    h("h2", {}, "Measured results", h("span", { class: "muted-text small" }, ` ${im.measured.length} measured · ${im.faster} faster after the change`)),
+    im.measured.length ? h("div", { class: "profile-rows" }, im.measured.map(row))
+      : h("p", { class: "muted-text" }, "Nothing measured yet. A Learn speed check, a fix checked with Compare, or a proof's run times show here, with the figures exactly as measured."),
+    h("p", { class: "muted-text small" }, "Each figure is from one measurement on the machine named, never an estimate or a total. A change that made things slower is shown too."));
+  const capacity = h("section", { class: "card pad" }, h("h2", {}, "Capacity and cost"),
+    h("div", { class: "row wrap" }, h("span", { class: "pill-s neu" }, "Not measured"), h("span", {}, im.capacity.why)));
+  return h("div", { class: "profile-col" }, outcomes, measured, capacity);
+}
+
+// ---------- Goals and the development roadmap (KF-DX-011) ----------
+
+async function profileGoalCall(method, params, done) {
+  const out = await attempt(() => rpc(method, params), "Could not change your goals");
+  if (out) { profilePage.data = out; profilePage.report = null; if (done) toast(done); render(); }
+}
+
+function profileCheckRow(c) {
+  return h("div", { class: "profile-skill" }, h("span", {}, `${c.met ? "\u2713 " : ""}${c.text}`),
+    h("span", { class: "muted-text small" }, c.met ? "Done" : c.coming_soon ? "Coming soon" : `${c.have} of ${c.need}`));
+}
+
+function profileGoals(p) {
+  const rm = p.roadmap;
+  const full = rm.goals.length >= rm.max_goals ? { disabled: true, title: `Up to ${rm.max_goals} goals: remove one first` } : {};
+  const own = h("input", { class: "profile-goal-input", placeholder: "A goal in your own words, such as: present the Gold layer design to the team", maxlength: 300, "aria-label": "Goal in your own words" });
+  const addOwn = () => own.value.trim() && profileGoalCall("profile_goal_add", { text: own.value.trim() }, "Goal added");
+  own.addEventListener("keydown", (e) => { if (e.key === "Enter") addOwn(); });
+  const goal = (g) => h("div", { class: "profile-row" }, h("div", { class: "grow" },
+    h("div", { class: "row wrap" }, h("b", {}, g.title),
+      g.source === "entered"
+        ? h("span", { class: `pill-s ${g.met ? "pass" : "neu"}` }, g.met ? "Done (marked by you)" : "In progress")
+        : h("span", { class: `pill-s ${g.met ? "pass" : "neu"}` }, g.met ? "Met, verified" : "In progress"),
+      g.track ? h("span", { class: "muted-text small" }, g.track) : null),
+    g.source === "entered" ? h("div", { class: "muted-text small" }, "Entered by you. The report says so.")
+      : h("div", {}, g.checks.map(profileCheckRow))),
+    g.source === "entered" ? btn(g.met ? "Not done" : "Mark done", null,
+      () => profileGoalCall("profile_goal_done", { id: g.id, done: !g.met }), "tool outline small") : null,
+    btn("Remove", null, () => profileGoalCall("profile_goal_remove", { id: g.id }, "Goal removed"), "tool outline small"));
+  const mine = h("section", { class: "card pad" },
+    h("h2", {}, "My goals", h("span", { class: "muted-text small" }, ` ${rm.goals.length} of ${rm.max_goals}`)),
+    rm.goals.length ? h("div", { class: "profile-rows" }, rm.goals.map(goal))
+      : h("p", { class: "muted-text" }, "No goals yet. Pick a milestone from the roadmap below, or write one in your own words."),
+    h("div", { class: "row" }, own, btn("Add goal", null, addOwn, "tool outline", full)),
+    h("p", { class: "muted-text small" }, "A roadmap goal is met only when its checks are, from work KratosForge verified. Goals are for your own planning; "
+      + "they appear in your professional report under Development goals."));
+  const suggest = rm.suggestions.length ? h("section", { class: "card pad" }, h("h2", {}, "Suggested next"),
+    rm.suggestions.map((s) => h("div", { class: "profile-skill" }, h("span", {}, h("b", {}, s.title), ` · ${s.track}`),
+      btn("Make it a goal", null, () => profileGoalCall("profile_goal_add", { milestone: s.id }, "Goal added"), "tool link small", full))),
+    h("p", { class: "muted-text small" }, "Suggestions sit next to work you've already shown. They never compare you with anyone.")) : null;
+  const milestone = (m) => h("div", { class: `profile-rank${m.met ? " held" : ""}` },
+    h("div", { class: "row wrap" }, h("b", {}, m.title),
+      h("span", { class: `pill-s ${m.met ? "pass" : "neu"}` }, m.met ? "Met" : m.coming_soon ? "Coming soon" : "Not yet"),
+      m.goal ? h("span", { class: "pill-s neu" }, "Your goal") : null, h("span", { class: "grow" }),
+      m.goal || m.met ? null : btn("Make it a goal", null, () => profileGoalCall("profile_goal_add", { milestone: m.id }, "Goal added"), "tool link small", full)),
+    h("div", { class: "muted-text small" }, `Skills: ${m.skills.join(", ")}`),
+    h("div", {}, m.activities),
+    m.checks.map(profileCheckRow),
+    m.achievements.length && p.settings.progression ? h("div", { class: "muted-text small" }, `Related achievements: ${m.achievements.map((a) => a.name).join(", ")}`) : null,
+    m.learn.length ? h("div", { class: "row wrap" }, h("span", { class: "muted-text small" }, "Start in Learn:"),
+      m.learn.map((l) => btn(`${l.id} ${l.title}`, null, () => learnOpen(l.id), "tool link small"))) : null);
+  const tracks = rm.tracks.map((t) => h("section", { class: "card pad" },
+    h("h2", {}, t.title, h("span", { class: "muted-text small" }, ` ${t.met} of ${t.of} met`)), t.milestones.map(milestone)));
+  return h("div", { class: "profile-col" }, mine, suggest,
+    h("p", { class: "muted-text" }, `Development roadmap (v${rm.version}). Milestones are suggestions, not a fixed order: specialize where you like. `
+      + "Every milestone can be met on this PC, so none needs a Fabric run."),
+    tracks);
 }
 
 // ---------- Professional report ----------
@@ -401,6 +499,10 @@ function profileReport(p) {
         const out = await attempt(() => rpc("profile_report_save", params()), "Could not save the report");
         if (out) toast(`Saved ${out.path}`);
       }, "tool primary"),
+      btn("Save PDF", "arrowDownload", async () => {
+        const out = await attempt(() => rpc("profile_report_pdf", params()), "Could not save the PDF");
+        if (out) toast(`Saved ${out.path}`);
+      }, "tool outline"),
       btn("Copy summary", "copyArrowRight", async () => {
         if (profilePage.report && !(await copyText(profilePage.report.summary, "Summary"))) toast("Couldn't copy the summary.", true);
       }, "tool outline")),
@@ -466,7 +568,7 @@ function profileSettings(p) {
         if (out) toast(`Saved ${out.path}`);
       }, "tool outline"),
       btn("Delete my profile data", "delete", async () => {
-        if (!(await confirmDialog("Delete your profile data?", "This deletes your recorded accomplishments, profile details, picture and report summary on this PC. "
+        if (!(await confirmDialog("Delete your profile data?", "This deletes your recorded accomplishments, profile details, picture, goals and report summary on this PC. "
           + "Validate history and run receipts stay as they are. It can't be undone.", "Delete", { danger: true, typeToConfirm: "DELETE" }))) return;
         if (await attempt(() => rpc("profile_delete", {}), "Could not delete your profile data")) {
           profileForget();
@@ -522,6 +624,8 @@ registerFeature({
   commands: [
     { label: "Profile", icon: "person", keywords: "profile accomplishments achievements level xp skills report review", preview: true,
       run: () => { profilePage.tab = "overview"; go("profile"); } },
+    { label: "Development goals", icon: "person", keywords: "profile goals roadmap milestones learning plan skills growth", preview: true,
+      run: () => { profilePage.tab = "goals"; go("profile"); } },
     { label: "Professional report", icon: "person", keywords: "profile performance review accomplishments export", preview: true,
       run: () => { profilePage.tab = "report"; go("profile"); } },
   ],

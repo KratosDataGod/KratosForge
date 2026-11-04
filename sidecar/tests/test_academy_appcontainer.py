@@ -266,7 +266,8 @@ def test_the_app_and_sign_in_packages_cant_be_imported_at_the_kernel_layer(tmp_p
              "print(json.dumps(out))\n"
              "raise SystemExit(0 if 'file' in out else 9)\n")
     rc, err, out = bare_out(tmp_path, probe)
-    if rc != 9:
+    assert rc in (0, 9), f"the probe itself didn't run (exit {rc}): {err}"
+    if '"file"' in out:
         # It imported: say exactly from where and what the ACLs allow, all the way up.
         acls = []
         for p in [folder / "__init__.py", folder, *folder.parents]:

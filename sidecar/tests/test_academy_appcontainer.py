@@ -389,3 +389,96 @@ def test_a_tampered_grants_record_only_ever_removes_the_capabilitys_own_ace(tmp_
     assert removals and all(a[-1] == f"*{cap}" for a in removals)
     assert not any(a[0] in ("/T", "-x", "relative\\path") for a in removals)
     assert users not in " ".join(" ".join(a) for a in calls)
+
+
+_PATH_PROBE = r'''
+import json, os, sys, ctypes
+from ctypes import wintypes
+out = {}
+def tryit(name, fn):
+    try:
+        out[name] = fn()
+    except BaseException as e:
+        out[name] = "ERR " + repr(e)
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.CreateFileW.restype = wintypes.HANDLE
+k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                          wintypes.DWORD, wintypes.HANDLE]
+k.GetFinalPathNameByHandleW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+def final(p, flags):
+    h = k.CreateFileW(p, 0, 7, None, 3, 0x02000000, None)
+    if h in (None, ctypes.c_void_p(-1).value):
+        return "open failed %d" % ctypes.get_last_error()
+    buf = ctypes.create_unicode_buffer(1024)
+    n = k.GetFinalPathNameByHandleW(h, buf, 1024, flags)
+    e = ctypes.get_last_error()
+    k.CloseHandle(h)
+    return buf.value if n else "GFPN failed %d" % e
+cwd = os.getcwd()
+out["cwd"] = cwd
+tryit("abspath_dot", lambda: os.path.abspath("."))
+tryit("realpath_dot", lambda: os.path.realpath("."))
+tryit("realpath_dotdot", lambda: os.path.realpath(".."))
+tryit("realpath_strict_dot", lambda: os.path.realpath(".", strict=True))
+tryit("nt_final_dot", lambda: __import__("nt")._getfinalpathname("."))
+tryit("nt_final_dotdot", lambda: __import__("nt")._getfinalpathname(".."))
+for flags in (0, 2, 4, 8):   # DOS, NONE (no volume), GUID, NT
+    tryit("gfpn_dot_%d" % flags, lambda: final(cwd, flags))
+anc = []
+p = cwd
+while True:
+    entry = {"path": p}
+    try: os.stat(p); entry["stat"] = "ok"
+    except OSError as e: entry["stat"] = repr(e)
+    try: os.listdir(p); entry["list"] = "ok"
+    except OSError as e: entry["list"] = repr(e)
+    anc.append(entry)
+    q = os.path.dirname(p)
+    if q == p: break
+    p = q
+out["ancestors"] = anc
+sys.path.insert(0, SITE)
+open("a.csv", "w").write("x\n1\n2\n")
+def dk(sql, setup=()):
+    import duckdb
+    c = duckdb.connect()
+    for s in setup:
+        c.execute(s)
+    return c.execute(sql).fetchall()
+tryit("duck_rel", lambda: dk("select count(*) from 'a.csv'"))
+tryit("duck_abs", lambda: dk("select count(*) from '%s'" % os.path.join(cwd, "a.csv").replace("'", "''")))
+tryit("duck_allowed_cwd", lambda: dk("select count(*) from 'a.csv'",
+      ["SET allowed_directories = ['%s']" % cwd.replace("'", "''"), "SET enable_external_access = false"]))
+tryit("duck_allowed_cwd_abs", lambda: dk("select count(*) from '%s'" % os.path.join(cwd, "a.csv").replace("'", "''"),
+      ["SET allowed_directories = ['%s']" % cwd.replace("'", "''"), "SET enable_external_access = false"]))
+tryit("duck_fs_ops", lambda: dk("select current_setting('enable_external_access')"))
+def dl(where):
+    import pyarrow as pa
+    from deltalake import write_deltalake, DeltaTable
+    write_deltalake(where, pa.table({"x": [1, 2]}))
+    return DeltaTable(where).to_pyarrow_table().num_rows
+tryit("delta_rel", lambda: dl("t_rel"))
+tryit("delta_abs", lambda: dl(os.path.join(cwd, "t_abs")))
+tryit("delta_abs_fwd", lambda: dl(os.path.join(cwd, "t_fwd").replace("\\", "/")))
+def pl():
+    import polars
+    return polars.read_csv("a.csv").height
+tryit("polars_rel", pl)
+print(json.dumps(out))
+'''
+
+
+def test_diagnostic_paths_inside_the_appcontainer(tmp_path):
+    """Temporary (diagnostic draft only): what path resolution and the libraries see inside."""
+    import duckdb
+    site = str(Path(duckdb.__file__).resolve().parent.parent)
+    rc, err, out = bare_out(tmp_path, f"SITE = {site!r}\n" + _PATH_PROBE)
+    work = tmp_path / "hooked"
+    work.mkdir()
+    (work / "main.py").write_text(
+        "import os\nprint('cwd', os.getcwd())\n"
+        "try:\n    os.chdir('..')\n    print('chdir ok', os.getcwd())\nexcept Exception as e:\n    print('chdir refused', e)\n"
+        "try:\n    open('planted.txt', 'w').write('x')\n    print('write ok')\nexcept Exception as e:\n    print('write refused', e)\n",
+        encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60)
+    pytest.fail(f"bare rc={rc}\nstderr={err}\nprobe={out}\nhooked={json.dumps(got, default=str)}")

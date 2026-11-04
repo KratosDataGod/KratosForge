@@ -228,7 +228,12 @@ Before it is turned on by default (Security's musts):
    sandbox says whether runs use an AppContainer and how many folders hold the runtime grant, and
    "Remove exercise permissions" (after a confirm) calls `academy_sandbox_remove_grants`, which runs
    `appcontainer.revoke_runtime()` under the setup lock and lists any folder Windows wouldn't change.
-   The next exercise run grants them again. Still to come: the same removal at uninstall.
+   The next exercise run grants them again. No uninstall step (Security, 2026-11-04): the packaged
+   engine is app-owned (`%LOCALAPPDATA%\FabricDesktop\engine`), and after uninstall its ACEs grant
+   read and execute only to our capability SID, which only KratosForge's own AppContainer profiles
+   carry, so they're inert. docs/enterprise-install.md says to run the Settings action first. A
+   developer whose `FABRIC_DESKTOP_PYTHON` points at their own Python should run "Remove exercise
+   permissions" before switching back to the app's engine, or before uninstalling that Python.
 5. **Delta exercises.** delta-rs resolves paths in a way an AppContainer is denied (above). Delta
    exercises need a delta-rs that doesn't, or keep running in the v1 learner process. Decided
    (Chris, 2026-11-04): they keep running in the v1 learner process. `pylab.appcontainer_ok(ex)` is

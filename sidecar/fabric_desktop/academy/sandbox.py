@@ -110,10 +110,12 @@ def _check_lib_root(root: Path, work: Path, data_root: Path) -> str:
 
 def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT,
         memory_limit: int = MEMORY_LIMIT, cpu_limit: int = CPU_LIMIT,
-        lib_roots: list[Path] | None = None) -> dict[str, Any]:
+        lib_roots: list[Path] | None = None, appcontainer_ok: bool = True) -> dict[str, Any]:
     """Run ``script`` (a file in the workspace) in a learner process. Returns ``{status, exit_code,
-    stdout, stderr, seconds, limits}``; ``status`` is ok, error, time_limit, memory_limit or refused.
-    ``lib_roots``: folders put first on the process's ``sys.path`` and readable, never writable."""
+    stdout, stderr, seconds, limits, runs_as}``; ``status`` is ok, error, time_limit, memory_limit or
+    refused. ``lib_roots``: folders put first on the process's ``sys.path`` and readable, never writable.
+    ``appcontainer_ok=False``: this exercise can't run in an AppContainer (Delta exercises: delta-rs
+    can't open a table inside one), so it runs in the v1 learner process and ``runs_as`` says so."""
     ws.inside(work, ".")   # the workspace as given is a plain folder, not a link
     # Resolved before the script is looked up, so both carry the same long form of the path:
     # a Windows 8.3 short temp path (RUNNER~1) would otherwise not compare as inside the workspace.
@@ -123,7 +125,7 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
         raise ws.Refused(f"{script} isn't a Python file in the exercise.")
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
     libs = [_check_lib_root(r, work, data_root) for r in lib_roots or []]
-    box = _box(work, libs, Path(data_root))
+    box = _box(work, libs, Path(data_root)) if appcontainer_ok else None
     if box is not None:
         try:
             return _run(work, path, data_root, libs, time_limit, memory_limit, cpu_limit, box)

@@ -440,3 +440,21 @@ def test_run_resolves_the_workspace_before_finding_the_script(tmp_path):
     got = sandbox.run(other, "main.py", tmp_path, time_limit=30)
     assert got["status"] == "ok", got["stderr"]
     assert "hi" in got["stdout"]
+
+
+def test_an_exercise_that_cant_use_the_appcontainer_never_asks_for_one(tmp_path, monkeypatch):
+    from fabric_desktop.academy import pylab
+    assert not pylab.appcontainer_ok({"adapter": "delta_lab", "validation": []})
+    assert not pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "delta_table", "path": "t"}]})
+    assert pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "notebook_ran"}]})
+
+    def no_box(*a, **k):
+        raise AssertionError("asked for an AppContainer")
+
+    monkeypatch.setattr(sandbox, "_box", no_box)
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "main.py").write_text("print('ran')\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60, appcontainer_ok=False)
+    assert got["status"] == "ok", got["stderr"]
+    assert got["runs_as"] == sandbox.RUNS_AS

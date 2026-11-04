@@ -227,7 +227,7 @@ def _run_python(root: Path, pack_id: str, exercise_id: str, code: str) -> dict[s
         pylab.prepare(work, _exercise_folder(pack_id, exercise_id), ex, code)
     else:
         jsonfile.write_text(ws.inside(work, ex["starter"], must_exist=False), code)   # refused if it's a link
-    got = sandbox.run(work, ex["starter"], Path(root))
+    got = sandbox.run(work, ex["starter"], Path(root), appcontainer_ok=pylab.appcontainer_ok(ex))
     return {"status": got["status"], "exit_code": got["exit_code"], "stdout": got["stdout"][-20_000:],
             "stderr": got["stderr"][-20_000:], "seconds": got["seconds"], "runs_as": got["runs_as"],
             "ms": round(got["seconds"] * 1000)}
@@ -240,7 +240,7 @@ def _check_python(root: Path, pack_id: str, exercise_id: str, ex: dict[str, Any]
     work = _fresh_dir(folder, CHECK_DIR)
     try:
         pylab.prepare(work, _exercise_folder(pack_id, exercise_id), ex, answer)
-        got = pylab.grade(work, ex["starter"], ex["validation"], Path(root))
+        got = pylab.grade(work, ex["starter"], ex["validation"], Path(root), appcontainer_ok=pylab.appcontainer_ok(ex))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     by_kind = {c["kind"]: c for c in ex["validation"]}

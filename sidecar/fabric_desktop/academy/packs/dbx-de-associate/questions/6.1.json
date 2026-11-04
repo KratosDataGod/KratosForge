@@ -44,7 +44,7 @@
         },
         {
           "id": "b",
-          "text": "Turn off the trigger"
+          "text": "Raise the job's timeout so the runs stop failing"
         },
         {
           "id": "c",
@@ -52,7 +52,7 @@
         },
         {
           "id": "d",
-          "text": "Delete the job and recreate it"
+          "text": "Move the job to a larger cluster straight away"
         }
       ],
       "answer": [
@@ -61,7 +61,7 @@
       "explanation": "In the matrix view, bar height shows each task's duration across runs, so you see when and where it grew.",
       "source": "https://docs.databricks.com/aws/en/jobs/monitor",
       "case": "fernhill-health",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

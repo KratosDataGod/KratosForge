@@ -83,7 +83,7 @@ test("Runs says it's reading, then lists Fabric pipeline runs once each", { skip
   assert.strictEqual(await dataflow.locator(".pl-toggle").count(), 0);
   await page().evaluate(() => { window.realOpenInFabric = window.openInFabric; window.openInFabric = (url) => { window.openedUrl = url; }; });
   await dataflow.click();
-  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/`));  // the workspace, until the page address is known
+  assert.match(await page().evaluate(() => window.openedUrl), new RegExp(`/groups/${WS}/dataflows-gen2/[^/?]+\\?experience=fabric-developer$`));
   await page().evaluate(() => { window.openInFabric = window.realOpenInFabric; });
 });
 

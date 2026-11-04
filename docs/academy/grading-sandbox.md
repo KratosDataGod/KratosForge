@@ -202,11 +202,26 @@ other checks are skipped. `exercises.problems()` refuses a Python exercise witho
 
 ## `pipeline_lab` (ACD-012)
 
-Runs in the engine process on `orchestration/runner.py` with only local activity adapters and the
-exercise's mocks: no Copy, no Fabric, no Web activity, no notebook activity unless it runs through
-`python_lab`. Any activity type not on the allow list fails the run with a message. Pipeline JSON
-comes from the workspace, so it is parsed with the same caps and its expressions are evaluated by
-the existing expression engine only (no Python eval).
+`academy/pipelab.py`. The learner's answer is a pipeline file (`starter: pipeline.json`) or a
+runMultiple DAG (`dag.json`) in the workspace, read with the workspace caps (4 MB, links refused) and
+parsed as data. A pipeline runs in the engine on `orchestration/runner.py` with no notebook runner
+and no lakehouse reader, waits that take no time, a 20-second run limit and at most 200 activities.
+Only control-flow activities run (Set Variable, Append Variable, If Condition, Switch, ForEach,
+Until, Wait, Fail, Filter, Execute/Invoke Pipeline); any other activity (Copy, Web, a notebook, a
+script, a Lookup, an unknown type) runs only when the exercise gives a mock for it by name, and
+otherwise the check fails in words before the run starts. Mocks, parameters and child pipelines come
+from the exercise's own folder, never from the workspace, and child pipelines are held to the same
+rule. Expressions are evaluated by the pipeline expression engine only (no Python eval). A mocked or
+Inactive container runs none of its children, as in the runner, so its children need no mock.
+Exercise authors keep every Until timeout under the 20-second lab limit, or the run stops on the lab
+limit rather than on the timeout the exercise means to test.
+
+| Check | Reads |
+| --- | --- |
+| `pipeline_outcome` | the run record: `status`, `activities`, `outputs`, `return_value` (validators) |
+| `dag_matches` | the DAG, checked with notebookutils' own runMultiple rules (unknown keys, missing or circular dependencies), then `notebooks`, `exact`, `after` pairs and `max_concurrency`; no notebook runs |
+
+An exercise's grading folder holds `solution.json` and at least two `wrong-*.json`.
 
 ## Delivery
 

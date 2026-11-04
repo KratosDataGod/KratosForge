@@ -2968,3 +2968,6 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dbx-tasks { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .dbx-tasks .dbx-failed { color: var(--danger); }
 .dbx-error { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 6px 8px; border-radius: 4px; margin: 4px 0 0; }
+.dbx-cost { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.dbx-cost .row.wrap { flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.dbx-cost .table-wrap { overflow-x: auto; }

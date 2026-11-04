@@ -21,6 +21,10 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   here; the app only names which one, so a profile never holds a host or secret the app made up.
 - ``databricks_runs`` and ``databricks_run`` are Monitor > Databricks (Preview): recent job runs and
   Lakeflow pipeline updates, and one run's tasks and errors (engines/databricks_jobs.py). GETs only.
+- ``databricks_billing`` is Optimize > Cost (Preview): DBUs billed, from system.billing.usage. It runs
+  one query on a SQL warehouse, which may start and bill, so it first answers ``needs_confirm`` with the
+  warehouse's state, and runs only with ``confirmed`` (a RemoteAuthorization for that warehouse).
+  ``databricks_billing_last`` is the last read kept on this PC.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -46,7 +50,7 @@ from .engines.sessions import SessionManager, SwitchNeeded
 METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_select", "engine_state",
            "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close",
            "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove",
-           "databricks_runs", "databricks_run"}
+           "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -279,6 +283,55 @@ class EnginesMixin:
     def databricks_run(self, connection: str, run_id: str) -> dict[str, Any]:
         """One job run with its tasks, the failed ones' errors and notebook paths, and its parameters."""
         return redact.walk(self._runs_reader(connection).run(str(run_id)))
+
+    def _billing_root(self) -> Path:
+        from .service import data_dir
+        return Path(data_dir()) / "databricks-billing"
+
+    def databricks_billing(self, connection: str, warehouse_id: str = "", days: int = 7,
+                           confirmed: bool = False) -> dict[str, Any]:
+        """DBUs billed in the last ``days`` days by job, pipeline, warehouse and cluster. Without
+        ``confirmed`` nothing runs: the answer says which warehouse would run the query and its state
+        (a GET). With it, the query runs on that warehouse under a confirmed authorization."""
+        from .engines import databricks_auth, databricks_billing, databricks_discovery, databricks_sql
+        conn, policy, profile = self._connection(connection)
+        warehouse = warehouse_id or str((conn.get("compute") or {}).get("warehouse_id") or "")
+        if not warehouse:
+            raise ValueError("Pick a SQL warehouse to read billing with.")
+        if not _COMPUTE_ID.fullmatch(warehouse):
+            raise ValueError("That warehouse id isn't one Databricks gives (letters, digits, - . and _).")
+        databricks_billing.query(int(days))   # refuses a number of days it doesn't offer
+        # The profile's execution policy first, as for any remote cell: "never" refuses before anything,
+        # "policy" with this engine allowed runs without asking, and otherwise the person confirms.
+        try:
+            standing = auth.from_policy(policy, profile, registry.DATABRICKS_SQL.id, warehouse)
+        except auth.RemoteNotAuthorized as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
+        if standing is None and not confirmed:
+            try:
+                info = databricks_discovery.warehouse_row(self._discovery_client(conn).warehouse(warehouse))
+            except (databricks_auth.DatabricksAuthError, databricks_sql.DatabricksError, databricks_discovery.OddReply) as exc:
+                return {"needs_confirm": True, "warehouse": {"id": warehouse}, "error": redact.secrets(str(exc))}
+            return {"needs_confirm": True, "warehouse": info}
+        signer = getattr(self, "_auth", None)
+        who = ""
+        if signer is not None and hasattr(signer, "signed_in_user"):
+            who = signer.signed_in_user() or ""
+        authorization = standing or auth.confirmed(registry.DATABRICKS_SQL.id, warehouse, who or "this PC's user")
+        try:
+            result = databricks_billing.read(self._engine_adapter(registry.DATABRICKS_SQL.id), conn, warehouse,
+                                             int(days), authorization)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"ok": False, "error": redact.secrets(str(exc))}
+        if result.get("ok"):
+            databricks_billing.save(self._billing_root(), str(conn.get("host") or ""), result)
+        return redact.walk(result)
+
+    def databricks_billing_last(self, connection: str) -> dict[str, Any]:
+        """The last billing read for this connection's workspace, kept on this PC; empty when none."""
+        from .engines import databricks_billing
+        conn, _, _ = self._connection(connection)
+        return databricks_billing.last(self._billing_root(), str(conn.get("host") or "")) or {}
 
     def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
                                snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",

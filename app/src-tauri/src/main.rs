@@ -893,7 +893,7 @@ fn rename_to_kratosforge(exe: &std::path::Path) {
 static START_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static WATCHING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// How long a new build has, after its window is up, for its engine to answer. Time spent downloading
-/// or installing the engine doesn't count (update_guard::StartClock); its first start does, which is
+/// or installing the engine doesn't count, for up to two hours in all (update_guard::StartClock); its first start does, which is
 /// slow while Windows scans each new file.
 const CONFIRM_LIMIT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 

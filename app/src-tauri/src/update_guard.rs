@@ -190,16 +190,23 @@ pub fn refused_as_failed(commit: &str, failed: &[String]) -> Option<String> {
 }
 
 /// The time a new build has used of its limit to confirm its start. Time while the engine is being
-/// downloaded or installed doesn't count, so a slow connection can't roll a good build back.
+/// downloaded or installed doesn't count, so a slow connection can't roll a good build back, until
+/// INSTALL_GRACE has passed in all: an install that hangs or starts over can't hold the rollback off.
 #[derive(Debug, Default)]
 pub struct StartClock {
     used: Duration,
+    since_start: Duration,
 }
 
+/// How long engine installs can pause a new build's start limit, all told.
+pub const INSTALL_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
+
 impl StartClock {
-    /// Adds `elapsed` unless an engine install was running; says whether `limit` is now used up.
+    /// Adds `elapsed` unless an engine install was running (within INSTALL_GRACE); says whether
+    /// `limit` is now used up.
     pub fn tick(&mut self, elapsed: Duration, installing: bool, limit: Duration) -> bool {
-        if !installing {
+        self.since_start += elapsed;
+        if !installing || self.since_start > INSTALL_GRACE {
             self.used += elapsed;
         }
         self.used >= limit
@@ -430,6 +437,20 @@ mod tests {
         }
         assert!(!clock.tick(sec, false, limit));
         assert!(clock.tick(sec, false, limit), "three seconds outside the download");
+    }
+
+    #[test]
+    fn an_install_that_never_ends_stops_pausing_the_limit_after_the_grace() {
+        let (min, limit) = (Duration::from_secs(60), Duration::from_secs(20 * 60));
+        let mut clock = StartClock::default();
+        let grace = INSTALL_GRACE.as_secs() / 60;
+        for i in 0..grace {
+            assert!(!clock.tick(min, true, limit), "minute {i} of a hung download is paused");
+        }
+        for i in 0..19 {
+            assert!(!clock.tick(min, true, limit), "minute {i} past the grace counts, short of the limit");
+        }
+        assert!(clock.tick(min, true, limit), "twenty minutes past the grace: it rolls back");
     }
 
     #[test]

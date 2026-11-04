@@ -500,3 +500,31 @@ def test_the_engine_package_carries_the_deny_before_any_run(tmp_path):
               appcontainer.ENGINE_PACKAGE / "academy" / "sandbox.py"):   # set on the package, inherited below
         acl = appcontainer._icacls(str(p)).stdout.decode("ascii", "replace")
         assert acl.count("DENY") >= 2, acl
+
+
+def test_nothing_in_the_engine_package_explicitly_lets_appcontainers_in(tmp_path):
+    """The package's deny is inherited below it, and an explicit allow on a file or folder sorts ahead
+    of an inherited deny. So no explicit ALL (RESTRICTED) APPLICATION PACKAGES allow may be anywhere in
+    the package, or that item would be readable inside every AppContainer."""
+    work = tmp_path / "w"
+    work.mkdir()
+    appcontainer.Box(work, sandbox.BOOTSTRAP).close()   # puts the deny on, as before any run
+    got = appcontainer._icacls(str(appcontainer.ENGINE_PACKAGE), "/T")
+    assert got.returncode == 0, got.stderr
+    text = got.stdout.decode("utf-8", "replace")
+    root = str(appcontainer.ENGINE_PACKAGE)
+    current, explicit, denies = root, [], 0
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("Successfully processed"):
+            continue
+        if not line[:1].isspace():   # a new item: "<path> <first ACE>"
+            current = line.split(" ", 1)[0] if line.startswith(root) else current
+        if "APPLICATION PACKAGES:" not in line:
+            continue
+        rights = line.rsplit(":", 1)[1]
+        if "(DENY)" in rights:
+            denies += 1
+        elif "(I)" not in rights:
+            explicit.append(f"{current}: {line.strip()}")
+    assert denies >= 2, text[:2000]   # the check read the ACLs at all
+    assert not explicit, "explicit AppContainer allows in the engine package:\n" + "\n".join(explicit)

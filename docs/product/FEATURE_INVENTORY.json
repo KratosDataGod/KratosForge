@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "1ca71e38abe68aee101715050bd72b47b09dcfd8",
+    "commit": "03d2b53aa5560c88062d3148d9041cf57d0c9b42",
     "date": "2026-11-04",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -37,7 +37,8 @@
       "Acceptance of PB-084, PB-014, PB-125 and PB-126 recorded (Chris chose 'Accept all four as recommended' on the decision card, 2026-11-03, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpUAPuMuwCvujJpe76xnHm5f).",
       "Product check 2026-11-03 11:42 at 5f8144f7aa292b93840f8da13a4180ee04bbb8a1: 35 PRs merged after 9367abf7; 5 were product data, docs audit and queue PRs and the other 30 were linked by number or title. New PB-127 (Fabric App Studio) records AS work already merged; other rows were not re-read.",
       "Product check 2026-11-03 23:42 at 9b7848ebef0ae7337f9a6575c18256aae114df66: 55 PRs merged after 5f8144f7; 2 were product data PRs and the other 53 were linked by number or title. New PB-128 (Academy), PB-129 (platform skins) and PB-130 (data product promises) record work already merged; PB-040 and PB-123 moved to In progress because their work started merging; other rows were not re-read.",
-      "Product check 2026-11-04 11:42 at 1ca71e38abe68aee101715050bd72b47b09dcfd8: 13 PRs merged after 9b7848eb; 2 were product data and docs audit PRs and the other 11 were linked by number. PB-016's package source recorded as decided; new PB-131 (remove Academy's runtime access grants on uninstall)."
+      "Product check 2026-11-04 11:42 at 1ca71e38abe68aee101715050bd72b47b09dcfd8: 13 PRs merged after 9b7848eb; 2 were product data and docs audit PRs and the other 11 were linked by number. PB-016's package source recorded as decided; new PB-131 (remove Academy's runtime access grants on uninstall).",
+      "Product check 2026-11-04 23:42 at 03d2b53aa5560c88062d3148d9041cf57d0c9b42: 16 PRs merged after 1ca71e38; 1 was a product data PR and the other 15 were linked by number. PB-131 moved to In review."
     ],
     "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test). At be3e45b: sidecar 3926 passed, 74 skipped (1,066 s, Linux, Python 3.13); UI 285 browser tests passed (Playwright, Chromium); ui.test.cjs passed At 524e6a3: CI run 2235 on main passed every job (engine pytest, ui.test.cjs, browser tests in headless Chromium, cargo test); here, ui.test.cjs passed 284 of 284 (Linux, Node 22). At bb084c6 (2026-10-26): CI on main runs the merged PRs' tests; not re-run here."
   },
@@ -614,7 +615,9 @@
         1589,
         1636,
         1637,
-        1734
+        1734,
+        1811,
+        1821
       ],
       "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001); Rust tests in CI (PB-071).",
@@ -4580,7 +4583,9 @@
         1418,
         1567,
         1716,
-        1754
+        1754,
+        1813,
+        1819
       ],
       "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
       "backlog": [
@@ -5457,7 +5462,8 @@
         579,
         704,
         735,
-        1299
+        1299,
+        1741
       ],
       "next_action": "Fabric pipeline runs (FEAT-ORC-10) join this list after the Data Factory mockup."
     },
@@ -5565,7 +5571,8 @@
         "Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath"
       ],
       "prs": [
-        117
+        117,
+        1742
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
       "next_action": "Calibrate against the Capacity Metrics app and label every number (PB-050)",
@@ -6054,6 +6061,7 @@
         1406,
         1435,
         1692,
+        1747,
         1762
       ],
       "workstream": "Git-native development",
@@ -7289,7 +7297,8 @@
         1145,
         1146,
         1180,
-        1443
+        1443,
+        1746
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Implementation review of PR #371."
@@ -7940,7 +7949,8 @@
         1531,
         1535,
         1545,
-        1738
+        1738,
+        1816
       ],
       "workstream": "Fabric and Databricks unified development",
       "next_action": "Screens after a mockup; never install databricks-connect into the engine (ADR-004).",
@@ -8157,7 +8167,8 @@
         800,
         813,
         1063,
-        1116
+        1116,
+        1818
       ],
       "workstream": "Enterprise governance foundation; Best Practice Analyzer (checkers)",
       "limitations": [
@@ -8397,7 +8408,12 @@
         1806,
         1807,
         1808,
-        1809
+        1809,
+        1812,
+        1814,
+        1815,
+        1817,
+        1820
       ],
       "backlog": [
         "PB-119",

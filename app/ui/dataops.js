@@ -1,6 +1,6 @@
 // Day-to-day data engineering: compare a table across environments or versions (before a
 // promote), review schema drift, fix and replay quarantined rows, and freshness promises with
-// Teams alerts.
+// incident alerts (Teams, a Power Automate flow or email).
 // Loaded after meta.js. The entity page, the promote cards and Home call into this file;
 // everything else here is self-contained.
 
@@ -516,16 +516,23 @@ function alertsLine() {
 }
 
 async function alertsDialog() {
-  const cur = await rpc("meta_alerts", {}).catch(() => ({ teams_webhook: "" }));
-  const url = h("input", { value: cur.teams_webhook || "", placeholder: "https://... or flow:https://... or mailto:oncall@contoso.com", spellcheck: "false" });
-  const save = async (test) => {
-    const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: url.value.trim(), test }), test ? "Test message not sent" : "Not saved");
+  // The saved address never comes back (it works like a password): only whether one is set, its kind
+  // and a label (the host, or how many people). Typing a new one replaces it.
+  const cur = await rpc("meta_alerts", {}).catch(() => ({ set: false, failed: true }));
+  const url = h("input", { value: "", placeholder: "https://... or flow:https://... or mailto:oncall@contoso.com", spellcheck: "false" });
+  const where = (kind) => ({ flow: "the flow", email: "email" }[kind] || "Teams");
+  const save = async (test, off = false) => {
+    const typed = url.value.trim();
+    if (!off && !typed) { incRequired(url, cur.set ? "Type the new address, or use Turn off." : "Type where alerts go."); return; }
+    // The saved address can't be shown again, so turning off asks first.
+    if (off && !(await confirmDialog("Turn off incident alerts?",
+      "The saved address is removed from this PC. To turn alerts back on, paste the address again.", "Turn off", { danger: true }))) return;
+    const res = await attempt(() => rpc("meta_set_alerts", { teams_webhook: off ? "" : typed, test }), test ? "Test message not sent" : "Not saved");
     if (!res) return;
-    fresh.alerts = !!res.teams_webhook;
+    fresh.alerts = !!res.set;
     fresh.alertsUnreadable = !!res.unreadable;
     closeDialog();
-    const where = res.teams_webhook.startsWith("flow:") ? "the flow" : res.teams_webhook.startsWith("mailto:") ? "email" : "Teams";  // workloads/deliver.py kind
-    toast(res.teams_webhook ? (test ? `Sent a test message to ${where} and saved` : `Alerts to ${where} are on`) : "Alerts are off");
+    toast(res.set ? (test ? `Sent a test message to ${where(res.kind)} and saved` : `Alerts to ${where(res.kind)} are on`) : "Alerts are off");
   };
   showDialog("Incident alerts", h("div", { class: "dataops" },
     h("p", { class: "text" }, "Each new incident (a failed or late table, a missed objective, an agent that stopped) is sent once, and again when it recovers. Environments that a running agent checks are left to the agent."),
@@ -534,9 +541,12 @@ async function alertsDialog() {
       h("li", {}, "A Power Automate flow: flow: and then the flow's HTTP trigger address. The flow gets the title and lines and sends them on."),
       h("li", {}, "Email: mailto: and then up to 20 addresses separated by ;. Sent through the company mail server set in Settings > Notifications.")),
     cur.unreadable ? h("p", { class: "wrn-text small" }, ALERTS_UNREADABLE) : null,
-    h("label", { class: "field" }, "Where alerts go", url),
+    cur.failed ? h("p", { class: "wrn-text small" }, "Couldn't read whether alerts are set. Saving a new address replaces any saved one.") : null,
+    cur.set ? h("p", { class: "muted-text small" }, `Now: ${where(cur.kind)}${cur.label ? `, ${cur.label}` : ""}. The address stays hidden; type a new one to replace it.`) : null,
+    h("label", { class: "field" }, cur.set ? "New address" : "Where alerts go", url),
     h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message that doesn't go through is sent with the next check.")),
-  [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
+  [btn("Cancel", null, closeDialog, "tool outline"), cur.set ? btn("Turn off", null, () => save(false, true), "tool outline") : null,
+    btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")].filter(Boolean));
 }
 
 // Checked at startup and every 10 minutes. Late tables show on Home; problems become incidents

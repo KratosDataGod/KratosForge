@@ -133,7 +133,7 @@
       "options": [
         {
           "id": "a",
-          "text": "It can't run notebooks"
+          "text": "You set the minimum and maximum number of workers for autoscaling"
         },
         {
           "id": "b",
@@ -141,7 +141,7 @@
         },
         {
           "id": "c",
-          "text": "You must install the runtime by hand"
+          "text": "You add init scripts and custom Spark settings to the cluster"
         },
         {
           "id": "d",
@@ -158,7 +158,7 @@
       ],
       "explanation": "With serverless, Databricks automatically allocates and manages the compute, and workloads run on the latest runtime version.",
       "source": "https://docs.databricks.com/aws/en/compute/serverless/",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     }

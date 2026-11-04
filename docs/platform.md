@@ -153,7 +153,7 @@ A request waiting on someone, a decision or withdrawal, a shortcut that breaks o
 
 People are named by their UPN. A request's reason is never put in a Teams message, which anyone in the channel can read: the message names the request and says where to open it in the app. Webhook addresses work like passwords: the app never shows them again after they're saved, leaves them out of the audit log, and leaves them out of backups.
 
-Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. Email isn't supported yet: it needs a way to send without an app registration.
+Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. A route can also send to a Power Automate flow or by email through the company mail server, neither of which needs an app registration ([Platform notices](user-guide.md#platform-notices-preview)).
 
 ## One landing zone
 

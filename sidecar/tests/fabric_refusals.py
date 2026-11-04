@@ -47,10 +47,10 @@ def check_item(item_type: str, parts: Any) -> None:
         functions = (json.loads(text) if text else {}).get("functions")
         if not functions:
             raise FabricError(f"POST failed with 400: {UDF_NO_FUNCTIONS}", "NullOrEmptyArgument", 400)
-        # Live run 4 (2026-11-03): the same refusal with every binding's itemType set, from a data source
-        # whose sourceType isn't one of Fabric's names ("SqlDatabase").
+        # Live runs 3-5 (2026-11-03): a connected data source without an artifactType Fabric knows (we sent
+        # sourceType, which Fabric's ConnectedDataSourceObject doesn't have).
         for source in (json.loads(text) if text else {}).get("connectedDataSources") or []:
-            if source.get("sourceType") not in UDF_ARTIFACT_TYPES:
+            if source.get("artifactType") not in UDF_ARTIFACT_TYPES:
                 raise FabricError(f"POST failed with 400: {UDF_NO_ARTIFACT_TYPE}", "UnsupportedArgument", 400)
         meta = _text(parts, "resources/functions.json")
         for function in (json.loads(meta) if meta else {}).get("functionsMetadata") or []:

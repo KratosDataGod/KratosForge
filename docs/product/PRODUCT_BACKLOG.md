@@ -924,7 +924,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A data product can promise readers how fresh and clean its data is; its page shows Kept or Broken, a broken promise opens an incident, a Status view shows Red, Amber or Green, and Platform > Govern shows the change window.
 - **Current-state evidence:** Promises and incidents (#1737), input checks (#1744), promise on the product page and dialog (#1774), change window card (#1775), Status view (#1780), all Preview on main at 9b7848eb
 - **Inventory features:** [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04), [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-MESH-05](FEATURE_INVENTORY.md#feat-mesh-05)
-- **Dependencies:** [PB-002](#pb-002), Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up
+- **Dependencies:** [PB-002](#pb-002)
 - **Owner:** Data mesh (Data mesh Wave 2)
 - **Pull requests:** [#1737](https://github.com/KratosDataGod/KratosForge/pull/1737), [#1744](https://github.com/KratosDataGod/KratosForge/pull/1744), [#1774](https://github.com/KratosDataGod/KratosForge/pull/1774), [#1775](https://github.com/KratosDataGod/KratosForge/pull/1775), [#1780](https://github.com/KratosDataGod/KratosForge/pull/1780)
 - **Acceptance criteria:**
@@ -1890,7 +1890,6 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Academy (ACD-005b)
 - **Mandatory (required):** The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).
-- **Merged duplicates:** Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it
 - **Acceptance criteria:**
     - Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does
     - Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere

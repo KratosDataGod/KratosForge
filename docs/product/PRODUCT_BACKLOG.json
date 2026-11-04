@@ -6578,9 +6578,7 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "In progress",
-      "external_dependencies": [
-        "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
-      ],
+      "external_dependencies": [],
       "prs": [
         1737,
         1744,
@@ -6630,9 +6628,7 @@
       "source_refs": [
         "ACD-005b"
       ],
-      "duplicates": [
-        "Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it"
-      ],
+      "duplicates": [],
       "effort": "S",
       "confidence": "Medium",
       "state": "Proposed",

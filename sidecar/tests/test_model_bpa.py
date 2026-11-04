@@ -196,14 +196,15 @@ def _run_cell(tmp_path, monkeypatch, pip_code=0, bpa=None):
     import subprocess
     import sys
     import types
-    code = "".join(model_bpa.bpa_ipynb("ws1", "meta1")["cells"][2]["source"]).replace("/lakehouse/default", str(tmp_path))
+    code = "".join(model_bpa.bpa_ipynb("ws1", "meta1")["cells"][2]["source"]).replace("/lakehouse/default", tmp_path.as_posix())  # a Windows path has backslashes
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=pip_code, stdout="pip says hi\n", stderr=""))
     labs = types.ModuleType("sempy_labs")
     labs.run_model_bpa = bpa or (lambda **k: None)
     monkeypatch.setitem(sys.modules, "sempy_labs", labs)
     scope = {"dataset": "m1", "workspace": "ws1", "lakehouse": "meta1", "request_id": "r1"}
+    compiled = compile(code, "check", "exec")  # outside the try: a cell that doesn't compile fails the test
     try:
-        exec(compile(code, "check", "exec"), scope)
+        exec(compiled, scope)
     except Exception as exc:  # the cell fails the run after saving
         raised = exc
     else:

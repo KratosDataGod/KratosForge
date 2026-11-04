@@ -119,7 +119,7 @@ def test_an_array_that_grows_in_a_loop_is_stopped(tmp_path):
     ("[" * 100_000, "isn't a pipeline the app can read"),
     (json.dumps({"name": "p", "properties": {"activities": [act(f"s{i}", "Wait") for i in range(201)]}}),
      "more than 200 activities"),
-])
+], ids=["bad-json", "deep-nesting", "too-many-activities"])
 def test_a_pipeline_file_that_cant_be_read_fails_in_words(tmp_path, text, said):
     res = pipelab.grade(_write(tmp_path, text), EX)
     assert not res["passed"] and said in res["results"][0]["detail"]

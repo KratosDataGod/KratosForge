@@ -193,6 +193,21 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   DuckDB, pandas, NumPy, sqlglot and what their metadata says they need). It's granted once per engine
   start, never on a whole site-packages folder and never on the engine's package, so `grading/` stays
   unreadable. The bootstrap is copied into the profile beside the workspace, not inside it.
+  These grants are persistent ACEs on the person's Python install. They're recorded in
+  `<data>/academy/appcontainer-grants.json` (the capability's SID and each path) and made again only
+  when that record or the interpreter's own ACE is missing. `academy_sandbox_remove_grants` (for
+  Diagnostics and uninstall) removes every one of them with `icacls /remove:g` and lists any path it
+  couldn't change. `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
+- **Copying home.** Files come home only from an empty job. If the job's processes aren't all gone
+  after it is ended, nothing is copied and the run fails in words. The copy goes into a new folder
+  beside the workspace and is swapped in only once it's whole and within the caps, so a refused copy
+  leaves the learner's workspace as it was.
+- **Profiles a crash left behind.** On the first run after the engine starts, profiles named
+  `KratosForge.Academy.*` (found under `HKCU\Software\Classes\Local Settings\Software\Microsoft\
+  Windows\CurrentVersion\AppContainer\Mappings`) whose folder hasn't changed for 10 minutes are
+  deleted with `DeleteAppContainerProfile`.
+- **No disk quota.** Nothing caps how much a script writes in the profile's folder, the same as v1.
+  The copy home is capped (2,000 files, 1 GB).
 - **The process.** `CreateProcessW` with `SECURITY_CAPABILITIES` (that one capability, no network
   capability) and a `HANDLE_LIST` of its two pipes and a QUERY-only handle to its job. It starts
   suspended and runs `-I -X utf8 -B`, with TEMP in the workspace's `.tmp`. The bootstrap checks the job
@@ -211,10 +226,16 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   - connect to loopback or the internet;
   - open the engine's named pipe;
   - read the person's saved credential (`CredReadW`);
-  - unseal a DPAPI secret the engine sealed.
+  - unseal a DPAPI secret the engine sealed;
+  - import the engine package or msal, or read the token cache in the data folder.
 
-  The tests also check that a run's files come home, that the profile is deleted, the fallback and
-  its reason, and that a v1 process told it's in an AppContainer stops.
+  The tests also check:
+  - a run's files come home, but only from an empty job, and a refused copy leaves the workspace as
+    it was;
+  - the profile is deleted, and a crash's leftover profiles are swept while a fresh one is kept;
+  - the grants are recorded, removed and made again;
+  - the fallback works and gives its reason;
+  - a v1 process told it's in an AppContainer stops.
 
 ## Python and Delta exercises (ACD-011)
 

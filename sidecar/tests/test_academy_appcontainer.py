@@ -219,3 +219,102 @@ def test_a_pc_that_refuses_appcontainers_falls_back_and_says_so(tmp_path, monkey
     got = sandbox.run(work, "main.py", tmp_path, time_limit=60)
     assert got["status"] == "ok" and got["runs_as"] == sandbox.RUNS_AS
     assert "0x80070005" in appcontainer.status()["why_not"] and not appcontainer.status()["available"]
+
+
+def test_the_app_and_sign_in_packages_cant_be_imported_at_the_kernel_layer(tmp_path):
+    parent = str(sandbox.PACKAGE_DIR.parent)
+    err = denied(tmp_path, f"import sys; sys.path.insert(0, {parent!r}); import fabric_desktop.academy.grading")
+    assert "PermissionError" in err or "ModuleNotFoundError" in err or "ImportError" in err
+    try:
+        import msal
+    except ImportError:
+        return
+    site = str(Path(msal.__file__).resolve().parent.parent)
+    err = denied(tmp_path, f"import sys; sys.path.insert(0, {site!r}); import msal")
+    assert "PermissionError" in err or "ModuleNotFoundError" in err or "ImportError" in err
+
+
+def test_the_token_cache_in_the_data_folder_is_refused(tmp_path):
+    cache = tmp_path / "data" / "msal_token_cache.bin"   # where the app keeps it: <data>/
+    cache.parent.mkdir()
+    cache.write_bytes(b"cache")
+    err = denied(tmp_path, f"open({str(cache)!r}, 'rb').read()")
+    assert "PermissionError" in err
+
+
+def test_grants_are_recorded_checked_and_removed(tmp_path):
+    from fabric_desktop import jsonfile
+    work = tmp_path / "w"
+    work.mkdir()
+    appcontainer.Box(work, sandbox.BOOTSTRAP, data_root=tmp_path).close()
+    record = jsonfile.read_json(tmp_path / "academy" / appcontainer.GRANTS_FILE, {})
+    assert record["capability"] == appcontainer.CAPABILITY and record["paths"]
+    assert not any(appcontainer.NEVER.match(Path(p).name) for p in record["paths"])
+    assert appcontainer._has_grant(Path(sys.base_prefix), record["sid"])
+    got = appcontainer.revoke_runtime(tmp_path)
+    assert got["failed"] == [] and got["removed"] >= 1
+    assert not appcontainer._has_grant(Path(sys.base_prefix), record["sid"])
+    assert not (tmp_path / "academy" / appcontainer.GRANTS_FILE).exists()
+    # The next run grants them again.
+    got = sandbox.run(_script(tmp_path / "again"), "main.py", tmp_path, time_limit=60)
+    assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
+
+
+def _script(work: Path) -> Path:
+    work.mkdir()
+    (work / "main.py").write_text("print('ran')\n", encoding="utf-8")
+    return work
+
+
+def test_files_come_home_only_from_an_empty_job(tmp_path, monkeypatch):
+    real_close = sandbox._WinJob.close
+
+    def close_but_not_empty(self):
+        real_close(self)
+        self.emptied = False
+    monkeypatch.setattr(sandbox._WinJob, "close", close_but_not_empty)
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "kept.txt").write_text("before", encoding="utf-8")
+    (work / "main.py").write_text("open('kept.txt', 'w').write('after')\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60)
+    assert got["status"] == "error" and "weren't copied back" in got["stderr"]
+    assert (work / "kept.txt").read_text(encoding="utf-8") == "before"
+
+
+def test_a_refused_copy_back_leaves_the_workspace_as_it_was(tmp_path, monkeypatch):
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "kept.txt").write_text("before", encoding="utf-8")
+    (work / "main.py").write_text("import os\nfor i in range(30): open(f'f{i}.txt', 'w').write('x')\n",
+                                  encoding="utf-8")
+    real_copy = appcontainer.copy_tree
+    calls = []
+
+    def copy(src, dst):
+        calls.append(dst)
+        if len(calls) > 1:   # the copy home, not the copy in
+            raise appcontainer.ws.Refused("The exercise folder holds more than 2,000 files.")
+        real_copy(src, dst)
+    monkeypatch.setattr(appcontainer, "copy_tree", copy)
+    with pytest.raises(appcontainer.ws.Refused):
+        sandbox.run(work, "main.py", tmp_path, time_limit=60)
+    assert sorted(p.name for p in work.iterdir()) == [".tmp", "kept.txt", "main.py"]
+    assert not [p for p in tmp_path.iterdir() if ".incoming-" in p.name or ".old-" in p.name]
+
+
+def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
+    api = appcontainer._api()
+    left = appcontainer.Profile(api)   # never closed: as after a crash
+    monkeypatch.setattr(appcontainer, "_swept", False)
+    monkeypatch.setattr(appcontainer, "ORPHAN_AGE", 0.0)
+    assert appcontainer.sweep(api) >= 1
+    assert not left.folder.exists()
+    monkeypatch.setattr(appcontainer, "_swept", False)
+    monkeypatch.setattr(appcontainer, "ORPHAN_AGE", 3600.0)
+    fresh = appcontainer.Profile(api)
+    try:
+        appcontainer.sweep(api)
+        assert fresh.folder.exists()   # a profile in use (folder touched just now) is left alone
+    finally:
+        fresh.close()

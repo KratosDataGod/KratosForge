@@ -122,7 +122,7 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
         raise ws.Refused(f"{script} isn't a Python file in the exercise.")
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
     libs = [_check_lib_root(r, work, data_root) for r in lib_roots or []]
-    box = _box(work, libs)
+    box = _box(work, libs, Path(data_root))
     if box is not None:
         try:
             return _run(work, path, data_root, libs, time_limit, memory_limit, cpu_limit, box)
@@ -133,13 +133,13 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
     return _run(work, path, data_root, libs, time_limit, memory_limit, cpu_limit, None)
 
 
-def _box(work: Path, libs: list[str]) -> appcontainer.Box | None:
+def _box(work: Path, libs: list[str], data_root: Path) -> appcontainer.Box | None:
     """This run's AppContainer, or None for the v1 learner process (not Windows, turned off, or
     Windows refused a step; status() then says why)."""
     if sys.platform != "win32" or not USE_APPCONTAINER or not appcontainer.status()["available"]:
         return None
     try:
-        return appcontainer.Box(work, BOOTSTRAP, libs)
+        return appcontainer.Box(work, BOOTSTRAP, libs, data_root)
     except appcontainer.SetupFailed as exc:
         appcontainer._fail(str(exc))
         return None
@@ -189,11 +189,16 @@ def _run(work: Path, path: Path, data_root: Path, libs: list[str], time_limit: f
             t.join(timeout=5)
         if box is not None:
             proc.close()
-            appcontainer.mirror_back(here, work)   # after the job has ended, links refused
+    stuck = box is not None and not getattr(limiter, "emptied", False)
+    if box is not None and not stuck:
+        appcontainer.mirror_back(here, work)   # only from an empty job, links refused
     seconds = round(time.monotonic() - started, 3)
     code = proc.returncode
     stderr = out.get("stderr", b"").decode("utf-8", "replace")
-    if timed_out:
+    if stuck:   # something may still be writing in the profile's folder: nothing is copied home
+        status = "error"
+        stderr += "\nThe app couldn't confirm the exercise's process had ended, so its files weren't copied back."
+    elif timed_out:
         status = "time_limit"
     elif limiter.memory_hit() or "MemoryError" in stderr[-2000:]:
         status = "memory_limit"
@@ -334,6 +339,7 @@ class _WinJob:
             raise OSError("Windows wouldn't set the exercise's limits, so it wasn't run.")
         self._info = info
         self.peak = 0
+        self.emptied = False
 
     def hold(self, proc: subprocess.Popen[bytes]) -> None:
         handle = int(proc._handle)  # type: ignore[attr-defined]
@@ -381,6 +387,7 @@ class _WinJob:
         deadline = time.monotonic() + 10
         while self.active() and time.monotonic() < deadline:
             time.sleep(0.02)
+        self.emptied = self.active() == 0   # copy-back from an AppContainer run waits on this
         self.k.CloseHandle(self.job)
         self.job = None
 

@@ -254,30 +254,86 @@ def runtime_paths() -> list[tuple[Path, bool]]:
     return out
 
 
+GRANTS_FILE = "appcontainer-grants.json"   # in <data>/academy: what this app granted, to check and remove
+
+
+def _icacls(*args: str) -> Any:
+    import subprocess
+    # No /C: icacls stops at the first file it can't change and says so in its exit status. Its
+    # output is read only for the SID check below.
+    return subprocess.run(["icacls", *args, "/Q"], capture_output=True, timeout=60, check=False)
+
+
 def _grant(api: Any, path: Path, sid_string: str, inherit: bool) -> None:
     """Add read and execute for ``sid_string`` to ``path``'s DACL (merged with what is there)."""
-    import subprocess
     flags = "(OI)(CI)(RX)" if inherit and path.is_dir() else "(RX)"
-    # icacls merges with the ACL that is there and needs no hand-written ACL code; its own output is
-    # discarded and only its exit status is used.
-    got = subprocess.run(["icacls", str(path), "/grant", f"*{sid_string}:{flags}", "/Q", "/C"],
-                         capture_output=True, timeout=60, check=False)
-    if got.returncode != 0:
+    if _icacls(str(path), "/grant", f"*{sid_string}:{flags}").returncode != 0:
         raise OSError(f"Windows wouldn't let the exercise runtime read {path.name}.")
 
 
-def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None) -> None:
-    """Grant the runtime capability read and execute on the runtime, once per engine start."""
-    key = cap_string + "|" + "|".join(str(p) for p in lib_roots or [])
+def _has_grant(path: Path, sid_string: str) -> bool:
+    got = _icacls(str(path))
+    return got.returncode == 0 and sid_string.encode("ascii") in got.stdout
+
+
+def _grants_file(data_root: Path) -> Path:
+    return Path(data_root) / "academy" / GRANTS_FILE
+
+
+def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None,
+                  data_root: Path | None = None) -> None:
+    """Grant the runtime capability read and execute on the runtime. The grants are persistent ACEs
+    on the person's Python install, so they're recorded in ``<data>/academy/appcontainer-grants.json``
+    and made again only when that record or the interpreter's own ACE is missing (Python reinstalled,
+    say). ``revoke_runtime`` removes them."""
+    from .. import jsonfile
+    paths = [(p, inherit) for p, inherit in runtime_paths() if not NEVER.match(p.name)]
+    paths += [(Path(lib), True) for lib in lib_roots or []]
+    wanted = sorted({str(p) for p, _ in paths})
+    key = cap_string + "|" + "|".join(wanted)
     if _granted.get(key):
         return
-    for path, inherit in runtime_paths():
-        if NEVER.match(path.name):
-            continue
-        _grant(api, path, cap_string, inherit)
-    for lib in lib_roots or []:
-        _grant(api, Path(lib), cap_string, True)
+    record = _grants_file(data_root) if data_root else None
+    had = jsonfile.read_json(record, {}) if record else {}
+    done = set(had.get("paths") or []) if had.get("sid") == cap_string else set()
+    if not set(wanted) <= done or not _has_grant(Path(sys.base_prefix), cap_string):
+        for path, inherit in paths:
+            _grant(api, path, cap_string, inherit)
+        done |= set(wanted)
+        if record:
+            record.parent.mkdir(parents=True, exist_ok=True)
+            jsonfile.write_json(record, {"sid": cap_string, "capability": CAPABILITY, "paths": sorted(done)})
     _granted[key] = True
+
+
+def revoke_runtime(data_root: Path) -> dict[str, Any]:
+    """Remove every runtime ACE this app added (the record, and the runtime as it is now), then the
+    record. ``{removed, failed}``: paths icacls couldn't change are listed, not hidden."""
+    from .. import jsonfile
+    record = _grants_file(data_root)
+    had = jsonfile.read_json(record, {})
+    sid = had.get("sid")
+    if not sid and sys.platform == "win32":
+        try:
+            _cap, sid = capability_sid(_api())
+        except OSError:
+            sid = None
+    if not sid:
+        return {"removed": 0, "failed": []}
+    paths = set(had.get("paths") or []) | ({str(p) for p, _ in runtime_paths()} if sys.platform == "win32" else set())
+    removed, failed = 0, []
+    for p in sorted(paths):
+        if not os.path.exists(p):
+            continue
+        if _icacls(p, "/remove:g", f"*{sid}").returncode == 0:
+            removed += 1
+        else:
+            failed.append(p)
+    if not failed and record.exists():
+        record.unlink()
+    with _lock:
+        _granted.clear()
+    return {"removed": removed, "failed": failed}
 
 
 # ---- copying the workspace in and out ------------------------------------------------------------
@@ -299,14 +355,21 @@ def copy_tree(src: Path, dst: Path) -> None:
 
 
 def mirror_back(src: Path, dst: Path) -> None:
-    """Make ``dst`` hold what ``src`` (the run's folder, after its Job has ended) holds."""
-    for child in list(dst.iterdir()):
-        ws.inside(dst, child.name)   # refused if the engine's own copy holds a link
-        if child.is_dir():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-    copy_tree(src, dst)
+    """Make ``dst`` hold what ``src`` (the run's folder, after its Job has ended) holds. It's copied
+    into a new folder beside ``dst`` first and swapped in only once the whole copy is within the
+    caps, so a refused copy leaves ``dst`` as it was."""
+    ws.inside(dst, ".")   # the engine's own copy is a plain folder
+    incoming = dst.with_name(f".{dst.name}.incoming-{uuid.uuid4().hex[:8]}")
+    incoming.mkdir()
+    try:
+        copy_tree(src, incoming)
+    except BaseException:
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    old = dst.with_name(f".{dst.name}.old-{uuid.uuid4().hex[:8]}")
+    os.replace(dst, old)
+    os.replace(incoming, dst)
+    shutil.rmtree(old, ignore_errors=True)
 
 
 # ---- starting the process ------------------------------------------------------------------------
@@ -402,6 +465,59 @@ def lock() -> threading.Lock:
     return _lock
 
 
+# ---- profiles a crash left behind ---------------------------------------------------------------
+
+MAPPINGS = r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Mappings"
+ORPHAN_AGE = 600.0   # seconds; a run is over in far less, so an older profile of ours is left over
+_swept = False
+
+
+def sweep(api: Any) -> int:
+    """Delete this app's AppContainer profiles left by a crash (named PROFILE_PREFIX..., folder
+    untouched for ORPHAN_AGE), once per engine start. The number deleted."""
+    import time
+    import winreg  # type: ignore[import-not-found,unused-ignore]
+    global _swept
+    if _swept:
+        return 0
+    _swept = True
+    gone = 0
+    try:
+        root = winreg.OpenKey(winreg.HKEY_CURRENT_USER, MAPPINGS)  # type: ignore[attr-defined,unused-ignore]
+    except OSError:
+        return 0
+    with root:
+        sids, i = [], 0
+        while True:
+            try:
+                sids.append(winreg.EnumKey(root, i))  # type: ignore[attr-defined,unused-ignore]
+            except OSError:
+                break
+            i += 1
+        for sid in sids:
+            try:
+                with winreg.OpenKey(root, sid) as key:  # type: ignore[attr-defined,unused-ignore]
+                    name = str(winreg.QueryValueEx(key, "Moniker")[0])  # type: ignore[attr-defined,unused-ignore]
+            except OSError:
+                continue
+            if not name.startswith(PROFILE_PREFIX):
+                continue
+            path = api.wt.LPWSTR()
+            if api.env.GetAppContainerFolderPath(sid, api.ctypes.byref(path)) == 0:
+                try:
+                    folder = Path(str(path.value))
+                finally:
+                    api.ole.CoTaskMemFree(api.ctypes.cast(path, api.ctypes.c_void_p))
+                try:
+                    if time.time() - folder.stat().st_mtime < ORPHAN_AGE:
+                        continue   # perhaps another app window's run that is still going
+                except OSError:
+                    pass   # no folder left: nothing in use
+            if api.env.DeleteAppContainerProfile(name) == 0:
+                gone += 1
+    return gone
+
+
 # ---- one run ------------------------------------------------------------------------------------
 
 class Box:
@@ -409,12 +525,14 @@ class Box:
     into the profile's folder and the bootstrap beside it (outside the workspace). Close it after
     the Job has ended and ``mirror_back`` has copied the workspace home; that deletes the profile."""
 
-    def __init__(self, work: Path, bootstrap: Path, lib_roots: list[str] | None = None):
+    def __init__(self, work: Path, bootstrap: Path, lib_roots: list[str] | None = None,
+                 data_root: Path | None = None):
         try:
             self.api = _api()
             with _lock:
+                sweep(self.api)
                 self.cap_sid, cap = capability_sid(self.api)
-                grant_runtime(self.api, cap, [Path(p) for p in lib_roots or []])
+                grant_runtime(self.api, cap, [Path(p) for p in lib_roots or []], data_root)
             self.profile = Profile(self.api)
         except OSError as exc:
             raise SetupFailed(str(exc)) from exc

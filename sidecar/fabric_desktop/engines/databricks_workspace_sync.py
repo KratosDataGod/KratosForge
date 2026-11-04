@@ -33,7 +33,7 @@ from typing import Any
 
 from .. import notebook_formats as nbf
 from .. import redact
-from ..jsonfile import read_json, write_json
+from ..jsonfile import read_json, replace, write_json
 from .databricks_discovery import _text
 from .databricks_sql import Client
 
@@ -352,7 +352,7 @@ def pull(client: Client, pair: dict[str, Any], files: list[str]) -> dict[str, An
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
-            os.replace(tmp, path)
+            replace(tmp, path)   # waits out a busy file on Windows
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise

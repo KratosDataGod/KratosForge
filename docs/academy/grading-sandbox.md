@@ -231,7 +231,8 @@ Before it is turned on by default (Security's musts):
 5. **Delta exercises.** delta-rs resolves paths in a way an AppContainer is denied (above). Delta
    exercises need a delta-rs that doesn't, or keep running in the v1 learner process. Decided
    (Chris, 2026-11-04): they keep running in the v1 learner process. `pylab.appcontainer_ok(ex)` is
-   false for `delta_lab` exercises and for any Python exercise a `delta_table` check grades; those
+   false for `delta_lab` exercises and for any Python exercise a `delta_table` check grades, and
+   `pyspark_lab` never asks for one (its PySpark shim reads and writes Delta through delta-rs); those
    run the v1 way with the v1 wording even where the AppContainer is on.
 
 - **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.

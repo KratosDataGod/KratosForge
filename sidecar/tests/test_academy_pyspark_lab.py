@@ -351,3 +351,14 @@ def test_a_workspace_named_by_another_path_to_it_still_runs(tmp_path):
         pytest.skip("this PC can't make symbolic links")
     run = pyspark_lab.run_learner(tmp_path / "short" / "w", "print('hi')")
     assert run["status"] == "ok" and "hi" in run["stdout"]
+
+
+def test_a_pyspark_run_never_asks_for_the_appcontainer(tmp_path, monkeypatch):
+    # The shim uses delta-rs, which an AppContainer can't use: PySpark exercises run the v1 way.
+    from fabric_desktop.academy import sandbox
+    asked = []
+    monkeypatch.setattr(sandbox, "run", lambda *a, **k: asked.append(k.get("appcontainer_ok")) or
+                        {"status": "ok", "stdout": "", "stderr": ""})
+    (tmp_path / "w").mkdir()
+    pyspark_lab.run_learner(tmp_path / "w", "print('hi')", data_root=tmp_path / "data")
+    assert asked == [False]

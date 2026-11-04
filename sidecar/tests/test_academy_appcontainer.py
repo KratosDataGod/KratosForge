@@ -318,3 +318,24 @@ def test_profiles_left_by_a_crash_are_swept(tmp_path, monkeypatch):
         assert fresh.folder.exists()   # a profile in use (folder touched just now) is left alone
     finally:
         fresh.close()
+
+
+def test_a_tampered_grants_record_only_ever_removes_the_capabilitys_own_ace(tmp_path, monkeypatch):
+    """The record is the person's to write (a v1 learner process could too): its SID is never used,
+    and option-like or relative paths in it are skipped."""
+    from fabric_desktop import jsonfile
+    outside = tmp_path / "Documents"
+    outside.mkdir()
+    users = "S-1-5-32-545"   # BUILTIN\Users
+    record = tmp_path / "academy" / appcontainer.GRANTS_FILE
+    record.parent.mkdir()
+    jsonfile.write_json(record, {"sid": users, "paths": [str(outside), "/T", "-x", "relative\\path"]})
+    calls = []
+    real = appcontainer._icacls
+    monkeypatch.setattr(appcontainer, "_icacls", lambda *a: (calls.append(a), real(*a))[1])
+    appcontainer.revoke_runtime(tmp_path)
+    cap = appcontainer.capability_sid(appcontainer._api())[1]
+    removals = [a for a in calls if "/remove:g" in a]
+    assert removals and all(a[-1] == f"*{cap}" for a in removals)
+    assert not any(a[0] in ("/T", "-x", "relative\\path") for a in removals)
+    assert users not in " ".join(" ".join(a) for a in calls)

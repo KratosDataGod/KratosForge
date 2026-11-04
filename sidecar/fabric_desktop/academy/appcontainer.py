@@ -306,21 +306,29 @@ def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None
     _granted[key] = True
 
 
+def _plain_path(p: Any) -> bool:
+    """An absolute path icacls can't read as an option (the record is the person's to write)."""
+    return isinstance(p, str) and os.path.isabs(p) and not p.startswith(("/", "-")) and "\0" not in p
+
+
 def revoke_runtime(data_root: Path) -> dict[str, Any]:
-    """Remove every runtime ACE this app added (the record, and the runtime as it is now), then the
-    record. ``{removed, failed}``: paths icacls couldn't change are listed, not hidden."""
+    """Remove the runtime capability's ACE from the paths it was granted on, then the record.
+    ``{removed, failed}``: paths icacls couldn't change are listed, not hidden.
+
+    The record sits in the data folder, which anything running as the person can write, so its SID
+    is never used: only the SID derived from CAPABILITY is removed, and removing that ACE from any
+    path is harmless. Record paths are used only when absolute and plain."""
     from .. import jsonfile
+    if sys.platform != "win32":
+        return {"removed": 0, "failed": []}
     record = _grants_file(data_root)
     had = jsonfile.read_json(record, {})
-    sid = had.get("sid")
-    if not sid and sys.platform == "win32":
-        try:
-            _cap, sid = capability_sid(_api())
-        except OSError:
-            sid = None
-    if not sid:
-        return {"removed": 0, "failed": []}
-    paths = set(had.get("paths") or []) | ({str(p) for p, _ in runtime_paths()} if sys.platform == "win32" else set())
+    try:
+        _cap, sid = capability_sid(_api())
+    except OSError:
+        return {"removed": 0, "failed": [], "why": "Windows wouldn't name the exercise runtime's capability."}
+    listed = had.get("paths") if isinstance(had, dict) and isinstance(had.get("paths"), list) else []
+    paths = {p for p in listed if _plain_path(p)} | {str(p) for p, _ in runtime_paths()}
     removed, failed = 0, []
     for p in sorted(paths):
         if not os.path.exists(p):

@@ -196,8 +196,10 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   These grants are persistent ACEs on the person's Python install. They're recorded in
   `<data>/academy/appcontainer-grants.json` (the capability's SID and each path) and made again only
   when that record or the interpreter's own ACE is missing. `academy_sandbox_remove_grants` (for
-  Diagnostics and uninstall) removes every one of them with `icacls /remove:g` and lists any path it
-  couldn't change. `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
+  Diagnostics and uninstall) removes them with `icacls /remove:g` and lists any path it couldn't
+  change. It removes only the SID derived from the capability's name, never one read from the
+  record (anything running as the person can write that file), and uses only absolute, plain paths
+  from it. `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
 - **Copying home.** Files come home only from an empty job. If the job's processes aren't all gone
   after it is ended, nothing is copied and the run fails in words. The copy goes into a new folder
   beside the workspace and is swapped in only once it's whole and within the caps, so a refused copy

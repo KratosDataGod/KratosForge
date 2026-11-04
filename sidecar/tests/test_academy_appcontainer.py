@@ -310,6 +310,26 @@ def test_grants_are_recorded_checked_and_removed(tmp_path):
     assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
 
 
+def test_settings_shows_the_grants_and_removes_them(tmp_path, monkeypatch):
+    # What Settings > Advanced > Exercise sandbox calls, end to end on Windows: a run in the
+    # AppContainer leaves grants on record, Remove takes them all off, and the count goes to 0.
+    from fabric_desktop.academy_service import AcademyMixin
+
+    class Svc(AcademyMixin):
+        root = tmp_path
+
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", True)
+    svc = Svc()
+    got = sandbox.run(_script(tmp_path / "w"), "main.py", tmp_path, time_limit=60)
+    assert got["status"] == "ok" and got["runs_as"] == appcontainer.RUNS_AS, got["stderr"]
+    before = svc.academy_sandbox_status()
+    assert before["enabled"] and before["available"] and before["granted"] > 0, before
+    removed = svc.academy_sandbox_remove_grants()
+    assert removed["failed"] == [] and removed["removed"] >= before["granted"], removed
+    assert svc.academy_sandbox_status()["granted"] == 0
+    assert not appcontainer._has_grant(Path(sys.base_prefix), appcontainer.capability_sid(appcontainer._api())[1])
+
+
 def test_nothing_is_removed_while_an_exercise_runs(tmp_path):
     work = tmp_path / "w"
     work.mkdir()

@@ -68,7 +68,7 @@ on these conditions:
 
 ACD-005b (Windows AppContainer, no `internetClient` capability, no access to
 `%LOCALAPPDATA%\FabricDesktop`, read only on the runtime folder) is required before imported or
-third-party packs, or any "sandboxed" claim.
+third-party packs, or any "sandboxed" claim. It is built: see "The AppContainer (ACD-005b)" below.
 
 ## Grading material
 
@@ -178,6 +178,43 @@ Also:
   opening a OneDrive cloud-only placeholder in an exercise folder downloads it first.
 - The script, the workspace and its `.tmp` folder are resolved through `workspace.inside()`, so a
   link, a path outside the workspace or a device name is refused before anything runs.
+
+## The AppContainer (ACD-005b)
+
+`academy/appcontainer.py`. On Windows, `sandbox.run` starts the learner process in an AppContainer
+when the PC allows it, on top of everything above (the Job Object, the audit hook, the wrappers):
+
+- **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
+  The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows
+  grants to that SID, and copied home after the Job has ended, refusing links both ways (2,000 files,
+  1 GB). No ACL of the person's folders is changed. Closing the profile deletes its folder.
+- **The runtime grant.** Read and execute for a capability SID (`KratosForgeAcademyRuntime`) on the
+  interpreter, its standard library and only the learner packages (Polars, pyarrow, delta-rs,
+  DuckDB, pandas, NumPy, sqlglot and what their metadata says they need). It's granted once per engine
+  start, never on a whole site-packages folder and never on the engine's package, so `grading/` stays
+  unreadable. The bootstrap is copied into the profile beside the workspace, not inside it.
+- **The process.** `CreateProcessW` with `SECURITY_CAPABILITIES` (that one capability, no network
+  capability) and a `HANDLE_LIST` of its two pipes and a QUERY-only handle to its job. It starts
+  suspended and runs `-I -X utf8 -B`, with TEMP in the workspace's `.tmp`. The bootstrap checks the job
+  through that handle (an AppContainer has its own object namespace, so it never looks the job up by
+  name) and checks that its token is an AppContainer's (`TokenIsAppContainer`). Otherwise it stops
+  with exit 3 before the script runs.
+- **Wording.** A run in an AppContainer says "an AppContainer on this PC: no network, files only in
+  the exercise folder, with time and memory limits". If Windows refuses a step before the script
+  starts (an old Windows, a policy that blocks AppContainers, a runtime folder whose ACL can't be
+  changed), the run uses the v1 learner process and its v1 wording, and `appcontainer.status()` says
+  why. `KRATOSFORGE_ACADEMY_APPCONTAINER=0` turns it off.
+- **Tests (Windows CI, `test_academy_appcontainer.py`).** A bare Python in the AppContainer, with no
+  hook and no wrappers, can't:
+  - read a file outside the workspace, the engine package or `grading/`, even through `CreateFileW`;
+  - write outside the workspace;
+  - connect to loopback or the internet;
+  - open the engine's named pipe;
+  - read the person's saved credential (`CredReadW`);
+  - unseal a DPAPI secret the engine sealed.
+
+  The tests also check that a run's files come home, that the profile is deleted, the fallback and
+  its reason, and that a v1 process told it's in an AppContainer stops.
 
 ## Python and Delta exercises (ACD-011)
 

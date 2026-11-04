@@ -34,14 +34,35 @@ def _main() -> None:
         k.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
         k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         k.CloseHandle.argtypes = [wintypes.HANDLE]
-        # The engine names its job; asking about a NULL job would accept any job, such as a CI runner's.
-        name = cfg.get("job_name")
-        job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
+        # The engine names its job, or (in an AppContainer, whose object namespace is its own) hands
+        # this process a QUERY-only handle to it. Asking about a NULL job would accept any job, such
+        # as a CI runner's.
+        shared, name = cfg.get("job_handle"), cfg.get("job_name")
+        if isinstance(shared, int) and not isinstance(shared, bool) and shared > 0:
+            job = shared
+        elif cfg.get("appcontainer"):
+            job = None   # an AppContainer run without its handle is refused, never looked up by name
+        else:
+            job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
         inside_job = wintypes.BOOL(False)
         if not job or not k.IsProcessInJob(k.GetCurrentProcess(), job, ctypes.byref(inside_job)) or not inside_job.value:
             sys.stderr.write("academy: the learner process isn't in its job; nothing was run.\n")
             os._exit(3)
         k.CloseHandle(job)   # the learner script gets no handle to the job
+        if cfg.get("appcontainer"):
+            # The engine says "sandboxed" for this run only if this token really is an AppContainer's.
+            adv = ctypes.WinDLL("advapi32", use_last_error=True)
+            adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+            adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                ctypes.POINTER(wintypes.DWORD)]
+            token, flag, size = wintypes.HANDLE(), wintypes.DWORD(0), wintypes.DWORD(0)
+            ok = adv.OpenProcessToken(k.GetCurrentProcess(), 0x0008, ctypes.byref(token))   # TOKEN_QUERY
+            ok = ok and adv.GetTokenInformation(token, 29, ctypes.byref(flag), 4, ctypes.byref(size))   # TokenIsAppContainer
+            if token:
+                k.CloseHandle(token)
+            if not ok or not flag.value:
+                sys.stderr.write("academy: the learner process isn't in its AppContainer; nothing was run.\n")
+                os._exit(3)
 
     _guard_imports(blocked)
     _wrap_native(work)       # imports the data libraries first: some load native code through ctypes

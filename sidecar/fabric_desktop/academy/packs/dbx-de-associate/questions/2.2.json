@@ -79,7 +79,7 @@
         },
         {
           "id": "c",
-          "text": "There's no way; COPY INTO never changes the schema"
+          "text": "FORMAT_OPTIONS ('inferSchema' = 'true')"
         },
         {
           "id": "d",
@@ -91,7 +91,7 @@
       ],
       "explanation": "With mergeSchema set to true, the target table's schema can evolve according to the incoming data.",
       "source": "https://docs.databricks.com/aws/en/sql/language-manual/delta-copy-into",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

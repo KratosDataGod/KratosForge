@@ -38,7 +38,7 @@ test("Right moves to the next tab on rows that weren't tablists before", { skip 
   assert.deepStrictEqual(app.errors, []);
 });
 
-// Settings' row (General, Integrations) is drawn only while Preview features show (#1061).
+// Settings' row (General, Connections, Integrations) is drawn only while Preview features show (#1061).
 test("Settings' tab row moves with Right, Home and End", { skip }, async () => {
   await page().evaluate(() => { state.settingsTab = "general"; go("settings"); });
   const list = "#view .subtabs";
@@ -50,7 +50,7 @@ test("Settings' tab row moves with Right, Home and End", { skip }, async () => {
   }, name);
   await page().locator(`${list} [role=tab][aria-selected="true"]`).focus();
   await page().keyboard.press("ArrowRight");
-  await on("Integrations");
+  await on("Connections");
   await page().keyboard.press("Home");
   await on("General");
   await page().keyboard.press("End");

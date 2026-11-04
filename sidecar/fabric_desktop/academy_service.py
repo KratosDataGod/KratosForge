@@ -59,7 +59,7 @@ class AcademyMixin:
                 "lesson": lesson, "remediation": list(ex.get("remediation") or []), "reset": ex["reset"],
                 "verification": exercises.label(ex), "hints": len(ex.get("hints") or []),
                 "checks": [c["kind"] for c in ex["validation"]],
-                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] == "duckdb_lab" else None}  # type: ignore[attr-defined]
+                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in exercises.SQL_ADAPTERS else None}  # type: ignore[attr-defined]
 
     def academy_start(self, pack_id: str, exercise_id: str) -> dict[str, Any]:
         """Make the exercise's workspace on this PC if it isn't there yet (kept across restarts)."""

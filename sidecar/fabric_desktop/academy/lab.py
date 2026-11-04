@@ -1,5 +1,6 @@
-"""Academy exercise workspaces for DuckDB exercises (the ``duckdb_lab`` adapter): start, run, validate,
-hint, explanation and reset, on this PC.
+"""Academy exercise workspaces for SQL exercises (the ``duckdb_lab`` and ``dbsql_lab`` adapters): start,
+run, validate, hint, explanation and reset, on this PC. A ``dbsql_lab`` answer is Databricks SQL, translated
+to DuckDB SQL before it runs (academy/dbsql_lab.py), in UTC.
 
 A workspace lives in ``<data>/academy/<pack>/<exercise>/``: ``lab.duckdb`` built from the exercise's
 setup, ``answer.sql`` (the learner's work, which starts as the starter) and ``state.json`` (hints used,
@@ -32,7 +33,7 @@ import duckdb
 from .. import jsonfile
 from ..learn import checks
 from ..learn import labs as learn_labs
-from . import exercises
+from . import dbsql_lab, exercises
 from . import workspace as ws
 
 DB_FILE = "lab.duckdb"
@@ -79,8 +80,8 @@ def _write_state(folder: Path, st: dict[str, Any]) -> None:
 
 def _duckdb_exercise(pack_id: str, exercise_id: str) -> dict[str, Any]:
     ex = exercises.get(pack_id, exercise_id)
-    if ex["adapter"] != "duckdb_lab":
-        raise ValueError(f"{exercise_id} doesn't run in a DuckDB lab")
+    if ex["adapter"] not in exercises.SQL_ADAPTERS:
+        raise ValueError(f"{exercise_id} doesn't run in a SQL lab")
     return ex
 
 
@@ -141,10 +142,13 @@ def save(root: Path, pack_id: str, exercise_id: str, text: str) -> None:
 
 def run(root: Path, pack_id: str, exercise_id: str, sql: str, limit: int = 200) -> dict[str, Any]:
     """The first ``limit`` rows of the learner's SQL, run in the workspace and rolled back."""
-    _duckdb_exercise(pack_id, exercise_id)
+    ex = _duckdb_exercise(pack_id, exercise_id)
     folder = _started(root, pack_id, exercise_id)
     limit = min(max(1, int(limit)), 1000)
-    con = _connect(folder)
+    translated = ex["adapter"] == "dbsql_lab"
+    if translated:
+        sql = dbsql_lab.translate(sql)
+    con = _connect(folder, zone=dbsql_lab.ZONE if translated else None)
     began = time.perf_counter()
     try:
         checks.guard(con, sql)
@@ -175,10 +179,12 @@ def _db_path(folder: Path, must_exist: bool = True) -> str:
     return str(db)
 
 
-def _connect(folder: Path) -> duckdb.DuckDBPyConnection:
+def _connect(folder: Path, zone: str | None = None) -> duckdb.DuckDBPyConnection:
     """The workspace database with no file or network access, a memory limit and locked settings: the
-    same connection Learn labs use."""
+    same connection Learn labs use. ``zone``: the session time zone (translated SQL runs in UTC)."""
     con = duckdb.connect(_db_path(folder))
+    if zone:
+        con.execute(f"SET TimeZone = '{zone}'")
     con.execute("SET enable_external_access = false")
     con.execute(f"SET memory_limit = '{learn_labs.MEMORY_LIMIT}'")
     con.execute("SET lock_configuration = true")
@@ -197,18 +203,8 @@ def _fresh(setup: str | None) -> duckdb.DuckDBPyConnection:
     return con
 
 
-def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
-    """Run the exercise's validation on the learner's answer (the saved one when ``answer`` is None), in a
-    fresh copy of the exercise's data rather than the workspace database.
-    Returns the results, the verification label (what a pass proves and doesn't), and the hints and
-    explanation use the evidence row needs."""
-    ex = _duckdb_exercise(pack_id, exercise_id)
-    folder = _started(root, pack_id, exercise_id)
-    if answer is None:
-        answer = _read_text(folder, ANSWER_FILE)
-    elif len(answer.encode("utf-8")) > MAX_ANSWER_BYTES:
-        raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
-    ref = exercises.reference(pack_id, exercise_id)
+def _check_duckdb(ex: dict[str, Any], ref: dict[str, Any], answer: str) -> list[dict[str, Any]]:
+    """Every check of a duckdb_lab exercise on ``answer``, in a fresh copy of the setup."""
     solution = ref["solution"]
     results = []
     con = _fresh(ref["setup"])
@@ -221,6 +217,26 @@ def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = No
             results.append({**r, "message": message} if message else r)
     finally:
         con.close()
+    return results
+
+
+def validate(root: Path, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
+    """Run the exercise's validation on the learner's answer (the saved one when ``answer`` is None), in a
+    fresh copy of the exercise's data rather than the workspace database.
+    Returns the results, the verification label (what a pass proves and doesn't), and the hints and
+    explanation use the evidence row needs."""
+    ex = _duckdb_exercise(pack_id, exercise_id)
+    folder = _started(root, pack_id, exercise_id)
+    if answer is None:
+        answer = _read_text(folder, ANSWER_FILE)
+    elif len(answer.encode("utf-8")) > MAX_ANSWER_BYTES:
+        raise ValueError("That answer is over 1 MB; an exercise answer is much smaller.")
+    if ex["adapter"] == "dbsql_lab":
+        results = dbsql_lab.check_all(ex, dbsql_lab.reference(pack_id, exercise_id), answer,
+                                      connect_to=lambda setup: dbsql_lab.connect(setup, learn_labs.MEMORY_LIMIT),
+                                      limit=learn_labs._time_limit, stopped=learn_labs._stopped())
+    else:
+        results = _check_duckdb(ex, exercises.reference(pack_id, exercise_id), answer)
     st = _state(folder)
     passed = all(r["passed"] for r in results)
     st["last"] = {"passed": passed, "checks": [{"kind": r["kind"], "passed": r["passed"]} for r in results]}

@@ -121,7 +121,10 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
            "denied_roots": denied_roots(data_root), "blocked_modules": list(BLOCKED_MODULES),
            "lib_roots": [_check_lib_root(r, work, data_root) for r in lib_roots or []],
            "job_name": job_name}
-    argv = [sys.executable, "-I", "-X", "utf8", "-c", BOOTSTRAP.read_text(encoding="utf-8"), json.dumps(cfg)]
+    # The bootstrap is read from the install folder (before its hook denies that folder), not passed
+    # whole on the command line: Windows caps a command line at 32,767 characters.
+    launch = f"P = {str(BOOTSTRAP)!r}; exec(compile(open(P, 'rb').read(), P, 'exec'))"
+    argv = [sys.executable, "-I", "-X", "utf8", "-c", launch, json.dumps(cfg)]
     started = time.monotonic()
     proc, limiter = _start(argv, work, memory_limit, cpu_limit, job_name)
     out: dict[str, bytes] = {}

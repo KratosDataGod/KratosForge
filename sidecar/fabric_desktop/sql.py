@@ -22,7 +22,7 @@ from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import ParseError, TokenError, UnsupportedError
 from sqlglot.tokens import TokenType
 
-from . import lakehouse, spark_builtins_sql, sql_dialects
+from . import spark_builtins_sql, sql_dialects
 from .duckdb_rows import arrow_reader, for_arrow, keep_try_cast, run_through
 
 # View names stay unique on a connection even after superseded ones are dropped (superseded).
@@ -1110,6 +1110,13 @@ def spark_substring(node: exp.Expression) -> exp.Expression:
     return node
 
 
+def _lakehouse() -> Any:
+    """The lakehouse module, imported only when a statement reads a lakehouse table, so this module's
+    translation functions load without it (Academy's learner process has no lakehouse; DBA-003)."""
+    from . import lakehouse
+    return lakehouse
+
+
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],
                 is_local: Callable[[str], bool] = lambda _name: False) -> None:
     """Point every lakehouse table ``statement`` names at a Delta dataset registered on ``con``.
@@ -1135,13 +1142,13 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             # The latest version is looked up each time, so a table written since an earlier statement
             # on a long-lived connection (spark on this PC) is read as it is now, as Spark does. Its
             # location is part of the key: in a proof, a table it wrote is read from the proof's copy.
-            opened = lakehouse.open_table(name)
+            opened = _lakehouse().open_table(name)
             key = f"{name.lower()}@{opened.table_uri}#{opened.version()}"
         else:
             key, at = f"{name.lower()}@{point}", point_args(point)
         if key not in views:
             views[key] = f"__lakehouse_table_{next(_VIEW_NAMES)}"
-            opened = opened or lakehouse.open_table(name, **at)
+            opened = opened or _lakehouse().open_table(name, **at)
             con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
@@ -1207,7 +1214,7 @@ def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
     name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
     view = f"__lakehouse_history_{len(views)}"
     views[f"history:{name.lower()}:{len(views)}"] = view
-    con.register(view, lakehouse.table_history(name).to_arrow())
+    con.register(view, _lakehouse().table_history(name).to_arrow())
     return cast(exp.Expression, sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb"))
 
 

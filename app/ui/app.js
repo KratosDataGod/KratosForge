@@ -1441,9 +1441,11 @@ function openInFabric(page) {
 // Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
 function workspacesTabs(active) {
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
-      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-        onclick: () => go(view) }, label)));
+    // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"], previewShown() ? ["databricks_sync", "Databricks"] : null].filter(Boolean)
+      .map(([view, label]) =>
+        h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+          onclick: () => go(view) }, label, view === "databricks_sync" ? previewTag() : null)));
 }
 
 // Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
@@ -2851,8 +2853,9 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
-  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync"] },
+  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
+    databricks_sync: () => renderDatabricksSync() },
 });
 registerFeature({
   id: "onelake", rail: { label: "OneLake", icon: "onelake", order: 40 }, views: { onelake: renderOneLake },

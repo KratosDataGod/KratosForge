@@ -1242,7 +1242,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -5613,7 +5613,8 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
       "Databricks workspace discovery", "Connection profiles in Settings",
-      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost"],
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks workspace sync"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {

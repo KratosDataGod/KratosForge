@@ -58,7 +58,9 @@ test("Optimize sits in the rail where Fabric was, and Fabric's portal is a Works
   assert.ok(!rail.includes("Fabric"), rail.join(", "));
   assert.ok(rail.length <= 8);
   await page().evaluate(() => go("workspaces"));
-  assert.deepStrictEqual(await page().locator(".subtabs .tab").allTextContents(), ["Your workspaces", "Fabric portal"]);
+  // Databricks (Preview, dbx-sync.js) is a third tab while Preview features show.
+  assert.deepStrictEqual((await page().locator(".subtabs .tab").allTextContents()).map((t) => t.replace("Preview", "")),
+    ["Your workspaces", "Fabric portal", "Databricks"]);
 });
 
 test("before a lakehouse is connected, setup doesn't block Cost and savings", { skip }, async () => {

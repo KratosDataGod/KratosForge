@@ -40,7 +40,7 @@ def test_methods_are_served_and_the_writes_are_audited():
     for m in ("academy_catalog", "academy_exercise", "academy_run", "academy_validate", "academy_hint", "academy_readiness",
               "academy_sandbox_status"):
         assert not audit.audited(m)
-    for m in ("academy_start", "academy_save", "academy_explanation", "academy_reset", "academy_sandbox_remove_grants"):
+    for m in ("academy_start", "academy_save", "academy_explanation", "academy_reset"):
         assert audit.audited(m)
 
 

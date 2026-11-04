@@ -261,7 +261,8 @@ def _icacls(*args: str) -> Any:
     import subprocess
     # No /C: icacls stops at the first file it can't change and says so in its exit status. Its
     # output is read only for the SID check below.
-    return subprocess.run(["icacls", *args, "/Q"], capture_output=True, timeout=60, check=False)
+    exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe")   # never by bare name
+    return subprocess.run([exe, *args, "/Q"], capture_output=True, timeout=60, check=False)
 
 
 def _grant(api: Any, path: Path, sid_string: str, inherit: bool) -> None:
@@ -299,7 +300,8 @@ def grant_runtime(api: Any, cap_string: str, lib_roots: list[Path] | None = None
     if not set(wanted) <= done or not _has_grant(Path(sys.base_prefix), cap_string):
         for path, inherit in paths:
             _grant(api, path, cap_string, inherit)
-        done |= set(wanted)
+        # Paths gone since (an engine's temporary kf_learner folder, say) took their ACE with them.
+        done = {p for p in done | set(wanted) if os.path.exists(p)}
         if record:
             record.parent.mkdir(parents=True, exist_ok=True)
             jsonfile.write_json(record, {"sid": cap_string, "capability": CAPABILITY, "paths": sorted(done)})

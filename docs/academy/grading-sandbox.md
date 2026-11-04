@@ -195,15 +195,19 @@ when the PC allows it, on top of everything above (the Job Object, the audit hoo
   unreadable. The bootstrap is copied into the profile beside the workspace, not inside it.
   These grants are persistent ACEs on the person's Python install. They're recorded in
   `<data>/academy/appcontainer-grants.json` (the capability's SID and each path) and made again only
-  when that record or the interpreter's own ACE is missing. `academy_sandbox_remove_grants` (for
-  Diagnostics and uninstall) removes them with `icacls /remove:g` and lists any path it couldn't
-  change. It removes only the SID derived from the capability's name, never one read from the
-  record (anything running as the person can write that file), and uses only absolute, plain paths
-  from it. `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
+  when that record or the interpreter's own ACE is missing. Paths that no longer exist (an engine
+  start's temporary `kf_learner` folder) drop out of the record. `appcontainer.revoke_runtime()`
+  removes the grants with `icacls` (always `%SystemRoot%\System32\icacls.exe`) `/remove:g` and lists
+  any path it couldn't change. It removes only the SID derived from the capability's name, never one
+  read from the record (anything running as the person can write that file), and uses only absolute,
+  plain paths from it. It isn't an engine method yet: it changes ACLs on the person's Python, so it
+  arrives with a confirmed Diagnostics action (and uninstall), once that screen's mockup is agreed.
+  `academy_sandbox_status` says whether runs use an AppContainer and, if not, why.
 - **Copying home.** Files come home only from an empty job. If the job's processes aren't all gone
   after it is ended, nothing is copied and the run fails in words. The copy goes into a new folder
   beside the workspace and is swapped in only once it's whole and within the caps, so a refused copy
-  leaves the learner's workspace as it was.
+  leaves the learner's workspace as it was; `run()` then raises `workspace.Refused`, with the reason in
+  words.
 - **Profiles a crash left behind.** On the first run after the engine starts, profiles named
   `KratosForge.Academy.*` (found under `HKCU\Software\Classes\Local Settings\Software\Microsoft\
   Windows\CurrentVersion\AppContainer\Mappings`) whose folder hasn't changed for 10 minutes are

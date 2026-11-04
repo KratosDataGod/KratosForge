@@ -21,8 +21,7 @@ from .redact import describe
 _log = logging.getLogger(__name__)
 
 METHODS = {"academy_catalog", "academy_exercise", "academy_start", "academy_save", "academy_run", "academy_validate",
-           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status",
-           "academy_sandbox_remove_grants"}
+           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status"}
 
 _SUMMARY = ("id", "title", "objectives", "minutes", "mode", "class", "adapter", "status", "version")
 
@@ -109,8 +108,3 @@ class AcademyMixin:
     def academy_sandbox_status(self) -> dict[str, Any]:
         """For Diagnostics: whether exercise scripts run in an AppContainer on this PC, and if not, why."""
         return appcontainer.status()
-
-    def academy_sandbox_remove_grants(self) -> dict[str, Any]:
-        """For Diagnostics (and uninstall): remove the read grants the AppContainer runs added to this
-        PC's Python install. The next exercise run adds them again. ``{removed, failed}``."""
-        return appcontainer.revoke_runtime(self.root)  # type: ignore[attr-defined]

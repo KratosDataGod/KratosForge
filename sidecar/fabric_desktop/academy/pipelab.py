@@ -42,6 +42,7 @@ ALLOWED = ("SetVariable", "AppendVariable", "IfCondition", "Switch", "ForEach", 
            "ExecutePipeline", "InvokePipeline")
 TIME_LIMIT = 20.0
 MAX_ACTIVITIES = 200
+MAX_DAG_ACTIVITIES = 500   # checked before the DAG is ordered, so a huge one costs nothing
 
 
 def _no(kind: str, detail: str) -> dict[str, Any]:
@@ -117,6 +118,9 @@ def dag_matches(dag: Any, notebooks: list[str], after: list[list[str]] | None = 
     """A runMultiple DAG: valid on this PC, runs ``notebooks`` (by activity name), runs each
     ``[first, then]`` pair in that order through its dependencies, and caps concurrency."""
     kind = "dag_matches"
+    acts = dag.get("activities") if isinstance(dag, dict) else dag
+    if isinstance(acts, (list, tuple)) and len(acts) > MAX_DAG_ACTIVITIES:
+        return _no(kind, f"The DAG has more than {MAX_DAG_ACTIVITIES} activities.")
     try:
         ordered = _dag_order(dag)
     except (TypeError, ValueError, NotImplementedError, AttributeError) as exc:

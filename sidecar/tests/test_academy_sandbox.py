@@ -428,3 +428,15 @@ def test_pyarrow_file_systems_are_refused_but_its_readers_work(lab: tuple[Path, 
                    "pq.write_table(pa.table({'a': [1, 2]}), 'x.parquet')\n"
                    "print(pq.read_table('x.parquet').num_rows)\n")
     assert res["status"] == "ok" and res["stdout"].strip() == "2", res["stderr"]
+
+
+def test_run_resolves_the_workspace_before_finding_the_script(tmp_path):
+    """A workspace given by another spelling of its path (a Windows 8.3 short temp path; here a
+    path with "..") is resolved first, so the script is still found inside it."""
+    work = tmp_path / "ws"
+    work.mkdir()
+    (work / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    other = tmp_path / "ws" / ".." / "ws"
+    got = sandbox.run(other, "main.py", tmp_path, time_limit=30)
+    assert got["status"] == "ok", got["stderr"]
+    assert "hi" in got["stdout"]

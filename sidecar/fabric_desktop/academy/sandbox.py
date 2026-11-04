@@ -109,10 +109,13 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
     """Run ``script`` (a file in the workspace) in a learner process. Returns ``{status, exit_code,
     stdout, stderr, seconds, limits}``; ``status`` is ok, error, time_limit, memory_limit or refused.
     ``lib_roots``: folders put first on the process's ``sys.path`` and readable, never writable."""
+    ws.inside(work, ".")   # the workspace as given is a plain folder, not a link
+    # Resolved before the script is looked up, so both carry the same long form of the path:
+    # a Windows 8.3 short temp path (RUNNER~1) would otherwise not compare as inside the workspace.
+    work = Path(work).resolve()
     path = ws.inside(work, script)
     if not path.is_file() or path.suffix != ".py":
         raise ws.Refused(f"{script} isn't a Python file in the exercise.")
-    work = Path(work).resolve()
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
     # The data root is denied for reads, but the workspace lives under it: the hook checks
     # "inside the workspace" first, so the learner reads its own folder and nothing else of the app's.

@@ -241,6 +241,10 @@ Before it is turned on by default (Security's musts):
   `KratosForge.Academy.*` (found under `HKCU\Software\Classes\Local Settings\Software\Microsoft\
   Windows\CurrentVersion\AppContainer\Mappings`) whose folder hasn't changed for 10 minutes are
   deleted with `DeleteAppContainerProfile`.
+- **Package names are visible.** The runtime grant gives site-packages read on the folder itself,
+  so imports can find the learner packages. A script can therefore list the names of every installed
+  package, but it can't read any package the grant doesn't name: `import msal` makes an empty
+  namespace package, and `msal/__init__.py` can't be opened. Accepted by Security.
 - **No disk quota.** Nothing caps how much a script writes in the profile's folder, the same as v1.
   The copy home is capped (2,000 files, 1 GB).
 - **The process.** `CreateProcessW` with `SECURITY_CAPABILITIES` (that one capability, no network

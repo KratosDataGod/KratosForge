@@ -202,6 +202,17 @@ What Windows CI showed on the first run (2026-11-04):
   resolving a relative table path. The Python guards' "outside the workspace" check also didn't
   refuse `..` there. Until these are fixed, a run in an AppContainer can't do the exercises.
 
+Before it is turned on by default (Security's musts):
+
+1. **Install deny.** The engine package and `grading/` get deny ACEs for ALL APPLICATION PACKAGES
+   (S-1-15-2-1) and ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2), or the engine lives where
+   neither can read. A test in AppContainer mode, with the hook off, shows `grading/` can't be read.
+2. **DPAPI, a standing rule.** An AppContainer process can unseal the person's DPAPI blobs, so no
+   DPAPI-sealed file may ever be in a folder an AppContainer can read: not the workspace, not the
+   profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
+3. **The guard fails closed.** If the Python guard can't resolve a path inside an AppContainer, it
+   refuses. This is fixed together with the library path work.
+
 - **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
   The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows
   grants to that SID, and copied home after the Job has ended, refusing links both ways (2,000 files,
@@ -238,8 +249,9 @@ What Windows CI showed on the first run (2026-11-04):
   through that handle (an AppContainer has its own object namespace, so it never looks the job up by
   name) and checks that its token is an AppContainer's (`TokenIsAppContainer`). Otherwise it stops
   with exit 3 before the script runs.
-- **Wording.** A run in an AppContainer says "an AppContainer on this PC: no network, files only in
-  the exercise folder, with time and memory limits". If Windows refuses a step before the script
+- **Wording.** A run in an AppContainer says "an AppContainer on this PC: no network and no access to
+  your own files, with time and memory limits". It never says "files only in the exercise folder"
+  while folders every AppContainer can read (below) are open. If Windows refuses a step before the script
   starts (an old Windows, a policy that blocks AppContainers, a runtime folder whose ACL can't be
   changed), the run uses the v1 learner process and its v1 wording, and `appcontainer.status()` says
   why.

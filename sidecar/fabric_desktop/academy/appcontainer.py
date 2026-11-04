@@ -43,7 +43,7 @@ NEVER = re.compile(r"^(fabric[_-]desktop|msal|azure|keyring|win32|pywin32|mssql|
 MAX_COPY_FILES = 2_000
 MAX_COPY_BYTES = 1024 * 1024 * 1024
 
-RUNS_AS = "an AppContainer on this PC: no network, files only in the exercise folder, with time and memory limits"
+RUNS_AS = "an AppContainer on this PC: no network and no access to your own files, with time and memory limits"
 
 _lock = threading.Lock()
 _granted: dict[str, bool] = {}

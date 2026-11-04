@@ -1,0 +1,173 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "7.4",
+  "questions": [
+    {
+      "id": "7.4-q1",
+      "type": "single",
+      "stem": "What does attribute-based access control (ABAC) in Unity Catalog base its policies on?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The job's schedule"
+        },
+        {
+          "id": "b",
+          "text": "Governed tags on catalogs, schemas, tables and columns"
+        },
+        {
+          "id": "c",
+          "text": "The cluster's node type"
+        },
+        {
+          "id": "d",
+          "text": "The table's file size"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Attributes are governed tags, which can be set on catalogs, schemas, tables and columns, so one policy can cover many objects.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/core-concepts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.4-q2",
+      "type": "single",
+      "stem": "Why use an ABAC policy rather than setting a mask on each table by hand?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ABAC runs faster than SQL"
+        },
+        {
+          "id": "b",
+          "text": "One policy applies to every table with a matching tag, including new ones"
+        },
+        {
+          "id": "c",
+          "text": "ABAC deletes sensitive columns"
+        },
+        {
+          "id": "d",
+          "text": "ABAC encrypts the table's files"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A policy takes effect on any object with the attributes it targets, like a future grant, so rules scale as tables are added.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/core-concepts",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.4-q3",
+      "type": "multiple",
+      "stem": "Which can an ABAC policy apply to matching tables? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A liquid clustering key"
+        },
+        {
+          "id": "b",
+          "text": "A column mask"
+        },
+        {
+          "id": "c",
+          "text": "A file arrival trigger"
+        },
+        {
+          "id": "d",
+          "text": "A row filter"
+        }
+      ],
+      "answer": [
+        "d",
+        "b"
+      ],
+      "explanation": "ABAC policies apply row filters and column masks based on tags.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/policies",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.4-q4",
+      "type": "single",
+      "stem": "At which levels can an ABAC policy be defined so that it covers objects below it?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Metastore, catalog, schema or table"
+        },
+        {
+          "id": "b",
+          "text": "Only the notebook"
+        },
+        {
+          "id": "c",
+          "text": "Only the dashboard"
+        },
+        {
+          "id": "d",
+          "text": "Only the cluster"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A policy set on a catalog or schema applies to matching objects inside it.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/policies",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "7.4-q5",
+      "type": "order",
+      "stem": "Arrange the steps to protect phone numbers across many tables with ABAC.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Check the policy with SHOW EFFECTIVE POLICIES or DESCRIBE POLICY"
+        },
+        {
+          "id": "b",
+          "text": "Create a policy that applies the mask to columns with that tag"
+        },
+        {
+          "id": "c",
+          "text": "Tag the phone columns with a governed tag"
+        },
+        {
+          "id": "d",
+          "text": "Write a masking function"
+        }
+      ],
+      "answer": [
+        "d",
+        "c",
+        "b",
+        "a"
+      ],
+      "explanation": "In this workflow the function and the tags exist before the policy, which you then check. The function and the tags can come in either order.",
+      "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/policies",
+      "also_accept": [
+        [
+          "c",
+          "d",
+          "b",
+          "a"
+        ]
+      ],
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

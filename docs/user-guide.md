@@ -54,6 +54,7 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
 - While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either, unless you untick **Respect Windows' reduced-motion setting** in [Motion and effects](#motion-and-effects).
+- **Ctrl+=** and **Ctrl+-** zoom the whole window in and out, and **Ctrl+0** goes back to 100%; **Ctrl** with the mouse wheel does the same. Pages are checked to fit the default window at 200%: the top bar keeps your account button, and wide tables scroll inside their box.
 - With a Windows contrast theme on (**Settings > Accessibility > Contrast themes**), the app uses the theme's colors. The current page in the rail, the selected tab or option, and a selected notebook cell are drawn in the theme's highlight color, and the focus ring uses it too.
 
 ### Keyboard shortcuts
@@ -70,6 +71,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Alt+Left**, **Alt+Right** | Go back or forward to the page you were on, as the top bar's arrows do (not while typing in a box) |
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
+| **Ctrl+=**, **Ctrl+-**, **Ctrl+0** | Zoom the window in or out, or back to 100% (**Ctrl** and the mouse wheel too) |
 
 Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces; press **Esc**, then **Tab**, to move on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
@@ -551,15 +553,17 @@ An incident is one record per problem in an environment: a table whose last run 
 
 **How this works**, from the title bar's info button, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
 
-**The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
+**The list.** Pick the environment from the list (each shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you), **Unassigned**, **SLA at risk** (near or past a target) or **Resolved**; each shows how many it holds. Each row shows the incident's number (`INC-PROD-0042`), its priority (P1 to P4), the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, where it stands against its SLA (for example *Acknowledge overdue 12 min* or *Resolve due in 3 h*), and whether it was escalated.
 
 **Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
 
 **Likely** is a hint matched from the error text (Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized) with whether a retry alone usually helps. The run's own error is the evidence.
 
-**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+**Report an incident**, beside **Check now**, on a workload's **Incidents** card, or from the command bar, is for a problem people notice that the app can't see, such as wrong numbers in a report. Say what's wrong, add details, pick the environment and how bad it is (P1 to P4, with what that priority means for your SLA). It goes into that environment's shared list with your name and a new number, and closes only when a person resolves it.
 
-**The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
+**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Change priority** (under **More** on the incident page) sets P1 to P4 with a note saying why; after that, checks don't change it. **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+
+**The incident page** shows the number and priority, what happened with its evidence and **Open run**, who is told (priority, when it must be acknowledged and resolved by, owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), **What to do** for that kind of incident, and the timeline: every change with who made it and when.
 
 #### Who's affected (Preview)
 
@@ -567,9 +571,9 @@ For an incident about a metadata table, the incident page shows **Who's affected
 
 **Tell them** posts one Teams message through the platform's Teams routes (**Settings > Notifications**, kind *Incident reaching data products*) naming those people and products. The message has the incident's title and the products' names, never its notes. A note on the incident records who was told and when. Telling again only posts when someone new is reached. With no platform Teams route set, nothing is posted: **Copy emails** copies the addresses so you can tell them yourself.
 
-**On a workload's page**, **Incidents** lists its active incidents in every environment.
+**On a workload's page**, **Incidents** lists its active incidents in every environment, with their numbers and priorities, and has **Report an incident** for that workload: its owner, team and criticality come with it.
 
-**Numbers, priorities and SLAs.** Every incident now gets a number (`INC-PROD-0042`), a priority from P1 to P4, a timeline, and SLA targets for acknowledging and resolving it; people can also report a problem the app can't see. The list doesn't show these yet. How they work, and how IT sets its own SLA targets: [Incidents and your service desk](incidents.md).
+**Numbers, priorities and SLAs**: how priorities are set, the default SLA targets, and how IT sets its own, are in [Incidents and your service desk](incidents.md).
 
 ### Agents (Preview)
 

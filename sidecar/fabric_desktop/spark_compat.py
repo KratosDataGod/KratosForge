@@ -10,6 +10,7 @@ Nothing here writes anywhere; it only builds queries. ``install()`` is called by
 
 from __future__ import annotations
 
+import builtins
 import itertools
 import re
 import sys
@@ -23,6 +24,7 @@ from duckdb.experimental.spark.sql.column import Column
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.group import GroupedData
 from sqlglot import exp
+from . import spark_builtins_sql
 from . import sql as spark_sql
 
 _ids = itertools.count()
@@ -43,8 +45,9 @@ def _col_sql(c: Any) -> str:
 
 def spark_expr(text: str) -> str:
     """One Spark SQL expression as DuckDB SQL."""
-    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_sql.spark_substring(
-        spark_sql.spark_integer_casts(sqlglot.parse_one(text, read="spark")))))
+    tree = spark_builtins_sql.mark(sqlglot.parse_one(text, read="spark"))
+    return spark_sql.duckdb_sql(spark_sql.spark_legacy_times(spark_builtins_sql.rewrite(spark_sql.spark_substring(
+        spark_sql.spark_integer_casts(tree)))))
 
 
 def _call(spark_sql: str, *cols: Any) -> Column:
@@ -433,7 +436,7 @@ class WindowSpec:
         if self._partition:
             parts.append("PARTITION BY " + ", ".join(_col_sql(c) for c in self._partition))
         if self._order:
-            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {getattr(c, '_fd_order', 'ASC NULLS FIRST')}"
+            parts.append("ORDER BY " + ", ".join(f"{_col_sql(c)} {_order_of(c)}"
                                                  for c in self._order))
         if self._frame:
             parts.append(self._frame)
@@ -482,6 +485,39 @@ _ORDERS = {"asc": "ASC NULLS FIRST", "desc": "DESC NULLS LAST", "asc_nulls_first
            "asc_nulls_last": "ASC NULLS LAST", "desc_nulls_first": "DESC NULLS FIRST", "desc_nulls_last": "DESC NULLS LAST"}
 
 
+def _order_of(c: Any) -> str:
+    """The sort order ``.asc()``/``.desc()`` set on ``c``. Read from the instance itself: DuckDB's
+    ``Column.__getattr__`` answers any other name with a struct-field column, so getattr's default
+    would never be used."""
+    return vars(c).get("_fd_order", "ASC NULLS FIRST") if isinstance(c, Column) else "ASC NULLS FIRST"
+
+
+def _get_item(self: Column, key: Any) -> Column:
+    """``col.getItem(key)`` and ``col[key]``: a whole number is an array's 0-based position (NULL
+    outside the array, as Spark gives without ANSI mode); text is a map's key or a struct's field."""
+    if isinstance(key, Column):
+        raise NotImplementedError("getItem with a column doesn't run on this PC yet: "
+                                  "use F.element_at(col, position + 1) for an array, or a map's key as text")
+    if isinstance(key, bool) or not isinstance(key, (int, str)):
+        raise TypeError(f"getItem takes a whole number or text, not {type(key).__name__}")
+    if isinstance(key, int):
+        return _sql(f"({_col_sql(self)})[{key + 1 if key >= 0 else 0}]")
+    return _sql(f"({_col_sql(self)})[{_lit(key)}]")
+
+
+def _getitem(original: Any) -> Any:
+    def getitem(self: Column, key: Any) -> Column:
+        return original(self, key) if isinstance(key, builtins.slice) else _get_item(self, key)
+    return getitem
+
+
+def _get_field(self: Column, name: str) -> Column:
+    """``col.getField(name)``: a struct's field."""
+    if not isinstance(name, str):
+        raise TypeError(f"getField takes a field name, not {type(name).__name__}")
+    return _sql(f"({_col_sql(self)})[{_lit(name)}]")
+
+
 def _ordered(name: str, fn: Any) -> Any:
     def order(self: Column) -> Column:
         out = fn(self)
@@ -513,10 +549,63 @@ def _frame(df: DataFrame, relation: Any) -> DataFrame:
     return DataFrame(relation, df.session)
 
 
+def _spark_decimals(df: DataFrame, cols: Any) -> list[Any]:
+    """``cols`` (columns and column names over ``df``) with Spark's decimal result types for ``+ - * /``,
+    ``sum`` and ``avg`` of decimals (EA-004, #1682), by the rules Spark SQL on this PC follows
+    (spark_decimals). Each column keeps the name it had; one whose types can't be worked out, a name
+    and a star are left as they were."""
+    cols = list(cols)
+    at = [i for i, c in enumerate(cols) if isinstance(c, Column)]
+    texts = [str(cols[i].expr) for i in at]
+    if not at or any(t.strip() == "*" or t.endswith(".*") for t in texts):
+        return cols
+    from .spark_decimals import spark_decimal_columns
+    for i, new in zip(at, spark_decimal_columns(texts, _types(df)), strict=True):
+        if new is not None:
+            # The rewritten column keeps the column's name: its alias, or the name DuckDB gives the expression.
+            cols[i] = Column(duckdb.SQLExpression(new[0]).alias(new[1] or _bound_name(df, cols[i].expr)))
+    return cols
+
+
+def _bound_name(df: DataFrame, expression: Any) -> str:
+    """The name DuckDB gives ``expression`` as a column of ``df``: binding it runs nothing. An aggregate
+    binds only in aggregate(); DuckDB 2.0 quotes column names in get_name() but not in this name."""
+    for bind in (lambda: df.relation.select(expression), lambda: df.relation.aggregate([expression])):
+        try:
+            return str(bind().columns[0])
+        except duckdb.Error:
+            continue
+    return str(expression.get_name())
+
+
+def _decimal_select(fn: Any) -> Any:
+    def select(self: DataFrame, *cols: Any) -> DataFrame:
+        return fn(self, *_spark_decimals(self, _flat(cols)))
+    select.__doc__ = fn.__doc__
+    return select
+
+
+def _decimal_with_column(fn: Any) -> Any:
+    def withColumn(self: DataFrame, colName: str, col: Any) -> DataFrame:  # noqa: N802, N803
+        return fn(self, colName, *_spark_decimals(self, [col]))
+    withColumn.__doc__ = fn.__doc__
+    return withColumn
+
+
+def _decimal_with_columns(fn: Any) -> Any:
+    def withColumns(self: DataFrame, *colsMap: Any) -> DataFrame:  # noqa: N802, N803
+        if len(colsMap) == 1 and isinstance(colsMap[0], dict):
+            names = list(colsMap[0])
+            colsMap = (dict(zip(names, _spark_decimals(self, [colsMap[0][n] for n in names]), strict=True)),)
+        return fn(self, *colsMap)
+    withColumns.__doc__ = fn.__doc__
+    return withColumns
+
+
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
     if len(exprs) == 1 and isinstance(exprs[0], dict):
         exprs = tuple(_dict_agg(self, exprs[0]))
-    return DataFrame(self.relation.aggregate([c.expr for c in exprs]), self.session)
+    return DataFrame(self.relation.aggregate([c.expr for c in _spark_decimals(self, exprs)]), self.session)
 
 
 def _grouped_agg(fn: Any) -> Any:
@@ -526,7 +615,7 @@ def _grouped_agg(fn: Any) -> Any:
             exprs = tuple(_dict_agg(self._df, exprs[0]))
         if not self._grouping._cols:  # groupBy() with no columns: one row over the whole frame, as in Spark
             return _agg(self._df, *exprs)
-        return fn(self, *exprs)
+        return fn(self, *_spark_decimals(self._df, exprs))
     agg.__doc__ = fn.__doc__
     return agg
 
@@ -1028,6 +1117,9 @@ def install() -> None:
             setattr(F, name, fn)
     F.expr = expr  # Spark SQL, translated (DuckDB's own expr takes DuckDB SQL)
     Column.over = _over  # type: ignore[attr-defined]
+    Column.getItem = _get_item  # type: ignore[attr-defined]
+    Column.getField = _get_field  # type: ignore[attr-defined]
+    Column.__getitem__ = _getitem(Column.__getitem__)  # type: ignore[method-assign]
     Column.__truediv__ = Column.__div__ = _spark_divide(False)  # type: ignore[method-assign,assignment]
     Column.__rtruediv__ = Column.__rdiv__ = _spark_divide(True)  # type: ignore[method-assign,assignment]
     # Each wraps the other: a whole-number target goes to _int_cast, a date or timestamp to _time_cast.
@@ -1038,7 +1130,9 @@ def install() -> None:
     DataFrame.agg = _agg  # type: ignore[attr-defined]
     DataFrame.dtypes = property(_dtypes)  # type: ignore[assignment,method-assign]
     DataFrame.collect = _collect_structs_as_rows(DataFrame.collect)  # type: ignore[method-assign]
-    DataFrame.select = _global_select(DataFrame.select)  # type: ignore[method-assign]
+    DataFrame.select = _global_select(_decimal_select(DataFrame.select))  # type: ignore[method-assign]
+    DataFrame.withColumn = _decimal_with_column(DataFrame.withColumn)  # type: ignore[method-assign]
+    DataFrame.withColumns = _decimal_with_columns(DataFrame.withColumns)  # type: ignore[method-assign]
     DataFrame.selectExpr = _select_expr  # type: ignore[attr-defined]
     DataFrame.fillna = _fillna  # type: ignore[attr-defined]
     DataFrame.dropna = _dropna  # type: ignore[attr-defined]

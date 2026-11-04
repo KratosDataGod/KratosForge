@@ -55,6 +55,9 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"), REMOVED),
     (re.compile(r"(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])"), REMOVED),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
+    # AI model keys (App Studio model connections): Anthropic, OpenAI (project, service account, admin and
+    # older keys) and Google AI Studio.
+    (re.compile(r"\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})"), REMOVED),
     # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
     (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     # A Databricks OAuth secret (a service principal's client secret: dose + 32 hex).
@@ -88,8 +91,10 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+\-#]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _TENANT_DOMAIN = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b")
 # contoso.sharepoint.com, contoso-my.sharepoint.com (OneDrive) and contoso-admin.sharepoint.com
 _SHAREPOINT_HOST = re.compile(r"(?i)\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b")
-# a site or team name often carries the organization's: /sites/ContosoFinance
-_SHAREPOINT_SITE = re.compile(r"(?i)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)[^/\s\"'<>?#]+")
+# a site or team name often carries the organization's: /sites/ContosoFinance. One with spaces
+# (/sites/Contoso Finance/...) is hidden whole when its words run to a "/", a quote or the line's end.
+_SHAREPOINT_SITE = re.compile(r"(?im)(\.sharepoint\.(?:com|us|de|cn)/(?:sites|teams)/)"
+                              r"[^/\s\"'<>?#]+(?:(?: [^/\s\"'<>?#]+)+(?=[/\"'<>?#\r]|$))?")
 # a OneDrive web address names its owner: /personal/ann_contoso_com/
 _ONEDRIVE_PERSONAL = re.compile(r"(?i)(/personal/)[a-z0-9][a-z0-9_.\-]*")
 _ONEDRIVE_ORG = re.compile(r"(OneDrive - )([^\\/\"'<>:\r\n]+)")

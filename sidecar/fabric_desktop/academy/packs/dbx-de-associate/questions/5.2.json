@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "5.2",
+  "questions": [
+    {
+      "id": "5.2-q1",
+      "type": "single",
+      "stem": "How do you refer to a bundle variable named catalog inside databricks.yml?",
+      "options": [
+        {
+          "id": "a",
+          "text": "%catalog%"
+        },
+        {
+          "id": "b",
+          "text": "${var.catalog}"
+        },
+        {
+          "id": "c",
+          "text": "$catalog"
+        },
+        {
+          "id": "d",
+          "text": "{{catalog}}"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Custom variables are referenced as `${var.<name>}`.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.2-q2",
+      "type": "single",
+      "stem": "Where do you give a bundle variable a different value for the prod target only?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the variables of the prod entry under targets"
+        },
+        {
+          "id": "b",
+          "text": "In the cluster's Spark config"
+        },
+        {
+          "id": "c",
+          "text": "In the notebook's first cell"
+        },
+        {
+          "id": "d",
+          "text": "In a second databricks.yml in the prod workspace"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A target can override variable values, so each target gets its own setting.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.2-q3",
+      "type": "multiple",
+      "stem": "Which are ways to set a bundle variable's value at deploy time? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "An environment variable named `BUNDLE_VAR_<name>`"
+        },
+        {
+          "id": "b",
+          "text": "A comment in the notebook"
+        },
+        {
+          "id": "c",
+          "text": "The --var option on the bundle command"
+        },
+        {
+          "id": "d",
+          "text": "The cluster name"
+        }
+      ],
+      "answer": [
+        "c",
+        "a"
+      ],
+      "explanation": "Variable values can come from --var, a BUNDLE_VAR_ environment variable, a target or a default.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.2-q4",
+      "type": "single",
+      "stem": "What does a bundle target set to development mode do to the resources it deploys?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Deletes them after each run"
+        },
+        {
+          "id": "b",
+          "text": "Runs them on the largest compute"
+        },
+        {
+          "id": "c",
+          "text": "Makes them visible to all workspace users"
+        },
+        {
+          "id": "d",
+          "text": "Prefixes their names and pauses schedules and triggers"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Development mode marks deployed resources with a prefix and pauses schedules and triggers.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/deployment-modes",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.2-q5",
+      "type": "single",
+      "stem": "A variable has a default value and the prod target also sets it. Which value does a prod deployment use?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Both, joined"
+        },
+        {
+          "id": "b",
+          "text": "The prod target's value"
+        },
+        {
+          "id": "c",
+          "text": "The default"
+        },
+        {
+          "id": "d",
+          "text": "Neither; deployment fails"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A target's value overrides the variable's default.",
+      "source": "https://docs.databricks.com/aws/en/dev-tools/bundles/variables",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

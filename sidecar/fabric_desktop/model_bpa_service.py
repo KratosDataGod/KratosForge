@@ -108,28 +108,35 @@ class ModelBpaMixin:
         last = last if isinstance(last, dict) else None  # a copy kept here that isn't a check's findings is read again
         newest = self._bpa_newest(t["model_id"])
         unreadable = ""
+        saved_error: dict[str, str] | None = None
         if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"]:
             data = FileStore(lambda: self.auth.storage_token()).read_bytes(  # type: ignore[attr-defined]
                 t["workspace_id"], t["meta_lakehouse_id"], f"{RESULTS_DIR}/{newest['request_id']}.json")
             if data:
+                found = None
                 try:
-                    found = model_bpa.findings(json.loads(data))
+                    record = json.loads(data)
+                    saved_error = model_bpa.error(record)
+                    found = None if saved_error else model_bpa.findings(record)
                 except (ValueError, AttributeError, TypeError) as exc:  # a result file cut short or not the notebook's
                     unreadable = (f"The check finished, but the findings it saved in {META_LAKEHOUSE} couldn't be read "
                                   f"({type(exc).__name__}). Check the model again.")
-                else:
+                if found is not None:
                     # The file is named for the check, so it is this check's findings whatever it says inside.
                     last = found | {"request_id": newest["request_id"]}
                     write_json(path, last)
         running = newest if newest and newest.get("status") not in TERMINAL else None
         failed = newest if newest and newest.get("status") in TERMINAL and (last or {}).get("request_id") != newest["request_id"] else None
         if failed:
-            message = unreadable or failed.get("message", "") or (
+            message = (f"The check failed in Fabric: {saved_error['type']}: {saved_error['message']}" if saved_error else "") \
+                or unreadable or failed.get("message", "") or (
                 f"The check finished, but saved no findings in {META_LAKEHOUSE}. Open the run in Fabric to see why."
                 if failed.get("status") == "Completed" else "")
         return {"model": t["name"], "model_id": t["model_id"], "env": env, "workspace_id": t["workspace_id"],
                 "workspace_name": t["workspace_name"], "last": last, "running": running,
-                "failed": {"status": failed.get("status"), "message": message, "url": failed.get("url", "")} if failed else None}
+                "failed": {"status": failed.get("status"), "message": message, "url": failed.get("url", ""),
+                           "traceback": (saved_error or {}).get("traceback", ""), "pip": (saved_error or {}).get("pip", "")}
+                          if failed else None}
 
     def model_bpa_risk(self, env: str = "test", layer: str | None = None, name: str | None = None,
                        refresh: bool = False) -> dict[str, Any]:
@@ -161,7 +168,7 @@ class ModelBpaMixin:
             raise RuntimeError(f"{t['name']} is already being checked; wait for that check to finish.")
         notebook_id = self._bpa_notebook(t)
         request_id = f"bpa-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
-        params = model_bpa.run_parameters(t["model_id"], t["workspace_id"], request_id)
+        params = model_bpa.run_parameters(t["model_id"], t["workspace_id"], request_id, t["meta_lakehouse_id"])
         try:
             job_id = self.fabric_jobs.run_item_job(t["workspace_id"], notebook_id, "RunNotebook", params)  # type: ignore[attr-defined]
         except FabricError as exc:

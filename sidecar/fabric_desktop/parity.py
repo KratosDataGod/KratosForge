@@ -138,15 +138,25 @@ AREAS: tuple[Area, ...] = (
        local=Cell("partial", ("test_databricks_sql_parity.py",),
                   note="Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.")),
     _a("databricks", "notebooks", "Notebooks, Spark and dbutils",
-       cloud_api=Cell("built", ("test_dbconnect.py",),
-                      note="Databricks Connect (runtime 16 and later), behind an authorization; against fakes, no live run yet."),
+       cloud_api=Cell("built", ("test_dbconnect.py", "test_databricks_workspace_sync.py", "test_databricks_sync_service.py"),
+                      note="Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced "
+                           "with a workspace folder (Preview); against fakes, no live run yet."),
        local=Cell("partial", ("test_dbutils.py", "test_dbutils_parity.py", "test_spark_api.py", "test_spark_api_parity.py"),
                   note="dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.")),
     _a("databricks", "unity", "Unity Catalog"),
-    _a("databricks", "jobs", "Jobs and Lakeflow pipelines"),
+    _a("databricks", "jobs", "Jobs and Lakeflow pipelines",
+       cloud_api=Cell("partial", ("test_databricks_jobs.py", "test_databricks_runs_service.py"),
+                      note="Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; "
+                           "jobs aren't created or started here. Against fakes, no live run yet.")),
     _a("databricks", "compute", "Compute"),
-    _a("databricks", "bundles", "Asset bundles and deployment"),
-    _a("databricks", "cost", "Cost and DBU"),
+    _a("databricks", "bundles", "Asset bundles and deployment",
+       cloud_api=Cell("built", ("test_databricks_bundles.py", "test_databricks_bundles_service.py"),
+                      note="Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; "
+                           "against a fake CLI, no live run yet.")),
+    _a("databricks", "cost", "Cost and DBU",
+       cloud_api=Cell("partial", ("test_databricks_billing.py",),
+                      note="Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; "
+                           "no budgets or alerts. Against fakes, no live run yet.")),
     # Snowflake
     _a("snowflake", "connect", "Sign-in, roles and warehouses", cloud_api=MISSING),
     _a("snowflake", "worksheets", "SQL worksheets",

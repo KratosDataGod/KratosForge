@@ -111,7 +111,7 @@
         },
         {
           "id": "c",
-          "text": "Nothing; a grant can never be overridden"
+          "text": "REVOKE MANAGE on each of the schema's tables from the group now"
         },
         {
           "id": "d",
@@ -123,7 +123,7 @@
       ],
       "explanation": "DENY policies are a Beta ABAC feature, and they support one privilege, MANAGE ACCESS CONTROL. SELECT and MODIFY aren't supported by DENY policies.",
       "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/abac/deny-policies",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -134,7 +134,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Only one table chosen at random"
+          "text": "Only the views in the schema, not its tables"
         },
         {
           "id": "b",
@@ -154,7 +154,7 @@
       ],
       "explanation": "A grant on a schema applies to its current and future objects; USE CATALOG and USE SCHEMA are needed to reach anything inside.",
       "source": "https://docs.databricks.com/aws/en/data-governance/unity-catalog/access-control/privileges-reference",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     }

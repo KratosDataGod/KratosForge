@@ -61,6 +61,40 @@ class IncidentDeskMixin:
         out.update(counts=counts, sla={"targets": table, "source": source, "problems": problems})
         return out
 
+    def incidents_for_me(self) -> dict[str, Any]:
+        """The bell's For you list: active incidents assigned to the signed-in person, in every
+        environment. Waiting on you (open, not yet acknowledged) first, then by priority and SLA. Each
+        incident is one environment's file read, and nothing is written. An environment that can't be
+        read is named in ``unreadable``; one that isn't set up is left out."""
+        user = self._wl_user() or ""  # type: ignore[attr-defined]
+        out: dict[str, Any] = {"user": user, "incidents": [], "unreadable": []}
+        me = user.casefold()
+        if not me:
+            return out
+        table, _, _ = self._sla_targets()
+        now = dt.datetime.now(dt.UTC)
+        for env in ENVIRONMENTS:
+            try:
+                items = self._incident_log(env).active()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - one environment unreadable: say so, show the rest
+                state, message = model.classify_error(exc)
+                if state != "not_set_up":
+                    out["unreadable"].append({"env": env, "detail": message})
+                continue
+            for inc in items:
+                if (inc.get("owner") or "").casefold() != me:
+                    continue
+                priority = inc.get("priority") or default_priority(inc)
+                out["incidents"].append({
+                    "env": env, "id": inc["id"], "number": inc.get("number", ""), "title": inc.get("title", ""),
+                    "state": inc["state"], "kind": inc.get("kind", ""), "priority": priority,
+                    "sla": sla.status(inc | {"priority": priority}, table, now),
+                    "at": inc.get("last_seen_at") or inc.get("opened_at") or ""})
+        rank = {"breached": 0, "missed": 0, "at_risk": 1}  # missed: acknowledged late, still open
+        out["incidents"].sort(key=lambda i: (i["state"] != "open", PRIORITIES.index(i["priority"]) if i["priority"] in PRIORITIES
+                                             else len(PRIORITIES), rank.get(i["sla"]["state"], 2), i["at"]))
+        return out
+
     def incident_report(self, env: str, title: str, text: str = "", priority: str = "P3",
                         workload: str = "", name: str = "") -> dict[str, Any]:
         """Open an incident for a problem a person noticed. With a workload, its team, technical

@@ -212,6 +212,10 @@ Before it is turned on by default (Security's musts):
    profile folder, not anywhere that grants ALL APPLICATION PACKAGES.
 3. **The guard fails closed.** If the Python guard can't resolve a path inside an AppContainer, it
    refuses. This is fixed together with the library path work.
+4. **A way to remove the grants.** The runtime grants are persistent ACEs on the person's Python
+   install, and today nothing the person can reach removes them. A confirmed Diagnostics action, an
+   uninstall step, or both, call `appcontainer.revoke_runtime()` and show any path it couldn't
+   change. The Diagnostics screen needs its mockup agreed first.
 
 - **A profile per run.** `KratosForge.Academy.<random>`, so two runs never share a SID or a folder.
   The workspace is copied into the profile's own folder (`GetAppContainerFolderPath`), which Windows

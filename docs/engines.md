@@ -265,6 +265,24 @@ It's tested against fakes of those APIs, not yet against a live workspace.
 
 Checking a Snowflake account from Settings, and switching the profile in use, come later.
 
+## Databricks jobs and Lakeflow in Monitor (Preview)
+
+**Monitor > Databricks** lists the job runs and Lakeflow pipeline updates in the workspace of a
+Databricks connection: yours by default, or everyone's, for the last 24 hours or 7 days, newest first.
+
+- **Nothing starts.** Runs are read with the Jobs and Pipelines REST APIs, GET requests only, so
+  reading them starts no job, pipeline, warehouse or cluster and bills no DBUs.
+- **Why a run failed.** Pick a job run to see each task, how long it took, its notebook, and the
+  failed task's error. **Open in Databricks** opens the run's own page, only when it is on that
+  workspace.
+- **Each list stands alone.** If the pipelines can't be read (a 403, say), the job runs still show,
+  with a line that says why.
+- **DBUs per run** come from billing, which Optimize > Cost reads after asking first: reading billing
+  runs a query on a SQL warehouse.
+
+Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
+will confirm first and say which cluster.
+
 ## Databricks Connect (Preview)
 
 PySpark cells can run their `spark` work on a Databricks cluster through Databricks Connect, while

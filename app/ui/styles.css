@@ -2959,3 +2959,12 @@ tr.fg-conflict { background: var(--danger-soft); }
 .dialog > .pn-route { overflow-y: auto; min-height: 0; padding-right: 4px; }
 .assess-table a, .assess-why a { color: var(--accent); text-decoration: underline; }
 .assess-table a:hover, .assess-why a:hover { text-decoration-thickness: 2px; }
+
+/* Monitor > Databricks (dbx-monitor.js, Preview) */
+.dbx-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; padding: 12px; }
+.dbx-list { flex: 3 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.dbx-list .table-wrap { overflow-x: auto; }
+.dbx-detail { flex: 2 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.dbx-tasks { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.dbx-tasks .dbx-failed { color: var(--danger); }
+.dbx-error { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 6px 8px; border-radius: 4px; margin: 4px 0 0; }

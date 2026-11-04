@@ -28,6 +28,10 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
 - ``databricks_sync_*`` is Workspaces > Databricks (Preview): folder pairs between this PC and a
   workspace folder (engines/databricks_workspace_sync.py). Compare only reads; push never overwrites a
   file changed in Databricks since the last sync and deletes only with ``confirm_deletes``.
+- ``databricks_bundle_*`` is Source control > Bundles (Preview): validate, plan and deploy a Databricks
+  Asset Bundle with the person's own Databricks CLI, as the connection's CLI profile
+  (engines/databricks_bundles.py). Validate and plan change nothing; deploy plans again, stops if the
+  plan changed, and needs the target's name typed for a plan that deletes or rebuilds, or for production.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -56,7 +60,8 @@ METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_sel
            "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove",
            "databricks_runs", "databricks_run", "databricks_billing", "databricks_billing_last",
            "databricks_sync_pairs", "databricks_sync_pair_save", "databricks_sync_pair_remove", "databricks_sync_compare",
-           "databricks_sync_push", "databricks_sync_pull"}
+           "databricks_sync_push", "databricks_sync_pull",
+           "databricks_bundle_targets", "databricks_bundle_validate", "databricks_bundle_plan", "databricks_bundle_deploy"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -397,6 +402,51 @@ class EnginesMixin:
         out = wsync.pull(self._sync_client(p), p, [str(f) for f in files or []])
         store.put(pair, p | {"files": out.pop("files")})
         return redact.walk(out)
+
+    # ---- Source control > Bundles (Preview)
+
+    def _bundle_profile(self, connection: str) -> str:
+        """The Databricks CLI profile a connection signs in with: bundles run the CLI as that profile."""
+        conn, _, _ = self._connection(connection)
+        cred = conn.get("credential") or {}
+        if conn.get("platform") != "databricks" or cred.get("method") != "cli-profile" or not cred.get("profile"):
+            raise ValueError("Bundles run with the Databricks CLI: pick a connection that signs in with a CLI profile.")
+        return str(cred["profile"])
+
+    def _bundle_runner(self) -> Any:
+        import subprocess
+        return getattr(self, "_bundle_run", None) or subprocess.run
+
+    def databricks_bundle_targets(self, folder: str) -> dict[str, Any]:
+        """The bundle's name and targets from databricks.yml in ``folder``. Reads that file only."""
+        from .engines import databricks_bundles
+        return databricks_bundles.targets(folder)
+
+    # A bundle that runs commands on this PC (scripts hooks, artifact builds, Python code) answers
+    # needs_confirm with the commands and their digest; ``allow_commands`` is that digest once seen.
+
+    def databricks_bundle_validate(self, folder: str, target: str, connection: str,
+                                   allow_commands: str = "") -> dict[str, Any]:
+        """``databricks bundle validate``: problems in the files. Changes nothing in Databricks."""
+        from .engines import databricks_bundles
+        return databricks_bundles.validate(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                           str(allow_commands or ""))
+
+    def databricks_bundle_plan(self, folder: str, target: str, connection: str,
+                               allow_commands: str = "") -> dict[str, Any]:
+        """What deploying ``target`` would create, update, delete or rebuild. Changes nothing in Databricks."""
+        from .engines import databricks_bundles
+        return databricks_bundles.plan(folder, target, self._bundle_profile(connection), self._bundle_runner(),
+                                       str(allow_commands or ""))
+
+    def databricks_bundle_deploy(self, folder: str, target: str, connection: str, digest: str,
+                                 typed: str = "", allow_commands: str = "") -> dict[str, Any]:
+        """Deploy ``target`` as the connection's CLI profile, if the plan is still the one with
+        ``digest``. A plan that deletes or rebuilds, or a production target, needs ``typed`` == target.
+        Deploying runs no job or pipeline."""
+        from .engines import databricks_bundles
+        return databricks_bundles.deploy(folder, target, self._bundle_profile(connection), str(digest or ""),
+                                         str(typed or ""), self._bundle_runner(), str(allow_commands or ""))
 
     def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
                                snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",

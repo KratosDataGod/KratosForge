@@ -40,11 +40,11 @@
       "options": [
         {
           "id": "a",
-          "text": "A notebook that scrapes the Salesforce website"
+          "text": "A custom notebook that calls the Salesforce REST API on a schedule"
         },
         {
           "id": "b",
-          "text": "Exporting to CSV by hand each day"
+          "text": "A daily export of Salesforce reports to a volume, loaded with COPY INTO"
         },
         {
           "id": "c",
@@ -61,7 +61,7 @@
       "explanation": "Managed connectors in Lakeflow Connect handle the source API and incremental loads for you.",
       "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
       "case": "quarry-retail",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -147,11 +147,11 @@
         },
         {
           "id": "c",
-          "text": "JDBC is never allowed"
+          "text": "A JDBC notebook can't be run on a schedule"
         },
         {
           "id": "d",
-          "text": "The connector is always free of compute cost"
+          "text": "The connector keeps the data outside Unity Catalog"
         }
       ],
       "answer": [
@@ -159,7 +159,7 @@
       ],
       "explanation": "Managed connectors are the most automated option and ingest only what changed; custom code trades automation for broader source support.",
       "source": "https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     }

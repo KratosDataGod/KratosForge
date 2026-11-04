@@ -70,7 +70,7 @@ pipeline_compatibility pipeline_export pipeline_import
 usage_preview
 risk_check meta_risk_gate risk_settings
 model_bpa_status model_bpa_risk
-incidents_board incident_sla_policy incidents_history incident_impact
+incidents_board incidents_for_me incident_sla_policy incidents_history incident_impact
 optimize_discover optimize_findings optimize_recommendations optimize_status
 tenant_settings_history
 platform_notify_settings platform_notify_open
@@ -88,7 +88,7 @@ notebook_comments_list
 engine_catalog engine_connections engine_prepare engine_state engine_poll_cell engine_profiles engine_discover databricks_runs databricks_run databricks_billing_last databricks_sync_pairs databricks_sync_compare databricks_bundle_targets databricks_bundle_validate databricks_bundle_plan
 learn_catalog learn_module learn_lab_run learn_lab_check learn_lab_hint learn_rule_guides learn_dismissals
 learn_fixes learn_fix_compare learn_fix_checked learn_patterns
-academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness
+academy_catalog academy_exercise academy_run academy_validate academy_hint academy_readiness academy_sandbox_status
 pbi_embed_token pbi_embed_content
 appstudio_home appstudio_open appstudio_history appstudio_versions appstudio_preview
 academy_exam_home academy_exam_heartbeat academy_exam_review
@@ -97,7 +97,7 @@ academy_exam_home academy_exam_heartbeat academy_exam_review
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
                       "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
-                      "report_summary", "identity"})
+                      "report_summary", "identity", "teams_webhook"})
 _MAX = 200
 
 

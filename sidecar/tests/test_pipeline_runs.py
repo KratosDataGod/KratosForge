@@ -982,3 +982,26 @@ def test_pipelines_in_open_repositories_are_listed_with_their_last_run(tmp_path)
     assert "pipeline_list" in server.METHODS and "pipeline_list" in audit.READ_ONLY
     # Without the Git service (an external tool's service), nothing is listed.
     assert Svc(tmp_path / "other").pipeline_list() == {"pipelines": [], "truncated": False}
+
+
+@pytest.mark.parametrize("expr", [
+    "@concat(variables('s'), variables('s'))",
+    "@replace(variables('s'), 'x', variables('s'))",
+    "@join(range(0, 100000), variables('s'))",
+    "@string(createArray(variables('s'), variables('s'), variables('s')))",
+])
+def test_expressions_refuse_values_too_big_for_a_pipeline(expr):
+    from fabric_desktop.orchestration import evaluate as ev
+    big = "x" * (ev.MAX_TEXT // 2 + 1)
+    scope = Scope({}, {"s": big}, {}, {}, [], lambda: datetime.now(timezone.utc))
+    with pytest.raises(ExpressionError, match="limit"):
+        evaluate(expr, scope)
+
+
+def test_nested_shared_arrays_count_every_time_they_appear():
+    from fabric_desktop.orchestration import evaluate as ev
+    scope = Scope({}, {"a": list(range(400))}, {}, {}, [], lambda: datetime.now(timezone.utc))
+    assert len(evaluate("@createArray(variables('a'), variables('a'))", scope)) == 2
+    scope.variables["a"] = [[list(range(400))] * 400]
+    with pytest.raises(ExpressionError, match=f"more than {ev.MAX_ITEMS:,} items"):
+        evaluate("@createArray(variables('a'))", scope)

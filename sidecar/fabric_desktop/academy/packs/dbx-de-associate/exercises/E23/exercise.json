@@ -1,0 +1,60 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E23",
+  "version": 1,
+  "status": "draft",
+  "title": "Reshape a product feed: split, rename, drop, filter and explode tags",
+  "objectives": ["3.3"],
+  "objective_text": "Manipulate columns and rows: add, split, rename and drop columns, filter rows and explode an array into rows.",
+  "scenario": "Merchandising wants to report sales by product tag. The product feed puts brand and model in one column and all of a product's tags in one comma-separated string, keeps prices in cents and still carries discontinued products and a legacy code nobody reads. Build silver.product_tags with one row per product and tag.",
+  "difficulty": 1,
+  "minutes": 20,
+  "mode": "guided",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "bronze.products", "rows": 5, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A Delta table bronze.products (5 products) in the exercise folder and a starter answer.py.",
+  "required": [
+    "Leave out discontinued products.",
+    "brand and model come from full_name, split on |.",
+    "price is price_cents / 100 as decimal(10,2).",
+    "One row per product and tag, the tag trimmed and lower case; a product with no tags has no rows.",
+    "Write silver.product_tags with id (was product_id), brand, model, price, tag, so that running the code again leaves the same table."
+  ],
+  "expected": {"description": "silver.product_tags has 6 rows: product 1 with new, outdoor and sale; product 2 with heavy; product 5 with kids and tools."},
+  "verifies": [
+    "Your PySpark splits, renames, drops, filters and explodes to the right rows and columns, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, so it doesn't show Spark's own plan or how explode grows a large table."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.product_tags", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.product_tags", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.product_tags",
+     "columns": {"id": "", "brand": "", "model": "", "price": "DECIMAL(10,2)", "tag": ""},
+     "unique": ["id", "tag"], "not_null": ["id", "tag"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.product_tags", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "Filter first: filter(F.col(\"status\") != \"discontinued\").",
+    "F.split(F.col(\"full_name\"), \"\\\\|\") gives an array; F.element_at(arr, 1) is the brand and F.element_at(arr, 2) the model.",
+    "F.explode(F.split(F.col(\"tags\"), \",\")) gives one row per tag and no row for a NULL tags value; explode_outer would keep it.",
+    "Trim and lower-case each tag after exploding, then withColumnRenamed(\"product_id\", \"id\") and select the five columns.",
+    "Write with mode(\"overwrite\")."
+  ],
+  "explanation": "Filter out discontinued products, split full_name on an escaped | and take the two parts with element_at, turn cents into a decimal price, explode the split tags so each tag gets its own row (a product with NULL tags drops out, which explode_outer would keep as a NULL tag), trim and lower-case each tag, rename product_id to id, keep the five columns and overwrite the table.",
+  "troubleshooting": [
+    "Tags like ' sale' and 'sale' both appear: trim after exploding, not before splitting.",
+    "A row with an empty tag: the code uses explode_outer, which keeps products with no tags.",
+    "Prices a hundred times too big: divide price_cents by 100 before the cast."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/getting-started/dataframes"],
+  "reset": "Reset rebuilds bronze.products from setup.sql, removes silver.product_tags and puts the starter back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

@@ -4,6 +4,8 @@ is recorded as evidence with the help it had."""
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from fabric_desktop import audit, progress, server
@@ -37,7 +39,8 @@ def _solution(eid):
 
 def test_methods_are_served_and_the_writes_are_audited():
     assert METHODS <= server.METHODS
-    for m in ("academy_catalog", "academy_exercise", "academy_run", "academy_validate", "academy_hint", "academy_readiness"):
+    for m in ("academy_catalog", "academy_exercise", "academy_run", "academy_validate", "academy_hint", "academy_readiness",
+              "academy_sandbox_status"):
         assert not audit.audited(m)
     for m in ("academy_start", "academy_save", "academy_explanation", "academy_reset"):
         assert audit.audited(m)
@@ -272,3 +275,16 @@ def test_an_oversized_answer_to_check_is_refused(svc):
     svc.academy_start(PACK, "E37")
     with pytest.raises(ValueError, match="1 MB"):
         svc.academy_validate(PACK, "E37", "x" * (lab.MAX_ANSWER_BYTES + 1))
+
+
+def test_sandbox_status_counts_the_runtime_grants_on_record(svc, tmp_path):
+    from fabric_desktop import jsonfile
+    got = svc.academy_sandbox_status()
+    assert got["granted"] == 0 and got["enabled"] is False and "available" in got and "why_not" in got
+    real = tmp_path / "py"
+    real.mkdir()
+    record = tmp_path / "academy" / "appcontainer-grants.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    jsonfile.write_json(record, {"sid": "S-1-15-3-1", "paths": [str(real), str(tmp_path / "gone"), "-bad", "rel/x", 7]})
+    # Only absolute, plain Windows paths that still exist (a record path starting "/" or "-" is never used).
+    assert svc.academy_sandbox_status()["granted"] == (1 if sys.platform == "win32" else 0)

@@ -9,7 +9,7 @@
       "options": [
         {
           "id": "a",
-          "text": "Only by emailing the repository owner"
+          "text": "In Catalog Explorer"
         },
         {
           "id": "b",
@@ -29,7 +29,7 @@
       ],
       "explanation": "The Git dialog of a Git folder lets you create and switch branches, then commit and push.",
       "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -82,7 +82,7 @@
         },
         {
           "id": "c",
-          "text": "Delete the Git folder"
+          "text": "Merge your branch into main"
         },
         {
           "id": "d",
@@ -94,7 +94,7 @@
       ],
       "explanation": "Pull brings remote changes into the Git folder.",
       "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },

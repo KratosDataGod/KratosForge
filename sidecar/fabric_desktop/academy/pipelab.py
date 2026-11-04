@@ -60,8 +60,22 @@ def check_problems(c: dict[str, Any]) -> list[str]:
 
 
 def _not_allowed(imp: Any, mocks: dict[str, Any]) -> list[str]:
-    return [f"{a.name} ({a.type})" for a in imp.pipeline.all_activities()
-            if a.type not in ALLOWED and a.name not in mocks and not a.inactive]
+    """Activities that would run and aren't allowed, walked as runner.check walks them: an Inactive
+    or mocked activity, container or not, runs none of its children."""
+    out: list[str] = []
+
+    def visit(acts: list[Any]) -> None:
+        for a in acts:
+            if a.inactive or a.name in mocks:
+                continue
+            if a.type not in ALLOWED:
+                out.append(f"{a.name} ({a.type})")
+                continue
+            for kids in a.children.values():
+                visit(kids)
+
+    visit(imp.pipeline.activities)
+    return out
 
 
 def run_pipeline(work: Path, rel: str, *, parameters: dict[str, Any] | None = None,

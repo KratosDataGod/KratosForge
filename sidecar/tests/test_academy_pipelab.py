@@ -226,3 +226,33 @@ def test_a_pipeline_exercise_that_cant_be_graded_is_caught(pipeline_pack, change
         (pipeline_pack / PACK / "exercises" / "E36" / "answer.py").write_text("x = 1")
     found = exercises.problems(pipeline_pack)
     assert any(message in p for p in found), found
+
+
+def test_a_mocked_or_inactive_container_runs_none_of_its_children(tmp_path):
+    each = act("Each", "ForEach", items={"value": "@createArray(1, 2)", "type": "Expression"},
+               activities=[act("Copy one", "Copy")])
+    off = {**act("Off", "IfCondition", expression={"value": "@true()", "type": "Expression"},
+                 ifTrueActivities=[act("Copy two", "Copy")]), "state": "Inactive"}
+    done = act("Done", "SetVariable", ["Each", "Off"], variableName="result", value="ok")
+    got = pipelab.run_pipeline(_write(tmp_path, pipeline(each, off, done)), "pipeline.json",
+                               mocks={"Each": {"status": "Succeeded"}})
+    assert got["ok"], got["detail"]
+    assert got["run"]["state"] == "Succeeded"
+    # An active, unmocked container is still walked: its Copy needs a mock.
+    got = pipelab.run_pipeline(_write(tmp_path, pipeline(each, done)), "pipeline.json")
+    assert not got["ok"] and "Copy one (Copy)" in got["detail"]
+
+
+def test_variables_hold_copies_not_references(tmp_path):
+    steps = [act("Alias", "SetVariable", variableName="b", value="@variables('a')"),
+             act("Grow", "AppendVariable", ["Alias"], variableName="a", value=2),
+             act("Self", "AppendVariable", ["Grow"], variableName="a", value="@variables('a')"),
+             act("Show", "SetVariable", ["Self"], variableName="result",
+                 value="@{string(variables('b'))}|@{string(variables('a'))}")]
+    text = pipeline(*steps, variables={"a": {"type": "Array", "defaultValue": [1]}, "b": {"type": "Array"},
+                                       "result": {"type": "String"}})
+    got = pipelab.run_pipeline(_write(tmp_path, text), "pipeline.json")
+    assert got["ok"] and got["run"]["state"] == "Succeeded", got
+    json.dumps(got["run"])   # no list holds itself, so the record still serialises
+    show = [a for a in got["run"]["activities"] if a["name"] == "Show"][0]
+    assert show["output"]["value"].replace(" ", "") == "[1]|[1,2,[1,2]]", show["output"]

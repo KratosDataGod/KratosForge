@@ -22,6 +22,7 @@ never resumed automatically.
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 import time
@@ -675,6 +676,9 @@ class _Context:
                 raise ActivityFailed(f"Variable {name!r} would hold {why}, the limit for one pipeline value.",
                                      "LocalValueTooBig")
             self.run._weights[name] = total
+            # A copy, as Fabric holds values: b = @variables('a') mustn't alias a, and appending a to
+            # itself mustn't make a list that holds itself.
+            value = copy.deepcopy(value)
             if append:
                 current.append(value)
             else:

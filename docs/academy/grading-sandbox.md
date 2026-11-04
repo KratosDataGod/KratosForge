@@ -211,7 +211,10 @@ Until, Wait, Fail, Filter, Execute/Invoke Pipeline); any other activity (Copy, W
 script, a Lookup, an unknown type) runs only when the exercise gives a mock for it by name, and
 otherwise the check fails in words before the run starts. Mocks, parameters and child pipelines come
 from the exercise's own folder, never from the workspace, and child pipelines are held to the same
-rule. Expressions are evaluated by the pipeline expression engine only (no Python eval).
+rule. Expressions are evaluated by the pipeline expression engine only (no Python eval). A mocked or
+Inactive container runs none of its children, as in the runner, so its children need no mock.
+Exercise authors keep every Until timeout under the 20-second lab limit, or the run stops on the lab
+limit rather than on the timeout the exercise means to test.
 
 | Check | Reads |
 | --- | --- |

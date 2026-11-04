@@ -39,6 +39,8 @@ async function shot(page, target, name) {
   await target.screenshot({ path: path.join(SHOTS, name) });
 }
 
+// The page can draw Settings again while it loads (a sign-in or settings read finishing), which
+// redraws the row from "Looking...", so the checks wait for the text instead of reading it once.
 const group = (page) => page.locator(".advanced-group:has(h3:text('Exercise sandbox'))");
 
 test("the row says On with the folder count, and Remove asks first, then says how many", { skip }, async () => {
@@ -46,10 +48,10 @@ test("the row says On with the folder count, and Remove asks first, then says ho
   const page = await open(() => ({ available: true, why_not: "", enabled: true, granted }), [{ removed: 9, failed: [] }]);
   const row = group(page);
   await row.locator("text=On: exercises run in an AppContainer").waitFor();
-  assert.match(await row.textContent(), /Read permission on 9 folders of KratosForge's Python/);
+  await row.getByText(/Read permission on 9 folders of KratosForge's Python/).first().waitFor();
   // It never claims more than the AppContainer gives, and says it isn't always used.
-  assert.match(await row.textContent(), /When the AppContainer is on, exercise scripts \(except Delta and PySpark ones\)/);
-  assert.match(await row.textContent(), /no network and no access to your own files/);
+  await row.getByText(/When the AppContainer is on, exercise scripts \(except Delta and PySpark ones\)/).first().waitFor();
+  await row.getByText(/no network and no access to your own files/).first().waitFor();
   await shot(page, row, "exercise-sandbox-row.png");
 
   await row.getByRole("button", { name: "Remove exercise permissions" }).click();
@@ -98,8 +100,8 @@ test("Off says why, and the button shows only while permissions are held", { ski
   const page = await open(() => ({ available: false, why_not: "AppContainers are a Windows feature.", enabled: false, granted: 0 }), []);
   const row = group(page);
   await row.locator("text=Off: exercises run in a limited process on this PC").waitFor();
-  assert.match(await row.textContent(), /Why: AppContainers are a Windows feature\./);
-  assert.match(await row.textContent(), /No permissions held\./);
+  await row.getByText(/Why: AppContainers are a Windows feature\./).first().waitFor();
+  await row.getByText(/No permissions held\./).first().waitFor();
   assert.strictEqual(await row.getByRole("button", { name: "Remove exercise permissions" }).count(), 0);
   await shot(page, row, "exercise-sandbox-off.png");
 });

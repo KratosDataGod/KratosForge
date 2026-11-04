@@ -17,11 +17,11 @@
         },
         {
           "id": "c",
-          "text": "A materialized view can't be queried with SQL"
+          "text": "A materialized view reruns its query on every read; a view refreshes on a schedule"
         },
         {
           "id": "d",
-          "text": "They are the same"
+          "text": "A view can read only Delta tables; a materialized view can read any source"
         }
       ],
       "answer": [
@@ -29,7 +29,7 @@
       ],
       "explanation": "Materialized views keep results stored and are refreshed, so reads are fast; views are just saved queries.",
       "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -141,7 +141,7 @@
         },
         {
           "id": "c",
-          "text": "Never"
+          "text": "When dashboards need the results to load quickly from stored data"
         },
         {
           "id": "d",
@@ -153,7 +153,7 @@
       ],
       "explanation": "Views compute results on demand, so they're always current; materialized views pay off for expensive or frequently used queries.",
       "source": "https://docs.databricks.com/aws/en/sql/mv-st/materialized",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     }

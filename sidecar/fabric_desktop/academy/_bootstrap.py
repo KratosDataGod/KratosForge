@@ -226,6 +226,7 @@ def _wrap_native(work):
     if dl is not None:
         dl.write_deltalake = guard(dl.write_deltalake, "a Delta write")
         _guard_init(dl.DeltaTable, check, "a Delta table")
+        _lock_query_builder()
     for modname in ("pyarrow.parquet", "pyarrow.dataset", "pyarrow.csv", "pyarrow.feather", "pyarrow.orc",
                     "pyarrow.json"):
         mod = maybe(modname)
@@ -265,22 +266,52 @@ def _wrap_native(work):
                "open_input_stream", "open_input_file", "open_output_stream", "open_append_stream", "normalize_path")
         members = {n: _checked_method(n, 2 if n in two else 1) for n in one + two if hasattr(_local, n)}
         members["delete_root_dir_contents"] = _refused("pyarrow.fs delete_root_dir_contents")
+        _base = pa_fs.FileSystem
+
+        def from_uri(uri):
+            """A plain path in the workspace only; a local file system comes back checked."""
+            check(uri, "a pyarrow file")
+            fs, path = _base.from_uri(uri)
+            return (checked_local() if isinstance(fs, _local) else fs), path
+
+        members["from_uri"] = staticmethod(from_uri)
         checked_local = type("LocalFileSystem", (_local,), members)
 
+        class _FileSystemMeta(type):   # isinstance and issubclass still answer for the real base class
+            def __instancecheck__(cls, obj):
+                return isinstance(obj, _base)
+
+            def __subclasscheck__(cls, sub):
+                return issubclass(sub, _base)
+
+        checked_base = _FileSystemMeta("FileSystem", (), {"from_uri": staticmethod(from_uri)})
         for name in dir(pa_fs):
             if name.endswith("FileSystem") and name not in ("FileSystem", "LocalFileSystem"):
                 setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}; read and write files by their names"))
-        pa_fs.LocalFileSystem = checked_local
+        # pyarrow._fs (where the classes live) and every pyarrow module that imported them by name
+        # get the checked ones; pyarrow's native code holds its own references and isn't affected.
+        types = {id(_local): checked_local, id(_base): checked_base}
+        for modname, mod in list(sys.modules.items()):
+            if mod is not None and (modname == "pyarrow" or modname.startswith("pyarrow.")):
+                for name, value in list(vars(mod).items()):
+                    if id(value) in types and isinstance(value, type):
+                        try:
+                            setattr(mod, name, types[id(value)])
+                        except (AttributeError, TypeError):
+                            pass
         for name in ("resolve_s3_region", "initialize_s3", "copy_files"):
             if hasattr(pa_fs, name):
                 setattr(pa_fs, name, _refused(f"pyarrow.fs.{name}"))
     pa = maybe("pyarrow")
     if pa is not None:
+        lib = sys.modules.get("pyarrow.lib")
         for name in ("OSFile", "memory_map", "create_memory_map", "input_stream", "output_stream"):
             fn = getattr(pa, name, None)
             if fn is not None:
                 wrapped = guard(fn, "a pyarrow file")
                 setattr(pa, name, wrapped)
+                if lib is not None and getattr(lib, name, None) is fn:
+                    setattr(lib, name, wrapped)   # pyarrow.lib.OSFile is a class, so rewire skips it
                 swapped[id(fn)] = wrapped
     pd = maybe("pandas")
     if pd is not None:
@@ -313,6 +344,64 @@ def _guard_init(cls, check, what):
         original(self, table_uri, *args, **kwargs)
 
     cls.__init__ = __init__
+
+
+def _lock_query_builder():
+    """deltalake's QueryBuilder runs DataFusion SQL, which reads and writes files from native code
+    (CREATE EXTERNAL TABLE ... LOCATION, COPY ... TO). It runs one SELECT or WITH statement over the
+    Delta tables registered with it, and its session settings are limited to execution ones."""
+    import re
+    import sys as _sys
+    query = _sys.modules.get("deltalake.query")
+    qb = getattr(query, "QueryBuilder", None)
+    real = getattr(query, "PyQueryBuilder", None)
+    if qb is None or real is None:
+        return
+    comments = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+    strings = re.compile(r"'(?:[^']|'')*'")
+    banned = re.compile(r"\b(copy|create|location|insert|delete|update|drop|alter|set|external|merge|load|install|"
+                        r"attach|prepare|execute|explain\s+analyze)\b", re.I)
+
+    def allowed(sql):
+        text = comments.sub(" ", str(sql))
+        bare = strings.sub("''", text).strip().rstrip(";").strip()
+        if ";" in bare or not re.match(r"(?is)\s*(select|with)\b", bare) or banned.search(bare):
+            raise PermissionError("An Academy exercise runs one SELECT (or WITH ... SELECT) over the tables "
+                                  "registered with the QueryBuilder.")
+        return sql
+
+    def builder(session_config):
+        """The native builder stays in this closure; the instance holds only what the class calls."""
+        inner = real(session_config)
+
+        class _Builder:
+            __slots__ = ()
+
+            def register(self, table_name, delta_table):
+                return inner.register(table_name=table_name, delta_table=delta_table)
+
+            def execute(self, sql):
+                return inner.execute(allowed(sql))
+
+        return _Builder()
+
+    def __init__(self, session_config=None):
+        for key in (session_config or {}):
+            if not str(key).startswith("datafusion.execution."):
+                raise PermissionError("An Academy exercise can set only datafusion.execution settings.")
+        self._query_builder = builder(session_config)
+
+    original = qb.execute
+
+    def execute(self, sql):
+        return original(self, allowed(sql))
+
+    qb.__init__, qb.execute = __init__, execute
+    refuse = _refused("deltalake's PyQueryBuilder; use deltalake.QueryBuilder")
+    for modname in ("deltalake.query", "deltalake._internal", "deltalake"):
+        mod = _sys.modules.get(modname)
+        if mod is not None and getattr(mod, "PyQueryBuilder", None) is real:
+            mod.PyQueryBuilder = refuse
 
 
 def _lock_duckdb(db, work, guard):

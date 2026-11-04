@@ -14,6 +14,11 @@ Every other engine runs through one ``engines.sessions.SessionManager``:
   a ``RemoteAuthorization`` from the person's confirm or the profile's policy (ADR-003). Nothing here
   picks a remote engine on its own, and a cell an engine can't run is never moved to another one:
   the app offers "Run this cell on Python" for that one cell, which the person chooses.
+- ``engine_profiles``, ``engine_discover``, ``engine_connection_save`` and ``engine_connection_remove``
+  are Settings > Connections (Preview): the saved profiles, the CLIs' own profiles and connections,
+  what a Databricks workspace offers (GETs only, so nothing starts or bills), and adding a CLI
+  profile or connection to a profile by name. The host and sign-in are read from the CLI's file
+  here; the app only names which one, so a profile never holds a host or secret the app made up.
 - ``engine_start_cell`` and ``engine_poll_cell`` run one cell at a time per notebook, like
   ``start_cell`` and ``poll_cell``; ``engine_cancel`` and ``engine_close`` stop them.
 
@@ -37,7 +42,8 @@ from .engines.contract import CellRequest, SessionConfig
 from .engines.sessions import SessionManager, SwitchNeeded
 
 METHODS = {"engine_catalog", "engine_connections", "engine_prepare", "engine_select", "engine_state",
-           "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close"}
+           "engine_start_cell", "engine_poll_cell", "engine_cancel", "engine_close",
+           "engine_profiles", "engine_discover", "engine_connection_save", "engine_connection_remove"}
 # Answered at once even while a cell or a session start runs (server.QUICK).
 QUICK = {"engine_state", "engine_poll_cell", "engine_cancel"}
 
@@ -55,6 +61,37 @@ def cell_request(source: str) -> CellRequest:
     if re.match(r"^%%sql\b", first, re.IGNORECASE) or first.lower() == "%sql":
         return CellRequest(_MAGIC.sub("", source.lstrip(), count=1), "sql", "spark")
     return CellRequest(source, "pyspark" if re.search(r"\bspark\b", source) else "python")
+
+
+_COMPUTE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+_NAME_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,255}$")
+
+
+def _connection_view(profile_id: str, c: dict[str, Any]) -> dict[str, Any]:
+    """One connection of a profile as Settings shows it: where it points and how it signs in."""
+    cred = c.get("credential") or {}
+    compute = c.get("compute") or {}
+    return {"id": c.get("id", ""), "platform": c.get("platform", ""), "label": c.get("label", ""),
+            "key": f"profile:{profile_id}:{c.get('id', '')}" if c.get("platform") == "databricks" else "",
+            "host": c.get("host", ""), "account": c.get("account", ""), "method": cred.get("method", ""),
+            "cli": cred.get("profile") or cred.get("connection") or "",
+            "warehouse_id": compute.get("warehouse_id", "") or c.get("warehouse", ""),
+            "cluster_id": compute.get("cluster_id", ""), "catalog": c.get("catalog", "") or c.get("database", ""),
+            "schema": c.get("schema", "")}
+
+
+def _kind_for(conns: list[dict[str, Any]]) -> str:
+    """The profile kind its connections make: none is local, one platform is that one, more is hybrid."""
+    used = {c.get("platform") for c in conns}
+    return "local" if not used else (used.pop() if len(used) == 1 else "hybrid")  # type: ignore[return-value]
+
+
+def _new_id(existing: set[str]) -> str:
+    import uuid
+    while True:
+        pid = "p-" + uuid.uuid4().hex[:12]
+        if pid not in existing:
+            return pid
 
 
 class _Job:
@@ -164,6 +201,127 @@ class EnginesMixin:
         if conn is None:
             raise ValueError(f"The profile {profile.get('name')!r} has no connection {parts[2]!r}.")
         return conn, profile.get("execution") or {}, str(profile.get("name") or profile["id"])
+
+    # ---- Settings > Connections (Preview)
+
+    def engine_profiles(self) -> dict[str, Any]:
+        """The saved profiles with their connections, which one is active, and the Databricks CLI's
+        profiles and Snowflake CLI's connections that could be added. References only: hosts,
+        accounts, compute IDs and CLI names. Read-only and offline."""
+        store = self._profiles()
+        active = store.active()
+        rows: list[dict[str, Any]] = []
+        listed = store.list()
+        if not any(p.get("id") == "default" for p in listed):
+            listed.insert(0, {"id": "default"})
+        for p in listed:
+            pid = str(p.get("id") or "")
+            try:
+                profile = store.load(pid)
+            except connprofiles.ProfileError as exc:
+                rows.append({"id": pid, "name": str(p.get("name") or pid), "kind": "", "active": pid == active,
+                             "connections": [], "problems": exc.problems})
+                continue
+            rows.append({"id": profile["id"], "name": profile.get("name") or profile["id"], "kind": profile.get("kind", ""),
+                         "active": profile["id"] == active, "problems": [],
+                         "connections": [_connection_view(profile["id"], c) for c in profile.get("connections") or []]})
+        databricks = connprofiles.databricks_cli_profiles()
+        snowflake = connprofiles.snowflake_cli_connections()
+        return {"profiles": rows, "active": active,
+                "databricks_cli": {k: databricks.get(k) for k in ("path", "found", "profiles", "error") if k in databricks},
+                "snowflake_cli": {k: snowflake.get(k) for k in ("path", "found", "default", "connections", "notes", "error")
+                                  if k in snowflake}}
+
+    def _discovery_client(self, connection: dict[str, Any]) -> Any:
+        from .engines import databricks_auth, databricks_sql
+        return databricks_sql.Client(databricks_auth.provider_for(connection))
+
+    def engine_discover(self, connection: str, catalogs: bool = True) -> dict[str, Any]:
+        """What a Databricks workspace offers you: who you're signed in as, warehouses, clusters and
+        whether Databricks Connect can use each, and Unity Catalog. Every request is a GET, so
+        nothing starts and nothing bills DBUs. ``connection`` is a key from engine_connections."""
+        from .engines import databricks_auth, databricks_discovery
+        conn, _, _ = self._connection(connection)
+        try:
+            client = self._discovery_client(conn)
+        except databricks_auth.DatabricksAuthError as exc:
+            return {"schema": databricks_discovery.SCHEMA, "host": conn.get("host", ""), "signed_in": False,
+                    "parts": {}, "suggested": {"warehouse_id": "", "cluster_id": ""},
+                    "error": redact.secrets(str(exc))}
+        return redact.walk(databricks_discovery.Discovery(client, catalogs=bool(catalogs)).run())
+
+    def engine_connection_save(self, profile: str = "", profile_name: str = "", databricks_cli: str = "",
+                               snowflake_cli: str = "", warehouse_id: str = "", cluster_id: str = "",
+                               catalog: str = "", schema: str = "", label: str = "", replace: str = "") -> dict[str, Any]:
+        """Add a connection to ``profile`` (or a new profile called ``profile_name``) that signs in
+        with a Databricks CLI profile or a Snowflake CLI connection, named here and read from the
+        CLI's own file: its host or account comes from there, never from the app. ``replace`` names
+        a connection of the profile to change instead. The profile is validated, so no value that
+        looks like a secret is ever written."""
+        if bool(databricks_cli) == bool(snowflake_cli):
+            raise ValueError("Pick one Databricks CLI profile or one Snowflake CLI connection.")
+        for what, value in (("warehouse", warehouse_id), ("cluster", cluster_id)):
+            if value and not _COMPUTE_ID.fullmatch(value):
+                raise ValueError(f"That {what} id isn't one Databricks gives (letters, digits, - . and _).")
+        for what, value in (("catalog", catalog), ("schema", schema), ("label", label)):
+            if value and not _NAME_TEXT.fullmatch(value):
+                raise ValueError(f"The {what} must be one line of up to 255 characters.")
+        if databricks_cli:
+            entry = next((p for p in connprofiles.databricks_cli_profiles().get("profiles") or []
+                          if p.get("name") == databricks_cli), None)
+            if entry is None or not entry.get("host"):
+                raise ValueError(f"There's no Databricks CLI profile {databricks_cli!r} with a workspace on this PC.")
+            conn = connprofiles.connection_from_cli_profile(entry)
+            conn["compute"] = {"warehouse_id": warehouse_id, "cluster_id": cluster_id, "serverless": False}
+            conn |= {"catalog": catalog, "schema": schema}
+        else:
+            entry = next((c for c in connprofiles.snowflake_cli_connections().get("connections") or []
+                          if c.get("name") == snowflake_cli), None)
+            if entry is None:
+                raise ValueError(f"There's no Snowflake CLI connection {snowflake_cli!r} on this PC.")
+            conn = connprofiles.connection_from_cli_connection(entry)
+        conn["label"] = label
+        store = self._profiles()
+        if profile:
+            data = store.load(profile)
+        else:
+            if not profile_name.strip():
+                raise ValueError("Name the new profile.")
+            existing = {str(p.get("id")) for p in store.list()}
+            data = {"id": _new_id(existing), "name": profile_name.strip(), "kind": "local", "connections": []}
+        conns = [c for c in data.get("connections") or [] if c.get("id") != replace] if replace else \
+            list(data.get("connections") or [])
+        taken = {str(c.get("id")) for c in conns}
+        base, n = conn["id"], 2
+        while conn["id"] in taken:
+            conn["id"] = f"{base[:36]}-{n}"
+            n += 1
+        conns.append(conn)
+        data["connections"] = conns
+        data["kind"] = _kind_for(conns)
+        if data.get("validation"):
+            data["validation"] = {"status": "not_checked", "checked_at": None, "problems": []}
+        saved = store.save(data)
+        return {"profile": saved["id"], "connection": conn["id"], "key": f"profile:{saved['id']}:{conn['id']}"}
+
+    def engine_connection_remove(self, profile: str, connection: str) -> dict[str, Any]:
+        """Take one connection out of a profile. The CLI's own profile or connection stays as it is."""
+        store = self._profiles()
+        data = store.load(profile)
+        conns = [c for c in data.get("connections") or [] if c.get("id") != connection]
+        if len(conns) == len(data.get("connections") or []):
+            raise ValueError(f"The profile has no connection {connection!r}.")
+        data["connections"] = conns
+        data["kind"] = _kind_for(conns)
+        for key in ("defaults",):
+            if (data.get(key) or {}).get("connection") == connection:
+                data[key]["connection"] = ""
+        for section in ("environments", "deploy"):
+            for mapping in (data.get(section) or {}).values():
+                if isinstance(mapping, dict):
+                    mapping.pop(connection, None)
+        store.save(data)
+        return {"profile": profile, "removed": connection}
 
     # ---- before choosing
 

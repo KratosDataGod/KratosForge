@@ -75,7 +75,8 @@ include = ["fabric_desktop*"]
 "fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
 
 [tool.ruff]
-extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it
+extend-exclude = ["fabric_desktop/_vendor",  # vendored code stays as its authors wrote it
+                  "fabric_desktop/academy/packs"]  # exercise answers run with the exercise's spark (pyspark_lab)
 
 # CI's lint job (ruff check). Only mistakes: syntax errors (E9), pyflakes (F), such as an unused
 # import or a name that isn't defined, and bugbear (B), likely bugs such as a duplicate set item or an
@@ -97,6 +98,7 @@ ignore = ["B017", "B023"]
 # in mypy-baseline.json, and only new ones fail.
 [tool.mypy]
 files = ["fabric_desktop"]
+exclude = ["^fabric_desktop/academy/packs/"]  # exercise answers run with the exercise's spark (pyspark_lab)
 python_version = "3.12"  # CI's; the counts depend on it
 ignore_missing_imports = true  # several of the engine's packages ship no type information
 

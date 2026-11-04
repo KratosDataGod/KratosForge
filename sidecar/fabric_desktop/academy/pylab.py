@@ -31,6 +31,18 @@ from . import sandbox, validators
 from . import workspace as ws
 
 ADAPTERS = ("python_lab", "delta_lab")
+# delta-rs resolves table paths with a call an AppContainer is denied (docs/academy/grading-sandbox.md),
+# so these run in the v1 learner process even where the AppContainer is on (Chris's choice, 2026-11-04,
+# over waiting for a delta-rs that works inside one).
+V1_ONLY_ADAPTERS = ("delta_lab",)
+
+
+def appcontainer_ok(ex: dict[str, Any]) -> bool:
+    """Whether this exercise's script can run in an AppContainer: not one that reads or writes Delta
+    tables (a delta_lab exercise, or any Python exercise a delta_table check grades)."""
+    if ex.get("adapter") in V1_ONLY_ADAPTERS:
+        return False
+    return not any(isinstance(c, dict) and c.get("kind") == "delta_table" for c in ex.get("validation") or [])
 CHECKS = ("notebook_ran", "artifact_present", "config_matches", "schema_matches", "data_quality", "delta_table")
 NEEDS: dict[str, tuple[str, ...]] = {"artifact_present": ("items",), "config_matches": ("path", "rules"),
                                      "schema_matches": ("path", "columns"), "data_quality": ("path", "rules"),
@@ -133,7 +145,7 @@ def self_test(folder: Path, grading: Path, ex: dict[str, Any], lib_roots: list[P
             work = ws.workspace_dir(data_root, "selftest", ex["id"])
             work.mkdir(parents=True)
             prepare(work, folder, ex, source.read_text(encoding="utf-8"))
-            return grade(work, ex["starter"], ex["validation"], data_root, lib_roots)
+            return grade(work, ex["starter"], ex["validation"], data_root, lib_roots, appcontainer_ok=appcontainer_ok(ex))
 
     return {"solution": one(grading / "solution.py"),
             "wrong": {p.name: one(p) for p in sorted(grading.glob("wrong-*.py"))}}

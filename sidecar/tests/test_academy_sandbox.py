@@ -440,3 +440,36 @@ def test_run_resolves_the_workspace_before_finding_the_script(tmp_path):
     got = sandbox.run(other, "main.py", tmp_path, time_limit=30)
     assert got["status"] == "ok", got["stderr"]
     assert "hi" in got["stdout"]
+
+
+def test_an_exercise_that_cant_use_the_appcontainer_never_asks_for_one(tmp_path, monkeypatch):
+    from fabric_desktop.academy import pylab
+    assert not pylab.appcontainer_ok({"adapter": "delta_lab", "validation": []})
+    assert not pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "delta_table", "path": "t"}]})
+    assert pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "notebook_ran"}]})
+
+    def no_box(*a, **k):
+        raise AssertionError("asked for an AppContainer")
+
+    monkeypatch.setattr(sandbox, "_box", no_box)
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "main.py").write_text("print('ran')\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60, appcontainer_ok=False)
+    assert got["status"] == "ok", got["stderr"]
+    assert got["runs_as"] == sandbox.RUNS_AS
+
+
+def test_a_self_test_asks_for_the_appcontainer_as_run_and_check_do(tmp_path, monkeypatch):
+    from fabric_desktop.academy import pylab
+    asked = []
+    monkeypatch.setattr(pylab, "grade", lambda *a, **k: asked.append(k.get("appcontainer_ok")) or {"passed": True})
+    grading = tmp_path / "grading"
+    grading.mkdir()
+    (grading / "solution.py").write_text("print('ok')\n", encoding="utf-8")
+    (grading / "wrong-1.py").write_text("print('no')\n", encoding="utf-8")
+    for ex, want in (({"id": "D1", "adapter": "delta_lab", "starter": "main.py", "validation": []}, False),
+                     ({"id": "P1", "adapter": "python_lab", "starter": "main.py", "validation": []}, True)):
+        asked.clear()
+        pylab.self_test(tmp_path, grading, ex)
+        assert asked == [want, want], ex["adapter"]

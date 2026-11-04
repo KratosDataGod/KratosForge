@@ -212,9 +212,13 @@ What Windows CI showed on the first run (2026-11-04):
 
 Before it is turned on by default (Security's musts):
 
-1. **Install deny.** The engine package and `grading/` get deny ACEs for ALL APPLICATION PACKAGES
-   (S-1-15-2-1) and ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2), or the engine lives where
-   neither can read. A test in AppContainer mode, with the hook off, shows `grading/` can't be read.
+1. **Install deny.** Done: before any run in an AppContainer, the engine puts deny ACEs for ALL
+   APPLICATION PACKAGES (S-1-15-2-1) and ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2) on its own
+   package (`grading/` included), inherited by all it holds, once per engine start (an update brings
+   in new folders). An explicit deny outranks an allow from a folder like Program Files. If Windows
+   won't set it, the run uses the v1 learner process. These ACEs stay: they only keep AppContainers
+   out of the app's own package. A Windows test grants ALL APPLICATION PACKAGES on a folder, shows a
+   bare AppContainer process can read it, and then can't once the deny is on.
 2. **DPAPI, a standing rule.** An AppContainer process can unseal the person's DPAPI blobs, so no
    DPAPI-sealed file may ever be in a folder an AppContainer can read: not the workspace, not the
    profile folder, not anywhere that grants ALL APPLICATION PACKAGES.

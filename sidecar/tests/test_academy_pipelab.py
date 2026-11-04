@@ -256,3 +256,16 @@ def test_variables_hold_copies_not_references(tmp_path):
     json.dumps(got["run"])   # no list holds itself, so the record still serialises
     show = [a for a in got["run"]["activities"] if a["name"] == "Show"][0]
     assert show["output"]["value"].replace(" ", "") == "[1]|[1,2,[1,2]]", show["output"]
+
+
+@pytest.mark.parametrize("form", ["dag", "list"])
+def test_a_dag_too_big_is_refused_before_it_is_ordered(monkeypatch, form):
+    n = pipelab.MAX_DAG_ACTIVITIES + 1
+    names = [f"nb{i}" for i in range(n)]
+    dag = {"activities": [{"name": x, "path": x} for x in names]} if form == "dag" else names
+
+    def never(_dag):
+        raise AssertionError("a DAG over the limit must not be ordered")
+    monkeypatch.setattr(pipelab, "_dag_order", never)
+    got = pipelab.dag_matches(dag, ["nb0"])
+    assert not got["passed"] and f"more than {pipelab.MAX_DAG_ACTIVITIES} activities" in got["detail"]

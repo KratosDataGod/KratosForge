@@ -74,9 +74,9 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 11 | 2 | 16 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 3 | 2 | 1 | 6 |
-| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 7 | 2 | 0 | 12 |
+| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 3 | 8 | 2 | 0 | 13 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **7** | **32** | **60** | **19** | **118** |
+| **Total** | **7** | **33** | **60** | **19** | **119** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -173,9 +173,9 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Packages differ between the PC and Fabric and nothing installs or pins them; Fabric Environment items can't be read or attached.
 - **Proposed capability:** Environment profiles that pin packages for the PC and map to a Fabric Environment item's libraries and Spark settings.
-- **Current-state evidence:** envprofile.py classifies imports only; fabric_api.py has no Environment item calls; Package-source decision open (Prove); Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb
+- **Current-state evidence:** envprofile.py classifies imports only; fabric_api.py has no Environment item calls; Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb; Package source decided by the product owner on 2026-11-03 (10:09 UTC): the IT-approved wheel folder first, then PyPI only if policy allows; shipped in #1765
 - **Inventory features:** [FEAT-PRV-04](FEATURE_INVENTORY.md#feat-prv-04), [FEAT-FAB-09](FEATURE_INVENTORY.md#feat-fab-09)
-- **Dependencies:** Product-owner decision: package source for environment profiles (Prove)
+- **Dependencies:** none
 - **Owner:** Prove (FD-109)
 - **Pull requests:** [#906](https://github.com/KratosDataGod/KratosForge/pull/906), [#942](https://github.com/KratosDataGod/KratosForge/pull/942), [#1765](https://github.com/KratosDataGod/KratosForge/pull/1765)
 - **Story issues:** [#899](https://github.com/KratosDataGod/KratosForge/issues/899), [#941](https://github.com/KratosDataGod/KratosForge/issues/941)
@@ -907,12 +907,12 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Incidents open automatically from workload health, but there is no simple way to triage them across teams or hand them to the service desk an organization already uses; ServiceNow-style tools are complex.
 - **Proposed capability:** Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.
-- **Current-state evidence:** Chris's unit testing, 2026-10-18, item 33; Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127); Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb
+- **Current-state evidence:** Chris's unit testing, 2026-10-18, item 33; Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127); Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb; Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38
 - **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Simplified incident management
 - **Merged duplicates:** Builds on PB-047 incident screens (Workload management)
-- **Pull requests:** [#1735](https://github.com/KratosDataGod/KratosForge/pull/1735)
+- **Pull requests:** [#1735](https://github.com/KratosDataGod/KratosForge/pull/1735), [#1799](https://github.com/KratosDataGod/KratosForge/pull/1799), [#1800](https://github.com/KratosDataGod/KratosForge/pull/1800), [#1802](https://github.com/KratosDataGod/KratosForge/pull/1802)
 - **Acceptance criteria:**
     - As defined by its owning thread
 
@@ -1383,11 +1383,11 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.
 - **Proposed capability:** An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).
-- **Current-state evidence:** Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z); Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb; Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant; Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)
+- **Current-state evidence:** Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z); Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb; Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant; Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording); PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38; Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.
 - **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04)
 - **Dependencies:** none
 - **Owner:** Academy (ACD-001..020, DBA-001..016)
-- **Pull requests:** [#1771](https://github.com/KratosDataGod/KratosForge/pull/1771), [#1776](https://github.com/KratosDataGod/KratosForge/pull/1776), [#1777](https://github.com/KratosDataGod/KratosForge/pull/1777), [#1778](https://github.com/KratosDataGod/KratosForge/pull/1778), [#1779](https://github.com/KratosDataGod/KratosForge/pull/1779), [#1781](https://github.com/KratosDataGod/KratosForge/pull/1781), [#1782](https://github.com/KratosDataGod/KratosForge/pull/1782), [#1783](https://github.com/KratosDataGod/KratosForge/pull/1783), [#1784](https://github.com/KratosDataGod/KratosForge/pull/1784), [#1785](https://github.com/KratosDataGod/KratosForge/pull/1785), [#1788](https://github.com/KratosDataGod/KratosForge/pull/1788), [#1791](https://github.com/KratosDataGod/KratosForge/pull/1791), [#1793](https://github.com/KratosDataGod/KratosForge/pull/1793), [#1794](https://github.com/KratosDataGod/KratosForge/pull/1794), [#1795](https://github.com/KratosDataGod/KratosForge/pull/1795), [#1796](https://github.com/KratosDataGod/KratosForge/pull/1796), [#1801](https://github.com/KratosDataGod/KratosForge/pull/1801)
+- **Pull requests:** [#1771](https://github.com/KratosDataGod/KratosForge/pull/1771), [#1776](https://github.com/KratosDataGod/KratosForge/pull/1776), [#1777](https://github.com/KratosDataGod/KratosForge/pull/1777), [#1778](https://github.com/KratosDataGod/KratosForge/pull/1778), [#1779](https://github.com/KratosDataGod/KratosForge/pull/1779), [#1781](https://github.com/KratosDataGod/KratosForge/pull/1781), [#1782](https://github.com/KratosDataGod/KratosForge/pull/1782), [#1783](https://github.com/KratosDataGod/KratosForge/pull/1783), [#1784](https://github.com/KratosDataGod/KratosForge/pull/1784), [#1785](https://github.com/KratosDataGod/KratosForge/pull/1785), [#1786](https://github.com/KratosDataGod/KratosForge/pull/1786), [#1788](https://github.com/KratosDataGod/KratosForge/pull/1788), [#1790](https://github.com/KratosDataGod/KratosForge/pull/1790), [#1791](https://github.com/KratosDataGod/KratosForge/pull/1791), [#1793](https://github.com/KratosDataGod/KratosForge/pull/1793), [#1794](https://github.com/KratosDataGod/KratosForge/pull/1794), [#1795](https://github.com/KratosDataGod/KratosForge/pull/1795), [#1796](https://github.com/KratosDataGod/KratosForge/pull/1796), [#1797](https://github.com/KratosDataGod/KratosForge/pull/1797), [#1801](https://github.com/KratosDataGod/KratosForge/pull/1801), [#1804](https://github.com/KratosDataGod/KratosForge/pull/1804), [#1806](https://github.com/KratosDataGod/KratosForge/pull/1806), [#1807](https://github.com/KratosDataGod/KratosForge/pull/1807), [#1808](https://github.com/KratosDataGod/KratosForge/pull/1808), [#1809](https://github.com/KratosDataGod/KratosForge/pull/1809)
 - **Acceptance criteria:**
     - Every objective in a certification's registry has exercises or a recorded gap
     - An exercise is graded on what the learner made, read as untrusted input, in a limited process
@@ -1680,6 +1680,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Accepted |
 | [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
 | [PB-124](#pb-124) | Enterprise audit remediation (EA backlog) | P0 | Enterprise readiness | L | In progress |
+| [PB-131](#pb-131) | Remove Academy's runtime access grants on uninstall | P1 | Academy | S | Proposed |
 
 ### PB-001
 
@@ -1877,6 +1878,23 @@ review moves it to Accepted; a merge alone does neither.
     - The scorecard in docs/audits/ENTERPRISE_READINESS.md is re-scored after EA-001, EA-002 and EA-004 merge
     - Items that need Windows or the product owner (EA-009, EA-024, EA-030) are checked there or listed as limitations
     - Private security items stay out of public docs and are closed with the security owner
+
+### PB-131
+
+**Remove Academy's runtime access grants on uninstall** · P1 (score 1.84) · S · confidence Medium · Proposed
+
+- **Problem:** The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.
+- **Proposed capability:** The grants are removed on uninstall, or by a confirmed Diagnostics action, using the existing revoke_runtime().
+- **Current-state evidence:** Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38
+- **Inventory features:** [FEAT-DEV-04](FEATURE_INVENTORY.md#feat-dev-04), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
+- **Dependencies:** none
+- **Owner:** Academy (ACD-005b)
+- **Mandatory (required):** The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).
+- **Merged duplicates:** Overlaps PB-101 (codebase audit and hardening): where an EA item repeats an earlier HD finding, REMEDIATION_BACKLOG.md cites it
+- **Acceptance criteria:**
+    - Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does
+    - Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere
+    - A test shows grants before and none after
 
 ## Reliability, Testing, and Performance
 

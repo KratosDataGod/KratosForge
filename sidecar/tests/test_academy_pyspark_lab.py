@@ -338,3 +338,16 @@ def test_a_table_too_big_to_read_back_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr(pyspark_lab, "MAX_TABLE_ROWS", 5)
     with pytest.raises(ws.Refused, match="more than 5 rows"):
         pyspark_lab._rows(tmp_path, "bronze.orders")
+
+
+def test_a_workspace_named_by_another_path_to_it_still_runs(tmp_path):
+    """On Windows the temp folder can come as an 8.3 short name that resolves to its long one; a link to a
+    parent folder does the same here."""
+    real = tmp_path / "real"
+    (real / "w").mkdir(parents=True)
+    try:
+        (tmp_path / "short").symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("this PC can't make symbolic links")
+    run = pyspark_lab.run_learner(tmp_path / "short" / "w", "print('hi')")
+    assert run["status"] == "ok" and "hi" in run["stdout"]

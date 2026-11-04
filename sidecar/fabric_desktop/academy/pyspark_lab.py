@@ -147,11 +147,14 @@ def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[st
     in ``work``. ``data_root``: the app's data folder, denied to the learner outside ``work`` (default:
     work's parent). Returns once the process (and on Windows its job) has ended."""
     from . import sandbox   # it starts processes; only learner runs need it
-    work = Path(work)
+    ws.inside(work, ".")   # refused if the exercise folder itself is a link, before resolving follows it
+    # sandbox.run compares paths with resolved ones, so pass resolved paths (on Windows a temp folder can
+    # come as an 8.3 short name and resolve to its long one).
+    work = Path(work).resolve()
     _put(work, ANSWER_FILE, code)
     _put(work, LEARNER_FILE, LEARNER_SCRIPT)
-    r = sandbox.run(work, LEARNER_FILE, Path(data_root) if data_root else work.parent, time_limit=RUN_SECONDS,
-                    lib_roots=[_package_dir()])
+    root = Path(data_root).resolve() if data_root else work.parent
+    r = sandbox.run(work, LEARNER_FILE, root, time_limit=RUN_SECONDS, lib_roots=[_package_dir().resolve()])
     return {"status": r["status"], "stdout": r["stdout"], "stderr": r["stderr"]}
 
 

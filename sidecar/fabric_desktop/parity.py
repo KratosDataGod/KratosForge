@@ -150,9 +150,9 @@ AREAS: tuple[Area, ...] = (
                            "jobs aren't created or started here. Against fakes, no live run yet.")),
     _a("databricks", "compute", "Compute"),
     _a("databricks", "bundles", "Asset bundles and deployment",
-       cloud_api=Cell("built", ("test_databricks_bundles.py", "test_databricks_bundles_service.py"),
+       cloud_api=Cell("partial", ("test_databricks_bundles.py", "test_databricks_bundles_service.py"),
                       note="Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; "
-                           "against a fake CLI, no live run yet.")),
+                           "bundle run and destroy aren't offered. Against a fake CLI, no live run yet.")),
     _a("databricks", "cost", "Cost and DBU",
        cloud_api=Cell("partial", ("test_databricks_billing.py",),
                       note="Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; "

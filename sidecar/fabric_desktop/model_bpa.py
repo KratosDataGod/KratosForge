@@ -35,6 +35,16 @@ started = _dt.datetime.now(_dt.timezone.utc)
 name = f"%(results)s/{request_id}.json"
 pip = ""
 
+import re as _re
+_SECRET = [(_re.compile(p, _re.I), r) for p, r in (
+    (r"(bearer\\s+)[\\w.~+/=-]+", r"\\1[redacted]"), (r"eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]*", "[redacted]"),
+    (r"([?&](?:sig|se|sv|sp|skoid|sktid|skt|ske|sks|skv)=)[^&\\s]+", r"\\1[redacted]"), (r"(://)[^/\\s:@]+:[^/\\s@]+@", r"\\1[redacted]@"))]
+
+def _scrub(text):
+    for pattern, repl in _SECRET:
+        text = pattern.sub(repl, text)
+    return text
+
 def _save(record):
     text = json.dumps({"request_id": request_id, "kind": "model_bpa", "dataset": dataset, "workspace": workspace,
                        "package": "%(package)s", "started_at": started.isoformat(timespec="seconds"),
@@ -59,8 +69,8 @@ try:
     rows = [] if df is None else json.loads(df.to_json(orient="records", force_ascii=False))
     installed = _version("%(package)s")
 except BaseException as exc:
-    _save({"error": {"type": type(exc).__name__, "message": str(exc)[:2000],
-                     "traceback": traceback.format_exc()[-8000:], "pip": pip}})
+    _save({"error": {"type": type(exc).__name__, "message": _scrub(str(exc))[:2000],
+                     "traceback": _scrub(traceback.format_exc())[-8000:], "pip": _scrub(pip)}})
     raise
 _save({"version": installed, "tables": df is not None, "rows": rows})
 print(f"{len(rows)} findings")
@@ -112,12 +122,18 @@ def severity(value: Any) -> str:
     return _ICONS.get(text) or next((s for s in SEVERITIES if s.lower() == text.lower()), "Info")
 
 
+# Any workspace contributor can write the results file, so its lengths aren't trusted.
+_ERROR_LIMITS = {"type": 200, "message": 2000, "traceback": 8000, "pip": 4000}
+
+
 def error(record: dict[str, Any]) -> dict[str, str] | None:
-    """The error a check saved instead of findings, or None."""
+    """The error a check saved instead of findings, or None: redacted and capped again here."""
+    from . import redact
+
     err = record.get("error")
     if not isinstance(err, dict):
         return None
-    return {k: str(err.get(k) or "") for k in ("type", "message", "traceback", "pip")}
+    return {k: redact.secrets(str(err.get(k) or ""))[-n:] for k, n in _ERROR_LIMITS.items()}
 
 
 def findings(record: dict[str, Any]) -> dict[str, Any]:

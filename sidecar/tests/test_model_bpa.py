@@ -221,6 +221,23 @@ def test_the_check_cell_saves_its_error_before_failing_the_run(tmp_path, monkeyp
     assert "Traceback" in err["traceback"]
 
 
+def test_the_check_cell_scrubs_secrets_from_the_error_it_saves(tmp_path, monkeypatch):
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
+    def boom(**k):
+        raise ValueError(f"Authorization: Bearer abc.def-123 {jwt} https://x.blob/f?sv=1&sig=SECRETSIG https://bob:hunter2@host/p")
+    _, record = _run_cell(tmp_path, monkeypatch, bpa=boom)
+    saved = json.dumps(record["error"])
+    for secret in ("abc.def-123", jwt, "SECRETSIG", "hunter2"):
+        assert secret not in saved
+
+
+def test_a_saved_error_is_redacted_and_capped_again_when_read():
+    err = model_bpa.error({"error": {"type": "E", "message": "x" * 5000 + " Bearer abc.def-123",
+                                     "traceback": "t" * 20000, "pip": "p" * 9000}})
+    assert len(err["message"]) <= 2000 and "abc.def-123" not in err["message"]
+    assert (len(err["traceback"]), len(err["pip"])) == (8000, 4000)
+
+
 def test_the_check_cell_saves_a_failed_install_with_pips_output(tmp_path, monkeypatch):
     raised, record = _run_cell(tmp_path, monkeypatch, pip_code=1)
     assert isinstance(raised, RuntimeError)

@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import app_settings, jsonfile, progress, ranks
+from . import app_settings, jsonfile, pdfreport, progress, ranks, roadmap
 from .learn import content as learn_content
 from .redact import describe
 
@@ -26,7 +26,8 @@ _log = logging.getLogger(__name__)
 
 METHODS = {"profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report",
            "profile_report_save", "profile_export", "profile_delete", "profile_avatar", "profile_avatar_set",
-           "profile_avatar_remove"}
+           "profile_avatar_remove", "profile_report_pdf", "profile_goal_add", "profile_goal_remove",
+           "profile_goal_done"}
 
 # The picture the app made: a 256 px square PNG, re-encoded in the app from what the person chose, so
 # photo metadata such as location never reaches the file (PB-125).
@@ -54,11 +55,13 @@ class ProgressMixin:
         rows = [{**r, "excluded": r["id"] in excluded, "xp": p["xp_by_row"].get(r["id"], 0)}
                 for r in sorted(profile["evidence"], key=lambda r: r.get("at") or "", reverse=True)]
         progression = {k: v for k, v in p.items() if k != "xp_by_row"}
-        standing = ranks.standing(profile, learn_content.modules(include_drafts=False))
+        live = learn_content.modules(include_drafts=False)
+        standing = ranks.standing(profile, live)
         progression["title"] = standing["rank"]  # the rank is the title; the level stays a number (PB-125)
         return {"ranks": standing, "avatar": self._avatar_url(), "settings": profile["settings"], "identity": profile["identity"], "notice": profile["notice"], "evidence": rows,
                 "progression": progression, "skills": progress.coverage(profile), "report": profile["report"],
                 "catalog": [{"id": k, **v} for k, v in progress.ACHIEVEMENTS.items()],
+                "impact": progress.impact(profile), "roadmap": roadmap.roadmap(profile, live),
                 "signed_in": self._profile_user() is not None}
 
     # ---- the hook
@@ -158,11 +161,39 @@ class ProgressMixin:
     def profile_report(self, days: int = 90, include_achievements: bool = False) -> dict[str, Any]:
         if not 1 <= int(days) <= 3660:
             raise ValueError("days is 1 to 3660")
-        return progress.report(progress.load(self._profile_path()), int(days), bool(include_achievements))
+        profile = progress.load(self._profile_path())
+        plan = roadmap.roadmap(profile, learn_content.modules(include_drafts=False))
+        return progress.report(profile, int(days), bool(include_achievements), plan=plan)
 
     def profile_report_save(self, days: int = 90, include_achievements: bool = False) -> dict[str, Any]:
         out = self.profile_report(days, include_achievements)
         return {"path": str(_save_new("accomplishments", "md", out["markdown"]))}
+
+    def profile_report_pdf(self, days: int = 90, include_achievements: bool = False) -> dict[str, Any]:
+        """The same report as a PDF in Downloads (pdfreport.py: text only, standard fonts, no new library)."""
+        out = self.profile_report(days, include_achievements)
+        return {"path": str(_save_new("accomplishments", "pdf", pdfreport.render(out["markdown"])))}
+
+    # ---- goals (KF-DX-011): a roadmap milestone, met only by verified evidence, or the person's own words
+
+    def _profile_goals(self, change: Callable[[dict[str, Any]], object]) -> dict[str, Any]:
+        path = self._profile_path()
+        with _LOCK:
+            profile = progress.load(path)
+            change(profile)
+            progress.save(path, profile)
+        return self._profile_view(profile)
+
+    def profile_goal_add(self, milestone: str | None = None, text: str | None = None) -> dict[str, Any]:
+        if bool(milestone) == bool(text and str(text).strip()):
+            raise ValueError("Give a roadmap milestone or a goal in your own words, not both.")
+        return self._profile_goals(lambda p: roadmap.add_goal(p, milestone=milestone, text=text))
+
+    def profile_goal_remove(self, id: str) -> dict[str, Any]:  # noqa: A002 - the app's parameter name
+        return self._profile_goals(lambda p: roadmap.remove_goal(p, id))
+
+    def profile_goal_done(self, id: str, done: bool = True) -> dict[str, Any]:  # noqa: A002 - the app's parameter name
+        return self._profile_goals(lambda p: roadmap.mark_goal(p, id, bool(done)))
 
     def profile_export(self) -> dict[str, Any]:
         profile = progress.load(self._profile_path())
@@ -219,7 +250,7 @@ def _avatar_ok(data: bytes) -> bool:
     return width == height == AVATAR_SIZE
 
 
-def _save_new(stem: str, ext: str, text: str) -> Path:
+def _save_new(stem: str, ext: str, text: str | bytes) -> Path:
     """A new file in Downloads; one already there (even one made a moment ago) is never replaced."""
     folder = Path.home() / "Downloads"
     folder.mkdir(parents=True, exist_ok=True)
@@ -227,8 +258,12 @@ def _save_new(stem: str, ext: str, text: str) -> Path:
     path, n = folder / f"{stem}.{ext}", 2
     while n <= 1000:
         try:
-            with path.open("x", encoding="utf-8") as f:
-                f.write(text)
+            if isinstance(text, bytes):
+                with path.open("xb") as fb:
+                    fb.write(text)
+            else:
+                with path.open("x", encoding="utf-8") as f:
+                    f.write(text)
             return path
         except FileExistsError:
             path, n = folder / f"{stem}-{n}.{ext}", n + 1

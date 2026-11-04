@@ -1,0 +1,160 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.1",
+  "questions": [
+    {
+      "id": "2.1-q1",
+      "type": "single",
+      "stem": "In the medallion architecture, which layer holds raw data as it arrived from the source?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Platinum"
+        },
+        {
+          "id": "b",
+          "text": "Gold"
+        },
+        {
+          "id": "c",
+          "text": "Bronze"
+        },
+        {
+          "id": "d",
+          "text": "Silver"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Bronze keeps the raw ingested data, silver holds cleaned and conformed data, and gold holds business-level aggregates and models.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/medallion",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1-q2",
+      "type": "single",
+      "stem": "Quarry Lane's store files arrive every few minutes, and only new files should be processed each run. Which ingestion pattern fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Manual uploads through the UI"
+        },
+        {
+          "id": "b",
+          "text": "A full reload of every file each run"
+        },
+        {
+          "id": "c",
+          "text": "Copying the bucket to a laptop"
+        },
+        {
+          "id": "d",
+          "text": "Incremental ingestion that tracks which files were already loaded"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Auto Loader, for example, keeps the metadata of discovered files in its checkpoint, so each file is processed exactly once and each run handles just the new arrivals.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/",
+      "case": "quarry-retail",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1-q3",
+      "type": "single",
+      "stem": "What is the difference between batch and streaming ingestion?",
+      "options": [
+        {
+          "id": "a",
+          "text": "There is no difference"
+        },
+        {
+          "id": "b",
+          "text": "Batch only reads CSV; streaming only reads JSON"
+        },
+        {
+          "id": "c",
+          "text": "Batch processes a bounded set of data per run; streaming processes data continuously as it arrives"
+        },
+        {
+          "id": "d",
+          "text": "Streaming never uses Delta tables"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Batch reads a bounded set at a time; streaming treats the source as unbounded and processes new data as it arrives, continuously or in triggered runs.",
+      "source": "https://docs.databricks.com/aws/en/ingestion/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1-q4",
+      "type": "single",
+      "stem": "Where should cleaned, deduplicated and type-corrected data live in the medallion architecture?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Gold"
+        },
+        {
+          "id": "b",
+          "text": "Bronze"
+        },
+        {
+          "id": "c",
+          "text": "Silver"
+        },
+        {
+          "id": "d",
+          "text": "Landing"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Silver tables hold validated, cleaned and conformed data built from bronze.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/medallion",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.1-q5",
+      "type": "order",
+      "stem": "Put the medallion layers in the order data flows through them.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Silver: cleaned and conformed"
+        },
+        {
+          "id": "b",
+          "text": "Gold: business-level aggregates"
+        },
+        {
+          "id": "c",
+          "text": "Bronze: raw data as ingested"
+        }
+      ],
+      "answer": [
+        "c",
+        "a",
+        "b"
+      ],
+      "explanation": "Data lands raw in bronze, is cleaned in silver, and is aggregated or modeled for consumption in gold.",
+      "source": "https://docs.databricks.com/aws/en/lakehouse/medallion",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

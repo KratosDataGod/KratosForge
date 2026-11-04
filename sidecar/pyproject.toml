@@ -71,6 +71,8 @@ include = ["fabric_desktop*"]
 "fabric_desktop.engines" = ["dbconnect_locks/*.txt"]
 # Learn lessons and labs (learn/content.py), one folder per module.
 "fabric_desktop.learn" = ["content/*.json", "content/*/*", "rule_guides.json", "patterns.json"]
+# Academy certification packs (academy/registry.py), one folder per certification.
+"fabric_desktop.academy" = ["packs/*/*.json", "packs/*/*/*", "packs/*/*/*/*"]
 
 [tool.ruff]
 extend-exclude = ["fabric_desktop/_vendor"]  # vendored code stays as its authors wrote it

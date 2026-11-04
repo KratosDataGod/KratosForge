@@ -166,7 +166,8 @@ def _check(need: dict[str, Any], f: dict[str, Any], shipped: set[str], available
     if kind == "fixes":
         return _row(f"Check {want} best-practice fixes with Compare", f["fixes"], want, False)
     if kind == "notebooks":
-        return _row(f"Validate {want} different notebooks with a clean run", f["notebooks"], want, False)
+        text = "Validate a notebook with a clean run" if want == 1 else f"Validate {want} different notebooks with a clean run"
+        return _row(text, f["notebooks"], want, False)
     if kind == "days":
         return _row(f"Show this evidence over at least {want} days", f["days"], want, False)
     raise ValueError(f"unknown rank requirement {kind}")

@@ -23,12 +23,13 @@ from fabric_desktop import server
 UI = Path(__file__).resolve().parents[2] / "app" / "ui"
 
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
-_INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
+_INCIDENTS = "incident history: the engine is released, its screen is stage 4 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _BPA = "best practices check of a semantic model: engine first, screens wait on the mockup (docs/semantic-model-best-practices.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
+_FABRIC_GIT = "Fabric workspace Git (Git-native Phase 2): engine first, the item support view comes with the Deploy work (docs/git-integration-plan.md)"
 _EMBED = "Embed Studio (Preview): engine first, the screen waits on its mockup (PBE-06, docs/architecture/power-bi-embedding.md)"
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
@@ -63,10 +64,6 @@ NO_UI_CALLER: dict[str, str] = {
     "local_set_types": _LOCAL,
     "local_write_delta": _LOCAL,
     # Engine features whose screens come later.
-    "incidents_board": _INCIDENTS,
-    "incident_report": _INCIDENTS,
-    "incident_set_priority": _INCIDENTS,
-    "incident_sla_policy": _INCIDENTS,
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
@@ -74,6 +71,8 @@ NO_UI_CALLER: dict[str, str] = {
     "meta_preflight": _NO_SCREEN,  # the PB-067 run dialog (#915, after a mockup) shows its estimate
     "pbi_embed_token": _EMBED,
     "pbi_embed_content": _EMBED,
+    "fabric_item_support": _FABRIC_GIT,
+    "fabric_git_links": _FABRIC_GIT,  # the tab reads links through fabric_git_overview
     # Listed by QA-017 as having no screen.
     "platform_sources": _QA017,
 }

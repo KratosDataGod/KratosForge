@@ -27,7 +27,8 @@ from typing import Any
 from . import jsonfile
 
 SCHEMA = "kratosforge/profile@1"
-RULES_VERSION = 3   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked
+RULES_VERSION = 4   # v2 (LX-07): Learn exercises and lessons, and five Learn achievements; v3 (GD-06): fixes checked;
+#                     v4 (ACD-006): Academy exercises, as evidence for their exam objectives (no XP yet)
 LEVEL_CURVE = "v1"
 
 PASSED = ("ready", "ready_with_warnings")
@@ -40,7 +41,8 @@ EVENT_DIMENSIONS = {"validate.pass": ("Data Engineering", "Engineering Quality")
                     "prove.match": ("Engineering Quality", "Performance & Optimization"),
                     "lab.pass": ("Learning & Growth",),
                     "module.complete": ("Learning & Growth",),
-                    "fix.checked": ("Engineering Quality",)}
+                    "fix.checked": ("Engineering Quality",),
+                    "academy.exercise": ("Learning & Growth",)}
 # A checked fix also counts toward its rule's area (rules v3): a guide's area to a skill.
 FIX_AREA_DIMENSIONS = {"Performance": "Performance & Optimization", "Security": "Security & Governance",
                        "Reliability": "Reliability & Operations"}
@@ -124,7 +126,7 @@ def path_for(root: Path, username: str | None) -> Path:
 
 def empty() -> dict[str, Any]:
     return {"schema": SCHEMA, "settings": dict(DEFAULT_SETTINGS), "identity": {k: "" for k in IDENTITY_KEYS},
-            "evidence": [], "excluded": [], "report": {"summary": ""}, "notice": ""}
+            "evidence": [], "excluded": [], "report": {"summary": ""}, "notice": "", "goals": []}
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -147,6 +149,8 @@ def load(path: Path) -> dict[str, Any]:
     out["evidence"] = [r for r in data.get("evidence") or [] if isinstance(r, dict) and r.get("id")]
     out["excluded"] = [str(i) for i in data.get("excluded") or []]
     out["report"]["summary"] = str((data.get("report") or {}).get("summary") or "")[:MAX_TEXT]
+    from . import roadmap  # roadmap reads progress, so it is imported here, not at the top
+    out["goals"] = roadmap.clean_goals(data.get("goals"))
     return out
 
 
@@ -242,6 +246,30 @@ def from_fix(rule_id: str, area: str, compared: dict[str, Any], runs: dict[str, 
             "measurement": {"before_seconds": seconds["before"], "after_seconds": seconds["after"], "kind": "measured",
                             "source": "Compare, one run each, the fixed one second"} if timed else None,
             "dimensions": dims, "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
+
+
+def from_academy(result: dict[str, Any], exercise: dict[str, Any], certification: dict[str, Any], hints_used: int = 0,
+                 explanation_seen: bool = False, origin: str = "live") -> dict[str, Any] | None:
+    """The evidence row for an Academy exercise whose validation all passed (ACD-006, rules v4), or None.
+    Only published exercises count. The row keeps the certification and the version of its study guide,
+    the objectives, the exercise's verification class and mode, hints used and whether the explanation was
+    open; never the answer or the data. Passing again on the same day adds nothing; on a later day it adds
+    a row, which is what retention reads. Rows are never changed when a new study guide version comes out."""
+    if not result.get("passed") or exercise.get("status") != "live" or not result.get("results"):
+        return None
+    pack, eid, version = certification["id"], exercise["id"], int(exercise.get("version") or 1)
+    day = _now()[:10]
+    kinds = list(dict.fromkeys(str(r.get("kind")) for r in result["results"]))
+    return {"id": evidence_id("academy.exercise", f"{pack}/{eid}", f"v{version}|{day}"), "type": "academy.exercise",
+            "at": _now(), "artifact": {"kind": "exercise", "name": f"{pack}/{eid}", "title": str(exercise.get("title") or "")[:200]},
+            "ref": {"source": "academy", "id": f"{pack}/{eid}", "revision": f"v{version}"},
+            "status": "verified", "verdict": "passed",
+            "detail": {"certification": pack, "certification_version": certification["version"],
+                       "objectives": [str(o) for o in exercise.get("objectives") or []], "class": exercise["class"],
+                       "mode": exercise["mode"], "hints_used": max(0, int(hints_used)),
+                       "explanation_seen": bool(explanation_seen), "checks": kinds},
+            "measurement": None, "dimensions": list(EVENT_DIMENSIONS["academy.exercise"]),
+            "rules_version": RULES_VERSION, "recorded_at": _now(), "origin": origin, "contribution": None}
 
 
 def module_complete(profile: dict[str, Any], module: dict[str, Any]) -> dict[str, Any] | None:
@@ -439,6 +467,53 @@ def _parse(stamp: str | None) -> dt.datetime | None:
         return None
 
 
+# ---- impact: measured results only (KF-DX-009)
+
+
+def impact(profile: dict[str, Any]) -> dict[str, Any]:
+    """What the included evidence measured, newest first, and the verified outcomes it counts.
+
+    Only figures a row measured are shown: a proof's times on this PC and in Fabric, a checked fix's
+    time as written and as fixed (one run each), and a Learn speed check's times. Nothing is
+    estimated, summed into a saving or turned into money. Capacity units aren't read per run yet, so
+    capacity is reported as not measured rather than guessed."""
+    rows = included(profile)
+    measured: list[dict[str, Any]] = []
+    for r in rows:
+        m = r.get("measurement") or {}
+        if not m:
+            continue
+        base = {"id": r["id"], "at": r.get("at"), "type": r["type"], "source": m.get("source") or ""}
+        if r["type"] == "prove.match" and (_num(m.get("pc_seconds")) or _num(m.get("fabric_seconds"))):
+            measured.append({**base, "kind": "proof", "what": f"Proved notebook {r['artifact']['name']}",
+                             "this_pc_seconds": m.get("pc_seconds") if _num(m.get("pc_seconds")) else None,
+                             "fabric_seconds": m.get("fabric_seconds") if _num(m.get("fabric_seconds")) else None})
+        elif r["type"] == "fix.checked" and _num(m.get("before_seconds")) and _num(m.get("after_seconds")):
+            before, after = float(m["before_seconds"]), float(m["after_seconds"])
+            where = r["artifact"].get("where")
+            measured.append({**base, "kind": "fix", "what": f"Fixed {r['artifact']['name']}{' on ' + where if where else ''}",
+                             "before_seconds": before, "after_seconds": after,
+                             "change_percent": round(100 * (before - after) / before, 1) if before > 0 else None})
+        elif r["type"] == "lab.pass" and _num(m.get("seconds")) and _num(m.get("baseline_seconds")):
+            title = r["artifact"].get("title") or r["artifact"]["name"]
+            measured.append({**base, "kind": "speed", "what": f"Made a query faster in {r['artifact']['name']}, {title}",
+                             "before_seconds": m["baseline_seconds"], "after_seconds": m["seconds"],
+                             "speedup": m.get("speedup") if _num(m.get("speedup")) else None})
+    faster = sum(1 for x in measured if x["kind"] != "proof" and x["after_seconds"] < x["before_seconds"])
+    outcomes = {"notebooks_validated": len({r["artifact"]["name"] for r in rows if r["type"] == "validate.pass"}),
+                "notebooks_proven": len({r["artifact"]["name"] for r in rows if r["type"] == "prove.match"}),
+                "fixes_checked": sum(1 for r in rows if r["type"] == "fix.checked"),
+                "quality_labs": sum(1 for r in rows if r["type"] == "lab.pass"
+                                    and "defects_found" in ((r.get("detail") or {}).get("checks") or []))}
+    return {"measured": measured[::-1], "faster": faster, "outcomes": outcomes,
+            "capacity": {"measured": False, "why": "KratosForge doesn't read Fabric capacity units per run yet, so it "
+                                                   "claims no capacity or cost saving."}}
+
+
+def _num(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 # ---- the professional report
 
 
@@ -451,10 +526,11 @@ def md(text: str) -> str:
 
 
 def report(profile: dict[str, Any], days: int = 90, include_achievements: bool = False,
-           now: dt.datetime | None = None) -> dict[str, Any]:
+           now: dt.datetime | None = None, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """A review-ready summary of the included rows in the last ``days`` days, as Markdown and plain
     text. Every line says where it came from; nothing is inferred beyond the evidence. No XP, levels
-    or badges unless ``include_achievements``."""
+    or badges unless ``include_achievements``. ``plan`` is roadmap.roadmap(): with it, the report lists
+    the person's goals and suggested next milestones under Development goals."""
     now = now or dt.datetime.now(dt.timezone.utc)
     start = now - dt.timedelta(days=days)
     rows = [r for r in included(profile) if (_parse(r.get("at")) or now) >= start]
@@ -553,6 +629,22 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
     lines.append("; ".join(f"{c['name']}: {c['state'].lower()} ({c['rows']} verified items across {c['artifacts']} "
                         f"artifacts)" for c in shown) + ". *(Generated summary)*" if shown
               else "Not enough evidence yet to name a competency. *(Not measured)*")
+    if plan is not None:
+        lines += ["", "## Development goals", ""]
+        for g in plan["goals"]:
+            if g["source"] == "entered":
+                state = "done" if g["met"] else "in progress"
+                lines.append(f"- {md(g['title'])}: {state}. *(Entered by you)*")
+            elif g["met"]:
+                lines.append(f"- {md(g['track'])}: {md(g['title'])}. Met: {md('; '.join(c['text'] for c in g['checks']))}. "
+                             "*(Verified)*")
+            else:
+                todo = "; ".join(f"{c['text']} ({c['have']} of {c['need']})" for c in g["checks"] if not c["met"])
+                lines.append(f"- {md(g['track'])}: {md(g['title'])}. In progress: {md(todo)}. *(Goal set by you)*")
+        for s in plan["suggestions"]:
+            lines.append(f"- {md(s['track'])}: {md(s['title'])}. *(Suggested next step, next to verified work)*")
+        if not plan["goals"] and not plan["suggestions"]:
+            lines.append("No development goals set. *(Not measured)*")
     if include_achievements:
         p = progression(profile)
         lines += ["", "## KratosForge achievements", "",

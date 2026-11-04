@@ -13,6 +13,7 @@ The run log is the evidence: a table is fresh when its last successful run is re
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from typing import Any
 
@@ -40,10 +41,10 @@ def problems(name: str, spec: dict[str, Any], environments: tuple[str, ...]) -> 
     if not f.get("within_hours") and not f.get("by"):
         errors.append(f"{name}: [freshness] needs within_hours, by, or both")
     wh = f.get("within_hours")
-    if wh is not None and (isinstance(wh, bool) or not isinstance(wh, (int, float)) or wh <= 0):
+    if wh is not None and (isinstance(wh, bool) or not isinstance(wh, (int, float)) or not math.isfinite(wh) or wh <= 0):
         errors.append(f"{name}: freshness within_hours must be a number of hours above 0")
     by = f.get("by")
-    if by is not None and not (isinstance(by, str) and _TIME.match(by)):
+    if by is not None and not (isinstance(by, str) and _TIME.fullmatch(by)):
         errors.append(f'{name}: freshness by must be a time like "07:00"')
     envs = f.get("envs")
     if envs is not None and (not isinstance(envs, list) or not envs or any(x not in environments for x in envs)):

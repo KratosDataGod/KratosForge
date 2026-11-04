@@ -1,0 +1,162 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "6.5",
+  "questions": [
+    {
+      "id": "6.5-q1",
+      "type": "single",
+      "stem": "A stage fails with memory errors, and its summary metrics show one task with far more data than the rest. What should you check first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Skew in the stage"
+        },
+        {
+          "id": "b",
+          "text": "The Git branch"
+        },
+        {
+          "id": "c",
+          "text": "The job's schedule"
+        },
+        {
+          "id": "d",
+          "text": "The table's comments"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Skew is a common cause of memory problems; check it in the stage's summary metrics.",
+      "source": "https://docs.databricks.com/aws/en/optimizations/spark-ui-guide/spark-memory-issues",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.5-q2",
+      "type": "single",
+      "stem": "Two notebooks on the same cluster need different versions of a Python library. What fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Restart the workspace"
+        },
+        {
+          "id": "b",
+          "text": "Install each version as a notebook-scoped library with %pip"
+        },
+        {
+          "id": "c",
+          "text": "Install both cluster-wide"
+        },
+        {
+          "id": "d",
+          "text": "Use a larger cluster"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Notebook-scoped libraries keep each notebook's environment separate.",
+      "source": "https://docs.databricks.com/aws/en/libraries/notebooks-python-libraries",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.5-q3",
+      "type": "single",
+      "stem": "A cluster fails to start. Where do you look first for the reason?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The compute's event log"
+        },
+        {
+          "id": "b",
+          "text": "The dashboard"
+        },
+        {
+          "id": "c",
+          "text": "The table's history"
+        },
+        {
+          "id": "d",
+          "text": "The Git folder"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The compute event log records start-up steps and failures.",
+      "source": "https://docs.databricks.com/aws/en/compute/troubleshooting/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.5-q4",
+      "type": "multiple",
+      "stem": "A cluster won't start. Which are worth checking? Choose two.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The table's row filter"
+        },
+        {
+          "id": "b",
+          "text": "The notebook's markdown cells"
+        },
+        {
+          "id": "c",
+          "text": "The compute's event log"
+        },
+        {
+          "id": "d",
+          "text": "The network configuration (routing or firewall) for the compute plane"
+        }
+      ],
+      "answer": [
+        "c",
+        "d"
+      ],
+      "explanation": "The event log shows why compute didn't start, and a common cause is a misconfigured compute plane network, such as routing or a firewall.",
+      "source": "https://docs.databricks.com/aws/en/compute/troubleshooting/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "6.5-q5",
+      "type": "single",
+      "stem": "After installing a library on the compute, a notebook still imports another version. What is a likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A notebook-scoped library (%pip) or one in the Git folder takes precedence over the compute library"
+        },
+        {
+          "id": "b",
+          "text": "The trigger is scheduled"
+        },
+        {
+          "id": "c",
+          "text": "Unity Catalog is off"
+        },
+        {
+          "id": "d",
+          "text": "The table is external"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "When you import a library, the one with the highest precedence is imported; notebook-scoped libraries and Git folder libraries come before compute libraries.",
+      "source": "https://docs.databricks.com/aws/en/libraries/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

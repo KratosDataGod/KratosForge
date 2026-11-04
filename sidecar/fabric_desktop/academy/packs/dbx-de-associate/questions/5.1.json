@@ -1,0 +1,166 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "5.1",
+  "questions": [
+    {
+      "id": "5.1-q1",
+      "type": "single",
+      "stem": "Where do you create a new branch for code in a Databricks Git folder?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only by emailing the repository owner"
+        },
+        {
+          "id": "b",
+          "text": "In the Git folder's Git dialog in the workspace"
+        },
+        {
+          "id": "c",
+          "text": "In the SQL editor"
+        },
+        {
+          "id": "d",
+          "text": "In the cluster configuration"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Git dialog of a Git folder lets you create and switch branches, then commit and push.",
+      "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.1-q2",
+      "type": "order",
+      "stem": "Arrange the steps to change code on a feature branch in a Git folder.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Commit and push the changes"
+        },
+        {
+          "id": "b",
+          "text": "Edit the notebook"
+        },
+        {
+          "id": "c",
+          "text": "Open a pull request in the Git provider"
+        },
+        {
+          "id": "d",
+          "text": "Create a feature branch from main"
+        }
+      ],
+      "answer": [
+        "d",
+        "b",
+        "a",
+        "c"
+      ],
+      "explanation": "Branch first, change, commit and push, then review through a pull request in the provider.",
+      "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.1-q3",
+      "type": "single",
+      "stem": "Your teammate pushed new commits to the branch you are on. What brings them into your Git folder?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Detach the notebook"
+        },
+        {
+          "id": "b",
+          "text": "Pull"
+        },
+        {
+          "id": "c",
+          "text": "Delete the Git folder"
+        },
+        {
+          "id": "d",
+          "text": "Push"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Pull brings remote changes into the Git folder.",
+      "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.1-q4",
+      "type": "single",
+      "stem": "What does a Databricks Git folder connect a workspace folder to?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A SQL warehouse"
+        },
+        {
+          "id": "b",
+          "text": "A cluster"
+        },
+        {
+          "id": "c",
+          "text": "A remote Git repository"
+        },
+        {
+          "id": "d",
+          "text": "A Unity Catalog schema"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Git folders are created by cloning a Git repository into the workspace, where you manage branches and commits.",
+      "source": "https://docs.databricks.com/aws/en/repos/",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "5.1-q5",
+      "type": "multiple",
+      "stem": "Which Git operations can you do from a Git folder in the workspace? Choose three.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Pull"
+        },
+        {
+          "id": "b",
+          "text": "Approve a pull request in the provider"
+        },
+        {
+          "id": "c",
+          "text": "Commit and push"
+        },
+        {
+          "id": "d",
+          "text": "Create a branch"
+        }
+      ],
+      "answer": [
+        "c",
+        "a",
+        "d"
+      ],
+      "explanation": "Commit, push, pull and branching are done in the Git folder; pull request reviews happen in the Git provider.",
+      "source": "https://docs.databricks.com/aws/en/repos/git-operations-with-repos",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

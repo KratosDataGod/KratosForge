@@ -26,6 +26,7 @@ async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
   applyMotion();  // motion.js
   applyAppearance();  // features.js
+  if (!skinState.list) loadSkins().then(() => typeof render === "function" && render());  // skins.js: once; the rail then takes the skin's order
   return state.settings;
 }
 
@@ -121,6 +122,7 @@ function redactReport(text, level = "support") {
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\b(?:sk-ant-[A-Za-z0-9_\-]{20,}|sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{32,}|AIza[0-9A-Za-z_\-]{35})/g, "[removed]")
     .replace(/\bdapi[0-9a-f]{32}(?:-\d+)?\b/g, "[removed]")
     .replace(/\bdose[0-9a-f]{32}\b/g, "[removed]")
     .replace(/-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g, "[removed]")
@@ -136,7 +138,7 @@ function redactReport(text, level = "support") {
     .replace(/\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9][a-z0-9\-]*)*(\.onmicrosoft\.(?:com|us|de|cn))\b/gi, "[tenant]$1")
     .replace(/(OneDrive - )([^\\/"'<>:\r\n]+)/g, "$1[organization]")
     .replace(/\b[a-z0-9][a-z0-9\-]*?(-my|-admin)?(\.sharepoint\.(?:com|us|de|cn))\b/gi, "[tenant]$1$2")
-    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+/gi, "$1[site]")
+    .replace(/(\.sharepoint\.(?:com|us|de|cn)\/(?:sites|teams)\/)[^\/\s"'<>?#]+(?:(?: [^\/\s"'<>?#]+)+(?=[\/"'<>?#\r]|$))?/gim, "$1[site]")
     .replace(/(\/personal\/)[a-z0-9][a-z0-9_.\-]*/gi, "$1[user]")
     .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
     .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
@@ -579,6 +581,7 @@ function motionSettingsCard(s, locked) {
         onclick: () => now !== value && save({ [key]: value }) }, label))), source(key));
   };
   return h("section", { class: "card pad motion-settings" }, h("h2", {}, "Appearance"),
+    typeof skinChooser === "function" && previewShown() ? skinChooser(locked) : null,  // skins.js
     h("h3", {}, "Layout"),
     h("p", { class: "muted-text small" }, "How much every page shows. Nothing is removed: what you tuck away is one click from where it was."),
     Object.keys(LAYOUT_CHOICES).map(choice),

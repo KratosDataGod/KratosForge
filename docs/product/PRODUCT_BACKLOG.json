@@ -1675,7 +1675,8 @@
       "problem": "Workspaces connected to Git can't be seen or driven from the app.",
       "capability": "Owned and specified by the Git-native program (Phase 2); not restated here.",
       "evidence": [
-        "docs/git-integration-plan.md Phase 2"
+        "docs/git-integration-plan.md Phase 2",
+        "A registry of which item types work with Fabric Git, deployment pipelines and KratosForge (#1739) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-FAB-12"
@@ -1708,7 +1709,10 @@
         "cost": 3.0,
         "score": 2.31,
         "priority": "P2"
-      }
+      },
+      "prs": [
+        1739
+      ]
     },
     {
       "id": "PB-041",
@@ -2291,7 +2295,8 @@
         1348,
         1351,
         1353,
-        1354
+        1354,
+        1716
       ],
       "issues": [
         909
@@ -2684,7 +2689,8 @@
         "Part 1 merged: automated axe-core, keyboard and focus audit of every page (#907); findings in #905 and #945; Narrator pass not done on main at b19b7456",
         "The audit's findings fixed (#926), and every check axe can't decide has a verdict (#951) on main at 188d5a93; no Narrator pass on Windows yet",
         "The automated audit covers Preview screens and common dialogs, and axe checks wait for animations to end (#1294, #1334, #1339) on main at b3c5b223; no Narrator pass on Windows yet",
-        "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7"
+        "Keyboard-only pass over every rail page (#1690) and the How to choose dialog in the accessibility audit (#1640) on main at 9367abf7",
+        "Ctrl+= and Ctrl+- zoom the window and every page fits at 200% (#1717) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-SHL-07",
@@ -2731,7 +2737,8 @@
         1334,
         1339,
         1640,
-        1690
+        1690,
+        1717
       ],
       "issues": [
         880,
@@ -4445,7 +4452,9 @@
         1631,
         1639,
         1654,
-        1686
+        1686,
+        1711,
+        1712
       ]
     },
     {
@@ -4564,6 +4573,7 @@
         934,
         938,
         952,
+        984,
         989,
         992,
         1003,
@@ -4674,7 +4684,15 @@
         1695,
         1696,
         1698,
-        1699
+        1699,
+        1703,
+        1704,
+        1705,
+        1719,
+        1724,
+        1729,
+        1730,
+        1743
       ],
       "issues": [
         910,
@@ -4932,7 +4950,8 @@
       "evidence": [
         "Chris's Optimize brief, 2026-10-18 08:55Z",
         "Merged: PR-OPT-001a (#186), 001b (#200), 002 (#189), central lakehouse families (#228, #262), X-ray findings in the central lakehouse (#343, #865, #1454), local runs engine (#356); FinOps' calibration.py",
-        "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4"
+        "Not built (closed-thread audit, 2026-11-03): OPT-003 part 2, 004, 005, 006, 007 rest, 008, 009, plus OPT-010 Effort and Dismiss, OPT-011 X-ray actions for every finding, OPT-012 motion events, OPT-013 advisor screen; status in docs/optimize/plan.md section 4",
+        "Plan merged (#1708): what's merged, what's left, the audit's four gaps, and no CU savings claim without a measured baseline; results wait on this PC when the lakehouse can't be reached (#1726, #1733) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-ADM-01"
@@ -4972,7 +4991,12 @@
         "cost": 4.5,
         "score": 1.27,
         "priority": "P1"
-      }
+      },
+      "prs": [
+        1708,
+        1726,
+        1733
+      ]
     },
     {
       "id": "PB-105",
@@ -5353,7 +5377,8 @@
       "capability": "Owned by the 'Bring VS Code developers to KratosForge' thread: phase 0 on-disk change guard (#650, merged), MCP in VS Code and an Add to VS Code button; later phases need Chris's go and three decisions.",
       "evidence": [
         "Proposal 2026-10-24",
-        "#650 merged: the app never saves over a file another program changed"
+        "#650 merged: the app never saves over a file another program changed",
+        "An installable .vsix on every Preview release (Phase 2d, #1707) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-EXT-01",
@@ -5394,7 +5419,8 @@
         712,
         742,
         754,
-        795
+        795,
+        1707
       ],
       "mandatory": "none",
       "computed": {
@@ -5893,7 +5919,8 @@
         1626,
         1643,
         1648,
-        1649
+        1649,
+        1720
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
@@ -5990,13 +6017,15 @@
         1184,
         1186,
         1216,
-        1233
+        1233,
+        1713
       ],
       "problem": "Findings tell people what is wrong but not why it matters or how to check a fix, and experienced people want less guidance than new ones.",
       "capability": "Guidance levels Expert, Professional (default) and Guided, Try the fix and Compare beside SQL findings, rule guides, Query profile notes, decision patterns, level by subject, and \"fixed and checked\" evidence in Profile.",
       "evidence": [
         "Split from PB-119 on 2026-11-01. 8 of 10 rows merged: GD-01 levels (#1161), GD-02 Try the fix and Compare (#1162), GD-03 guide fields (#1175), GD-04 Query profile notes (#1182), GD-05 decision patterns (#1184), GD-06 fixed-and-checked evidence (#1186), GD-08 level by subject (#1216); GD-10 first lessons only (#1233), Enterprise Architecture has no lesson yet. All on main at 761a7949",
-        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)"
+        "Not built: GD-07 (model rules and gotchas Explain) and GD-09 (team guidance packages)",
+        "GD-09: a governance policy sets a team's default guidance level (#1713, Preview) on main at 5f8144f7; GD-07 still to build"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6084,7 +6113,8 @@
         "Still open at this check: #1592, #1596 (EA-024 needs a Windows check before Stable), #1604, #1614; EA-009 waits on the product owner (signing, live harness); EA-030 needs a Windows PC",
         "Tracked as its own item from 2026-11-02 at Enterprise readiness's request; it tracks fixes only, so it needed no product-owner go",
         "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
-        "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7"
+        "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
+        "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6135,6 +6165,7 @@
         1589,
         1590,
         1591,
+        1592,
         1593,
         1594,
         1597,
@@ -6163,7 +6194,11 @@
         1638,
         1645,
         1646,
-        1647
+        1647,
+        1709,
+        1710,
+        1714,
+        1723
       ],
       "issues": [],
       "computed": {
@@ -6277,6 +6312,60 @@
         "cost": 1.5,
         "score": 2.34,
         "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-127",
+      "title": "Fabric App Studio",
+      "state": "In progress",
+      "owner": "Fabric App Studio (AS)",
+      "category": "Fabric Integration and Deployment",
+      "effort": "L",
+      "prs": [
+        1715,
+        1718,
+        1721,
+        1727,
+        1728
+      ],
+      "problem": "People can't describe an application and get a Power BI report or app they can preview, change, save in Git and publish.",
+      "capability": "Describe an application, have the person's own AI model turn it into a structured specification, preview it on this PC, edit it by asking or by hand, save it as a Git-friendly project and publish it to a destination Microsoft supports (docs/architecture/app-studio.md).",
+      "evidence": [
+        "AS-01 design and capability matrix (#1715), AS-02 to AS-04 specification, patches with undo and project folder (#1718), AS-05 model connections with key references, consent and spend limits (#1721), AS-09 sanitized semantic model metadata (#1728) and AS-12 the PBIR compiler (#1727) on main at 5f8144f7",
+        "Go: Chris's Fabric App Studio Director brief of 2026-11-03 (App Studio thread, project message cmsg_018T4o2pQdpbLBNhHpgVNNGp6tmjZ4UQETaviwxEwUuqYG) covers its engine and docs PRs; the App Studio page and preview mockup card was approved by Chris's tap at about 10:11Z on 2026-11-03",
+        "First place KratosForge itself calls a model: off until the person connects their own model and key; every other page works without one",
+        "Not built: AS-06 to AS-08, AS-10, AS-11 and AS-13 to AS-20",
+        "Scores set by the App Studio owner on 2026-11-03: developer value 3 (report and app authors, not every developer's day), CU reduction 2 (building and previewing on this PC avoids some publish-and-check rounds in Fabric), enterprise value 3 (governed BYO model with an IT policy, consent and audit, but not a rollout condition), differentiation 5 (no Fabric tool builds a report from a description with the customer's own model and a local preview), strategic alignment 4 (build locally, deploy to Fabric; AI-ready, not AI-dependent), complexity 5 (a program of its own: providers, specification, preview, publish targets), risk 4 (metadata goes to an external model, and the org app definition and some PBIR parts are unverified until a live publish)"
+      ],
+      "features": [
+        "FEAT-FAB-05"
+      ],
+      "source_refs": [
+        "AS-01..20"
+      ],
+      "acceptance": [
+        "As defined for AS-01 to AS-20 in docs/architecture/app-studio.md",
+        "App Studio is off until a model connection is added, and every other page works without one",
+        "Only schema and sanitized metadata go to a model by default; sample rows need per-connection consent and are redacted",
+        "Model output is validated against the specification schema before anything is previewed or published"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 2,
+        "enterprise_value": 3,
+        "differentiation": 5,
+        "strategic_alignment": 4,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "confidence": "Medium",
+      "external_dependencies": [],
+      "computed": {
+        "benefit": 3.25,
+        "cost": 4.5,
+        "score": 0.97,
+        "priority": "P3"
       }
     }
   ]

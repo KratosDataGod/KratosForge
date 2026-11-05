@@ -91,6 +91,6 @@
   ],
   "reset": "Reset puts the broken pipeline.json back.",
   "review_notes": [
-    "Before live: confirm both remediation links load."
+    "Remediation links checked on 2026-11-05."
   ]
 }

@@ -518,3 +518,17 @@ def test_numbers_compare_as_before_and_unknown_text_comparisons_are_noted():
     assert texts == ["SELECT 1 FROM q WHERE a = 'x' OR b = 'y'"]
     assert notes == ["Couldn't tell the types in some comparisons, so they are done as DuckDB does them: T-SQL "
                      "ignores trailing spaces when it compares text ('a' = 'a  '), and here they count."]
+
+
+def test_the_function_list_is_read_only_when_a_query_calls_an_unknown_function(engine, monkeypatch):
+    # Reading duckdb_functions() was most of a short T-SQL query's time; a query sqlglot fully knows skips it.
+    reads = []
+    real = type(engine)._function_names
+    monkeypatch.setattr(type(engine), "_function_names", lambda self, con: reads.append(1) or real(self, con))
+    assert tsql(engine, "SELECT TOP 1 id, UPPER(name) AS n FROM dbo.orders ORDER BY id")["rows"] == [[1, "ANN  "]]
+    assert reads == []
+    with pytest.raises(ValueError, match="ISDATE isn't mapped yet"):
+        tsql(engine, "SELECT ISDATE('2024-01-01')")
+    assert reads == [1]
+    engine.execute("CREATE MACRO twice(x) AS x * 2")  # a macro made in the database is still found
+    assert tsql(engine, "SELECT twice(qty) AS t FROM dbo.orders ORDER BY id")["rows"] == [[14], [-14]]

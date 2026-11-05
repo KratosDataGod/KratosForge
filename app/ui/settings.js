@@ -1232,7 +1232,7 @@ function usageDialog(u) {
       ? `This is the exact text waiting to go to ${USAGE_WHERE[u.destination] || "nowhere"}. A day is sent once it's over.`
       : "Nothing is waiting. This is an example of one day, in the exact shape that's sent."),
     h("p", { class: "muted-text small" }, "Actions are the app's own names for them. A failure carries only its kind, never its message."),
-    h("textarea", { rows: 16, class: "mono", readonly: true }, text)),
+    h("textarea", { rows: 16, class: "mono", readonly: true, "aria-label": "Usage data" }, text)),
   [btn("Copy", null, () => copyText(text, "Usage data"), "tool outline"), h("span", { class: "spacer" }),
     btn("Close", null, closeDialog, "tool primary")]);
 }

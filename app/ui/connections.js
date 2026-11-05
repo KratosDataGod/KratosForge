@@ -60,7 +60,7 @@ function cxWhere(c) {
 
 async function cxRemove(el, p, c) {
   const ok = await confirmDialog(`Remove ${c.id} from ${p.name}?`,
-    `Notebooks that use this connection can't run on it until you add it again. The ${CX_PLATFORM[c.platform]} CLI's own ${c.platform === "databricks" ? "profile" : "connection"} stays as it is.`,
+    `Notebooks can't pick this connection until you add it again; a notebook already running on it keeps its session until you close it or switch engines. The ${CX_PLATFORM[c.platform]} CLI's own ${c.platform === "databricks" ? "profile" : "connection"} stays as it is.`,
     "Remove", { danger: true });
   if (!ok) return;
   if (await attempt(() => rpc("engine_connection_remove", { profile: p.id, connection: c.id }), "Couldn't remove the connection")) {

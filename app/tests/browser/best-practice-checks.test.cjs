@@ -16,7 +16,7 @@ let templates = [
   { id: "table-names", name: "Table names", category: "naming", description: "Gold tables are snake_case and start dim_ or fact_.", builtin: true, can_edit: false, definition: def("Table names", "naming", "naming.table_name") },
   { id: "product-owner", name: "Every product has an owner", category: "ownership", description: "A published product names an owner and a steward.", builtin: true, can_edit: false, definition: def("Every product has an owner", "ownership", "ownership.product_owner") },
   { id: "sensitive-columns-labelled", name: "Sensitive columns are labelled", category: "classification", description: "Columns marked PII or PHI carry a sensitivity label.", builtin: true, can_edit: false, definition: def("Sensitive columns are labelled", "classification", "classification.sensitive_columns") },
-  { id: "data-contract", name: "Data contract", category: "contract", description: "Fresh within N hours, row count checked, business terms linked.", builtin: true, can_edit: false, definition: def("Data contract", "contract", "contract.freshness") },
+  { id: "data-contract", name: "Data contract", category: "contract", description: "Fresh within N hours, row count checked.", builtin: true, can_edit: false, definition: def("Data contract", "contract", "contract.freshness") },
   { id: "no-pii-in-dev", name: "No PII in Dev", category: "classification", description: "", builtin: false, can_edit: true, created_by: "ana@contoso.com", definition: def("No PII in Dev", "classification", "") },
 ];
 let last = null;
@@ -50,11 +50,10 @@ before(async () => {
     governance_check_now: () => { last = result(); return last; },
     mesh_save_about: () => ({}),
     platform_products: () => ({ project: null, products: [{ id: "crm/customer_360", project: "crm", name: "customer_360", description: "", owner: "me", access: "public", status: "published", version: "1", ports: [], consumers: [] }] }),
-    platform_product_trust: () => ({ product_id: "crm/customer_360", name: "customer_360", owner: "me", admin: false, can_edit_terms: false, items: [], terms: [] }),
+    platform_product_trust: () => ({ product_id: "crm/customer_360", name: "customer_360", owner: "me", admin: false, can_edit: false, items: [] }),
     governance_product_checklist: () => ({ product_id: "crm/customer_360", project: "crm", source: { template: "data-contract", name: "Data contract", builtin: true }, open_project: true, problems: [],
       rows: [{ rule_id: "ownership.product_owner", label: "Owner and steward", mark: "pass", detail: "Owner me, steward bo." },
         { rule_id: "contract.description", label: "Description", mark: "fail", detail: "Has no description." },
-        { rule_id: "contract.terms_linked", label: "Business terms linked", mark: "fail", detail: "Links no business term." },
         { rule_id: "contract.freshness", label: "Fresh within 24 h", mark: "pass", detail: "Last loaded 2026-10-24 08:00 UTC in Prod." },
         { rule_id: "contract.endorsed", label: "Endorsement", mark: "unknown", detail: "Unknown: needs a tenant scan." }] }),
   } });
@@ -149,7 +148,7 @@ test("a data product's page shows its checklist from the contract template", { s
   await page().waitForSelector(".bp-checklist .bp-rows");
   assert.deepStrictEqual(callsOf("governance_product_checklist"), [{ product_id: "crm/customer_360" }]);
   const marks = await page().$$eval(".bp-checklist li", (lis) => lis.map((li) => [li.querySelector(".bp-mark").textContent, li.querySelector("b").textContent]));
-  assert.deepStrictEqual(marks, [["✓", "Owner and steward"], ["✗", "Description"], ["✗", "Business terms linked"], ["✓", "Fresh within 24 h"], ["!", "Endorsement"]]);
+  assert.deepStrictEqual(marks, [["✓", "Owner and steward"], ["✗", "Description"], ["✓", "Fresh within 24 h"], ["!", "Endorsement"]]);
   const text = await page().textContent(".bp-checklist");
   assert.match(text, /From the built-in Data contract template: no contract policy is in force for crm\./);
   assert.match(text, /Unknown: needs a tenant scan\./);

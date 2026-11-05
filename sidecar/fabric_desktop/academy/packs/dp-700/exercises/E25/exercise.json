@@ -1,0 +1,96 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E25",
+  "version": 1,
+  "status": "draft",
+  "title": "Load a fact when its customer arrives late (inferred members)",
+  "objectives": [
+    "2.1.2",
+    "2.2.9"
+  ],
+  "objective_text": "Load every fact row even when its dimension member hasn't arrived, then complete that member in place when it does, without changing the fact's key.",
+  "scenario": "Point-of-sale sales reach the lakehouse minutes after they happen, but new customers come from the CRM export once a night. Yesterday's load dropped three sales because their customers weren't in dim_customer yet, and finance noticed the total was short.",
+  "prerequisites": [
+    "E23"
+  ],
+  "minutes": 25,
+  "mode": "challenge",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "starter.sql",
+  "verifies": [
+    "Your statements ran on this PC with DuckDB: every sale is in fact_sales, every fact key exists in dim_customer, and the late customer kept its key.",
+    "Each customer_id appears once in dim_customer."
+  ],
+  "does_not_verify": [
+    "That the statements run unchanged in a Fabric Warehouse or Spark SQL.",
+    "Concurrency between the fact load and the nightly dimension load."
+  ],
+  "datasets": [],
+  "expected": {
+    "tables": {
+      "fact_sales": {
+        "columns": [
+          "sale_id",
+          "customer_key",
+          "amount"
+        ]
+      },
+      "dim_customer": {
+        "unique": [
+          "customer_id"
+        ]
+      }
+    },
+    "result": "The starter's final SELECT joining fact_sales to dim_customer, ordered by sale_id."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "All five sales are loaded and point at the right customer rows.",
+      "fail": "Count the sales in stg_sales and in your result, then check the late customer's key."
+    },
+    {
+      "kind": "integrity",
+      "child": "fact_sales",
+      "column": "customer_key",
+      "parent": "dim_customer",
+      "pass": "Every fact row finds its customer.",
+      "fail": "Some fact rows point at a key dim_customer doesn't have."
+    },
+    {
+      "kind": "table_shape",
+      "table": "fact_sales",
+      "not_null": [
+        "customer_key"
+      ],
+      "pass": "No fact row is missing its key.",
+      "fail": "A fact row has no customer_key."
+    },
+    {
+      "kind": "table_shape",
+      "table": "dim_customer",
+      "unique": [
+        "customer_id"
+      ],
+      "pass": "One row per customer.",
+      "fail": "A customer has two rows: complete the inferred row instead of adding one."
+    }
+  ],
+  "hints": [
+    "Before loading facts, add a placeholder row to dim_customer for every customer_id in stg_sales that dim_customer doesn't have.",
+    "Mark those rows: name 'Pending' and is_inferred true. Then every sale finds a key with an ordinary join.",
+    "When stg_customers_late arrives, UPDATE the inferred row (name, is_inferred false). Don't insert a second row: the facts already point at the first one."
+  ],
+  "explanation": "An inferred member (sometimes called a placeholder or early-arriving fact pattern) lets the fact load finish on time: the dimension gets a minimal row with a real surrogate key, flagged as inferred, and the fact uses it. When the full record arrives, the same row is completed in place, so no fact has to be reloaded. Dropping facts with an inner join silently understates totals; pointing them at the Unknown member keeps totals right but loses the customer forever.",
+  "remediation": [
+    "LM-21",
+    "https://learn.microsoft.com/fabric/data-warehouse/dimensional-modeling-load-tables"
+  ],
+  "reset": "Reset restores dim_customer, stg_sales, stg_customers_late and an empty fact_sales.",
+  "parity": null
+}

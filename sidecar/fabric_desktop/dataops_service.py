@@ -18,7 +18,7 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.compute  # noqa: F401 - pa.compute
 
-from . import http_session
+from . import http_session, retrying
 from .meta import Engine, impact
 from .meta import compare as compare_mod
 from .meta import diff as diff_mod
@@ -31,6 +31,7 @@ from .meta_service import NoMetadataProject
 from . import sealed_settings
 from .redact import describe, one_line
 from .retrying import send_with_retry
+from .workloads import deliver
 from .workloads.notify import LINE_MAX
 
 _log = logging.getLogger(__name__)
@@ -229,18 +230,18 @@ class DataOpsMixin:
         """Remove rows by id (and add ``add``), committed against the version read, so rows a run
         quarantines meanwhile are kept: on a conflict it reads the table again and retries."""
         from deltalake.exceptions import CommitFailedError
-        for attempt in range(5):
+
+        def once() -> None:
             store, lh, table, q, version = self._quarantine_at(project, name, env)
             if q is None:
                 return
             rest = q.filter(~pl.col("_qid").is_in(list(ids)))
             out = pl.concat([rest, add], how="diagonal_relaxed") if add is not None else rest
-            try:
-                store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
-                return
-            except CommitFailedError:
-                if attempt == 4:
-                    raise
+            store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
+
+        # A lost commit race is tried again at once (5 tries), against a fresh read each time.
+        retrying.retry_call(once, lambda exc: isinstance(exc, CommitFailedError), 5, lambda n: 0.0,
+                            sleep=lambda s: None)
 
     def meta_quarantine(self, name: str, env: str = "dev", limit: int = 500) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -324,16 +325,22 @@ class DataOpsMixin:
         return sealed_settings.unreadable(self._settings(), "teams_webhook")  # type: ignore[attr-defined]
 
     def meta_alerts(self) -> dict[str, Any]:
+        """Whether incident alerts are set, their kind and what the UI may show (deliver.label: a host,
+        or how many people). Never the address: a webhook or flow URL works like a password."""
         url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
-        return {"teams_webhook": url} | ({"unreadable": True} if self._alerts_unreadable() else {})
+        out: dict[str, Any] = {"set": bool(url), "kind": deliver.kind(url) if url else "",
+                               "label": deliver.label(url, self._mail_server()) if url else ""}  # type: ignore[attr-defined]
+        return out | ({"unreadable": True} if self._alerts_unreadable() else {})
 
     def meta_set_alerts(self, teams_webhook: str = "", test: bool = False) -> dict[str, Any]:
-        url = (teams_webhook or "").strip()
-        if url and not url.startswith("https://"):
-            raise ValueError("The Teams webhook address starts with https://")
+        """Where this PC's incident alerts go: a Teams webhook, a Power Automate flow (flow:https://...)
+        or email (mailto:a@x;b@y, through the company mail server). workloads/deliver.py checks it."""
+        url = deliver.check(teams_webhook or "")
+        if url and deliver.kind(url) == "email" and self._mail_server() is None:  # type: ignore[attr-defined]
+            raise ValueError("Set the company mail server first (Settings > Notifications), then email alerts can go out")
         if url and test:
-            post_teams(url, "KratosForge alerts are on",
-                       ["Late or failed tables will be posted here, once each."])
+            self._notice_post()(url, "KratosForge alerts are on",  # type: ignore[attr-defined]
+                                ["Late or failed tables will be sent here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
 

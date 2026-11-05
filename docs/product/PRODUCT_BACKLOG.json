@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated": "2026-11-03",
+  "updated": "2026-11-05",
   "scoring": {
     "benefit_weights": {
       "developer_value": 0.25,
@@ -751,16 +751,14 @@
       "evidence": [
         "envprofile.py classifies imports only",
         "fabric_api.py has no Environment item calls",
-        "Package-source decision open (Prove)",
-        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb"
+        "Notebook environments install from the IT wheel folder, then PyPI if policy allows (#1765, Preview) on main at 9b7848eb",
+        "Package source decided by the product owner on 2026-11-03 (10:09 UTC): the IT-approved wheel folder first, then PyPI only if policy allows; shipped in #1765"
       ],
       "features": [
         "FEAT-PRV-04",
         "FEAT-FAB-09"
       ],
-      "external_dependencies": [
-        "Product-owner decision: package source for environment profiles (Prove)"
-      ],
+      "external_dependencies": [],
       "acceptance": [
         "A notebook's profile installs the same versions on the PC that its Fabric Environment declares",
         "The app can attach a notebook to an existing Environment item",
@@ -2239,7 +2237,8 @@
         "Smoke flows 11 to 16 merged (#919); upgrade, retry and role proofs with Fabric faked (#1036, #1038, #1041, #1045) on main at 188d5a93",
         "A test runs every role write in the role matrix and requires an audit row naming the caller; three unaudited writes are now audited (#1200) on main at f3750b9d",
         "Requests record what their approval made, declines and withdrawals say what stays in Fabric, deletes refuse while something still uses the domain, landing zone or source, and changes anyone may make are on the audit trail (#1205 to #1354, with Fabric faked) on main at b3c5b223; not run on a tenant",
-        "UDF_Platform's connected data source names SqlDbNative too (#1754) on main at 9b7848eb"
+        "UDF_Platform's connected data source names SqlDbNative too (#1754) on main at 9b7848eb",
+        "UDF_Platform: the SQL connection's type in artifactType as Fabric documents, and parameter names without underscores (#1813, #1819) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-MESH-01",
@@ -2306,7 +2305,9 @@
         1353,
         1354,
         1716,
-        1754
+        1754,
+        1813,
+        1819
       ],
       "issues": [
         909
@@ -2549,10 +2550,10 @@
     },
     {
       "id": "PB-060",
-      "title": "Sensitive data classification that complements Purview",
+      "title": "Sensitive data classification that complements Fabric sensitivity labels",
       "category": "Data Governance and Quality",
       "problem": "Columns carry no classification; a UDF exists with no caller.",
-      "capability": "Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.",
+      "capability": "Classification captured in contracts and carried to products, reading and writing Fabric sensitivity labels rather than replacing them.",
       "evidence": [
         "central/udf.py set_classification has no caller"
       ],
@@ -2584,7 +2585,7 @@
       "confidence": "Low",
       "state": "Proposed",
       "external_dependencies": [
-        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features"
+        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with external catalogs such as Collibra rather than build catalog features"
       ],
       "computed": {
         "benefit": 3.0,
@@ -3606,7 +3607,7 @@
       "evidence": [
         "service.py endorsements returns available:false",
         "docs/troubleshooting.md",
-        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing",
+        "Endorsement badges show on data products (#627); the catalog filter is still missing",
         "The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93",
         "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],
@@ -5031,7 +5032,8 @@
       "evidence": [
         "Chris's unit testing, 2026-10-18, item 33",
         "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)",
-        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb"
+        "Stage 2: numbers, priorities and SLAs on screen, Report an incident and Change priority (#1735) on main at 9b7848eb",
+        "Stage 3: incidents assigned to you in the bell, with Teams or email delivery (#1799, Preview); notices can go by Teams, a Power Automate flow or the company mail server (#1800); a saved alert address never comes back to the page (#1802) on main at 1ca71e38"
       ],
       "features": [
         "FEAT-OPS-02"
@@ -5063,7 +5065,10 @@
         "priority": "P3"
       },
       "prs": [
-        1735
+        1735,
+        1799,
+        1800,
+        1802
       ]
     },
     {
@@ -5628,7 +5633,8 @@
       "capability": "Check now runs the Fabric BPA (#560) on a deployed model after the capacity warning and stores its findings.",
       "evidence": [
         "Split from PB-112 when it was accepted with limitations on 2026-10-28 (PB-112 review, finding 1)",
-        "PR #560 merged; not yet run live"
+        "PR #560 merged; not yet run live",
+        "The semantic model check notebook saves its error for the app when it fails (#1818) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-GOV-09",
@@ -5644,7 +5650,8 @@
         "docs/product/reviews/PB-112-753.md finding 1"
       ],
       "prs": [
-        560
+        560,
+        1818
       ],
       "depends_on": [
         "PB-112"
@@ -5952,13 +5959,19 @@
         1649,
         1720,
         1738,
-        1760
+        1741,
+        1742,
+        1746,
+        1747,
+        1760,
+        1816
       ],
       "problem": "Each engine claimed its own capabilities, and nothing said how far each platform was really proven.",
       "capability": "A conformance check every engine adapter passes, one manifest per platform with support levels from evidence, SQL portability per statement, and comparing one query on two engines.",
       "evidence": [
         "KUDP-01, 02, 05 and 06 merged; docs/platforms.md records Fabric at level 2 from the 2026-10-29 live run on main at 02118fa4",
-        "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb"
+        "Databricks and Snowflake CLI connections in a profile (#1738, Preview); KUDP re-run, 9 of 10 match (#1760) on main at 9b7848eb",
+        "Databricks on Preview screens: job runs and Lakeflow updates in Monitor (#1741), DBUs from billing read only after a confirm in Optimize > Cost (#1742), notebook folder sync with a workspace folder (#1746), Asset Bundle validate, plan and deploy in Source control (#1747); parity levels re-assessed for jobs, bundles and cost (#1816) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-EXT-05",
@@ -6151,7 +6164,8 @@
         "Scores and the blocker flag were set to match PB-101, the hardening program it overlaps",
         "More EA fixes merged: EA-004 sums and decimals (#1645, #1646, #1647), EA-023 (#1580), uploads and leases (#1594, #1604, #1605, #1614) on main at 9367abf7",
         "#1592 merged (EA-022's cache half is done); damaged-file handling for the platform file and set-aside copies (#1710, #1714), the engine starts without PyYAML (#1723), agent takeover on OneLake's clock (#1709) on main at 5f8144f7",
-        "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb"
+        "A per-user MSI for Intune and Configuration Manager (#1734) on main at 9b7848eb",
+        "The audit summary now says a per-user MSI ships (#1811) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-SHL-01"
@@ -6236,7 +6250,8 @@
         1710,
         1714,
         1723,
-        1734
+        1734,
+        1811
       ],
       "issues": [],
       "computed": {
@@ -6426,13 +6441,30 @@
         1783,
         1784,
         1785,
+        1786,
         1788,
+        1790,
         1791,
         1793,
         1794,
         1795,
         1796,
-        1801
+        1797,
+        1801,
+        1804,
+        1806,
+        1807,
+        1808,
+        1809,
+        1812,
+        1814,
+        1815,
+        1817,
+        1820,
+        1821,
+        1823,
+        1824,
+        1825
       ],
       "problem": "Learn teaches concepts, but people preparing for DP-700 or the Databricks Data Engineer Associate exam can't practise each exam objective, get graded on what they build, or see how ready they are.",
       "capability": "An Academy over Learn: objective registries per certification, exercises graded on the tables and files a learner writes on this PC, practice exams on one exam engine, and readiness by objective (docs/academy/).",
@@ -6440,7 +6472,11 @@
         "Go: Chris's KratosForge Academy DP-700 directive of 2026-11-03 15:10 UTC (Academy lead thread cmsg_018T4o2pQdpbLBNhHpgVNNGpXsbptXi2rUXcTS8d6cQKT7); his taps approved the Assessment Center mockup (about 16:26Z) and the built screen (21:17Z)",
         "Plans for DP-700 (#1771) and the Databricks path (#1783); DP-700 registry (#1776), validators that read learner output as untrusted input (#1777), exercise format (#1778), readiness by objective (#1779), exam engine and question bank (#1781), learner workspace (#1782), platform-aware registry and Databricks pack (#1784), Academy replaces Learn in the rail (#1785, Preview), Python exercises in their own limited process (#1793, #1795), Assessments page (#1791, Preview), Databricks SQL exercises and questions (#1788, #1796, #1801), checks on the write-ahead log and answer size (#1794) on main at 9b7848eb",
         "Gaps: objectives that need Fabric itself have gap records (docs/academy/fabric-gaps.md); nothing here runs on a tenant",
-        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)"
+        "Scores set by the Academy exam engine owner on 2026-11-03: developer value 3 (engineers preparing for DP-700 or the Databricks Associate), CU reduction 2 (practice and grading run on this PC; FABRIC VERIFIED checks still need Fabric), enterprise value 3 (per-objective readiness evidence, not a rollout condition), differentiation 4 (exercise-first local practice with LOCAL VERIFIED, SIMULATED, FABRIC VERIFIED and KNOWLEDGE ONLY labels, two vendors on one engine), strategic alignment 3 (adjacent to the build-locally, deploy-to-Fabric loop), complexity 4 (registry, sandboxed grading, exam engine, 369 questions to maintain), risk 3 (content accuracy and vendor drift, running learner code, 'not the vendor's exam or score' wording)",
+        "PySpark exercises graded on the Delta tables they leave (#1786) and a first Databricks PySpark batch (#1790), pipeline and runMultiple exercises (#1804), Python exercises run and checked from the Academy page (#1806), learner process follow-ups (#1797), an opt-in AppContainer for exercise scripts on Windows whose guards fail closed (#1807, #1809), and the docs list a way to remove its grants before it is on by default (#1808) on main at 1ca71e38",
+        "Priority: the owner's scores give P3. Chris's directive of 2026-11-03 15:10 UTC is the go to build Academy and sets no priority, so the score stands; Chris can raise it.",
+        "AppContainer hardening: no AppContainer let into the engine package, with a test (#1812, #1815), sandbox status shows whether it is on and how many paths hold its grant (#1814), Delta exercises run the v1 way where it is on (#1817) on main at 03d2b53a",
+        "AppContainer: nothing removed mid-run with a Windows test of grants before and after (#1823), a starting exercise counted with its grant (#1824), the DPAPI rule enforced and package ACLs read as SIDs (#1825) on main at 7c7ed9e2"
       ],
       "features": [
         "FEAT-DEV-04"
@@ -6486,7 +6522,8 @@
         1759,
         1770,
         1772,
-        1773
+        1773,
+        1816
       ],
       "problem": "Fabric, Databricks and Snowflake developers each expect their own platform's navigation, and the app offers one look and one way of working.",
       "capability": "One app with interchangeable skins (KratosForge, Fabric-familiar, Databricks-familiar, Snowflake-familiar) kept separate from platform and engine, declarative and checked skin manifests, and five parity levels per platform area.",
@@ -6494,7 +6531,8 @@
         "Go: Chris's Platform Skins and Experience Parity brief of 2026-11-03 13:41 UTC, set as P0 (Platform skins thread cmsg_018T4o2pQdpbLBNhHpgVNNGp2RXWZE4bjmFwbEhenXh44y)",
         "Performance baseline and budgets before skins (#1756), named design tokens (#1759), checked declarative skin manifest and settings (#1770), five parity levels per platform area generated into docs/parity.md (#1772), Settings > Appearance > Skin with the KratosForge and Fabric-familiar skins (#1773, Preview) on main at 9b7848eb",
         "A skin switch never reloads the page: skin-switch.test.cjs (#1773) shows an open notebook with an unsaved edit, the settings and the rail survive a switch and a restart. Not built: the Databricks and Snowflake skins, dark mode, the Runs on chip and the recorded end-to-end demonstration",
-        "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)"
+        "Scores set by the Platform skins owner on 2026-11-03: developer value 4 (each platform's developers get navigation they know, with local runs), CU reduction 2 (skins don't cut capacity themselves), enterprise value 3 (skin can be locked by policy; skin files can't touch credentials or engines), differentiation 5 (switch platform workflows over one local engine), strategic alignment 5 (P0 in Chris's brief), complexity 4 (foundations done; per-skin manifests, dark mode, Runs on chip and the demo left), risk 3 (manifest read by Security, 64 KB cap, contrast checks; Windows WebView2 check and vendor drift remain)",
+        "Databricks jobs, bundles and cost assessed in the parity levels now their screens are on main (#1816) on main at 03d2b53a"
       ],
       "features": [
         "FEAT-SHL-04",
@@ -6566,9 +6604,7 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "In progress",
-      "external_dependencies": [
-        "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
-      ],
+      "external_dependencies": [],
       "prs": [
         1737,
         1744,
@@ -6584,6 +6620,58 @@
         "cost": 3.0,
         "score": 1.8,
         "priority": "P2"
+      }
+    },
+    {
+      "id": "PB-131",
+      "title": "Let people remove Academy's runtime access grants",
+      "category": "Security and Enterprise Readiness",
+      "problem": "The opt-in AppContainer for Academy exercise scripts grants its capability access to the person's Python runtime, and nothing removes those grants when KratosForge is uninstalled.",
+      "capability": "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grants after a confirm, using revoke_runtime(); nothing is removed while an exercise runs. By Security's decision there is no uninstall step, because a grant on the app-owned engine is inert after uninstall.",
+      "evidence": [
+        "Grants added by #1807; revoke_runtime() exists but nothing calls it on uninstall; docs list the gap (#1808) on main at 1ca71e38",
+        "Settings > Advanced > Exercise sandbox > Remove exercise permissions removes the grant after a confirm, with a Try again for paths Windows wouldn't change (#1820); enterprise-install.md says to run it before uninstalling, and Security (2026-11-04) chose no uninstall step because grants on the app-owned engine are inert after uninstall (#1821) on main at 03d2b53a",
+        "Windows CI on #1823: test_settings_shows_the_grants_and_removes_them shows grants > 0 after an AppContainer exercise and none after Remove, with no ACE left; test_nothing_is_removed_while_an_exercise_runs (#1823) on main",
+        "Implementation review docs/product/reviews/PB-131-1820.md: Accepted (Chris chose 'Accept' on the decision card, 2026-11-05 10:37 UTC, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpB4XRzCAsSpmhCo8uxSe7Zv)"
+      ],
+      "features": [
+        "FEAT-DEV-04",
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "Uninstall removes every grant the AppContainer added, or a confirmed Diagnostics action does",
+        "Removal is idempotent and leaves no grant behind on a runtime that is still in use elsewhere",
+        "A test shows grants before and none after"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 1,
+        "strategic_alignment": 3,
+        "complexity": 2,
+        "risk": 2
+      },
+      "mandatory": "required",
+      "owner": "Academy",
+      "source_refs": [
+        "ACD-005b"
+      ],
+      "duplicates": [],
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "Accepted",
+      "mandatory_reason": "The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808).",
+      "prs": [
+        1820,
+        1821,
+        1823
+      ],
+      "computed": {
+        "benefit": 2.3,
+        "cost": 2.0,
+        "score": 1.84,
+        "priority": "P1"
       }
     }
   ]

@@ -2,7 +2,7 @@
 // one optimization lakehouse (sidecar optimize/ and optimize_service.py). Setting it up never
 // blocks the page: until a lakehouse is connected, Cost and savings still shows this PC's figures.
 
-const optimizePage = { tab: "overview", closed: false };
+const optimizePage = { tab: "overview", closed: false, localDismissed: false };
 
 const OPTIMIZE_TABS = [["overview", "Overview"], ["opportunities", "Opportunities"], ["cost", "Cost and savings"], ["settings", "Settings history"]];
 
@@ -36,7 +36,7 @@ async function renderOptimize() {
     h("div", { class: "row mesh-view-row" }, h("span", { class: "spacer" }), btn("Refresh", "sync", () => render(), "tool outline")),
     body));
   // Cost and savings doesn't need the shared lakehouse: it reads this PC's runs.
-  if (optimizePage.tab === "cost") body.append(costPanel());
+  if (optimizePage.tab === "cost") body.append(costPanel(), previewShown() ? databricksCostSection() : "");
   // Settings history reads the central lakehouse's fdcap_ and fdten_ tables itself.
   if (optimizePage.tab === "settings") body.append(settingsHistoryPanel());
   const status = await rpc("optimize_status").catch(() => null);
@@ -139,7 +139,9 @@ async function loadOptimizeLocal(box) {
 function drawOptimizeLocal(box, res) {
   const result = res?.result;
   const rank = { high: 0, medium: 1, low: 2 };
-  const open = (result?.findings || []).filter((f) => !f.fixed).sort((a, b) => rank[a.severity] - rank[b.severity]);
+  const all = (result?.findings || []).filter((f) => !f.fixed);
+  const dismissed = all.filter((f) => f.dismissed);
+  const open = all.filter((f) => !f.dismissed || optimizePage.localDismissed).sort((a, b) => rank[a.severity] - rank[b.severity]);
   const redraw = () => drawOptimizeLocal(box, res);
   const home = (label) => btn(label, null, () => go("home"), "tool link small");
   fill(box,
@@ -149,14 +151,40 @@ function drawOptimizeLocal(box, res) {
       : !result ? h("p", { class: "muted-text" }, "No Estate X-ray scan on this PC yet. ", home("Scan on Home"))
       : !open.length ? h("p", { class: "muted-text" }, "Nothing needs attention in the last scan.")
       : h("table", { class: "list" },
-        h("thead", {}, h("tr", {}, ["Improvement", "Impact", "State", ""].map((c) => h("th", {}, c)))),
+        h("thead", {}, h("tr", {}, ["Improvement", "Impact", "Effort", "State", ""].map((c) => h("th", {}, c)))),
         h("tbody", {}, open.slice(0, OPTIMIZE_LOCAL_LIMIT).map((f, i) => h("tr", { "data-finding": f.id },
           h("td", {}, h("b", {}, f.title), h("div", { class: "muted-text small" }, f.detail),
             xrayWhere(f) ? h("div", { class: "muted-text small" }, xrayWhere(f)) : null),
           h("td", {}, XRAY_IMPACT[f.severity] || ""),
-          h("td", {}, f.fix?.state === "submitted" ? "Fix submitted" : f.fix?.state === "failed" ? "Fix didn't finish" : "Open"),
-          h("td", { class: "n" }, f.fix?.state === "submitted" ? null : xrayAction(f, redraw, res, { small: true, solid: i === 0 })))))),
+          h("td", { title: f.effort === "Low" ? "One button that asks first, then runs in Fabric" : "Steps you take yourself" }, f.effort || ""),
+          h("td", {}, f.dismissed ? h("span", { title: f.dismissed.reason || "" }, "Dismissed")
+            : f.fix?.state === "submitted" ? "Fix submitted" : f.fix?.state === "failed" ? "Fix didn't finish" : "Open"),
+          h("td", { class: "n" }, f.dismissed ? btn("Reopen", null, () => optimizeLocalDismiss(f, true, box), "tool outline small")
+            : f.fix?.state === "submitted" ? null
+            : [xrayAction(f, redraw, res, { small: true, solid: i === 0 }),
+              btn("Dismiss...", null, () => optimizeLocalDismiss(f, false, box), "tool link small")]))))),
+    dismissed.length ? h("label", { class: "check small" }, h("input", { type: "checkbox", checked: !!optimizePage.localDismissed,
+      onchange: (e) => { optimizePage.localDismissed = e.target.checked; redraw(); } }), `Show dismissed (${dismissed.length})`) : null,
     open.length > OPTIMIZE_LOCAL_LIMIT ? home(`All ${open.length} in the Estate X-ray on Home`) : null);
+}
+
+// Dismissing one of this PC's findings asks why and is kept on this PC only (OPT-010): it stays
+// dismissed when the next scan finds it again, until it is reopened. Nothing changes in Fabric.
+async function optimizeLocalDismiss(f, reopen, box) {
+  let reason = "";
+  if (!reopen) {
+    reason = await new Promise((resolve) => {
+      const input = h("input", { maxlength: "500", placeholder: "For example: the table is retired next month" });
+      showDialog("Dismiss this improvement?", h("div", {},
+        h("p", { class: "text" }, "It's hidden from this list on this PC, with your reason, and stays dismissed when the next scan finds it again. You can reopen it. Nothing changes in Fabric."),
+        h("label", { class: "field" }, "Why", input)), [
+        btn("Cancel", null, () => { closeDialog(); resolve(null); }, "tool outline"),
+        btn("Dismiss", null, () => { closeDialog(); resolve(input.value.trim()); }, "tool primary")]);
+    });
+    if (reason === null) return;
+  }
+  const done = await attempt(() => rpc("xray_dismiss", { finding_id: f.id, reason, reopen }), "Could not update the improvement");
+  if (done) { toast(reopen ? "Reopened" : "Dismissed on this PC"); loadOptimizeLocal(box); }
 }
 
 // Findings by fingerprint, so a recommendation can show what it is about.

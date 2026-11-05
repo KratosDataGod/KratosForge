@@ -255,7 +255,8 @@ async function checkForUpdates() {
     install.disabled = true;
     later.disabled = true;
     try {
-      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; })) return;
+      if (await installUpdate(latest.commit, (label) => { install.lastChild.textContent = label; },
+        (note) => { text.textContent = note; })) return;
       install.lastChild.textContent = "Install and restart";
     } catch (err) {
       text.className = "error-text";
@@ -268,13 +269,20 @@ async function checkForUpdates() {
   show([facts, text, note], [manual, h("span", { class: "spacer" }), later, install]);
 }
 
+// update_app's log line when the channel moved on since the person agreed to a build: the build
+// they saw, then the one installed instead.
+const REPLACED_BUILD = /^Build (\w{7}) was replaced on the update channel by build (\w{7})/;
+
 // Saves the open notebook, then downloads the build and hands over to it, the same checked
 // download as at startup (update_app). False when the notebook wasn't saved; throws when the
-// update failed. setLabel shows how far the download is.
-async function installUpdate(commit, setLabel) {
+// update failed. setLabel shows how far the download is; setNote, when given, says when a newer
+// build replaced the one shown.
+async function installUpdate(commit, setLabel, setNote) {
   if (state.notebook?.dirty && !(await saveNotebook())) return false;
   setLabel("Downloading…");
   const unlisten = await window.__TAURI__.event.listen("component-log", (e) => {
+    const moved = REPLACED_BUILD.exec(e.payload);
+    if (moved && setNote) setNote(`Installing build ${moved[2]}, which replaced build ${moved[1]} on the channel.`);
     const m = /^progress (\d+)/.exec(e.payload);
     if (m) setLabel(m[1] === "100" ? "Restarting…" : `Downloading… ${m[1]}%`);
   });
@@ -365,7 +373,8 @@ function renderUpdateBanner() {
     const restart = btn("Restart to update", "arrowDownload", async () => {
       restart.disabled = true;
       try {
-        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; })) return;
+        if (await installUpdate(n.commit, (label) => { restart.lastChild.textContent = label; },
+          (note) => { text.replaceChildren(h("b", {}, note)); })) return;
         restart.lastChild.textContent = "Restart to update";
       } catch (err) {
         text.replaceChildren(h("b", { class: "error-text" }, `Update to build ${n.commit.slice(0, 7)} failed: ${err}`),
@@ -694,6 +703,20 @@ function settingRow(title, help, control, source) {
     h("div", { class: "setting-control" }, control));
 }
 
+// With preview features hidden, Notifications still shows the company mail server (platform-notices.js),
+// since email incident alerts send through it.
+function mailServerOnly() {
+  const box = h("div", { class: "pn-settings" }, h("p", { class: "muted-text small" }, "Loading the mail server..."));
+  const draw = async () => {
+    const s = await rpc("platform_notify_settings", {}).catch((e) => ({ error: e }));
+    box.replaceChildren(s.error
+      ? h("p", { class: "fail-text small" }, `Couldn't read the mail server settings: ${friendlyError(s.error).text}`)
+      : mailServerCard(s.mail_server || { set: false }, draw));
+  };
+  draw();
+  return box;
+}
+
 async function renderSettings() {
   setView(h("div", { class: "page settings" }, h("h1", {}, "Settings"), h("p", { class: "muted-text" }, "Loading...")));
   const s = await loadSettings();
@@ -747,7 +770,7 @@ async function renderSettings() {
           renderUpdateBanner();
           render();
         } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
-    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+    h("div", { class: "row wrap" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
@@ -782,9 +805,9 @@ async function renderSettings() {
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
-    settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
+    settingRow("Incident alerts", "Send late and failed tables to a Teams channel, a Power Automate flow or email. The bell always shows them.",
       btn("Set up", "alert", () => alertsDialog(), "tool outline")),
-    await platformNoticesSection());
+    previewShown() ? await platformNoticesSection() : mailServerOnly());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
@@ -891,7 +914,58 @@ function advancedSection(s, locked, limitRow) {
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [
     h("p", { class: "muted-text small" }, "Most people never need these: your own app registration, and the limits notebooks and SQL queries run with on this PC. ",
       learnMore("advanced-settings")),
-    signInGroup, kernel, onelake, sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+    signInGroup, kernel, onelake, exerciseSandboxSection(), sql].filter(Boolean), { start: true, cls: "card pad advanced" });
+}
+
+// PB-131: Academy exercise scripts run in a Windows AppContainer, which KratosForge lets read its
+// Python on this PC. The row says whether runs use it and how many folders hold that permission, and
+// removes the permission (academy_sandbox_remove_grants). The next exercise run adds it back.
+function exerciseSandboxSection() {
+  const side = h("div", { class: "sandbox-status" }, h("div", { class: "muted-text small" }, "Looking..."));
+  const result = h("div", { class: "sandbox-result" });
+  const folders = (n) => `${n.toLocaleString()} folder${n === 1 ? "" : "s"}`;
+  const load = () => rpc("academy_sandbox_status").then((st) => {
+    const on = st.enabled && st.available;
+    const why = on ? "" : st.why_not || (st.available ? "Turned off on this PC." : "");
+    side.replaceChildren(...[
+      h("div", { class: on ? "sandbox-on" : "" }, on ? [icon("ok", 16), " On: exercises run in an AppContainer"]
+        : "Off: exercises run in a limited process on this PC"),
+      why ? h("div", { class: "muted-text small" }, `Why: ${why}`) : null,
+      h("div", { class: "muted-text small" }, st.granted
+        ? `Read permission on ${folders(st.granted)} of KratosForge's Python`
+        : on ? "No permissions held now. The next exercise adds them back." : "No permissions held."),
+      st.granted ? btn("Remove exercise permissions", null, () => remove(st.granted), "tool outline small") : null].filter(Boolean));
+  }, (err) => {
+    side.replaceChildren(errorPanel(err, { label: "Couldn't read the exercise sandbox status", retry: load }) || "");
+  });
+  const remove = async (n) => {
+    if (!(await confirmDialog("Remove exercise permissions?",
+      [`The AppContainer loses its read permission on KratosForge's Python (${folders(n)}). Your files and exercises aren't touched.`,
+        h("span", { class: "muted-text small confirm-note" },
+          "The next exercise you run adds the permission back. To keep it off, don't run exercises on this PC.")], "Remove"))) return;
+    const res = await attempt(() => rpc("academy_sandbox_remove_grants"), "Not removed");
+    if (!res) return;
+    if (res.why) { toast(res.why, true); return; }
+    if (!res.failed.length) {
+      result.replaceChildren();
+      toast(`Removed the exercise permissions from ${folders(res.removed)}`);
+    } else {
+      const list = res.failed.join("\n");
+      result.replaceChildren(h("div", { class: "callout git-warn small sandbox-failed", role: "alert" },
+        h("b", {}, icon("warning", 16), ` Removed from ${folders(res.removed)}. Windows wouldn't change ${res.failed.length}:`),
+        h("ul", { class: "mono" }, res.failed.map((p) => h("li", {}, p))),
+        h("div", { class: "row wrap" }, h("span", { class: "muted-text" }, "A program may have them open. Close other apps and try again."),
+          btn("Try again", null, () => remove(res.failed.length), "tool link small"),
+          btn("Copy the list", null, () => copyText(list, "The list"), "tool link small"))));
+    }
+    load();
+  };
+  load();
+  return h("div", { class: "advanced-group" }, h("h3", {}, "Exercise sandbox"),
+    settingRow("Academy exercises",
+      "When the AppContainer is on, exercise scripts (except Delta and PySpark ones) run in a Windows AppContainer: no network and no access to your own files. To make that work, KratosForge lets it read its Python on this PC. Removing that permission is safe: the next exercise you run adds it back.",
+      side),
+    result);
 }
 
 // How notebooks on this PC write lakehouse tables (lakehouse.write_table). onelake_writes is only the

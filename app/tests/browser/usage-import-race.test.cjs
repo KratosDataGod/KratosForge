@@ -7,11 +7,13 @@
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: estate.js:usageImportDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
-const READS = ["cost_report", "optimize_status"];  // optimize_status: the Optimize page's band
+const READS = ["cost_report", "optimize_status", "engine_connections"];  // optimize_status: the Optimize page's band; engine_connections: Cost's Databricks DBUs section (Preview)
 const WRITES = ["usage_import", "usage_import_delete"];
 const LOOKUPS = ["usage_preview"];  // asks the engine without changing anything, once the person picks a file
 

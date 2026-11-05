@@ -71,6 +71,12 @@ The Python engine uses the notebook's own session (the same process **Stop** end
 kernel, and a notebook sharing another notebook's session shares its process too; in both cases the
 engine says what to change instead of running.
 
+## T-SQL on this PC
+
+Warehouse T-SQL runs on this PC's DuckDB engine after translation. What it refuses, by name, is the
+"Refused, not half-translated" list in [Local data: T-SQL](local-data.md#t-sql); a test runs a query
+for each item in that list and fails when the list and the code differ (#1666).
+
 ## Snowflake SQL on this PC (Preview)
 
 The DuckDB engine runs Snowflake SQL translated, so Snowflake queries can be tried on this PC without
@@ -94,7 +100,9 @@ shows DuckDB's plan for the translated SQL, not Snowflake's.
 
 The rules and differences come from a probe of 29 common Snowflake statements on the pinned sqlglot
 and DuckDB versions, and from 136 function checks against Snowflake's documented values (below);
-each is a test.
+each is a test. [Snowflake functions on this PC](snowflake-functions.md) lists every Snowflake SQL
+function, with common operators and statements, and whether each runs, differs, is refused or fails
+here, kept current by CI.
 
 <!-- Generated from snowflake_sql.docs_table(); a test keeps this table equal to the code. -->
 Rules 2026.10.6.
@@ -264,6 +272,86 @@ It's tested against fakes of those APIs, not yet against a live workspace.
   connection stays as it is.
 
 Checking a Snowflake account from Settings, and switching the profile in use, come later.
+
+## Databricks jobs and Lakeflow in Monitor (Preview)
+
+**Monitor > Databricks** lists the job runs and Lakeflow pipeline updates in the workspace of a
+Databricks connection: yours by default, or everyone's, for the last 24 hours or 7 days, newest first.
+
+- **Nothing starts.** Runs are read with the Jobs and Pipelines REST APIs, GET requests only, so
+  reading them starts no job, pipeline, warehouse or cluster and bills no DBUs.
+- **Why a run failed.** Pick a job run to see each task, how long it took, its notebook, and the
+  failed task's error. **Open in Databricks** opens the run's own page, only when it is on that
+  workspace.
+- **Each list stands alone.** If the pipelines can't be read (a 403, say), the job runs still show,
+  with a line that says why.
+- **DBUs per run** come from billing, which Optimize > Cost reads after asking first: reading billing
+  runs a query on a SQL warehouse.
+
+Repair run and opening a failed task's notebook on this PC come later: repair starts compute, so it
+will confirm first and say which cluster.
+
+## Databricks workspace sync (Preview)
+
+**Workspaces > Databricks** keeps a folder of notebooks on this PC in step with a folder in a
+Databricks workspace. **Pair a folder** names the two folders and the Databricks connection to use.
+
+- **Compare reads only.** It lists each notebook (`.py`, `.ipynb`, `.sql`) directly in the folder,
+  with its state on this PC and in Databricks and what pushing would do. Reading the workspace starts
+  nothing.
+- **Never over someone else's change.** Each file remembers when Databricks last changed it at the
+  last sync. If it has changed there since, it's a conflict: it can't be pushed until you sort it
+  out. A file that isn't in Databricks is written so that one appearing meanwhile isn't replaced.
+- **Deletes ask twice.** A notebook deleted on this PC stays in Databricks unless you tick it, and
+  pushing a delete asks again. If the notebook changed in Databricks since the last sync, it is a
+  conflict and isn't deleted. Folders are never deleted.
+- **Notebooks go across as Databricks source** (`# COMMAND ----------`). What a `.ipynb` loses on the
+  way (outputs, the parameter cell, Fabric-only calls such as `notebookutils`) is listed before you push.
+- **Pull** brings a `.py` or `.sql` file changed in Databricks to this PC, when it hasn't changed here.
+- **Git folders are read only here**: a path under `/Repos`, a Git folder or a folder inside one changes through Git, so it can't be paired or pushed to.
+- Pushes and pulls are written as you, and each one is recorded in the audit log.
+
+Comparing a conflict side by side and picking a side come later.
+
+## Databricks Asset Bundles in Source control (Preview)
+
+**Source control > Bundles** works with a Databricks Asset Bundle (`databricks.yml`) in the open
+repository, or in a folder of it you pick. It runs your own Databricks CLI as one of its profiles, so
+the CLI signs in and KratosForge never handles a token. Install the Databricks CLI and sign in with
+`databricks auth login` first.
+
+- **Validate and Plan change nothing in Databricks.** Validate lists problems and warnings in the
+  files. Plan lists what a deploy to the target would create, update, delete or rebuild.
+- **Commands on this PC are shown first.** A bundle can make the CLI run commands on your PC:
+  `experimental.scripts` hooks, artifact builds (a wheel builds even with no `build` line) and Python
+  resource code. Before the CLI runs, `databricks.yml` and every file it includes are read and any
+  such command is listed. Nothing runs until you allow exactly those commands, and a changed list asks
+  again. An include that matches no file or points out of the folder is refused.
+- **Deploy deploys the plan you saw.** It plans again first. If the plan changed (the files or the
+  workspace changed meanwhile), it shows the new plan instead of deploying.
+- **Deletes and production ask for the target's name.** A plan that deletes or rebuilds a job or
+  pipeline, or a target that is production (by its `mode` or its name), needs the target's name
+  typed. A rebuilt job or pipeline loses its run history.
+- **Deploying runs nothing.** No job or pipeline starts; their next scheduled run bills as usual.
+- Deploys are recorded in the audit log.
+
+## Databricks DBUs in Optimize > Cost (Preview)
+
+**Optimize > Cost and savings** has a Databricks DBUs section: the DBUs billed in the last 24 hours,
+7 days or 30 days, by job, Lakeflow pipeline, SQL warehouse and cluster, read from Databricks'
+`system.billing.usage` table.
+
+- **It asks first.** Billing is a system table, so reading it runs one query on a SQL warehouse you
+  pick. If the warehouse is stopped it starts, and it bills DBUs while it runs. **Read Databricks
+  billing** names the warehouse and says whether it's running and when it stops, and runs nothing
+  until you confirm. The connection profile's execution policy applies, as for any remote cell: a
+  profile set to `never` refuses, and one that allows Databricks SQL by policy runs without the confirm.
+- **The query is fixed.** Only the number of days goes in. It needs `SELECT` on
+  `system.billing.usage`; without it, the section says Databricks refused.
+- **DBUs stay DBUs.** They are never added to Fabric capacity units or Snowflake credits, and never
+  turned into money.
+- **Kept on this PC.** The last read is kept per workspace, so the section shows it again without
+  reading.
 
 ## Databricks Connect (Preview)
 

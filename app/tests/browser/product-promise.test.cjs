@@ -3,6 +3,8 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: mesh.js:productDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -21,7 +23,7 @@ before(async () => {
   app = await openApp({ mocks: {
     platform_products: () => ({ project: mine ? { name: mine } : null, products: products(), can_follow: true }),
     platform_product_trust: ({ product_id }) => ({ product_id, name: product_id.split("/")[1], owner: "", admin: false,
-      can_edit_terms: false, items: [], terms: [] }),
+      can_edit: false, items: [] }),
     incidents_list: ({ env }) => ({ env, incidents, observation: { state: "live" } }),
     mesh_save_product: (params) => { saved = params; return {}; },
     meta_project: () => ({ path: "C:/work/crm", name: "crm", version: "3", templates: {}, layers: [], products: [], links: [],

@@ -2,7 +2,8 @@
 SQLite can't read (EA-028).
 
 ``connect`` is a connection for one read or change, closed after it: one kept per thread was never
-closed when its thread ended, and on Windows an open handle keeps the file locked.
+closed when its thread ended, and on Windows an open handle keeps the file locked. ``transaction`` is
+the same for a group of changes that land together or not at all.
 
 ``open_store`` runs a store's first open (its schema, its pragmas) after ``check`` has read the whole
 file. When the file is damaged or isn't a database it is moved aside to ``<name>.corrupt-<time>``,
@@ -26,6 +27,21 @@ def connect(path: Path, timeout: float = 30) -> Iterator[sqlite3.Connection]:
     try:
         db.row_factory = sqlite3.Row
         yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def transaction(path: Path, timeout: float = 30, *, rows: bool = False) -> Iterator[sqlite3.Connection]:
+    """A connection whose changes commit when the block ends and roll back when it raises; closed
+    either way. ``with sqlite3.connect(...)`` alone commits or rolls back but leaves the connection
+    open. ``rows``: rows by name (sqlite3.Row) instead of tuples."""
+    db = sqlite3.connect(path, timeout=timeout)
+    try:
+        if rows:
+            db.row_factory = sqlite3.Row
+        with db:
+            yield db
     finally:
         db.close()
 

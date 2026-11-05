@@ -122,6 +122,8 @@ def test_replace_changes_one_connection_in_place(tmp_path):
     svc.engine_connection_save(profile=pid, databricks_cli="dev", warehouse_id="wh-run", replace="dev")
     conns = svc._profiles().load(pid)["connections"]
     assert [c["id"] for c in conns] == ["dev"] and conns[0]["compute"]["warehouse_id"] == "wh-run"
+    with pytest.raises(ValueError, match="no connection 'gone' to change"):
+        svc.engine_connection_save(profile=pid, databricks_cli="dev", replace="gone")
 
 
 def test_snowflake_cli_connection_is_added_by_name(tmp_path):

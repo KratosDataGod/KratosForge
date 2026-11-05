@@ -1,0 +1,60 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E33",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: a cast quietly turns amounts into NULLs",
+  "objectives": ["3.1"],
+  "objective_text": "Find and fix a silent data cleaning bug: a try_cast that turns formatted amounts into NULL.",
+  "scenario": "The payments load stopped failing a month ago, after someone changed its cast to try_cast. Since then finance's revenue report has been less than half of what the payment provider says. Nobody has touched the report. Find where the money went and fix the load.",
+  "difficulty": 1,
+  "minutes": 20,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "pyspark_lab",
+  "engine_label": "DuckDB's PySpark API on this PC (not Apache Spark)",
+  "setup": "setup.sql",
+  "starter": "starter.py",
+  "lesson": "lesson.md",
+  "datasets": [{"name": "bronze.payments", "rows": 8, "size": "small", "seeded": "fixed values in setup.sql"}],
+  "starting_environment": "A Delta table bronze.payments (8 payments, amount as text) and the broken job as answer.py.",
+  "fault": {
+    "summary": "try_cast reads only plain numbers, so every amount with $ or a thousands separator becomes NULL.",
+    "symptom": "silver.payments has NULL amounts for payments that had one, and revenue is far too low; the job never fails.",
+    "planted": "The job casts the raw text with try_cast and cleans nothing first."
+  },
+  "required": [
+    "Every amount that is a number once $, commas and spaces are removed becomes that number, as decimal(12,2).",
+    "Blank amounts and values that aren't amounts (N/A, unknown) are NULL, never 0.",
+    "Write silver.payments with payment_id and amount, so that running the code again leaves the same table."
+  ],
+  "expected": {"description": "silver.payments has 8 rows; only p5 (blank) and p6 (N/A) have a NULL amount, and p7 is 2000.00."},
+  "verifies": [
+    "Your fixed job keeps every readable amount and only real unknowns as NULL, on the exercise data and on rows you haven't seen, on this PC.",
+    "Running it again leaves the same table."
+  ],
+  "does_not_verify": [
+    "It doesn't run on Apache Spark or in a Databricks workspace, so it doesn't show how cast behaves there with ANSI mode on or off."
+  ],
+  "validation": [
+    {"kind": "result_matches", "table": "silver.payments", "data": "practice", "weight": 2, "required": true},
+    {"kind": "result_matches", "table": "silver.payments", "data": "hidden", "weight": 2, "required": true},
+    {"kind": "table_shape", "table": "silver.payments", "columns": {"payment_id": "", "amount": "DECIMAL(12,2)"},
+     "unique": ["payment_id"], "not_null": ["payment_id"], "weight": 1, "required": true},
+    {"kind": "idempotent", "table": "silver.payments", "weight": 1, "required": true}
+  ],
+  "hints": [
+    "Run the job and look at which rows have a NULL amount in silver.payments. What do their bronze values have in common?",
+    "try_cast can't read '$75.25' or '1,250.50'. Remove $, commas and spaces before casting: regexp_replace(amount, '[$, ]', '').",
+    "A blank left after cleaning should be NULL: nullif(..., ''). Keep try_cast for N/A, and don't turn NULLs into 0."
+  ],
+  "explanation": "try_cast hid the failure instead of fixing it: every value with a currency sign or a thousands separator became NULL. Clean the text first by removing $, commas and spaces, turn an empty result into NULL, and only then try_cast to decimal(12,2), so that only values that really aren't amounts stay NULL. Replacing those with 0 would report payments that never happened.",
+  "troubleshooting": [
+    "'$75.25' is still NULL: the cleaning removes commas but not the currency sign.",
+    "'$ 10.00' is still NULL: the cleaning keeps the space after the sign.",
+    "N/A became 0.00: a missing amount isn't a zero amount; leave it NULL."
+  ],
+  "remediation": ["https://docs.databricks.com/aws/en/lakehouse/medallion"],
+  "reset": "Reset rebuilds bronze.payments from setup.sql, removes silver.payments and puts the broken job back.",
+  "cleanup": "Everything lives in this exercise's folder on this PC; Reset or removing the exercise deletes it. Nothing is created in any workspace."
+}

@@ -1242,7 +1242,7 @@ test("Optimize is a rail page in Fabric's old slot, and the rail stays within it
   assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
   assert.ok(rails.length <= 8, rails.join(", "));
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric", "databricks_sync"\]/);  // Databricks sync is a Workspaces tab too
   assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
   const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
   assert.match(opt, /id: "optimize", preview: true/);
@@ -1504,12 +1504,15 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
 // UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
 // and focuses Cancel, so Enter doesn't lose data.
 test("confirms that delete or overwrite something pass danger", () => {
+  // Confirms that start with one of those words but change nothing the person can't get back, each
+  // with why. PB-131: the next exercise run grants the permission again (mockup, 2026-11-04).
+  const notDestructive = new Set(["Remove exercise permissions?"]);
   const missing = [];
   for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
     const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
     lines.forEach((line, i) => {
       const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
-      if (!m) return;
+      if (!m || notDestructive.has(line.match(/confirmDialog\(\s*[`"]([^`"]*)/)[1])) return;
       let end = i;
       while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
       if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
@@ -5606,13 +5609,15 @@ test("every feature the docs call Preview has a Preview id, or the docs say why 
     mesh: ["Home: the mesh for who you are", "Products", "Requests", "Domains", "Members and joining a domain", "Follow a product",
       "Tables, semantic models and reports", "Data products", "Entra ID groups per domain", "Copy jobs from requests",
       "Promises to readers"],
-    trustBadges: ["Endorsement and business terms"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
+    trustBadges: ["Endorsement"], tests: ["Tests"], health: ["Table health"], model: ["10. Semantic model"],
     lineage: ["Column lineage"], xray: ["Estate X-ray"], itemPreview: ["Item preview"], shortcuts: ["Shortcuts"], access: ["Access"],
     bestPractices: ["Best practices: checks and templates"], optimize: ["Optimize"], popOut: ["Pop-out windows"],
     updateBanner: ["A new build while the app is open"], vscode: ["VS Code and KratosForge"],
     learn: ["Learn", "Writing a Learn lesson", "Decision patterns"], academy: ["Academy"],
     engines: ["Engines and connection profiles", "Databricks SQL warehouse", "Databricks Connect", "Fabric Spark", "Engine picker",
-      "Databricks workspace discovery", "Connection profiles in Settings"],
+      "Databricks workspace discovery", "Connection profiles in Settings",
+      "Databricks jobs and Lakeflow in Monitor", "Databricks DBUs in Optimize > Cost",
+      "Databricks workspace sync", "Databricks Asset Bundles in Source control"],
   };
   // A "(Preview)" heading with no id, and the words in its own page that say why.
   const NO_ID = {
@@ -5849,4 +5854,45 @@ test("styles.css writes no more colors outside its tokens than it did", () => {
   const rules = css.slice(css.indexOf("}") + 1);  // after the :root block
   const found = (rules.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   assert.ok(found <= LITERAL_COLORS, `styles.css has ${found} color literals outside :root (limit ${LITERAL_COLORS}): use a token from :root, or add one there`);
+});
+
+// #1673: every dialog has an axe case. A dialog is a top-level function in app/ui that calls showDialog
+// (file.js:function). A browser test that runs axe while a dialog is open names it on a line of its own:
+//   // axe covers dialogs: settings.js:reportProblem, meta.js:confirmDialog
+// The dialogs that had no case when this guard came in are listed in a11y-dialog-baseline.json. That
+// list only shrinks: a new dialog needs a case, and a dialog that gets one leaves the list.
+function dialogOpeners() {
+  const found = new Set();
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    let fn = null;
+    for (const line of fs.readFileSync(path.join(ui, name), "utf8").split("\n")) {
+      const m = line.match(/^(?:async\s+)?function\s*\*?\s*(\w+)/) ||
+        line.match(/^(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|function|\w+\s*=>)/);
+      if (m) fn = m[1];
+      else if (/^\S/.test(line) && !/^[}\])]/.test(line) && !line.startsWith("//")) fn = null;
+      if (/\bshowDialog\(/.test(line) && !/function showDialog\b/.test(line)) found.add(`${name}:${fn || "(top level)"}`);
+    }
+  }
+  return found;
+}
+
+test("every dialog has an axe case, or is in the baseline that only shrinks", () => {
+  const openers = dialogOpeners();
+  const browser = path.join(__dirname, "browser");
+  const covered = new Map();
+  for (const name of fs.readdirSync(browser).filter((f) => f.endsWith(".cjs"))) {
+    for (const m of fs.readFileSync(path.join(browser, name), "utf8").matchAll(/^\s*\/\/ axe covers dialogs: (.+)$/gm)) {
+      for (const key of m[1].split(",").map((s) => s.trim()).filter(Boolean)) covered.set(key, name);
+    }
+  }
+  const baseline = JSON.parse(fs.readFileSync(path.join(__dirname, "a11y-dialog-baseline.json"), "utf8"));
+  const problems = [
+    ...[...openers].filter((k) => k.endsWith(":(top level)")).map((k) => `${k}: showDialog outside a function, so the guard can't name it`),
+    ...[...covered].filter(([k]) => !openers.has(k)).map(([k, f]) => `${f} names ${k}, which doesn't open a dialog (renamed or removed?)`),
+    ...[...openers].filter((k) => !covered.has(k) && !baseline.includes(k)).map((k) => `${k} opens a dialog that no browser test runs axe on`),
+    ...baseline.filter((k) => covered.has(k)).map((k) => `${k} has an axe case now (${covered.get(k)}): take it out of a11y-dialog-baseline.json`),
+    ...baseline.filter((k) => !openers.has(k)).map((k) => `${k} no longer opens a dialog: take it out of a11y-dialog-baseline.json`),
+  ];
+  assert.deepStrictEqual(problems, []);
+  assert.deepStrictEqual(baseline, [...baseline].sort(), "keep a11y-dialog-baseline.json sorted");
 });

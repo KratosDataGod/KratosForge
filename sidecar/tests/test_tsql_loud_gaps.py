@@ -61,10 +61,13 @@ MAPPED = [  # decimals come back as text, as the engine sends them
     ("STR with places", "SELECT STR(123.45, 6, 1)", " 123.5"),
     ("STR gives up places that don't fit", "SELECT STR(123.45, 5, 2)", "123.5"),
     ("STR too long for the length", "SELECT STR(-1234.5, 4)", "****"),
+    ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
+    ("FORMAT long date", "SELECT FORMAT(CAST('2024-03-05' AS DATE), 'D')", "Tuesday, March 5, 2024"),
+    ("FORMAT abbreviated day and AM/PM", "SELECT FORMAT(CAST('2024-03-05 14:07' AS DATETIME2), 'ddd hh:mm tt')",
+     "Tue 02:07 PM"),
 ]
 # Refused with the local-engine message: mapping them faithfully needs more than a rewrite.
 REFUSED = [
-    ("FORMAT N2", "SELECT FORMAT(1234.5, 'N2')", "1,234.50"),
     ("ISNUMERIC of a number", "SELECT ISNUMERIC('12.5')", 1),
     ("ISNUMERIC of text", "SELECT ISNUMERIC('x')", 0),
 ]
@@ -131,6 +134,8 @@ def test_top_with_ties_keeps_the_tied_rows(engine):
     "SELECT QUOTENAME('a', '(')",
     "SELECT STR(1.5, 10, 20)",
     "SELECT STR(1.5, boxes) FROM dbo.orders",
+    "SELECT FORMAT(1e0, 'N2')",
+    "SELECT FORMAT(boxes, '#,##0')  FROM dbo.orders",
 ])
 def test_what_isnt_mapped_faithfully_is_refused(engine, sql):
     with pytest.raises(Exception, match="on the local engine"):
@@ -171,13 +176,14 @@ def test_the_refused_list_in_the_docs_names_every_refused_function():
     import pathlib
     import re
 
-    from fabric_desktop.localdata import tsql
+    from fabric_desktop.localdata import tsql, tsql_format
     docs = (pathlib.Path(__file__).resolve().parents[2] / "docs" / "local-data.md").read_text(encoding="utf-8")
     refused = docs.split("**Refused, not half-translated:**", 1)[1].split("\n\n", 1)[0]
     section = docs.split("## T-SQL", 1)[1].split("\n## ", 1)[0]
     source = inspect.getsource(tsql)
     named = set(re.findall(r'_NOT_YET \+ "([A-Z_]{4,})[ \']', source))
-    assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND"}
+    named |= set(re.findall(r'NOT_YET \+ f?"([A-Z_]{4,})[ \']', inspect.getsource(tsql_format)))
+    assert named >= {"ISNUMERIC", "POWER", "DATALENGTH", "STRING_SPLIT", "ROUND", "FORMAT"}
     for name in named:
         assert f"`{name}" in section, f"{name} is refused in tsql.py but not in docs/local-data.md's T-SQL section"
     for whole in ("ISNUMERIC", "POWER"):  # refused outright, or for a whole kind of argument
@@ -207,3 +213,73 @@ def test_functions_duckdb_has_still_run(engine):
 def test_a_macro_in_the_database_is_a_known_function(engine):
     engine.execute("CREATE MACRO twice(x) AS x * 2")
     assert first(engine, "SELECT twice(4)") == 8
+
+
+# #1666: the docs' "Refused, not half-translated" list matches what the code refuses, both ways. Each item in the
+# list has a query here that the local engine must refuse; an item added to the list without one, or a query here
+# whose item left the list, fails. The other backticked text in the list is advice or a skipped option.
+REFUSED_IN_THE_DOCS = {
+    "ISNUMERIC": "SELECT ISNUMERIC('1')",
+    "POWER": "SELECT POWER(2.5, 2)",
+    "SYSDATETIMEOFFSET": "SELECT SYSDATETIMEOFFSET()",
+    "ISDATE": "SELECT ISDATE('2024-01-01')",
+    "CHECKSUM": "SELECT CHECKSUM('a')",
+    "TRY_PARSE": "SELECT TRY_PARSE('1' AS int)",
+    "DECLARE": "DECLARE @n INT = 1",
+    "@x": "SELECT @x",
+    "@@ROWCOUNT": "SELECT @@ROWCOUNT",
+    "IF": "IF 1 = 1 SELECT 1",
+    "WHILE": "WHILE 1 = 0 SELECT 1",
+    "BEGIN ... END": "BEGIN SELECT 1 END",
+    "EXEC": "EXEC dbo.load_orders",
+    "PRINT": "PRINT 'hi'",
+    "transactions": "BEGIN TRANSACTION",
+    "procedures and functions": "CREATE PROCEDURE dbo.p AS SELECT 1",
+    "USE": "USE sales",
+    "FOR JSON": "SELECT 1 AS a FOR JSON PATH",
+    "OPTION (...)": "SELECT 1 OPTION (MAXDOP 1)",
+    "DATEFIRST": "SET DATEFIRST 1",
+}
+ADVICE_IN_THE_DOCS = {"TRY_CAST(x AS FLOAT) IS NOT NULL", "POWER(2.5, 2)", "FLOAT", "SYSUTCDATETIME()",
+                      "SET NOCOUNT ON", "SET DATEFIRST 7"}
+
+
+def _docs_refused_list() -> str:
+    import pathlib
+    docs = (pathlib.Path(__file__).resolve().parents[2] / "docs" / "local-data.md").read_text(encoding="utf-8")
+    return docs.split("**Refused, not half-translated:**", 1)[1].split("\n\n", 1)[0]
+
+
+def test_the_docs_refused_list_names_exactly_the_refusals_checked_here():
+    import re
+    listed = _docs_refused_list()
+    ticked = set(re.findall(r"`([^`]+)`", listed))
+    unknown = ticked - set(REFUSED_IN_THE_DOCS) - ADVICE_IN_THE_DOCS
+    assert not unknown, f"docs/local-data.md refuses {sorted(unknown)}: add a query for each to REFUSED_IN_THE_DOCS"
+    prose = {"transactions", "procedures and functions"}  # named in words, not backticked
+    gone = [item for item in REFUSED_IN_THE_DOCS if (item not in listed if item in prose else item not in ticked)]
+    assert not gone, f"{gone} left the docs' refused list: take them out of REFUSED_IN_THE_DOCS too"
+
+
+@pytest.mark.parametrize("item, sql", REFUSED_IN_THE_DOCS.items())
+def test_each_item_in_the_docs_refused_list_is_refused(engine, item, sql):
+    with pytest.raises(Exception, match="local engine") as err:
+        engine.execute(sql, dialect="tsql")
+    assert "Catalog Error" not in str(err.value) and "Parser Error" not in str(err.value), item
+
+
+@pytest.mark.parametrize("option", ["SET NOCOUNT ON", "SET DATEFIRST 7"])
+def test_the_options_the_docs_say_are_skipped_run(engine, option):
+    assert engine.execute(f"{option}; SELECT 1 AS one", dialect="tsql")["rows"] == [[1]]
+
+
+def test_every_function_refused_whole_is_in_the_docs_refused_list():
+    """A function the code refuses outright (isn't mapped yet) is in the list, not only elsewhere in the section."""
+    import inspect
+    import re
+
+    from fabric_desktop.localdata import tsql
+    whole = set(re.findall(r'_NOT_YET \+ "([A-Z_]{3,}) isn\'t mapped yet', inspect.getsource(tsql)))
+    assert whole >= {"ISNUMERIC", "SYSDATETIMEOFFSET"}
+    listed = _docs_refused_list()
+    assert not [n for n in whole if f"`{n}" not in listed], "a function refused whole is missing from the docs' list"

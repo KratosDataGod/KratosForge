@@ -78,6 +78,7 @@ required items are never below P1, whatever their score. Each states why.
 | [PB-007](PRODUCT_BACKLOG.md#pb-007) | Audit trail of runs and changes | required | 2.08 | P1 | Enterprise compliance needs an audit record of changes to shared data. |
 | [PB-005](PRODUCT_BACKLOG.md#pb-005) | Encrypt the token cache | required | 1.96 | P1 | Refresh tokens on disk unencrypted are a security finding any enterprise review will raise. |
 | [PB-008](PRODUCT_BACKLOG.md#pb-008) | Keep the embedded Fabric view on Fabric hosts | required | 1.84 | P1 | The embedded view holds saved Fabric sign-in cookies. |
+| [PB-131](PRODUCT_BACKLOG.md#pb-131) | Let people remove Academy's runtime access grants | required | 1.84 | P1 | The opt-in AppContainer (#1807) leaves access grants on the person's Python runtime after uninstall, and Academy's docs say a way to remove them must exist before it is on by default (#1808). |
 | [PB-052](PRODUCT_BACKLOG.md#pb-052) | Verify the central platform on a tenant | required | 1.8 | P1 | Central business keys are shared data; a defect would corrupt keys across every domain. |
 | [PB-009](PRODUCT_BACKLOG.md#pb-009) | Local data retention | required | 1.72 | P1 | Sensitive data protection policy needs bounded local copies. |
 | [PB-064](PRODUCT_BACKLOG.md#pb-064) | Per-build release assets, pinning and rollback | required | 1.72 | P1 | Enterprise update control needs rollback. |
@@ -152,7 +153,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 | [PB-124](PRODUCT_BACKLOG.md#pb-124) | Enterprise audit remediation (EA backlog) | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | L | Medium | none | Enterprise readiness |
 
-### P1 (32 items)
+### P1 (33 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -182,6 +183,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-007](PRODUCT_BACKLOG.md#pb-007) | Audit trail of runs and changes | 1 | 1 | 5 | 2 | 4 | 2 | 2 | 2.6 | 2.0 | 2.08 | required | M | High | none | Enterprise readiness |
 | [PB-005](PRODUCT_BACKLOG.md#pb-005) | Encrypt the token cache | 1 | 1 | 5 | 1 | 4 | 2 | 2 | 2.45 | 2.0 | 1.96 | required | S | High | none | Enterprise readiness |
 | [PB-008](PRODUCT_BACKLOG.md#pb-008) | Keep the embedded Fabric view on Fabric hosts | 1 | 1 | 4 | 1 | 3 | 1 | 2 | 2.05 | 1.5 | 1.84 | required | S | Medium | PB-071 | Enterprise readiness |
+| [PB-131](PRODUCT_BACKLOG.md#pb-131) | Let people remove Academy's runtime access grants | 2 | 1 | 4 | 1 | 3 | 2 | 2 | 2.3 | 2.0 | 1.84 | required | S | Medium | none | Academy |
 | [PB-052](PRODUCT_BACKLOG.md#pb-052) | Verify the central platform on a tenant | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | required | M | Medium | PB-002 | Master product (unassigned) |
 | [PB-009](PRODUCT_BACKLOG.md#pb-009) | Local data retention | 1 | 1 | 5 | 1 | 4 | 2 | 3 | 2.45 | 2.5 | 1.72 | required | S | High | none | Enterprise readiness |
 | [PB-064](PRODUCT_BACKLOG.md#pb-064) | Per-build release assets, pinning and rollback | 1 | 1 | 5 | 1 | 4 | 3 | 2 | 2.45 | 2.5 | 1.72 | required | M | Medium | none | Enterprise readiness |
@@ -247,7 +249,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-048](PRODUCT_BACKLOG.md#pb-048) | Schedule editing and safer schedule removal | 3 | 1 | 3 | 1 | 3 | 2 | 2 | 2.3 | 2.0 | 1.84 | none | M | High | none | Master product (unassigned) |
 | [PB-066](PRODUCT_BACKLOG.md#pb-066) | Backup and restore of local state | 2 | 1 | 4 | 1 | 3 | 2 | 2 | 2.3 | 2.0 | 1.84 | none | S | High | none | Enterprise readiness |
 | [PB-084](PRODUCT_BACKLOG.md#pb-084) | One late-table alert, not two | 2 | 1 | 3 | 1 | 3 | 2 | 1 | 2.05 | 1.5 | 1.84 | none | S | High | none | Workload management |
-| [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
+| [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Fabric sensitivity labels | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 | [PB-112](PRODUCT_BACKLOG.md#pb-112) | Semantic model best-practice checks in governance policies | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-108 | Best Practice Analyzer |
 | [PB-115](PRODUCT_BACKLOG.md#pb-115) | Run the Fabric Best Practice Analyzer live | 3 | 1 | 4 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | M | Medium | PB-112 | Best Practice Analyzer |
@@ -288,7 +290,7 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-17 | PB-101 Codebase audit and hardening added as a blocker (P0); it takes over PB-010, PB-051 and PB-071 | Master product thread |
 | 2026-10-18 | PB-103 Engineering quality program (QA-001..030, PR-QA-01..14) added as a blocker (P0) for the data-loss defects QA-001 and QA-002 | Master product thread |
 | 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; P1 by Chris's override (its score alone gives P3) | Chris |
-| 2026-10-18 | Direction changes from Chris's unit testing: one landing workspace shared by Dev, Test and Prod, split by domain with secure zones (item 24); keys in a Fabric SQL database in a dedicated workspace, per environment or shared still open (item 25); glossary from Purview, Collibra or another catalog instead of our own (item 27); Monitor > Cost becomes Optimize > Cost and savings (item 36). Recorded on FEAT-MESH-02..04, FEAT-ADM-01 and PB-030, PB-050, PB-052, PB-060, PB-068 | Chris |
+| 2026-10-18 | Direction changes from Chris's unit testing: one landing workspace shared by Dev, Test and Prod, split by domain with secure zones (item 24); keys in a Fabric SQL database in a dedicated workspace, per environment or shared still open (item 25); glossary from an external catalog such as Collibra instead of our own (item 27); Monitor > Cost becomes Optimize > Cost and savings (item 36). Recorded on FEAT-MESH-02..04, FEAT-ADM-01 and PB-030, PB-050, PB-052, PB-060, PB-068 | Chris |
 | 2026-10-18 | PB-105 Simplified incident management added (unit testing item 33); best-practice actions, in-app guidance and a docs page per area noted as a theme on PB-077 and PB-102 | Master product thread |
 | 2026-10-20 | Business keys: one keys database in a dedicated workspace for all environments (unit testing item 25). Reverses the 2026-10-16 decision to keep keys per environment, so Dev and Test issue the same key numbers as Prod. Recorded on FEAT-MESH-02 and PB-068 | Chris |
 | 2026-10-25 | Product data refreshed for PRs #135 to #650 (the 2026-10-22 refresh had not reached main). Five programs added with their owners' ids: PB-106 Warehouse (WH), PB-107 Data Factory (DF), PB-108 best-practice checks and governance templates, PB-109 VS Code integration, PB-110 Apache Ossie. Merged work moved to In review: PB-005, PB-008, PB-024, PB-025, PB-059 | Product management thread |

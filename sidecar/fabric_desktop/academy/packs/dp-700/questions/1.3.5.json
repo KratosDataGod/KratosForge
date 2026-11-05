@@ -21,15 +21,15 @@
         },
         {
           "id": "d",
-          "text": "Microsoft Purview Information Protection"
+          "text": "Labels your organization publishes centrally for the whole tenant"
         }
       ],
       "answer": [
         "d"
       ],
-      "explanation": "Fabric uses the sensitivity labels an organization publishes in Microsoft Purview Information Protection.",
+      "explanation": "Fabric uses the sensitivity labels an organization publishes for its tenant.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     },
@@ -111,7 +111,7 @@
         },
         {
           "id": "c",
-          "text": "Labels published in Microsoft Purview and the Fabric admin setting that lets users apply them"
+          "text": "Published sensitivity labels and the Fabric admin setting that lets users apply them"
         },
         {
           "id": "d",
@@ -121,9 +121,9 @@
       "answer": [
         "c"
       ],
-      "explanation": "Labels must be defined and published in Purview, and a Fabric admin must turn on the tenant setting that allows users to apply them.",
+      "explanation": "Labels must be defined and published for the organization, and a Fabric admin must turn on the tenant setting that allows users to apply them.",
       "source": "https://learn.microsoft.com/en-us/fabric/governance/information-protection",
-      "version": 1,
+      "version": 2,
       "status": "live",
       "reviewed": "2026-11-03"
     }

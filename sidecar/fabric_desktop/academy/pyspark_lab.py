@@ -154,7 +154,10 @@ def run_learner(work: Path, code: str, data_root: Path | None = None) -> dict[st
     _put(work, ANSWER_FILE, code)
     _put(work, LEARNER_FILE, LEARNER_SCRIPT)
     root = Path(data_root).resolve() if data_root else work.parent
-    r = sandbox.run(work, LEARNER_FILE, root, time_limit=RUN_SECONDS, lib_roots=[_package_dir().resolve()])
+    # The shim reads and writes Delta through delta-rs, which an AppContainer can't use (Chris,
+    # 2026-11-04: Delta exercises run the v1 way), so PySpark exercises never ask for one.
+    r = sandbox.run(work, LEARNER_FILE, root, time_limit=RUN_SECONDS, lib_roots=[_package_dir().resolve()],
+                    appcontainer_ok=False)
     return {"status": r["status"], "stdout": r["stdout"], "stderr": r["stderr"]}
 
 
@@ -303,6 +306,8 @@ def grade(ex: dict[str, Any], setup: str, hidden: str | None, answer: str, solut
                         if rrun["status"] != "ok":
                             raise RuntimeError(f"{ex['id']}: the reference solution failed: {_error(rrun)}")
                         refs[key] = _rows(rw, table)
+                        if refs[key] is None:
+                            raise RuntimeError(f"{ex['id']}: the reference solution didn't write {table}")
                     want = refs[key]
                     where = "on data you haven't seen" if data == "hidden" else "on the exercise data"
                     if got is None:

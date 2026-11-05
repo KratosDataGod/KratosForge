@@ -3,6 +3,8 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: governance.js:changeWindowDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";

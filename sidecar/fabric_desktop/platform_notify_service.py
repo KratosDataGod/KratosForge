@@ -1,10 +1,15 @@
-"""Platform notifications in the app: governance's request and shortcut events to Teams.
+"""Platform notifications in the app: governance's request and shortcut events to Teams, a Power
+Automate flow or email (workloads/deliver.py).
 
 Governance calls ``platform_notify`` with one event per change (workloads/platform_notify.py has
 the shape); this file keeps the routes in the app's settings and the outbox and dedupe ledger in
-the app's folder. Routes hold Teams webhook addresses, which work like passwords: they are
-never returned to the UI, recorded in the audit log, or written to a backup, and settings.json
-holds them encrypted for this Windows account (sealed_settings.py).
+the app's folder. Routes hold Teams webhook and flow addresses, which work like passwords, or email
+addresses: they are never returned to the UI, recorded in the audit log, or written to a backup, and
+settings.json holds them encrypted for this Windows account (sealed_settings.py).
+
+The company mail server (``mail_server`` in settings) is set once per PC and used by every email
+route. Its password, when it needs one, is only in
+Windows Credential Manager (credman.py), never in settings, logs, the audit log or backups.
 """
 
 from __future__ import annotations
@@ -14,16 +19,19 @@ import json
 import logging
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
 
-from . import sealed_settings
+from . import credman, sealed_settings
 from .dataops_service import post_teams
 from .redact import secrets
-from .workloads.notify import Outbox, transaction
+from .sqlitefile import transaction
+from .workloads import deliver
+from .workloads.notify import Outbox
 from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
-METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"}
+METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open",
+           "mail_server_save", "mail_server_forget"}  # the mail server shows in platform_notify_settings
 SETTING = "platform_notify"
+MAIL = "mail_server"
 _log = logging.getLogger(__name__)
 # What the bell shows for each notice still open, beside the ledger in platform_outbox.sqlite.
 _NOTICE = ("CREATE TABLE IF NOT EXISTS notice (key TEXT PRIMARY KEY, kind TEXT, title TEXT, whom TEXT, "
@@ -57,9 +65,23 @@ class PlatformNotifyMixin:
                     "events": [{"dedupe": e["dedupe"], "result": "skipped", "reason": "no platform Teams route set"}
                                for e in checked]}
         outbox, ledger = self._pn_paths()
-        out = send(checked, routing, outbox, ledger, post_teams)
+        out = send(checked, routing, outbox, ledger, self._notice_post())
         self._pn_remember([e for e, r in zip(checked, out["events"], strict=True) if r["result"] != "skipped"])
         return out
+
+    def _mail_server(self) -> deliver.MailServer | None:
+        """The company mail server, or None when none is set or what's saved can't be used."""
+        try:
+            return deliver.MailServer.parse(self._settings().get(MAIL))  # type: ignore[attr-defined]
+        except ValueError as exc:
+            _log.warning("The saved mail server can't be used: %s", exc)
+            return None
+
+    def _notice_post(self) -> deliver.Post:
+        """post(address, title, lines) for any route: Teams, a flow, or email through the mail server
+        (workloads/deliver.py). Incident alerts are meant to take this same one."""
+        return deliver.poster(self._mail_server(), lambda url, title, lines: post_teams(url, title, lines),
+                              password=lambda: credman.read(deliver.PASSWORD_TARGET))
 
     def _pn_remember(self, events: list[dict[str, Any]]) -> None:
         """What the bell shows for a notice still open: its title, who it waits on and where it opens.
@@ -92,13 +114,15 @@ class PlatformNotifyMixin:
         one is saved but this Windows account can't decrypt it (sealed_settings.py), so enter it again."""
         raw = self._pn_raw()
         lost = (self._settings().get(sealed_settings.UNREADABLE) or {}).get(SETTING) or {}  # type: ignore[attr-defined]
+        mail = self._mail_server()
         routes = [{"name": r.get("name", ""), "kinds": r.get("kinds") or [], "domains": r.get("domains") or [],
-                   "url_set": bool(r.get("url")), "host": urlparse(r.get("url") or "").hostname or ""}
+                   "url_set": bool(r.get("url")), "kind": deliver.kind(r.get("url") or ""),
+                   "host": deliver.label(r.get("url") or "", mail)}
                   | ({"unreadable": True} if str(r.get("name", "")) in lost else {})
                   for r in raw.get("routes") or []]
         outbox, _ = self._pn_paths()
         return {"routes": routes, "quiet": raw.get("quiet") or "", "quiet_exempt": raw.get("quiet_exempt") or [],
-                "waiting": len(outbox.pending())}
+                "waiting": len(outbox.pending()), "mail_server": self.mail_server_settings()}
 
     def platform_notify_save(self, routes: list[dict[str, Any]], quiet: str = "",
                              quiet_exempt: list[str] | None = None, test: str = "") -> dict[str, Any]:
@@ -111,11 +135,53 @@ class PlatformNotifyMixin:
         if test:
             route = routing.by_name(test)
             if route is None or not route.url:
-                raise ValueError(f"route {test} has no Teams webhook to test")
-            post_teams(route.url, "KratosForge platform notices are on",
-                       ["Requests waiting on someone and broken shortcuts will be posted here, once each."])
+                raise ValueError(f"route {test} has nowhere to send a test: add its Teams webhook, flow or email addresses")
+            self._notice_post()(route.url, "KratosForge platform notices are on",
+                                ["Requests waiting on someone and broken shortcuts will be sent here, once each."])
         self._save_settings(**{SETTING: raw})  # type: ignore[attr-defined]
         return self.platform_notify_settings()
+
+    def mail_server_settings(self) -> dict[str, Any]:
+        """The company mail server as the UI shows it, and whether a password is saved. Never the password."""
+        mail = self._mail_server()
+        if mail is None:
+            return {"set": False}
+        try:
+            saved = bool(mail.username) and credman.read(deliver.PASSWORD_TARGET) is not None
+        except credman.CredentialError as exc:
+            _log.warning("%s", exc)
+            saved = False
+        return {"set": True, **mail.as_settings(), "password_saved": saved}
+
+    def mail_server_save(self, host: str, sender: str, port: int = 587, security: str = "starttls",
+                         username: str = "", password: str = "", test_to: str = "") -> dict[str, Any]:
+        """Set the company mail server. ``password`` given replaces the one in Credential Manager; empty
+        keeps it. With ``test_to``, one test email goes there first and nothing is saved unless the
+        server takes it. A user name cleared removes the saved password."""
+        mail = deliver.MailServer.parse({"host": host, "port": port, "security": security, "sender": sender,
+                                         "username": username})
+        assert mail is not None
+        before = self._mail_server()
+        changed_user = mail.username != (before.username if before else "")
+        if mail.username and not password and (changed_user or credman.read(deliver.PASSWORD_TARGET) is None):
+            raise ValueError("Enter the password for that user name, or clear the user name for a relay that needs none")
+        if test_to:
+            to = deliver.recipients(deliver.MAILTO + test_to)
+            deliver.send_email(mail, password or (credman.read(deliver.PASSWORD_TARGET) if mail.username else None),
+                               to, "KratosForge can send email",
+                               [f"This test came through {mail.host}. Email notice routes will use it."])
+        if mail.username and password:
+            credman.write(deliver.PASSWORD_TARGET, mail.username, password)
+        elif not mail.username:
+            credman.delete(deliver.PASSWORD_TARGET)
+        self._save_settings(**{MAIL: mail.as_settings()})  # type: ignore[attr-defined]
+        return self.mail_server_settings()
+
+    def mail_server_forget(self) -> dict[str, Any]:
+        """Remove the mail server and its password. Email routes keep their addresses and wait until one is set."""
+        credman.delete(deliver.PASSWORD_TARGET)
+        self._save_settings(**{MAIL: {}})  # type: ignore[attr-defined]
+        return self.mail_server_settings()
 
     def platform_notify_open(self) -> dict[str, Any]:
         """Requests still waiting and shortcuts still broken, as far as this PC's notices know,

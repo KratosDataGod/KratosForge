@@ -1,0 +1,101 @@
+{
+  "schema": "kratosforge/academy-exercise@1",
+  "id": "E57",
+  "version": 1,
+  "status": "draft",
+  "title": "Broken: an incremental load that misses late rows",
+  "objectives": [
+    "2.1.1",
+    "2.2.9"
+  ],
+  "objective_text": "Diagnose why an incremental load never picks up rows that arrive late, repair the filter and the watermark, and prove the repaired job is safe to run twice.",
+  "scenario": "Finance says order 1006 is in the source system but not in the lakehouse, and the load job reports success every night. The job is the SQL in your workspace: it was copied from a tutorial and has run unchanged for months.",
+  "prerequisites": [
+    "LM-12",
+    "E21"
+  ],
+  "minutes": 20,
+  "mode": "troubleshoot",
+  "class": "local_verified",
+  "adapter": "duckdb_lab",
+  "engine_label": "DuckDB on this PC",
+  "lesson": "lesson.md",
+  "setup": "setup.sql",
+  "starter": "load_orders.sql",
+  "verifies": [
+    "Your repaired job ran twice on this PC with DuckDB; silver_orders got every missing order exactly once and load_state holds the right watermark.",
+    "Nothing outside silver_orders and load_state changed."
+  ],
+  "does_not_verify": [
+    "The same job as a Fabric pipeline or notebook, where the watermark is usually stored in a table or a pipeline variable.",
+    "Source systems whose arrival timestamps can go backwards, which need an overlap window."
+  ],
+  "datasets": [],
+  "fault": {
+    "summary": "The job filters on the business date (order_date) instead of the arrival time, and stores a date-only watermark taken from order_date.",
+    "planted": [
+      {
+        "where": "load_orders.sql, WHERE clause",
+        "what": "order_date > watermark: a row with an old order_date that arrives late is never selected"
+      },
+      {
+        "where": "load_orders.sql, UPDATE load_state",
+        "what": "the watermark is max(order_date) as a date, so it doesn't follow arrivals and loses the time of day"
+      },
+      {
+        "where": "load_state",
+        "what": "the stored watermark (2 April 00:00) is earlier than rows already loaded, so a repaired filter alone would load 1003 and 1004 again"
+      }
+    ],
+    "symptom": "Order 1006 (ordered 1 April, arrived 3 April) is in source_orders but never reaches silver_orders."
+  },
+  "expected": {
+    "tables": {
+      "silver_orders": {
+        "unique": [
+          "order_id"
+        ]
+      },
+      "load_state": {}
+    },
+    "result": "The starter's final SELECT over silver_orders and load_state."
+  },
+  "validation": [
+    {
+      "kind": "result_matches",
+      "ordered": true,
+      "pass": "Every order is loaded once and the watermark is the last arrival.",
+      "fail": "Compare silver_orders with source_orders, then look at the watermark after the second run."
+    },
+    {
+      "kind": "table_shape",
+      "table": "silver_orders",
+      "unique": [
+        "order_id"
+      ],
+      "pass": "Running the job twice didn't duplicate anything.",
+      "fail": "An order is in silver_orders twice: the second run loaded it again."
+    },
+    {
+      "kind": "unchanged",
+      "tables": [
+        "source_orders"
+      ],
+      "pass": "The source is untouched.",
+      "fail": "The job changed source_orders; a load only reads its source."
+    }
+  ],
+  "hints": [
+    "Find 1006 in source_orders. Which of its two dates is after the watermark, and which one does the job compare?",
+    "An incremental load should select by when a row arrived (arrived_at), not by what the row is about (order_date).",
+    "Before the first repaired run, repair the state too: the stored watermark is earlier than rows already in silver_orders. Set it to max(arrived_at) of silver_orders.",
+    "Store the new watermark as max(arrived_at) of what's loaded, as a timestamp, and compare with > so the second run selects nothing."
+  ],
+  "explanation": "A watermark must use a column that only grows as rows arrive: an arrival or modified timestamp, or a source sequence number. A business date such as order_date can be in the past for a row that arrives today, so a filter on it skips late rows forever while the job keeps succeeding. The watermark must also be stored at full precision and advanced to the largest value actually loaded; with > (not >=) the next run starts exactly after it, so the job is safe to repeat. Repairing a broken incremental job means repairing its state as well as its code: a watermark written by the broken version can point before rows already loaded.",
+  "remediation": [
+    "LM-12",
+    "https://learn.microsoft.com/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse"
+  ],
+  "reset": "Reset restores source_orders, silver_orders, load_state and the original load_orders.sql.",
+  "parity": null
+}

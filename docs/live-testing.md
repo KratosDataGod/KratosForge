@@ -105,7 +105,8 @@ The tests that stand in for Fabric use fakes. A fake that accepts what Fabric re
 | --- | --- | --- |
 | A User Data Functions item whose definition lists no functions: `NullOrEmptyArgument` | Live run 2, 2026-10-30 (#1165) | Refuse the create or update with the same 400 |
 | Windows sign-in with Microsoft's Fabric CLI client gets no token for Azure SQL or Kusto: `AADSTS65002` | Live run 2, 2026-10-30 (#1079) | Refuse the token with the same message |
-| A User Data Functions binding or connected data source with no item type Fabric knows: `UnsupportedArgument` (artifactType) | Live runs 3 and 4, 2026-11-03 | Refuse the create or update when a binding's `itemType` or a data source's `sourceType` isn't one Fabric lists (UDF_Platform's SQL_Platform connection is `SqlDbNative`) |
+| A User Data Functions binding or connected data source with no item type Fabric knows: `UnsupportedArgument` (artifactType) | Live runs 3 to 5, 2026-11-03 | Refuse the create or update when a binding's `itemType` or a connected data source's `artifactType` isn't one Fabric lists (Fabric's data source has no `sourceType` field) (UDF_Platform's SQL_Platform connection is `SqlDbNative`) |
+| A User Data Functions input parameter with an underscore in its name: `MetadataValidationError` ("cannot contain an underscore") | Live run 6, 2026-11-04 | Refuse the create or update when a `@udf.function()` in `function_app.py` takes a parameter whose name has an underscore (UDF_Platform's functions take camelCase names, such as `businessKey`, and pass each on under the operation's own name) |
 
 When a live run finds a new refusal, add it there with the run it came from, and add a row here.
 
@@ -177,7 +178,7 @@ After an unattended run passes, check these in the app once, on the same warehou
 
 ## T-SQL contract cases
 
-KratosForge never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
+The SQL page and Spark SQL cells never run T-SQL on this PC: they check and format it ([SQL compatibility check](sql-compatibility.md)) and run Spark SQL and DuckDB here. A [local data project](local-data.md#t-sql) does run T-SQL, translated to DuckDB SQL, and its T-SQL answers are meant to match the cases' `fabric` rows. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
 
 The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per line after the first, and `sidecar/tests/test_tsql_contract.py` runs them with the rest of the tests. Each case has:
 

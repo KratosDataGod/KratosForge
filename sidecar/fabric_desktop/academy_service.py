@@ -14,14 +14,15 @@ import logging
 from typing import Any
 
 from . import progress
-from .academy import exercises, lab, readiness, registry
+from .academy import appcontainer, exercises, lab, readiness, registry, sandbox
 from .learn import content as learn_content
 from .redact import describe
 
 _log = logging.getLogger(__name__)
 
 METHODS = {"academy_catalog", "academy_exercise", "academy_start", "academy_save", "academy_run", "academy_validate",
-           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness"}
+           "academy_hint", "academy_explanation", "academy_reset", "academy_readiness", "academy_sandbox_status",
+           "academy_sandbox_remove_grants"}
 
 _SUMMARY = ("id", "title", "objectives", "minutes", "mode", "class", "adapter", "status", "version")
 
@@ -59,7 +60,7 @@ class AcademyMixin:
                 "lesson": lesson, "remediation": list(ex.get("remediation") or []), "reset": ex["reset"],
                 "verification": exercises.label(ex), "hints": len(ex.get("hints") or []),
                 "checks": [c["kind"] for c in ex["validation"]],
-                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in exercises.SQL_ADAPTERS else None}  # type: ignore[attr-defined]
+                "workspace": lab.state(self.root, pid, eid) if ex["adapter"] in lab.LAB_ADAPTERS else None}  # type: ignore[attr-defined]
 
     def academy_start(self, pack_id: str, exercise_id: str) -> dict[str, Any]:
         """Make the exercise's workspace on this PC if it isn't there yet (kept across restarts)."""
@@ -70,7 +71,8 @@ class AcademyMixin:
         return {"saved": True}
 
     def academy_run(self, pack_id: str, exercise_id: str, sql: str) -> dict[str, Any]:
-        """The first rows of the learner's SQL, run in the workspace and rolled back."""
+        """The first rows of the learner's SQL, run in the workspace and rolled back; for a Python exercise,
+        the script's status and output from the learner process (no sign-in, time and memory limits)."""
         return lab.run(self.root, str(pack_id), str(exercise_id), str(sql))  # type: ignore[attr-defined]
 
     def academy_validate(self, pack_id: str, exercise_id: str, answer: str | None = None) -> dict[str, Any]:
@@ -103,3 +105,15 @@ class AcademyMixin:
         """Readiness by objective from this account's evidence: a labelled KratosForge estimate, never the
         vendor's score."""
         return readiness.readiness(progress.load(self._profile_path()), str(pack_id))  # type: ignore[attr-defined]
+
+    def academy_sandbox_status(self) -> dict[str, Any]:
+        """For Settings: whether exercise scripts can and do run in an AppContainer on this PC (if not,
+        why), and how many paths hold the runtime grant. Reads only."""
+        return {**appcontainer.status(), "enabled": sandbox.USE_APPCONTAINER,
+                "granted": appcontainer.granted_count(self.root)}  # type: ignore[attr-defined]
+
+    def academy_sandbox_remove_grants(self) -> dict[str, Any]:
+        """Settings > Advanced > Exercise sandbox: take the AppContainer's read permission off
+        KratosForge's Python. ``{removed, failed}``; a folder Windows wouldn't change is listed, and
+        the next exercise run grants it again. Audited (it changes permissions on this PC)."""
+        return appcontainer.revoke_runtime(self.root)  # type: ignore[attr-defined]

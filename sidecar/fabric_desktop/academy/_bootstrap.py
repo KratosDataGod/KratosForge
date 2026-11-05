@@ -14,15 +14,58 @@ import os
 import sys
 
 
+def _resolver(appcontainer, root=None):
+    """How the guards turn a path into the one Windows will open.
+
+    ``os.path.abspath`` first: Windows itself collapses ``.`` and ``..`` in a path before following any
+    link (GetFullPathNameW), so the guards do the same, and no ``..`` is ever left in what they compare.
+    Then ``realpath`` follows links. Inside an AppContainer it can't: GetFinalPathNameByHandleW is
+    denied there, and ``realpath`` would hand back the path as given. So in an AppContainer, a path
+    inside the workspace is checked folder by folder from the workspace down, and it fails closed: a
+    link (any reparse point), or a folder that can't be checked, is refused."""
+    abspath, realpath, lstat, sep, norm = os.path.abspath, os.path.realpath, os.lstat, os.sep, os.path.normcase
+    if not appcontainer:
+        return lambda p: realpath(abspath(p))
+    roots = (abspath(root),) if root else ()   # the workspace: inside an AppContainer, nothing else is writable
+
+    def resolve(p, _roots=roots, _err=PermissionError):
+        full = abspath(p)
+        for top in _roots:
+            f, r = norm(full), norm(top)
+            if f != r and not f.startswith(r.rstrip(sep) + sep):
+                continue
+            cur = top
+            for part in full[len(top):].split(sep):
+                if not part:
+                    continue
+                cur = cur + sep + part if not cur.endswith(sep) else cur + part
+                try:
+                    st = lstat(cur)
+                except (FileNotFoundError, NotADirectoryError):
+                    break   # what follows doesn't exist yet: nothing there can be a link
+                except OSError:
+                    raise _err("An Academy exercise can't use a path it can't check.") from None
+                if getattr(st, "st_file_attributes", 0) & 0x400:   # FILE_ATTRIBUTE_REPARSE_POINT
+                    raise _err("An Academy exercise can't follow a link.")
+        return full
+
+    return resolve
+
+
 def _main() -> None:
     cfg = json.loads(sys.argv[1])
     norm = os.path.normcase   # Windows paths compare without case
-    work = os.path.realpath(cfg["workspace"])
-    reads = tuple(norm(os.path.realpath(p)) for p in cfg["read_roots"])
-    denied = tuple(norm(os.path.realpath(p)) for p in cfg["denied_roots"])
+    if sys.platform == "win32":
+        work = os.path.realpath(os.path.abspath(cfg["workspace"]))
+        real = _resolver(bool(cfg.get("appcontainer")), work)
+    else:
+        real = os.path.realpath
+        work = real(cfg["workspace"])
+    reads = tuple(norm(real(p)) for p in cfg["read_roots"])
+    denied = tuple(norm(real(p)) for p in cfg["denied_roots"])
     blocked = frozenset(cfg["blocked_modules"])
-    libs = tuple(norm(os.path.realpath(p)) for p in cfg.get("lib_roots", []))
-    sys.path[:0] = [os.path.realpath(p) for p in cfg.get("lib_roots", [])]   # read-only learner libraries
+    libs = tuple(norm(real(p)) for p in cfg.get("lib_roots", []))
+    sys.path[:0] = [real(p) for p in cfg.get("lib_roots", [])]   # read-only learner libraries
 
     if sys.platform == "win32" and cfg.get("require_job", True):
         # The engine assigns the Job Object while this process is suspended; refuse to run without it.
@@ -34,18 +77,39 @@ def _main() -> None:
         k.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
         k.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
         k.CloseHandle.argtypes = [wintypes.HANDLE]
-        # The engine names its job; asking about a NULL job would accept any job, such as a CI runner's.
-        name = cfg.get("job_name")
-        job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
+        # The engine names its job, or (in an AppContainer, whose object namespace is its own) hands
+        # this process a QUERY-only handle to it. Asking about a NULL job would accept any job, such
+        # as a CI runner's.
+        shared, name = cfg.get("job_handle"), cfg.get("job_name")
+        if isinstance(shared, int) and not isinstance(shared, bool) and shared > 0:
+            job = shared
+        elif cfg.get("appcontainer"):
+            job = None   # an AppContainer run without its handle is refused, never looked up by name
+        else:
+            job = k.OpenJobObjectW(0x0004, False, name) if isinstance(name, str) and name else None   # JOB_OBJECT_QUERY
         inside_job = wintypes.BOOL(False)
         if not job or not k.IsProcessInJob(k.GetCurrentProcess(), job, ctypes.byref(inside_job)) or not inside_job.value:
             sys.stderr.write("academy: the learner process isn't in its job; nothing was run.\n")
             os._exit(3)
         k.CloseHandle(job)   # the learner script gets no handle to the job
+        if cfg.get("appcontainer"):
+            # The engine says "sandboxed" for this run only if this token really is an AppContainer's.
+            adv = ctypes.WinDLL("advapi32", use_last_error=True)
+            adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+            adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                                ctypes.POINTER(wintypes.DWORD)]
+            token, flag, size = wintypes.HANDLE(), wintypes.DWORD(0), wintypes.DWORD(0)
+            ok = adv.OpenProcessToken(k.GetCurrentProcess(), 0x0008, ctypes.byref(token))   # TOKEN_QUERY
+            ok = ok and adv.GetTokenInformation(token, 29, ctypes.byref(flag), 4, ctypes.byref(size))   # TokenIsAppContainer
+            if token:
+                k.CloseHandle(token)
+            if not ok or not flag.value:
+                sys.stderr.write("academy: the learner process isn't in its AppContainer; nothing was run.\n")
+                os._exit(3)
 
     _guard_imports(blocked)
-    _wrap_native(work)       # imports the data libraries first: some load native code through ctypes
-    _install(norm(work), reads, denied, blocked, libs)
+    _wrap_native(work, real)       # imports the data libraries first: some load native code through ctypes
+    _install(norm(work), reads, denied, blocked, libs, real)
     os.chdir(work)
     script = os.path.join(work, cfg["script"])
     with open(script, encoding="utf-8") as fh:
@@ -72,7 +136,7 @@ def _guard_imports(blocked):
     sys.meta_path.insert(0, _Guard())
 
 
-def _install(work, reads, denied, blocked, libs=()):
+def _install(work, reads, denied, blocked, libs=(), real=os.path.realpath):
     """The audit hook. Its state is bound as default arguments of immutable values, and the
     function is kept nowhere the learner's code can name."""
     refuse_names = ("socket.", "subprocess.", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
@@ -93,7 +157,7 @@ def _install(work, reads, denied, blocked, libs=()):
                 yield a
 
     def hook(event, args, _work=work, _libs=libs, _reads=reads, _denied=denied, _blocked=blocked, _refuse=refuse_names,
-             _write=write_names, _list=list_names, _real=os.path.realpath, _fspath=os.fsdecode, _norm=os.path.normcase,
+             _write=write_names, _list=list_names, _real=real, _fspath=os.fsdecode, _norm=os.path.normcase,
              _sep=os.sep, _paths=_paths, _err=PermissionError):
         def under(path, roots):
             return any(path == r or path.startswith(r.rstrip(_sep) + _sep) for r in roots)
@@ -140,15 +204,15 @@ def _install(work, reads, denied, blocked, libs=()):
     sys.addaudithook(hook)
 
 
-def _wrap_native(work):
+def _wrap_native(work, resolve=os.path.realpath):
     """Polars, DuckDB, delta-rs, pyarrow and pandas read and write files from native code the audit
     hook never sees. Their entry points refuse a URL, ``storage_options`` and a path outside the
     workspace. Only modules that are installed are wrapped; each import is checked by the hook."""
     import functools
     import importlib
 
-    real, sep, norm = os.path.realpath, os.sep, os.path.normcase
-    work = norm(work)
+    real, sep, norm = resolve, os.sep, os.path.normcase
+    as_given, work = work, norm(work)   # DuckDB compares its allowed directories with case
 
     def check(value, what):
         if isinstance(value, (list, tuple)):
@@ -319,7 +383,7 @@ def _wrap_native(work):
         wrap_all(pd.DataFrame, ("to_parquet", "to_feather", "to_orc"), "a pandas write")
     db = maybe("duckdb")
     if db is not None:
-        _lock_duckdb(db, work, guard)
+        _lock_duckdb(db, as_given, guard)
     for package in ("polars", "pyarrow", "pandas", "deltalake"):
         rewire(package)
 

@@ -602,7 +602,8 @@ function renderChrome() {
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
   account.setAttribute("aria-label", account.title);
 
-  document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
+  const railMain = railFeatures();  // skins.js adds the "KratosForge" label in a platform skin
+  document.getElementById("rail-main").replaceChildren(...(typeof skinRailChildren === "function" ? skinRailChildren(railMain, railItem) : railMain.map(railItem)));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
   syncSearchBox();
   // Items opened recently, each with a close button.
@@ -1005,7 +1006,13 @@ const MONITOR_OPS = [
 const MONITOR_SOURCES = [["kratosforge", "KratosForge", "runs"], ["fabric", "Fabric", "fabric"]];
 const MONITOR_FABRIC_PANELS = ["fabric", "fabric_schedules"];
 
+// The Databricks tab (dbx-monitor.js) is Preview.
+function monitorSources() {
+  return previewShown() ? [...MONITOR_SOURCES, ["databricks", "Databricks", "databricks"]] : MONITOR_SOURCES;
+}
+
 function monitorSource(panel) {
+  if (panel === "databricks") return "databricks";
   return MONITOR_FABRIC_PANELS.includes(panel) ? "fabric" : "kratosforge";
 }
 
@@ -1016,6 +1023,7 @@ const MONITOR_ABOUT = {
   schedules: ["Schedules Windows starts on this PC for KratosForge, even with the app closed, with how their last run went", "monitor"],
   fabric_schedules: ["Schedules in Fabric's own job scheduler, on capacity, with how their last run went", "monitor"],
   fabric: ["Fabric's own Monitoring hub, for everything in your workspaces", "monitor"],
+  databricks: ["Job runs and Lakeflow pipeline updates in your Databricks workspace, read without starting anything", "monitor"],
 };
 // The view row's places a tab fills: its own switcher (views) and status (tools), left of Refresh.
 const monitorSlots = {};
@@ -1030,7 +1038,7 @@ async function renderMonitor() {
   if (!previewShown() && !["runs", "fabric"].includes(monitorPage.panel)) monitorPage.panel = "runs";
   if (POP_OUT === "fabric") { renderFabricPopOut(); return; }
   // The runs window shows only what KratosForge ran.
-  if (POP_OUT === "runs" && monitorSource(monitorPage.panel) === "fabric") monitorPage.panel = "runs";
+  if (POP_OUT === "runs" && monitorSource(monitorPage.panel) !== "kratosforge") monitorPage.panel = "runs";
   // A pop-out window's refresh keeps the list it has, and your place in it, until the new one is read.
   const kept = monitorPage.refreshing ? document.querySelector(".page.monitor .monitor-scroll") : null;
   const keptTop = kept?.scrollTop || 0;
@@ -1056,10 +1064,10 @@ async function renderMonitor() {
   // The same layout as every page with tabs (docs/ui-guidelines.md, Page layout): the title with what
   // this tab shows and its button, the tabs, the view row (pages and filters left, Refresh right), the working area.
   const about = op ? [op.text, op.anchor] : MONITOR_ABOUT[monitorPage.panel] || MONITOR_ABOUT.runs;
-  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, MONITOR_SOURCES.map(([id, label, first]) =>
+  const tabs = POP_OUT ? null : h("div", { class: "subtabs monitor-tabs", role: "tablist", "aria-label": "Monitor" }, monitorSources().map(([id, label, first]) =>
     h("button", { class: `tab${source === id ? " active" : ""}`, role: "tab", "aria-selected": String(source === id), onclick: show(first) }, label)));
   // This source's pages: Operations opens the view it was last on.
-  const pages = source === "fabric"
+  const pages = source === "databricks" ? [] : source === "fabric"
     ? [["fabric", "Monitoring hub", hub], previewShown() ? ["fabric_schedules", "Schedules", monitorPage.panel === "fabric_schedules"] : null]
     : [["runs", "Runs", monitorPage.panel === "runs"], previewShown() ? ["schedules", "Schedules", monitorPage.panel === "schedules"] : null,
       ops.length ? [ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel,
@@ -1086,7 +1094,8 @@ async function renderMonitor() {
     hubShown ? monitorHubButtons() : null,
     op || hub ? null : btn("Refresh", "sync", refresh, "tool outline"));
   // The page's button: the KratosForge tab's runs, or the Fabric hub, in a window of its own.
-  const popOutHere = hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
+  const popOutHere = source === "databricks" ? null
+    : hub ? (fabricOut ? null : popOutButton("fabric", "Pop out hub")) : runsOut ? null : popOutButton("runs", "Pop out runs");
   // The runs window holds the KratosForge tab (Runs, Schedules, Operations); the Fabric tab stays here.
   const runsBand = source === "kratosforge" && runsOut && !POP_OUT;
   setView(h("div", { class: `page monitor${hubShown ? "" : " no-fabric"}` },
@@ -1101,6 +1110,7 @@ async function renderMonitor() {
   if (hubShown) dockFabricView(slot, "monitor", "monitor");
   else if (!POP_OUT) invoke("fabric_view_hide").catch(() => {});
   if (hub || runsBand) return;
+  if (monitorPage.panel === "databricks") { note.remove(); local.replaceWith(databricksRunsPanel()); return; }
   if (monitorPage.panel === "schedules" || monitorPage.panel === "fabric_schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
@@ -1432,9 +1442,11 @@ function openInFabric(page) {
 // Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
 function workspacesTabs(active) {
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
-    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
-      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
-        onclick: () => go(view) }, label)));
+    // Databricks (dbx-sync.js) is Preview: folders on this PC synced with a Databricks workspace.
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"], previewShown() ? ["databricks_sync", "Databricks"] : null].filter(Boolean)
+      .map(([view, label]) =>
+        h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+          onclick: () => go(view) }, label, view === "databricks_sync" ? previewTag() : null)));
 }
 
 // Opening a warehouse or SQL analytics endpoint by its name: the Warehouse page unless Settings says
@@ -2842,8 +2854,9 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
-  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric", "databricks_sync"] },
+  views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery,
+    databricks_sync: () => renderDatabricksSync() },
 });
 registerFeature({
   id: "onelake", rail: { label: "OneLake", icon: "onelake", order: 40 }, views: { onelake: renderOneLake },
@@ -3013,9 +3026,15 @@ async function checkComponents(afterInstall = false) {
   else {
     // A newer build is installed straight away, so nobody keeps running an old one.
     set("app", "busy", `Updating to build ${short(latest.commit)}…`);
+    let target = short(latest.commit);
     const unlisten = await listen((line) => {
+      const moved = REPLACED_BUILD.exec(line);
+      if (moved) {
+        target = moved[2];
+        set("app", "busy", `Installing build ${moved[2]}, which replaced ${moved[1]}…`);
+      }
       const m = /^progress (\d+)/.exec(line);
-      if (m) set("app", "busy", `Downloading build ${short(latest.commit)}… ${m[1]}%`);
+      if (m) set("app", "busy", `Downloading build ${target}… ${m[1]}%`);
     });
     try {
       await invoke("update_app", { commit: latest.commit });

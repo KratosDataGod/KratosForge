@@ -1451,7 +1451,28 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
-    let mut target = commit.to_ascii_lowercase();
+    let target = download_offered(&app, commit.to_ascii_lowercase(), &dest);
+    let target = match target {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&new); // a partial or unchecked download is never left behind
+            return Err(e);
+        }
+    };
+    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
+    // the download was checked against comes from the same release as the file.
+    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
+        let _ = std::fs::remove_file(&new);
+        return Err(why);
+    }
+    update_guard::hand_over(&mut ExeHandover {
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
+    })
+}
+
+/// Downloads the build the channel offers now to `dest`, following it once if it moves on during
+/// the download (update_app). Returns the build downloaded.
+fn download_offered(app: &tauri::AppHandle, mut target: String, dest: &str) -> Result<String, String> {
     for attempt in 0..2 {
         let offered = offered_now()?;
         if offered != target {
@@ -1468,14 +1489,13 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
         }
         // The download runs the updater with its own Python, not the engine, so the engine keeps
         // running until the file is here and checked.
-        match stream(&app, updater(&["download-app", &dest, &target])?) {
-            Ok(()) => break,
+        match stream(app, updater(&["download-app", dest, &target])?) {
+            Ok(()) => return Ok(target),
             Err(out) => {
                 let last = out.lines().last().unwrap_or_default().trim().to_string();
                 if last.starts_with("moved ") && attempt == 0 {
                     continue; // republished meanwhile: check the channel again
                 }
-                let _ = std::fs::remove_file(&new);
                 return Err(if last.starts_with("moved ") {
                     "The update channel is being republished. Try again in a few minutes.".into()
                 } else if last.is_empty() {
@@ -1486,15 +1506,7 @@ async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>
             }
         }
     }
-    // A signed build takes only an update its own publisher signed (signature.rs): the checksum
-    // the download was checked against comes from the same release as the file.
-    if let Err(why) = signature::update_allowed(&signature::signer(&exe), &signature::signer(&new)) {
-        let _ = std::fs::remove_file(&new);
-        return Err(why);
-    }
-    update_guard::hand_over(&mut ExeHandover {
-        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &target, child: None,
-    })
+    Err("The update channel is being republished. Try again in a few minutes.".into())
 }
 
 // ---- Fabric's own pages (the Monitoring hub, the OneLake catalog), shown in one second webview

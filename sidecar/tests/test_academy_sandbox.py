@@ -18,6 +18,12 @@ from fabric_desktop.academy import sandbox
 from fabric_desktop.academy import workspace as ws
 
 
+@pytest.fixture(autouse=True)
+def _v1(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These test the v1 learner process; test_academy_appcontainer tests the AppContainer on top.
+    monkeypatch.setattr(sandbox, "USE_APPCONTAINER", False)
+
+
 @pytest.fixture
 def lab(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "data"
@@ -245,8 +251,8 @@ def test_windows_job_stops_a_child_process_even_without_the_hook(lab: tuple[Path
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n"
             "try:\n    subprocess.run([sys.executable, '-c', 'pass'])\n"
             "except OSError as e:\n    print('refused', e.winerror)\n    sys.exit(7)\n")
-    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30,
-                                   "Local\\KratosForgeAcademy-test-" + os.urandom(8).hex())
+    job = sandbox._WinJob(sandbox.MEMORY_LIMIT, 30, "Local\\KratosForgeAcademy-test-" + os.urandom(8).hex())
+    proc, job = sandbox._start([sys.executable, "-I", "-c", code], work, sandbox.MEMORY_LIMIT, 30, job)
     try:
         out, _ = proc.communicate(timeout=60)
     finally:
@@ -428,3 +434,139 @@ def test_pyarrow_file_systems_are_refused_but_its_readers_work(lab: tuple[Path, 
                    "pq.write_table(pa.table({'a': [1, 2]}), 'x.parquet')\n"
                    "print(pq.read_table('x.parquet').num_rows)\n")
     assert res["status"] == "ok" and res["stdout"].strip() == "2", res["stderr"]
+
+
+def test_run_resolves_the_workspace_before_finding_the_script(tmp_path):
+    """A workspace given by another spelling of its path (a Windows 8.3 short temp path; here a
+    path with "..") is resolved first, so the script is still found inside it."""
+    work = tmp_path / "ws"
+    work.mkdir()
+    (work / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    other = tmp_path / "ws" / ".." / "ws"
+    got = sandbox.run(other, "main.py", tmp_path, time_limit=30)
+    assert got["status"] == "ok", got["stderr"]
+    assert "hi" in got["stdout"]
+
+
+def test_an_exercise_that_cant_use_the_appcontainer_never_asks_for_one(tmp_path, monkeypatch):
+    from fabric_desktop.academy import pylab
+    assert not pylab.appcontainer_ok({"adapter": "delta_lab", "validation": []})
+    assert not pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "delta_table", "path": "t"}]})
+    assert pylab.appcontainer_ok({"adapter": "python_lab", "validation": [{"kind": "notebook_ran"}]})
+
+    def no_box(*a, **k):
+        raise AssertionError("asked for an AppContainer")
+
+    monkeypatch.setattr(sandbox, "_box", no_box)
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "main.py").write_text("print('ran')\n", encoding="utf-8")
+    got = sandbox.run(work, "main.py", tmp_path, time_limit=60, appcontainer_ok=False)
+    assert got["status"] == "ok", got["stderr"]
+    assert got["runs_as"] == sandbox.RUNS_AS
+
+
+def test_a_self_test_asks_for_the_appcontainer_as_run_and_check_do(tmp_path, monkeypatch):
+    from fabric_desktop.academy import pylab
+    asked = []
+    monkeypatch.setattr(pylab, "grade", lambda *a, **k: asked.append(k.get("appcontainer_ok")) or {"passed": True})
+    grading = tmp_path / "grading"
+    grading.mkdir()
+    (grading / "solution.py").write_text("print('ok')\n", encoding="utf-8")
+    (grading / "wrong-1.py").write_text("print('no')\n", encoding="utf-8")
+    for ex, want in (({"id": "D1", "adapter": "delta_lab", "starter": "main.py", "validation": []}, False),
+                     ({"id": "P1", "adapter": "python_lab", "starter": "main.py", "validation": []}, True)):
+        asked.clear()
+        pylab.self_test(tmp_path, grading, ex)
+        assert asked == [want, want], ex["adapter"]
+
+
+# ---- DPAPI, a standing rule (gate 2) -------------------------------------------------------------
+
+def test_a_sealed_file_is_recognised_wherever_the_blob_is(tmp_path, monkeypatch):
+    from fabric_desktop.academy import appcontainer
+    raw = bytes.fromhex("01000000d08c9ddf0115d1118c7a00c04fc297eb") + b"\x00" * 40
+    cases = {"raw.bin": raw, "cache.bin": b"KFDPAPI1\n" + raw,
+             "settings.json": b'{"teams_webhook": "dpapi:AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAA"}',
+             "plain.csv": b"id,name\n1,dpapi\n"}
+    for name, data in cases.items():
+        (tmp_path / name).write_bytes(data)
+    assert {n for n in cases if appcontainer.sealed(tmp_path / n)} == {"raw.bin", "cache.bin", "settings.json"}
+    # A blob that straddles two reads is still found.
+    monkeypatch.setattr(appcontainer, "_SCAN_CHUNK", 7)
+    (tmp_path / "split.bin").write_bytes(b"x" * 5 + raw)
+    assert appcontainer.sealed(tmp_path / "split.bin")
+
+
+def test_a_sealed_file_never_goes_into_the_appcontainers_copy(tmp_path):
+    from fabric_desktop.academy import appcontainer
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (src / "msal_cache.bin").write_bytes(b"KFDPAPI1\n" + b"\x01" * 30)
+    with pytest.raises(ws.Refused, match="sealed Windows secret"):
+        appcontainer.copy_tree(src, dst, refuse_sealed=True)
+    other = tmp_path / "home"
+    other.mkdir()
+    appcontainer.copy_tree(src, other)   # copying home doesn't look
+    assert (other / "msal_cache.bin").exists()
+
+
+def test_the_runtime_is_never_granted_on_the_data_folder_or_a_sealed_file(tmp_path, monkeypatch):
+    from fabric_desktop import auth
+    from fabric_desktop.academy import appcontainer
+    home = tmp_path / "FabricDesktop"
+    data = home / "data"
+    engine = home / "engine" / "abc"
+    engine.mkdir(parents=True)
+    data.mkdir()
+    monkeypatch.setattr(auth, "default_cache_path", lambda: home / "msal_cache.bin")
+    appcontainer.check_grants_keep_out([(engine, True), (home, False)], data)   # the engine below is fine
+    for refused in (data, home, tmp_path):
+        with pytest.raises(OSError, match="data folder"):
+            appcontainer.check_grants_keep_out([(refused, True)], data)
+    secret = engine / "python312._pth"
+    secret.write_bytes(b"AQAAANCMnd8BFdERjHoAwE/Cl+s")
+    with pytest.raises(OSError, match="sealed Windows secret"):
+        appcontainer.check_grants_keep_out([(secret, False)], data)
+
+
+def test_app_package_aces_read_sids_from_sddl_whatever_the_path_or_language(tmp_path, monkeypatch):
+    from fabric_desktop.academy import appcontainer
+    saved = ("pkg\r\nD:PAI(D;OICI;0x1200a9;;;AC)(D;OICI;0x1200a9;;;S-1-15-2-2)(A;OICI;FA;;;SY)\r\n"
+             "pkg\\Program Data\\a b.py\r\nD:AI(A;;0x1200a9;;;AC)(A;ID;0x1200a9;;;S-1-15-2-2)(A;ID;FA;;;BA)\r\n")
+
+    class Done:
+        returncode = 0
+
+    def fake(*args):
+        Path(args[args.index("/save") + 1]).write_bytes("﻿".encode("utf-16-le") + saved.encode("utf-16-le"))
+        return Done()
+
+    monkeypatch.setattr(appcontainer, "_icacls", fake)
+    assert appcontainer.app_package_aces(tmp_path, tree=True) == [
+        ("pkg", "D", "OICI"), ("pkg", "D", "OICI"), ("pkg\\Program Data\\a b.py", "A", ""), ("pkg\\Program Data\\a b.py", "A", "ID")]
+
+
+def test_the_engines_sealed_files_sit_directly_in_the_folders_the_appcontainer_checks(tmp_path):
+    """The DPAPI rule's folder checks cover the data folder and the sign-in cache's folder, and an
+    inherited grant below them is allowed. So every sealed file must sit directly in one of those two
+    folders, never in a subfolder: a new place that seals with DPAPI fails here until it's reviewed."""
+    import ast
+
+    from fabric_desktop import auth, meta_service
+    pkg = Path(auth.__file__).parent
+    sealers = set()
+    for f in pkg.rglob("*.py"):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                owner = getattr(node.func.value, "id", "")
+                if (owner, node.func.attr) in (("dpapi", "protect"), ("sealed_settings", "seal")):
+                    sealers.add(f.relative_to(pkg).as_posix())
+    assert sealers == {"auth.py", "sealed_settings.py", "meta_service.py"}, sealers
+    assert auth.default_cache_path().parent.name == "FabricDesktop"   # msal_cache.bin, in the cache folder itself
+
+    class Meta(meta_service.MetaMixin):
+        root = tmp_path
+    assert Meta().settings_file == tmp_path / "settings.json"        # sealed settings, in the data folder itself

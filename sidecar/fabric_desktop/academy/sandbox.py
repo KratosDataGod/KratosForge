@@ -39,6 +39,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from . import appcontainer
 from . import workspace as ws
 
 TIME_LIMIT = 60.0              # seconds of wall clock for one run
@@ -48,6 +49,11 @@ OUTPUT_LIMIT = 1024 * 1024     # bytes of stdout and of stderr each kept
 FILE_LIMIT = 512 * 1024 ** 2   # largest file the process may write (POSIX)
 KILL_WAIT = 15.0               # seconds an ended process may take to be gone
 BOOTSTRAP = Path(__file__).with_name("_bootstrap.py")
+RUNS_AS = "you on this PC, without your sign-in, with time and memory limits"
+# Windows: run in an AppContainer (ACD-005b) by default (Chris, 2026-11-05, once Security's five gates
+# were met); KRATOSFORGE_ACADEMY_APPCONTAINER=0 turns it off. Delta and PySpark exercises always use
+# the v1 process (appcontainer_ok), and a setup that fails falls back to it.
+USE_APPCONTAINER = os.environ.get("KRATOSFORGE_ACADEMY_APPCONTAINER", "1") != "0"
 PACKAGE_DIR = Path(__file__).resolve().parent.parent       # fabric_desktop, grading/ included
 # Packages that hold or reach the person's sign-in, and the engine itself.
 BLOCKED_MODULES = ("fabric_desktop", "msal", "msal_extensions", "pymsalruntime", "azure", "keyring",
@@ -105,28 +111,71 @@ def _check_lib_root(root: Path, work: Path, data_root: Path) -> str:
 
 def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT,
         memory_limit: int = MEMORY_LIMIT, cpu_limit: int = CPU_LIMIT,
-        lib_roots: list[Path] | None = None) -> dict[str, Any]:
+        lib_roots: list[Path] | None = None, appcontainer_ok: bool = True) -> dict[str, Any]:
     """Run ``script`` (a file in the workspace) in a learner process. Returns ``{status, exit_code,
-    stdout, stderr, seconds, limits}``; ``status`` is ok, error, time_limit, memory_limit or refused.
-    ``lib_roots``: folders put first on the process's ``sys.path`` and readable, never writable."""
+    stdout, stderr, seconds, limits, runs_as}``; ``status`` is ok, error, time_limit, memory_limit or
+    refused. ``lib_roots``: folders put first on the process's ``sys.path`` and readable, never writable.
+    ``appcontainer_ok=False``: this exercise can't run in an AppContainer (Delta exercises: delta-rs
+    can't open a table inside one), so it runs in the v1 learner process and ``runs_as`` says so."""
+    ws.inside(work, ".")   # the workspace as given is a plain folder, not a link
+    # Resolved before the script is looked up, so both carry the same long form of the path:
+    # a Windows 8.3 short temp path (RUNNER~1) would otherwise not compare as inside the workspace.
+    work = Path(work).resolve()
     path = ws.inside(work, script)
     if not path.is_file() or path.suffix != ".py":
         raise ws.Refused(f"{script} isn't a Python file in the exercise.")
-    work = Path(work).resolve()
     ws.inside(work, ".tmp", must_exist=False).mkdir(exist_ok=True)   # refused if .tmp is a link
+    libs = [_check_lib_root(r, work, data_root) for r in lib_roots or []]
+    box = _box(work, libs, Path(data_root)) if appcontainer_ok else None
+    if box is not None:
+        try:
+            return _run(work, path, data_root, libs, time_limit, memory_limit, cpu_limit, box)
+        except appcontainer.SetupFailed as exc:   # nothing of the learner's ran: run it the v1 way
+            appcontainer._fail(str(exc))
+        finally:
+            box.close()                               # deletes the profile and its folder
+    return _run(work, path, data_root, libs, time_limit, memory_limit, cpu_limit, None)
+
+
+def _box(work: Path, libs: list[str], data_root: Path) -> appcontainer.Box | None:
+    """This run's AppContainer, or None for the v1 learner process (not Windows, turned off, or
+    Windows refused a step; status() then says why)."""
+    if sys.platform != "win32" or not USE_APPCONTAINER or not appcontainer.status()["available"]:
+        return None
+    try:
+        return appcontainer.Box(work, BOOTSTRAP, libs, data_root)
+    except appcontainer.SetupFailed as exc:
+        appcontainer._fail(str(exc))
+        return None
+
+
+def _run(work: Path, path: Path, data_root: Path, libs: list[str], time_limit: float, memory_limit: int,
+         cpu_limit: int, box: appcontainer.Box | None) -> dict[str, Any]:
     # The data root is denied for reads, but the workspace lives under it: the hook checks
     # "inside the workspace" first, so the learner reads its own folder and nothing else of the app's.
+    here = box.work if box else work   # in an AppContainer, the copy in the profile's folder
     job_name = f"Local\\KratosForgeAcademy-{uuid.uuid4().hex}"   # random, per run
-    cfg = {"workspace": str(work), "script": path.relative_to(work).as_posix(), "read_roots": read_roots(),
-           "denied_roots": denied_roots(data_root), "blocked_modules": list(BLOCKED_MODULES),
-           "lib_roots": [_check_lib_root(r, work, data_root) for r in lib_roots or []],
-           "job_name": job_name}
-    # The bootstrap is read from the install folder (before its hook denies that folder), not passed
-    # whole on the command line: Windows caps a command line at 32,767 characters.
-    launch = f"P = {str(BOOTSTRAP)!r}; exec(compile(open(P, 'rb').read(), P, 'exec'))"
-    argv = [sys.executable, "-I", "-X", "utf8", "-c", launch, json.dumps(cfg)]
-    started = time.monotonic()
-    proc, limiter = _start(argv, work, memory_limit, cpu_limit, job_name)
+    cfg: dict[str, Any] = {"workspace": str(here), "script": path.relative_to(work).as_posix(),
+                           "read_roots": read_roots(), "denied_roots": denied_roots(data_root),
+                           "blocked_modules": list(BLOCKED_MODULES), "lib_roots": libs, "job_name": job_name}
+    job = _WinJob(memory_limit, cpu_limit, job_name) if sys.platform == "win32" else None
+    try:
+        if box is not None:
+            # The bootstrap checks the job through an inherited QUERY handle (an AppContainer has its
+            # own object namespace) and checks its own token is an AppContainer's.
+            cfg.update({"job_handle": box.share(job.job if job else None), "appcontainer": True})
+        # The bootstrap is read from the install folder (before its hook denies that folder), or from
+        # the profile's copy, not passed whole on the command line: Windows caps a command line at
+        # 32,767 characters.
+        boot = box.bootstrap if box else BOOTSTRAP
+        launch = f"P = {str(boot)!r}; exec(compile(open(P, 'rb').read(), P, 'exec'))"
+        argv = [sys.executable, "-I", "-X", "utf8", *(["-B"] if box else []), "-c", launch, json.dumps(cfg)]
+        started = time.monotonic()
+        proc, limiter = _start(argv, here, memory_limit, cpu_limit, job, box)
+    except BaseException:
+        if job is not None:
+            job.close()
+        raise
     out: dict[str, bytes] = {}
     readers = [threading.Thread(target=_drain, args=(proc.stdout, out, "stdout"), daemon=True),
                threading.Thread(target=_drain, args=(proc.stderr, out, "stderr"), daemon=True)]
@@ -142,21 +191,29 @@ def run(work: Path, script: str, data_root: Path, time_limit: float = TIME_LIMIT
         proc.wait(timeout=KILL_WAIT)
         for t in readers:
             t.join(timeout=5)
+        if box is not None:
+            proc.close()
+    stuck = box is not None and not getattr(limiter, "emptied", False)
+    if box is not None and not stuck:
+        appcontainer.mirror_back(here, work)   # only from an empty job, links refused
     seconds = round(time.monotonic() - started, 3)
     code = proc.returncode
     stderr = out.get("stderr", b"").decode("utf-8", "replace")
-    if timed_out:
+    if stuck:   # something may still be writing in the profile's folder: nothing is copied home
+        status = "error"
+        stderr += "\nThe app couldn't confirm the exercise's process had ended, so its files weren't copied back."
+    elif timed_out:
         status = "time_limit"
     elif limiter.memory_hit() or "MemoryError" in stderr[-2000:]:
         status = "memory_limit"
-    elif code == 3 and "isn't in its job" in stderr:
+    elif code == 3 and ("isn't in its job" in stderr or "isn't in its AppContainer" in stderr):
         status = "refused"
     else:
         status = "ok" if code == 0 else "error"
     return {"status": status, "exit_code": code, "stdout": out.get("stdout", b"").decode("utf-8", "replace"),
             "stderr": stderr, "seconds": seconds,
             "limits": {"seconds": time_limit, "memory_bytes": memory_limit, "cpu_seconds": cpu_limit},
-            "runs_as": "you on this PC, without your sign-in, with time and memory limits"}
+            "runs_as": appcontainer.RUNS_AS if box else RUNS_AS}
 
 
 def _drain(stream: Any, out: dict[str, bytes], key: str) -> None:
@@ -172,19 +229,27 @@ def _drain(stream: Any, out: dict[str, bytes], key: str) -> None:
     out[key] = bytes(kept)
 
 
-def _start(argv: list[str], work: Path, memory_limit: int, cpu_limit: int, job_name: str) -> tuple[subprocess.Popen[bytes], Any]:
+def _start(argv: list[str], work: Path, memory_limit: int, cpu_limit: int, job: Any,
+           box: appcontainer.Box | None = None) -> tuple[Any, Any]:
     env = environment(work)
-    common: dict[str, Any] = {"cwd": str(work), "env": env, "stdin": subprocess.DEVNULL,
-                              "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
-    if sys.platform == "win32":
-        job = _WinJob(memory_limit, cpu_limit, job_name)
-        flags = 0x00000004 | getattr(subprocess, "CREATE_NO_WINDOW", 0)   # CREATE_SUSPENDED
-        proc = subprocess.Popen(argv, creationflags=flags, **common)
+    if box is not None:
+        proc: Any = box.start(argv, env)
         try:
             job.hold(proc)       # assigned while suspended; resumed only once it is in the job
         except BaseException:
             proc.kill()
-            job.close()
+            proc.close()
+            raise
+        return proc, job
+    common: dict[str, Any] = {"cwd": str(work), "env": env, "stdin": subprocess.DEVNULL,
+                              "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+    if job is not None:
+        flags = 0x00000004 | getattr(subprocess, "CREATE_NO_WINDOW", 0)   # CREATE_SUSPENDED
+        proc = subprocess.Popen(argv, creationflags=flags, **common)
+        try:
+            job.hold(proc)
+        except BaseException:
+            proc.kill()
             raise
         return proc, job
     limits = _PosixGroup(memory_limit, cpu_limit)
@@ -278,6 +343,7 @@ class _WinJob:
             raise OSError("Windows wouldn't set the exercise's limits, so it wasn't run.")
         self._info = info
         self.peak = 0
+        self.emptied = False
 
     def hold(self, proc: subprocess.Popen[bytes]) -> None:
         handle = int(proc._handle)  # type: ignore[attr-defined]
@@ -325,6 +391,7 @@ class _WinJob:
         deadline = time.monotonic() + 10
         while self.active() and time.monotonic() < deadline:
             time.sleep(0.02)
+        self.emptied = self.active() == 0   # copy-back from an AppContainer run waits on this
         self.k.CloseHandle(self.job)
         self.job = None
 

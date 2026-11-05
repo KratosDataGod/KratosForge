@@ -68,18 +68,21 @@ Notes:
 | SQL warehouses and the SQL editor | Missing | Missing | Built | Partial | · |
 | Notebooks, Spark and dbutils | Missing | Missing | Built | Partial | · |
 | Unity Catalog | Missing | Missing | · | · | · |
-| Jobs and Lakeflow pipelines | Missing | Missing | · | · | · |
+| Jobs and Lakeflow pipelines | Missing | Missing | Partial | · | · |
 | Compute | Missing | Missing | · | · | · |
-| Asset bundles and deployment | Missing | Missing | · | · | · |
-| Cost and DBU | Missing | Missing | · | · | · |
+| Asset bundles and deployment | Missing | Missing | Partial | · | · |
+| Cost and DBU | Missing | Missing | Partial | · | · |
 
 Notes:
 
 - **Sign-in and workspace discovery, Cloud API integration:** Against fakes of the CLI and APIs; no live run yet.
 - **SQL warehouses and the SQL editor, Cloud API integration:** Against fakes of the SQL Statement API; no live run yet.
 - **SQL warehouses and the SQL editor, Local execution:** Databricks SQL is translated to DuckDB; functions that differ are listed in docs/engines.md.
-- **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization; against fakes, no live run yet.
+- **Notebooks, Spark and dbutils, Cloud API integration:** Databricks Connect (runtime 16 and later), behind an authorization, and a notebook folder synced with a workspace folder (Preview); against fakes, no live run yet.
 - **Notebooks, Spark and dbutils, Local execution:** dbutils and PySpark are simulated on this PC; Databricks Runtime equivalence isn't claimed.
+- **Jobs and Lakeflow pipelines, Cloud API integration:** Monitor > Databricks (Preview) reads job runs and Lakeflow updates with their tasks and errors; jobs aren't created or started here. Against fakes, no live run yet.
+- **Asset bundles and deployment, Cloud API integration:** Source control > Bundles (Preview) validates, plans and deploys through the Databricks CLI; bundle run and destroy aren't offered. Against a fake CLI, no live run yet.
+- **Cost and DBU, Cloud API integration:** Optimize > Cost (Preview) reads DBUs from the billing system tables after a confirm; no budgets or alerts. Against fakes, no live run yet.
 
 ### Snowflake
 

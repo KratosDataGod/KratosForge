@@ -34,7 +34,7 @@ Exit: signing done or dated, the FD-101 live run done or dated with Chris; audit
 | --- | --- | --- |
 | Developer Experience | Debug and test like a desktop IDE | Debugger maturity (PB-026); PB-085 stale-cell marking; PB-034 notebook wizard from a table; PB-027 column completion |
 | Local Execution and Enterprise Services | Defensible savings | Measured vs estimated CU rolled up across installations in the central Optimize lakehouse, with the method documented (PB-089, PB-050) |
-| Enterprise Services | Data quality and lineage | PB-060 sensitive data classification beside Purview; PB-019 late-arriving rows; PB-031 schema evolution |
+| Enterprise Services | Data quality and lineage | PB-060 sensitive data classification beside Fabric sensitivity labels; PB-019 late-arriving rows; PB-031 schema evolution |
 | Databricks and Snowflake | Snowflake parity grows | Snowpark local testing, dbt projects, deployment, per the Snowflake plan |
 | Platform Engineering | Scale | Multiple workers (workloads design), PB-016 reproducible environments |
 

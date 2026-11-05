@@ -69,6 +69,7 @@ nav = [
     { "Platform support levels" = "platforms.md" },
     { "Platform skins" = "skins.md" },
     { "Platform experience parity" = "parity.md" },
+    { "Where each capability runs" = "capabilities.md" },
     { "Notebook comments" = "notebook-comments.md" },
     { "Notebook find and replace" = "notebook-editor/find-and-replace.md" },
     { "Drag tables and files into a notebook" = "notebook-editor/load-data-items.md" },

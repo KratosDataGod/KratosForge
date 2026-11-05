@@ -580,6 +580,8 @@ class Box:
 
     def __init__(self, work: Path, bootstrap: Path, lib_roots: list[str] | None = None,
                  data_root: Path | None = None):
+        global _open_boxes
+        self._counted = False
         try:
             self.api = _api()
             with _lock:
@@ -587,9 +589,16 @@ class Box:
                 deny_app_packages([ENGINE_PACKAGE])   # before any run: grading/ is never readable
                 self.cap_sid, cap = capability_sid(self.api)
                 grant_runtime(self.api, cap, [Path(p) for p in lib_roots or []], data_root)
+                # Counted in the same hold as the grant, so a removal can't land in between.
+                _open_boxes += 1
+                self._counted = True
             self.profile = Profile(self.api)
         except OSError as exc:
+            self._uncount()
             raise SetupFailed(str(exc)) from exc
+        except BaseException:
+            self._uncount()
+            raise
         self._shared = 0
         try:
             self.work = self.profile.folder / "work"
@@ -601,12 +610,18 @@ class Box:
             self.bootstrap = boot / "_bootstrap.py"
             shutil.copyfile(bootstrap, self.bootstrap)
         except BaseException:
-            self.profile.close()
+            try:
+                self.profile.close()
+            finally:
+                self._uncount()
             raise
+
+    def _uncount(self) -> None:
         global _open_boxes
-        with _lock:
-            _open_boxes += 1
-        self._counted = True
+        if self._counted:
+            self._counted = False
+            with _lock:
+                _open_boxes -= 1
 
     def share(self, job: Any) -> int:
         """An inheritable QUERY-only handle to the run's job, for the bootstrap's own check (an
@@ -628,10 +643,8 @@ class Box:
             self._shared = 0
 
     def close(self) -> None:
-        global _open_boxes
-        self._unshare()
-        self.profile.close()
-        if getattr(self, "_counted", False):
-            self._counted = False
-            with _lock:
-                _open_boxes -= 1
+        try:
+            self._unshare()
+            self.profile.close()
+        finally:
+            self._uncount()   # even if the profile won't close, or Remove would stay refused

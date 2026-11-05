@@ -11,7 +11,8 @@ const page = () => app.page;
 
 const where = { workspace_id: "w1", workspace_name: "Sales", lakehouse_id: "lh1", lakehouse_name: "LH_Silver" };
 const finding = (id, severity, kind, action, title, extra = {}) =>
-  ({ id, kind, severity, action, title, detail: `${title}, from the Delta log.`, fixed: false, fix: null, ...where, table: id, ...extra });
+  ({ id, kind, severity, action, title, detail: `${title}, from the Delta log.`, fixed: false, fix: null, ...where, table: id,
+    effort: ["optimize", "vacuum"].includes(action) ? "Low" : "Medium", dismissed: null, ...extra });
 let scan;
 const fresh = () => ({ running: false, result: { scanned: "2026-10-26T08:00:00+00:00", workspaces: 1, lakehouses: 1, tables: 9, bytes: 1,
   findings: [
@@ -28,6 +29,11 @@ before(async () => {
     xray: () => scan,
     xray_vacuum_preview: () => ({ files: 12, bytes: 2048, keep_days: 7, why: "the default" }),
     xray_vacuum: () => ({ job_id: "j1", keep_days: 7 }),
+    xray_dismiss: ({ finding_id, reason, reopen }) => {
+      const f = scan.result.findings.find((x) => x.id === finding_id);
+      f.dismissed = reopen ? null : { reason, at: "2026-11-03T10:00:00+00:00" };
+      return { id: finding_id, dismissed: f.dismissed };
+    },
   } });
   await page().waitForFunction(() => typeof renderOptimize === "function" && !!state.settings);
 });
@@ -47,7 +53,8 @@ test("Overview lists this PC's open X-ray findings, most severe first, each with
   const titles = await page().$$eval(".optimize-local tbody tr td:first-child b", (bs) => bs.map((b) => b.textContent));
   assert.deepStrictEqual(titles, ["orders has many small files", "daily could run on this PC", "events keeps old files"]);
   assert.deepStrictEqual(rows.map((r) => r[1]), ["High", "Medium", "Low"]);
-  assert.deepStrictEqual(rows.map((r) => r[3]), ["Optimize", "Open notebook", "Vacuum"]);
+  assert.deepStrictEqual(rows.map((r) => r[2]), ["Low", "Medium", "Low"]);  // Effort: one button, or steps you take
+  assert.deepStrictEqual(rows.map((r) => r[4]), ["OptimizeDismiss...", "Open notebookDismiss...", "VacuumDismiss..."]);
   assert.match(await page().textContent(".optimize-local"), /From this PC's last Estate X-ray scan/);
   // Reads the saved scan only.
   assert.ok(app.calls.filter((c) => c.method === "xray").every((c) => !c.params.refresh && !c.params.auto));
@@ -80,4 +87,26 @@ test("signed out or never scanned, it says how to get findings and starts nothin
   await overview();
   await page().waitForFunction(() => /No Estate X-ray scan on this PC yet/.test(document.querySelector(".optimize-local")?.textContent || ""));
   assert.ok(await page().$('.optimize-local button:has-text("Scan on Home")'));
+});
+
+test("Dismiss asks why, hides the finding on this PC and can be undone (OPT-010)", { skip }, async () => {
+  scan = fresh();
+  app.calls.length = 0;
+  await overview();
+  await page().waitForSelector('.optimize-local tr[data-finding="events"]');
+  await page().click('.optimize-local tr[data-finding="events"] button:has-text("Dismiss...")');
+  assert.match(await page().textContent(".dialog"), /Nothing changes in Fabric/);
+  await page().fill(".dialog input", "Retired next month");
+  await page().click('.dialog button:has-text("Dismiss")');
+  await page().waitForFunction(() => !document.querySelector('.optimize-local tr[data-finding="events"]'));
+  assert.ok(app.calls.some((c) => c.method === "xray_dismiss" && c.params.finding_id === "events" && c.params.reason === "Retired next month" && !c.params.reopen));
+  await page().click('.optimize-local label:has-text("Show dismissed (1)") input');
+  await page().waitForSelector('.optimize-local tr[data-finding="events"] button:has-text("Reopen")');
+  assert.match(await page().textContent('.optimize-local tr[data-finding="events"]'), /Dismissed/);
+  await page().click('.optimize-local tr[data-finding="events"] button:has-text("Reopen")');
+  await page().waitForSelector('.optimize-local tr[data-finding="events"] button:has-text("Vacuum")');
+  assert.ok(app.calls.some((c) => c.method === "xray_dismiss" && c.params.reopen === true));
+  assert.ok(!app.calls.some((c) => /^xray_(vacuum|optimize)$/.test(c.method)), "dismissing starts nothing in Fabric");
+  await page().evaluate(() => { optimizePage.localDismissed = false; });
+  assert.deepStrictEqual(app.errors, []);
 });

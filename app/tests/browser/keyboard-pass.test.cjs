@@ -8,12 +8,15 @@
 //   every Tab stop shows a focus ring; this walk covers the whole window and both directions.
 // - No page is left out: the rail pages walked are exactly the features with a rail entry (features.js),
 //   so a new page is in the pass the day it is registered, and one the pass skips fails the guard.
-// - The dialogs the rail pages open from a button of their own, beyond the shared ones that
+// - The dialogs the rail pages open from a button of their own (axe checks each while it's open, #1673), beyond the shared ones that
 //   dialog-keyboard.test.cjs opens by code: Enter opens each one with focus inside, Escape closes it and
 //   focus goes back to the button. Opening and closing them sends no write to the engine.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
-const { playwright, openApp, animationsDone } = require("./harness.cjs");
+const { playwright, openApp, animationsDone, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: app.js:pickWorkspace, git.js:gitPathDialog, notebook-formats.js:nbfImportDialog
+// axe covers dialogs: pipelines.js:pipelineOpenDialog, platform.js:newRequestDialog
 
 let app;
 const skip = !playwright && "Playwright is not installed";
@@ -222,6 +225,8 @@ for (const [view, button, title] of DIALOGS) {
     await settle();
     assert.ok(await page().evaluate(() => document.getElementById("dialog-root").contains(document.activeElement)),
       "focus didn't move into the dialog");
+    // #1673: axe on the dialog while it's open (when axe-core is installed, as in CI).
+    if (axeSource) assert.deepStrictEqual(await axeFindings(page(), "#dialog-root .dialog"), [], `axe on ${title}`);
     await page().keyboard.press("Escape");
     await dialog.waitFor({ state: "detached", timeout: 3000 }).catch(() => assert.fail("Escape didn't close the dialog"));
     await page().waitForTimeout(100);

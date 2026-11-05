@@ -9,6 +9,8 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const { playwright, openApp, startupReads, axeSource, axeFindings, settleForAxe } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: meta.js:confirmDialog, prove.js:editProveRules, prove.js:showProveTable, prove.js:showReceipt
 
 let app;
 const skip = !playwright && "Playwright is not installed";

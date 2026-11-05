@@ -17,6 +17,8 @@ const assert = require("node:assert");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: integrations.js:addTool
 
 const skip = !playwright && "Playwright is not installed";
 const READS = ["integrations_status", "integrations_activity", "integrations_pending", "editor_status", "editor_pending", "app_settings"];

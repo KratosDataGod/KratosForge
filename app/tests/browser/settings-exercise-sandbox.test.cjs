@@ -6,6 +6,8 @@ const { test, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
 const { playwright, openApp, axeSource, axeFindings, settleForAxe } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: meta.js:confirmDialog
 
 const skip = !playwright && "Playwright is not installed";
 const noAxe = skip || (!axeSource && "axe-core is not installed");

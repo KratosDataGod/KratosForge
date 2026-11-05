@@ -140,7 +140,8 @@ def test_the_registry_contract():
     ids = {r["id"] for r in gc.all_rules()}
     assert {"naming.table_name", "ownership.product_owner", "classification.sensitive_columns", "contract.freshness",
             "contract.row_count", "contract.description", "contract.endorsed"} <= ids
-    assert not ids & gc.RETIRED_RULES
+    assert not ids & set(gc.RETIRED_RULES)
+    assert gc.retired_rule_ids("contract.freshness, contract.terms_linked") == ["contract.terms_linked"]
     # A policy saved by an earlier release may still name a retired rule: it's left out, never "missing".
     assert gc.rule_ids("contract.freshness, contract.terms_linked contract.row_count") == ["contract.freshness", "contract.row_count"]
     for r in gc.all_rules():
@@ -375,6 +376,24 @@ def test_check_now_labels_and_exceptions(svc, tmp_path):
     assert got["status"] == "excepted"
     assert got["findings"][0]["excepted"] == f"Excepted until {until}: Masked copy not ready"
     assert out["counts"]["to_look_at"] == 0 and out["counts"]["excepted"] == 1
+
+
+def test_a_policy_from_an_earlier_release_says_its_retired_rule_is_no_longer_checked(svc):
+    svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
+                           "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
+    for pid, rule in (("terms-only", "contract.terms_linked"), ("old-contract", "contract.description, contract.terms_linked")):
+        svc.governance_template_use("data-contract", id=pid)
+        d = svc.governance_policy(pid)["draft"]["definition"]
+        svc.governance_save_draft(pid, dict(d, rule=rule))
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    out = {p["id"]: p for p in svc.governance_check_now()["policies"]}
+    only = out["terms-only"]
+    assert only["status"] == "not_checked" and only["missing"] == [] and only["retired"] == ["contract.terms_linked"]
+    assert only["note"] == "Business terms linked: retired, no longer checked. Nothing else in its Checked by field is checked."
+    old = out["old-contract"]
+    assert old["status"] == "pass" and old["rules"] == ["contract.description"] and old["missing"] == []
+    assert old["note"] == "Business terms linked: retired, no longer checked."
 
 
 def test_check_now_says_unknown_instead_of_passing(svc):

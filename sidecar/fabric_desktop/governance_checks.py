@@ -103,9 +103,15 @@ def find_rule(rule_id: str) -> tuple[Checker, dict[str, Any]] | None:
     return None
 
 
-# Rules a policy saved by an earlier release may still name. Nothing checks them any more, so they are
-# left out of the policy's rules rather than reported as a rule no checker has.
-RETIRED_RULES = frozenset({"contract.terms_linked"})
+# Rules a policy saved by an earlier release may still name, by id with their name. Nothing checks them any
+# more, so they are left out of the policy's rules; Check now says so (retired_rule_ids) rather than
+# reporting a rule no checker has.
+RETIRED_RULES = {"contract.terms_linked": "Business terms linked"}
+
+
+def retired_rule_ids(text: Any) -> list[str]:
+    """The retired rules a policy's Checked by field still names."""
+    return [x for x in re.split(r"[,\s]+", str(text or "").strip()) if x in RETIRED_RULES]
 
 
 def rule_ids(text: Any) -> list[str]:

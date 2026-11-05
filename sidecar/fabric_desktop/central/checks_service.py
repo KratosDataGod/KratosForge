@@ -465,7 +465,8 @@ class ChecksMixin:
         for pol in resolved["policies"]:
             ids = gc.rule_ids(pol.get("rule"))
             entry: dict[str, Any] = {k: pol.get(k) for k in ("id", "name", "category", "severity", "enforcement", "version")}
-            entry |= {"rules": ids, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
+            retired = gc.retired_rule_ids(pol.get("rule"))
+            entry |= {"rules": ids, "retired": retired, "checked": 0, "passed": 0, "findings": [], "unknown": [], "not_run": [], "missing": [],
                       "exception": pol.get("exception")}
             for rid in ids:
                 if rid == GUIDANCE_RULE:  # a team's guidance level (GD-09): nothing to check
@@ -498,7 +499,9 @@ class ChecksMixin:
                                else "not_run" if entry["not_run"] and not entry["checked"]
                                else "not_checked" if (entry.get("no_items") or entry.get("off")) and not entry["checked"]
                                else "pass")
-            if ids and not checked_ids:
+            if retired and not checked_ids:
+                entry["note"] = f"{_retired_text(retired)} Nothing else in its Checked by field is checked."
+            elif ids and not checked_ids:
                 entry["note"] = "It sets the team's learning guidance level, a preference with nothing to check."
             elif not ids:
                 entry["note"] = "Its Checked by field names no rule, so nothing checks it yet."
@@ -509,6 +512,8 @@ class ChecksMixin:
             elif entry["status"] == "not_checked":
                 empty = ", ".join(sorted(set(entry["no_items"])))
                 entry["note"] = f"Check now found nothing for its {empty} rules to check."
+            if retired and checked_ids:
+                entry["note"] = " ".join(x for x in (entry.get("note"), _retired_text(retired)) if x)
             entry.pop("no_items", None)
             entry.pop("off", None)
             policies.append(entry)
@@ -665,6 +670,10 @@ class ChecksMixin:
                          "fix": (fail or {}).get("fix")})
         return {"product_id": product["id"], "project": product["project"], "source": source, "rows": rows,
                 "open_project": mine, "problems": problems}
+
+
+def _retired_text(retired: list[str]) -> str:
+    return f"{', '.join(gc.RETIRED_RULES[r] for r in retired)}: retired, no longer checked."
 
 
 def _passed(rule_id: str, item: dict[str, Any], settings: dict[str, Any]) -> str:

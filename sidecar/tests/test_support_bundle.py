@@ -138,3 +138,40 @@ def test_tail_reads_only_the_end_of_a_big_log(tmp_path):
     assert cut.endswith("line 49999\n") and len(cut) <= 100
     assert all(line.startswith("line ") for line in cut.splitlines())  # the line cut in half is dropped
     assert support_bundle._tail(tmp_path / "missing.log") is None
+
+
+def test_about_has_the_policy_files_hash_and_its_last_recorded_change_and_writes_nothing(tmp_path, pc):
+    import hashlib
+    from fabric_desktop import policy_watch
+    from fabric_desktop.audit import AuditLog
+    assert json.loads(_bundle(tmp_path)["about.json"])["policy_record"] == {
+        "sha256": None, "managed": None, "last_change": None}  # no policy file, never checked
+    shutil_out(tmp_path)
+    policy = app_settings.policy_path()
+    policy.write_text(json.dumps({"show_preview": False}))
+    sha = hashlib.sha256(policy.read_bytes()).hexdigest()
+    policy_watch.check(pc, AuditLog(pc / "audit"))  # what the app does at start
+    policy.write_text(json.dumps({"show_preview": True}))
+    now = hashlib.sha256(policy.read_bytes()).hexdigest()
+    seen_before = (pc / policy_watch.SEEN).read_text()
+    record = json.loads(_bundle(tmp_path)["about.json"])["policy_record"]
+    assert record["sha256"] == now and record["managed"] is True  # the tests' conftest: only administrators
+    assert record["last_change"]["sha256"] == sha and record["last_change"]["first"] is True
+    assert record["last_change"]["changed_at"]
+    # The bundle only reads: the change since the last look is left for the app to record.
+    assert (pc / policy_watch.SEEN).read_text() == seen_before
+    assert not [e for e in AuditLog(pc / "audit").entries() if e["action"] == "policy_file_changed"]
+
+
+def test_a_policy_hash_that_cant_be_read_still_makes_a_bundle(tmp_path, pc, monkeypatch):
+    def broken():
+        raise OSError("access denied")
+    monkeypatch.setattr(app_settings, "policy_fingerprint", broken)
+    (pc / "policy-seen.json").write_text("not json")
+    record = json.loads(_bundle(tmp_path)["about.json"])["policy_record"]
+    assert record == {"sha256": None, "managed": None, "last_change": None}
+
+
+def shutil_out(tmp_path):
+    import shutil
+    shutil.rmtree(tmp_path / "out", ignore_errors=True)

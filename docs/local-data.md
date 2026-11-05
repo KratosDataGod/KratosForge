@@ -112,6 +112,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `VAR(x)`, `STDEV(x)`, `VARP(x)`, `STDEVP(x)` | The sample variance and standard deviation, and the population's (one row: `NULL` for `VAR` and `STDEV`, `0` for `VARP` and `STDEVP`) |
 | `LEN('ab  ')` | `2`: trailing spaces aren't counted |
 | `SUBSTRING('abc', 0, 2)`, `STUFF('abc', 5, 1, 'x')`, `REPLICATE('ab', -1)` | `'a'`, `NULL`, `NULL`: a start below 1 counts the positions before 1, `STUFF` past the end or below 1 and `REPLICATE` of a negative count are `NULL`, and a negative `SUBSTRING` length is an error |
+| `LEFT(s, -1)`, `RIGHT(s, -1)`, `TRANSLATE('abc', 'ab', 'x')` | An error, as in T-SQL: a negative length, or `TRANSLATE` lists of different lengths. With literal values the query is refused before it runs |
 | `DATEPART(weekday, d)` | `1` for Sunday to `7` for Saturday (DATEFIRST 7) |
 | `DATEPART(week, d)` | Week 1 is the week of 1 January; weeks start on Sunday |
 | `DATEDIFF(week, a, b)` | The number of Sundays from `a` to `b`, whatever the time of day: Saturday to Sunday is `1` |
@@ -134,6 +135,7 @@ With `dialect = "tsql"`, a project runs the T-SQL you'd write for a Fabric Wareh
 | `STRING_SPLIT(tags, ',')` in `FROM` or `CROSS APPLY` | One row per part, in a `value` column. The separator is one character, as in T-SQL (`enable_ordinal` isn't run here yet) |
 | `POWER(2, -1)`, `POWER(qty, 2)` on an integer column | `0`, an integer: an integer base gives an integer, cut toward zero, and one too big for its type is an error. A `FLOAT` base (`POWER(2e0, -1)`) gives `0.5` |
 | `QUOTENAME('a]b')`, `QUOTENAME(s, '"')`, `STR(123.45, 6, 1)` | `'[a]]b]'` (the closing character doubled, `NULL` over 128 characters; `[`, `]`, `"` and `'` are taken), `' 123.5'` (right-aligned to the length, 10 by default, with fewer places when they don't fit and asterisks when the whole number doesn't; length and places written in the query) |
+| `FORMAT(day, 'D')`, `FORMAT(at, 'hh:mm tt')`, `FORMAT(1234.5, 'N2')` | `'Sunday, October 18, 2026'`, `'02:07 PM'`, `'1,234.50'`: .NET's date formats (standard and custom) on a date or date-and-time, and `N`, `F` and `D` on an integer or decimal, rounded half away from zero, in `en-US` (a warehouse's default). The format has to be written in the query. A float, `money` or `time` value, another culture, a custom number format such as `'#,##0'`, and the date letters `F`, `g`, `K` and `z` are refused, each by name |
 | `TOP 5 WITH TIES ... ORDER BY total` | The first 5 rows and every row tied with the fifth (not with `PERCENT` or `DISTINCT`) |
 | `DATEPART(quarter, '2024-03-05')` | The text read as a date, as T-SQL does |
 | `#t` | A temporary table kept apart from an ordinary table `t` |

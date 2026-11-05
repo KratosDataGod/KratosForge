@@ -42,6 +42,11 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
         if chosen["id"] == "spark":
             statements = [spark_legacy_times(spark_fixes(s)) for s in statements]
     except ParseError as first_error:
+        if chosen["id"] == "spark" and (respelled := _spark_spellings(query)) != query:
+            try:
+                return parse(respelled, dialect)
+            except ValueError:
+                pass  # report the error in the query as written
         if chosen["id"] == "spark" and _only_empty_structs_fail(query):
             raise ValueError(_EMPTY_STRUCT) from None
         if chosen["id"] != "spark":
@@ -58,6 +63,33 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
 def _statements(parsed: list[Any]) -> list[exp.Expression]:
     """What sqlglot.parse read, without the empty statements (a stray ';')."""
     return [cast(exp.Expression, s) for s in parsed if s is not None]
+
+
+_HEX = re.compile(r"[0-9a-fA-F]*")
+
+
+def _spark_spellings(query: str) -> str:
+    """``query`` with two spellings Spark reads and sqlglot doesn't written the way sqlglot reads them:
+    ``X '1010'`` as ``X'1010'`` (Spark reads X and a quoted hex string as a binary literal even with
+    spaces between: only a lone X, not ``t.x``, before a quote of hex digits), and ``GROUP BY
+    window(...)`` as ``GROUP BY `window`(...)`` (sqlglot reads a WINDOW right after GROUP BY as the
+    start of a WINDOW clause)."""
+    try:
+        tokens = sqlglot.tokenize(query, read="spark")
+    except TokenError:
+        return query
+    edits: list[tuple[int, int, str]] = []
+    for before, token, after in zip([None, *tokens], tokens, tokens[1:], strict=False):
+        if (token.token_type == TokenType.VAR and token.text in ("x", "X") and after.token_type == TokenType.STRING
+                and (before is None or before.token_type != TokenType.DOT)
+                and query[token.end + 1:after.start].isspace() and _HEX.fullmatch(after.text)):
+            edits.append((token.end + 1, after.start, ""))
+        elif (token.token_type == TokenType.WINDOW and after.token_type == TokenType.L_PAREN
+              and before is not None and before.token_type == TokenType.GROUP_BY):
+            edits.append((token.start, token.end + 1, "`" + token.text + "`"))
+    for start, end, text in reversed(edits):
+        query = query[:start] + text + query[end:]
+    return query
 
 
 _EMPTY_STRUCT = "An empty struct<> isn't supported on this PC. Give the struct at least one field, like struct<id: int>."

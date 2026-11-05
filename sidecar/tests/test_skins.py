@@ -166,7 +166,7 @@ def test_skins_list_answers_from_the_server_and_is_read_only():
 
 
 @pytest.mark.parametrize("skin_id, first", [("databricks", ["workspaces", "home", "create", "onelake"]),
-                                            ("snowflake", ["home", "onelake"])])
+                                            ("snowflake", ["home", "onelake", "create", "monitor"])])
 def test_the_databricks_and_snowflake_skins_lead_with_their_platforms_pages(skin_id, first):
     skin = skins.BUILT_IN[skin_id]
     assert skins.validate(skin, skins.BASE) is skin and skin in skins.listing()["skins"]

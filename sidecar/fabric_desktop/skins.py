@@ -300,7 +300,7 @@ SNOWFLAKE: dict[str, Any] = {
         "--accent": "#1660a8", "--accent-dark": "#0e4479", "--accent-soft": "#e6f0fa", "--accent-soft-2": "#eef4fb",
         "--canvas": "#f4f7fb", "--border": "#dbe4ee", "--border-input": "#c6d3e1",
     }}},
-    "workflow": {"rail": ["home", "onelake", "create", "workspaces", "monitor", "platform", "optimize", "metadata"],
+    "workflow": {"rail": ["home", "onelake", "create", "monitor", "workspaces", "platform", "optimize", "metadata"],
                  "labels": {"home": "Worksheets", "onelake": "Data", "create": "Load and create",
                             "monitor": "Monitoring", "optimize": "Optimize and cost"}},
 }

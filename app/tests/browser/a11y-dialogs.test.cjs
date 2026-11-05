@@ -29,6 +29,9 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 // axe covers dialogs: meta.js:dictionaryImportDialog, estate.js:restoreDialog, integrations.js:editTool, platform.js:confirmShortcutEnvs
 // axe covers dialogs: sqlchanges.js:whChangeConfirm, meta.js:createEnvWorkspace, whproject.js:whProjectNewObject
 // axe covers dialogs: meta.js:pickKeysWorkspace, mesh.js:pickDesignationWorkspace, mesh.js:keysSetupDialog
+// axe covers dialogs: dataops.js:columnLineage, df-dataflows.js:dfRunInFabric, meta.js:metaRiskGate, meta.js:readSourceDialog
+// axe covers dialogs: governance.js:policyDialog, prove.js:showScorecard, xray.js:vacuumAll, optimize.js:optimizeMove
+// axe covers dialogs: platform.js:landingSetupDialog, meta.js:ossieImportDialog, platform.js:confirmApproval, git.js:gitPlatformDeploy
 
 let app;
 const skip = (!playwright && "Playwright is not installed") || (!axeSource && "axe-core is not installed");
@@ -49,6 +52,12 @@ before(async () => {
   app = await openApp({
     engine: ["app_settings", "profile_get"],  // the profile as a new person's engine makes it
     mocks: {
+      git_platform_deploy: () => ({ commit: "0123456789abcdef", catalog_env: "prod", labels: {}, plan_id: "p1", steps: [], stops: [],
+        removable: [], blocked: [], notes: ["Platform admins only."] }),
+      meta_lineage: () => ({ columns: { order_id: { how: "copied", label: "direct" }, total: { how: "derived", label: "computed" } } }),
+      workload_preflight: () => ({ code: "not_in_inventory" }),
+      meta_risk_gate: () => ({ checks: [{ entity: "silver.orders", result: "warning", lines: ["The capacity is 80% used this hour."], needs_acknowledgement: true }],
+        run: ["silver.orders"], held: {} }),
       list_capacities: () => [{ id: "c1", display: "F64 Sales", sku: "F64", state: "Active" }],
       git_vscode_plan: () => ({ files: [{ path: ".vscode/settings.json", state: "new", label: "Settings", why: "Points VS Code at KratosForge" },
         { path: "AGENTS.md", state: "exists", label: "Agent notes", why: "Tells AI tools about the repo", text: "Use KratosForge." }] }),
@@ -222,6 +231,23 @@ const CASES = [
   ["mesh.js:pickDesignationWorkspace", "Landing workspace for Dev", () => {
     pickDesignationWorkspace("dev", { id: "landing", label: "Landing" }, () => {}); }, "#dialog-root .dialog .choice"],
   ["mesh.js:keysSetupDialog", "Create the Keys workspace", () => { keysSetupDialog({ keys: { default_name: "KratosForge Keys" } }); }],
+  // Batch 6: lineage, Fabric runs, risk gate, sources, governance policy, scorecard, vacuum and landing.
+  ["dataops.js:columnLineage", "Column lineage: silver.orders", () => { columnLineage("silver.orders"); }],
+  ["df-dataflows.js:dfRunInFabric", "Run Orders flow?", () => {
+    dfRunInFabric({ id: "w9", displayName: "Other" }, { item_id: "df1", name: "Orders flow" }, "Run", () => {}); }],
+  ["meta.js:metaRiskGate", "Run Daily load in Dev?", () => { metaRiskGate(state.meta, ["silver.orders"], "dev", "Daily load"); }],
+  ["meta.js:readSourceDialog", "Add a source this project reads", () => {
+    readSourceDialog([{ code: "sap", title: "SAP ERP", system_type: "SAP", owner: "ERP team", id: 3, read: false }], "dev", () => {}); }],
+  ["governance.js:policyDialog", "New policy", () => {
+    policyDialog({ categories: { naming: "Naming", quality: "Quality" }, severities: ["low", "medium", "high"], enforcements: ["advisory", "warn", "block"],
+      scopes: ["enterprise", "domain", "project", "entity"] }, null, () => {}); }],
+  ["prove.js:showScorecard", "Scorecard", () => { showScorecard({ scorecard: {} }); }],
+  ["xray.js:vacuumAll", "Vacuum 2 tables", () => { vacuumAll([{ table: "orders" }, { table: "customers" }], null, null); }],
+  ["optimize.js:optimizeMove", "Dismiss this improvement?", () => { optimizeMove({ id: "rec1" }, "dismissed"); }],
+  ["platform.js:landingSetupDialog", "Move to one landing workspace", () => { landingSetupDialog({ default_landing_name: "KratosForge Landing" }, () => {}); }],
+  ["meta.js:ossieImportDialog", "Import from Ossie", () => { ossieImportDialog({ name: "Sales model", existing: true, workspace_name: "Sales Dev" }, null); }],
+  ["platform.js:confirmApproval", "Pick a capacity for Sales Dev", () => { confirmApproval({ kind: "workspace", target: "Sales Dev", detail: {} }); }],
+  ["git.js:gitPlatformDeploy", "Deploy the platform repository", () => { gitPlatformDeploy("C:/repos/platform"); }],
   ["profile.js:editProfileIdentity", "Edit profile", async () => { profilePage.data = await rpc("profile_get", {}); editProfileIdentity(); }],
 ];
 

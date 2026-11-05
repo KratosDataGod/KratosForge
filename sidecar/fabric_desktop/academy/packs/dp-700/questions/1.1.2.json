@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.1.2",
+  "questions": [
+    {
+      "id": "1.1.2-q1",
+      "type": "single",
+      "stem": "What is a domain in Microsoft Fabric?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A capacity that only one department can use"
+        },
+        {
+          "id": "b",
+          "text": "A logical grouping of workspaces, usually by business area, used to organize and govern data"
+        },
+        {
+          "id": "c",
+          "text": "A network boundary that blocks traffic between workspaces"
+        },
+        {
+          "id": "d",
+          "text": "A type of lakehouse that holds master data"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Domains group workspaces by business area, such as Sales or Finance, so data can be organized and governed the way the business is, in the spirit of data mesh.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.2-q2",
+      "type": "single",
+      "stem": "Which role can create a new domain?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Any user with a Pro license"
+        },
+        {
+          "id": "b",
+          "text": "Any workspace admin"
+        },
+        {
+          "id": "c",
+          "text": "A Fabric administrator"
+        },
+        {
+          "id": "d",
+          "text": "Any workspace contributor"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Fabric administrators create domains and assign their domain admins. Domain admins and contributors then manage the domain and assign workspaces to it.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.2-q3",
+      "type": "single",
+      "stem": "A workspace admin is a contributor of the Finance domain and wants their workspace to belong to it. Where do they do this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In each item's settings, one by one"
+        },
+        {
+          "id": "b",
+          "text": "In the workspace's settings, by choosing the Finance domain"
+        },
+        {
+          "id": "c",
+          "text": "In the capacity settings"
+        },
+        {
+          "id": "d",
+          "text": "Only by asking Microsoft Support"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Domain contributors can assign workspaces they are admins of to the domain from the workspace's own settings.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.2-q4",
+      "type": "multiple",
+      "stem": "Which two are benefits of organizing workspaces into domains? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Workspaces in a domain no longer need capacity"
+        },
+        {
+          "id": "b",
+          "text": "People can find data by business area, for example by filtering the OneLake catalog by domain"
+        },
+        {
+          "id": "c",
+          "text": "Domain admins can manage some settings for their own domain instead of the whole tenant"
+        },
+        {
+          "id": "d",
+          "text": "Every user in a domain becomes an admin of its workspaces"
+        },
+        {
+          "id": "e",
+          "text": "Data in a domain is encrypted with a key only that domain holds"
+        }
+      ],
+      "answer": [
+        "b",
+        "c"
+      ],
+      "explanation": "Domains help people discover data by business area and let some governance be delegated to domain admins. They don't grant workspace roles, add encryption or remove the need for capacity.",
+      "source": "https://learn.microsoft.com/en-us/fabric/governance/domains",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

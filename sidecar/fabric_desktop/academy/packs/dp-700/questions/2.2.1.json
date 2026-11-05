@@ -1,0 +1,135 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "2.2.1",
+  "questions": [
+    {
+      "id": "2.2.1-q1",
+      "type": "single",
+      "stem": "A team of SQL developers needs a store for curated data that they will load and change with T-SQL, including multi-table transactions. Which Fabric item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A warehouse"
+        },
+        {
+          "id": "b",
+          "text": "An eventhouse"
+        },
+        {
+          "id": "c",
+          "text": "A Power BI semantic model"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A Fabric warehouse gives full SQL transaction support, including multi-table transactions. A lakehouse's SQL analytics endpoint is read-only for its tables, an eventhouse is built for KQL over event data, and a semantic model isn't a data store for engineering work.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.1-q2",
+      "type": "single",
+      "stem": "Operations engineers need to query billions of timestamped device readings within seconds of their arrival, writing ad hoc queries in KQL. Which item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An eventhouse"
+        },
+        {
+          "id": "b",
+          "text": "A SQL database in Fabric"
+        },
+        {
+          "id": "c",
+          "text": "A lakehouse"
+        },
+        {
+          "id": "d",
+          "text": "A warehouse"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "An eventhouse holds KQL databases built for high-volume, time-based event data with near real-time ingestion and fast ad hoc queries.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.1-q3",
+      "type": "single",
+      "stem": "Data engineers work in PySpark with a mix of JSON files, images and Delta tables, and want one store for files and tables. Which item fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A mirrored database"
+        },
+        {
+          "id": "b",
+          "text": "A warehouse"
+        },
+        {
+          "id": "c",
+          "text": "A KQL database"
+        },
+        {
+          "id": "d",
+          "text": "A lakehouse"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A lakehouse stores files of any format alongside Delta tables and is designed for Spark. A warehouse holds relational tables for T-SQL work.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/decision-guide-data-store",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "2.2.1-q4",
+      "type": "multiple",
+      "stem": "Which two statements about a lakehouse's SQL analytics endpoint are true? Each correct answer is a complete solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "It runs KQL queries over the lakehouse files"
+        },
+        {
+          "id": "b",
+          "text": "Its tables are read-only through T-SQL; you write them with Spark, pipelines or dataflows"
+        },
+        {
+          "id": "c",
+          "text": "It lets you query the lakehouse's Delta tables with T-SQL"
+        },
+        {
+          "id": "d",
+          "text": "It accepts INSERT and UPDATE statements on lakehouse tables"
+        },
+        {
+          "id": "e",
+          "text": "It needs its own capacity, separate from the lakehouse's"
+        }
+      ],
+      "answer": [
+        "c",
+        "b"
+      ],
+      "explanation": "Every lakehouse gets a SQL analytics endpoint for T-SQL queries over its Delta tables. You can create views and other objects there, but table data is written by the lakehouse's own tools, not by T-SQL DML.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-sql-analytics-endpoint",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

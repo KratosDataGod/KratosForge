@@ -108,7 +108,7 @@ def test_use_makes_a_policy_draft_and_save_as_template_copies_a_policy(platform,
     p = platform.call("use_policy_template", template="data-contract", id="sales-contract", name="Sales contract")
     assert p["id"] == "sales-contract" and p["status"] == "draft" and p["draft_version"] == 1
     d = p["draft"]["definition"]
-    assert d["name"] == "Sales contract" and d["rule"] == "contract.freshness, contract.row_count, contract.terms_linked"
+    assert d["name"] == "Sales contract" and d["rule"] == "contract.freshness, contract.row_count"
     assert d["params"]["within_hours"]["value"] == 24 and p["draft"]["note"] == "From template data-contract"
     assert any(a["action"] == "policy created" for a in platform.call("audit"))
     platform.call("publish_policy", id="sales-contract")
@@ -139,7 +139,11 @@ def test_templates_live_in_their_own_table_and_have_udf_functions(tmp_path):
 def test_the_registry_contract():
     ids = {r["id"] for r in gc.all_rules()}
     assert {"naming.table_name", "ownership.product_owner", "classification.sensitive_columns", "contract.freshness",
-            "contract.row_count", "contract.terms_linked", "contract.description", "contract.endorsed"} <= ids
+            "contract.row_count", "contract.description", "contract.endorsed"} <= ids
+    assert not ids & set(gc.RETIRED_RULES)
+    assert gc.retired_rule_ids("contract.freshness, contract.terms_linked") == ["contract.terms_linked"]
+    # A policy saved by an earlier release may still name a retired rule: it's left out, never "missing".
+    assert gc.rule_ids("contract.freshness, contract.terms_linked contract.row_count") == ["contract.freshness", "contract.row_count"]
     for r in gc.all_rules():
         assert all(r[k] for k in gc.RULE_FIELDS) and r["severity"] in gc.FINDING_SEVERITIES
         assert r["runs_in"] in gc.RUNS_IN and isinstance(r.get("default_thresholds", {}), dict)
@@ -266,20 +270,20 @@ def test_classification_pass_fail_and_unknown():
 
 
 def test_contract_pass_fail_and_unknown():
-    s = {**on("contract.freshness", within_hours=6), **on("contract.row_count"), **on("contract.terms_linked"),
+    s = {**on("contract.freshness", within_hours=6), **on("contract.row_count"),
          **on("contract.description"), **on("contract.endorsed")}
     assert gc.contract_check(product(), s, now=NOW) == []
-    fails = gc.contract_check(product(last_load="2026-10-23T12:00:00+00:00", last_rows=0, terms=[], description="",
+    fails = gc.contract_check(product(last_load="2026-10-23T12:00:00+00:00", last_rows=0, description="",
                                       endorsement=[{"item_name": "LH", "endorsement": "None"}]), s, now=NOW)
-    assert {f["rule_id"] for f in fails} == {"contract.freshness", "contract.row_count", "contract.terms_linked",
-                                             "contract.description", "contract.endorsed"}
+    assert {f["rule_id"] for f in fails} == {"contract.freshness", "contract.row_count", "contract.description",
+                                             "contract.endorsed"}
     assert next(f for f in fails if f["rule_id"] == "contract.freshness")["description"] == \
         "Last loaded 24 h ago in Prod; the contract says within 6 h."
-    unknown = gc.contract_check(product(last_load=None, last_rows=None, load_reason="Never ran.", terms=None,
-                                        terms_reason="Not in the catalog.", endorsement=[{"item_name": "LH", "endorsement": None}]),
+    unknown = gc.contract_check(product(last_load=None, last_rows=None, load_reason="Never ran.",
+                                        endorsement=[{"item_name": "LH", "endorsement": None}]),
                                 s, now=NOW)
     assert {f["rule_id"]: f["description"] for f in unknown if f.get("outcome") == "unknown"} == {
-        "contract.freshness": "Never ran.", "contract.row_count": "Never ran.", "contract.terms_linked": "Not in the catalog.",
+        "contract.freshness": "Never ran.", "contract.row_count": "Never ran.",
         "contract.endorsed": "Unknown: needs a tenant scan."}
 
 
@@ -312,6 +316,15 @@ def publish(svc, template, pid, **params):
         for k, v in params.items():
             d["params"][k]["value"] = v
         svc.governance_save_draft(pid, d)
+    svc.governance_publish(pid)
+    svc.governance_assign(pid, "enterprise")
+
+
+def publish_endorsed_contract(svc, pid):
+    """The Data contract template with the endorsement rule added: a policy that reads the platform's catalog."""
+    svc.governance_template_use("data-contract", id=pid)
+    d = svc.governance_policy(pid)["draft"]["definition"]
+    svc.governance_save_draft(pid, dict(d, rule=f"{d['rule']}, contract.endorsed"))
     svc.governance_publish(pid)
     svc.governance_assign(pid, "enterprise")
 
@@ -365,17 +378,35 @@ def test_check_now_labels_and_exceptions(svc, tmp_path):
     assert out["counts"]["to_look_at"] == 0 and out["counts"]["excepted"] == 1
 
 
+def test_a_policy_from_an_earlier_release_says_its_retired_rule_is_no_longer_checked(svc):
+    svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
+                           "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
+    for pid, rule in (("terms-only", "contract.terms_linked"), ("old-contract", "contract.description, contract.terms_linked")):
+        svc.governance_template_use("data-contract", id=pid)
+        d = svc.governance_policy(pid)["draft"]["definition"]
+        svc.governance_save_draft(pid, dict(d, rule=rule))
+        svc.governance_publish(pid)
+        svc.governance_assign(pid, "enterprise")
+    out = {p["id"]: p for p in svc.governance_check_now()["policies"]}
+    only = out["terms-only"]
+    assert only["status"] == "not_checked" and only["missing"] == [] and only["retired"] == ["contract.terms_linked"]
+    assert only["note"] == "Business terms linked: retired, no longer checked. Nothing else in its Checked by field is checked."
+    old = out["old-contract"]
+    assert old["status"] == "pass" and old["rules"] == ["contract.description"] and old["missing"] == []
+    assert old["note"] == "Business terms linked: retired, no longer checked."
+
+
 def test_check_now_says_unknown_instead_of_passing(svc):
     svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
                            "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
-    publish(svc, "data-contract", "contract")
+    publish_endorsed_contract(svc, "contract")
     publish(svc, "product-owner", "owners")
     out = svc.governance_check_now()
     contract = next(p for p in out["policies"] if p["id"] == "contract")
     assert contract["status"] == "unknown" and contract["passed"] == 0
     reasons = {f["rule_id"]: f["description"] for f in contract["unknown"]}
     assert "No successful load is recorded" in reasons["contract.freshness"]
-    assert "isn't in the platform's catalog yet" in reasons["contract.terms_linked"]
+    assert "isn't in the platform's catalog yet" in reasons["contract.endorsed"]
     owners = next(p for p in out["policies"] if p["id"] == "owners")
     assert owners["status"] == "findings" and owners["findings"][0]["description"] == "Names no steward."
     svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "steward": "bo",
@@ -386,7 +417,7 @@ def test_check_now_says_unknown_instead_of_passing(svc):
     out = svc.governance_check_now()
     assert next(p for p in out["policies"] if p["id"] == "owners")["status"] == "pass"
     contract = next(p for p in out["policies"] if p["id"] == "contract")
-    assert {f["rule_id"] for f in contract["unknown"]} == {"contract.terms_linked"}, "the run log now answers freshness"
+    assert {f["rule_id"] for f in contract["unknown"]} == {"contract.endorsed"}, "the run log now answers freshness"
 
 
 class TrustBehindAGateway:
@@ -411,14 +442,14 @@ def test_check_now_says_unknown_when_a_gateway_answers_502(svc, content):
     """A 502 is the platform not being reached (unknown, never a pass), not "isn't in the catalog yet"."""
     svc.mesh_save_product({"name": "customer_360", "description": "Customers", "owner": "me", "status": "published",
                            "access": "public", "ports": [{"name": "customers", "entity": "gold.dim_customer"}]})
-    publish(svc, "data-contract", "contract")
+    publish_endorsed_contract(svc, "contract")
     local = svc._catalog()
     svc._catalog = lambda: TrustBehindAGateway(local, content)
     out = svc.governance_check_now()
     contract = next(p for p in out["policies"] if p["id"] == "contract")
     reasons = {f["rule_id"]: f["description"] for f in contract["unknown"]}
     assert contract["status"] == "unknown"
-    assert reasons["contract.terms_linked"] == (
+    assert reasons["contract.endorsed"] == (
         "The platform couldn't be read: HTTPError: UDF_Platform couldn't be reached to product trust: "
         "Fabric answered 502 Bad Gateway. Try again in a few minutes.")
 
@@ -435,13 +466,13 @@ def test_a_data_products_checklist(svc, tmp_path):
     out = svc.governance_product_checklist("crm/customer_360")
     assert out["source"] == {"template": "data-contract", "name": "Data contract", "builtin": True}
     marks = {r["label"]: (r["mark"], r["detail"]) for r in out["rows"]}
-    assert list(marks) == ["Owner and steward", "Description", "Business terms linked", "Fresh within 24 h", "Endorsement"]
+    assert list(marks) == ["Owner and steward", "Description", "Fresh within 24 h", "Endorsement"]
     assert marks["Owner and steward"] == ("pass", "Owner me, steward bo.")
-    assert marks["Description"][0] == "fail" and marks["Business terms linked"] == ("fail", "Links no business term.")
+    assert marks["Description"][0] == "fail"
     assert marks["Fresh within 24 h"][0] == "unknown"
     assert marks["Endorsement"] == ("unknown", "Unknown: needs a tenant scan.")
     publish(svc, "data-contract", "contract", within_hours=6)
-    assert svc.governance_product_checklist("crm/customer_360")["rows"][3]["label"] == "Fresh within 6 h"
+    assert svc.governance_product_checklist("crm/customer_360")["rows"][2]["label"] == "Fresh within 6 h"
     other = {r["label"]: (r["mark"], r["detail"]) for r in svc.governance_product_checklist("hr/people")["rows"]}
     assert other["Owner and steward"][0] == "fail"
     assert other["Fresh within 6 h"] == ("unknown", "Load times are in hr's run log. Open that project on this PC to check them.")

@@ -64,7 +64,7 @@ ROLES = (
     Role("viewers", "Report viewers", ("prod",), "Business users of {domain} reports",
          "Viewer on {domain} {env} workspaces, or the audience of its app", ("workspace", "Viewer")),
     Role("stewards", "Data stewards", (), "People who keep {domain}'s glossary terms and descriptions",
-         "No Fabric role: {domain}'s glossary in KratosForge, and Purview data curator if you use it"),
+         "No Fabric role: {domain}'s glossary in KratosForge"),
 )
 BY_KEY = {r.key: r for r in ROLES}
 assert set(BY_KEY) == set(core.ENTRA_ROLES)

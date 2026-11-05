@@ -1,0 +1,75 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-31",
+  "kind": "module",
+  "title": "Domains and data products",
+  "path": "enterprise-architecture",
+  "level": "advanced",
+  "minutes": 15,
+  "objectives": [
+    "Say what makes a dataset a data product",
+    "Map which products a domain depends on from other domains",
+    "Know why cross-domain dependencies need owners and contracts"
+  ],
+  "prerequisites": [
+    "LM-06"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Microsoft Fabric",
+    "Databricks",
+    "Snowflake"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "cross-domain",
+      "prompt": "List the Finance domain's dependencies on other domains' products: consumer, source and source_domain, in consumer then source order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "The starter lists every dependency of a Finance product, including ones on Finance's own products.",
+        "Join dependencies to products twice: once for the consumer's domain, once for the source's.",
+        "Keep rows where the consumer's domain is 'finance' and the source's domain isn't."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "consumer",
+          "source",
+          "source_domain"
+        ],
+        "rows": [
+          [
+            "margin",
+            "stock",
+            "supply"
+          ],
+          [
+            "revenue_daily",
+            "orders",
+            "sales"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://learn.microsoft.com/fabric/governance/domains"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

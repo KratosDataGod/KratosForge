@@ -77,6 +77,7 @@ async function loadPracticeSettings(nb) {
     out = { settings: {}, policies: [], note: `The policies couldn't be read, so every rule is on as built: ${err.message || err}` };
   }
   Object.assign(p, { settings: out.settings || {}, policies: out.policies || [], note: out.note || "", sig: "" });
+  learnSetTeam("notebooks", out.guidance);  // learn.js: the team's default level (GD-09)
   checkPractices(nb);
 }
 
@@ -110,6 +111,30 @@ function drawPractices(nb) {
   if (state.view !== "notebook" || state.notebook !== nb) return;
   document.querySelector(".practicespane")?.replaceChildren(...practicesContent(nb));
   document.querySelectorAll("button[data-practices]").forEach((b) => { const fresh = practicesToggle(nb); if (fresh) b.replaceWith(fresh); });
+  for (const cell of nb.cells) document.querySelector(`[data-cell="${cell.id}"] .practice-strip`)?.replaceWith(practiceStrip(cell, nb));
+}
+
+// The findings under a cell, as in the mockup: one line each, with the line it's on. Empty (and
+// hidden) when the panel is closed or the cell has none, so a closed panel adds nothing to the cells.
+function practiceStrip(cell, nb = state.notebook) {
+  const p = nb?.practices;
+  const n = nb ? nb.cells.indexOf(cell) + 1 : 0;
+  // The panel's list, so a finding Dismiss hides (learn.js) leaves the cell too.
+  const mine = p?.open && p.rows ? practiceSplit(nb).shown.filter((f) => f.n === n) : [];
+  if (!mine.length) return h("div", { class: "practice-strip", hidden: true });
+  return h("div", { class: "practice-strip" }, mine.map((f) =>
+    h("button", { class: `practice-line ${PRACTICE_PILL[f.severity]}`, title: f.description, onclick: () => practiceGo(nb, f) },
+      `${f.severity} · ${f.rule_id} ${f.rule} (line ${f.line})`)));
+}
+
+// Where this notebook's findings are dismissed, and which rules a policy requires (never hidden).
+function practiceCtx(nb) {
+  const p = practicesOf(nb);
+  return { subject: "notebooks", where: `${nb.place?.root || "notebooks"}/${nb.name}`, required: (id) => !!p.settings?.[id]?.enabled, redraw: () => drawPractices(nb) };
+}
+
+function practiceSplit(nb, ctx = practiceCtx(nb)) {
+  return learnSplitFindings(nb.practices.rows, ctx.where, ctx.required);  // learn.js
 }
 
 function practicesPanel(nb) {
@@ -142,8 +167,8 @@ function practicesContent(nb) {
     body.append(h("p", { class: "muted-text" }, "Checking..."));
   } else {
     // Dismissed findings (learn.js) leave the list and the counts; a rule a policy names stays.
-    const ctx = { subject: "notebooks", where: `${nb.place?.root || "notebooks"}/${nb.name}`, required: (id) => !!p.settings?.[id]?.enabled, redraw: () => drawPractices(nb) };
-    const { shown, hidden } = learnSplitFindings(p.rows, ctx.where, ctx.required);
+    const ctx = practiceCtx(nb);
+    const { shown, hidden } = practiceSplit(nb, ctx);
     p.shown = shown.length;
     const counts = Object.fromEntries(PRACTICE_SEVERITIES.map((s) => [s, shown.filter((f) => f.severity === s).length]));
     body.append(h("div", { class: "row practice-counts" }, PRACTICE_SEVERITIES.map((s) =>
@@ -160,7 +185,8 @@ function practicesContent(nb) {
   }
   body.append(h("p", { class: "muted-text" }, p.policies.length
     ? `Tuned by ${p.policies.join(", ")}: a rule a policy turns off isn't shown.`
-    : "No policy for this project names a notebook rule, so every rule is on as built. A governance policy can name them in Checked by."));
+    : "No policy for this project names a notebook rule, so every rule is on as built. A governance policy can name them in Checked by."),
+    learnTeamNote("notebooks") || "");
   return [head, body, h("div", { class: "validate-how" }, howItWorks("practices", {
     reads: "This notebook's code cells as they are in the editor, and the governance policies in force for the open project (to see which rules they turn off or change).",
     changes: "Nothing. The cells aren't run, and nothing is saved or sent to Fabric.",

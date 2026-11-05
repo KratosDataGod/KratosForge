@@ -217,6 +217,43 @@ def test_the_board_adds_priority_sla_and_counts(svc, policy):
     assert {i["title"]: i["priority"] for i in svc.incidents_board("dev")["incidents"]}["Slow page"] == "P4"
 
 
+def test_the_bell_lists_what_is_assigned_to_me_waiting_on_me_first(svc, policy):
+    svc._write_environments(svc._project(), {e: {"target": "local"} for e in ("dev", "test", "prod")})
+    svc.workload_store.assign("meta:sales:gold.revenue", {"technical_owner": "Chris@Contoso.com", "team": "Sales data"})
+    low = svc.incident_report("dev", "Typo in a label", priority="P4", workload="meta:sales:gold.revenue")
+    high = svc.incident_report("test", "Revenue looks doubled", priority="P2", workload="meta:sales:gold.revenue")
+    svc.incident_report("dev", "Not mine", priority="P1")
+    taken = svc.incident_report("prod", "Being looked at", priority="P1", workload="meta:sales:gold.revenue")
+    svc.incident_acknowledge("prod", taken["id"], "on it")
+    done = svc.incident_report("dev", "Fixed already", priority="P1", workload="meta:sales:gold.revenue")
+    svc.incident_resolve("dev", done["id"], "fixed")
+    out = svc.incidents_for_me()
+    assert out["user"] == "chris@contoso.com" and out["unreadable"] == []
+    assert [(i["env"], i["title"], i["state"]) for i in out["incidents"]] == [
+        ("test", "Revenue looks doubled", "open"), ("dev", "Typo in a label", "open"), ("prod", "Being looked at", "acknowledged")]
+    first = out["incidents"][0]
+    assert first["id"] == high["id"] and first["number"] == "INC-TEST-0001" and first["priority"] == "P2"
+    assert first["sla"]["acknowledge"]["state"] in ("due", "at_risk") and low["id"] in {i["id"] for i in out["incidents"]}
+    assert set(first) == {"env", "id", "number", "title", "state", "kind", "priority", "sla", "at"}  # no notes or text
+
+
+def test_the_bell_says_which_environment_it_could_not_read(svc, monkeypatch):
+    real = svc._incident_log
+
+    def log(env):
+        if env == "test":
+            raise PermissionError("no")
+        return real(env)
+    monkeypatch.setattr(svc, "_incident_log", log)
+    out = svc.incidents_for_me()
+    assert [u["env"] for u in out["unreadable"]] == ["test"] and "access" in out["unreadable"][0]["detail"]
+
+
+def test_the_bell_is_empty_when_nobody_is_signed_in(svc):
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: None)
+    assert svc.incidents_for_me() == {"user": "", "incidents": [], "unreadable": []}
+
+
 def test_the_sla_policy_call_says_where_targets_come_from(svc, policy):
     out = svc.incident_sla_policy()
     assert out["source"] == "default" and out["targets"] == sla.DEFAULT_TARGETS and len(out["priorities"]) == 4

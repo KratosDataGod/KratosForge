@@ -1,0 +1,131 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "3.1.3",
+  "questions": [
+    {
+      "id": "3.1.3-q1",
+      "type": "single",
+      "stem": "Where do you see when an import semantic model last refreshed and whether the refresh failed?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The eventstream's data insights"
+        },
+        {
+          "id": "b",
+          "text": "The semantic model's refresh history"
+        },
+        {
+          "id": "c",
+          "text": "The Git panel"
+        },
+        {
+          "id": "d",
+          "text": "The lakehouse's table history"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A semantic model's refresh history lists each scheduled and on-demand refresh with its status and details.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/connect-data/refresh-data",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.3-q2",
+      "type": "single",
+      "stem": "At Fernway, what does refreshing the Direct Lake semantic model do after the nightly load?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It deletes old rows"
+        },
+        {
+          "id": "b",
+          "text": "It imports a full copy of the table into the model"
+        },
+        {
+          "id": "c",
+          "text": "It reframes the model to the latest version of the Delta table, a metadata operation that doesn't copy the data"
+        },
+        {
+          "id": "d",
+          "text": "It rewrites the Delta table"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "For Direct Lake, a refresh (framing) points the model at the latest table version. It's quick and cheap because no data is imported.",
+      "source": "https://learn.microsoft.com/en-us/fabric/fundamentals/direct-lake-overview",
+      "case": "fernway-telemetry",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.3-q3",
+      "type": "single",
+      "stem": "The semantic model must refresh right after the pipeline that loads its data finishes, not at a fixed time. What do you add?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A shortcut to the model"
+        },
+        {
+          "id": "b",
+          "text": "A deployment rule"
+        },
+        {
+          "id": "c",
+          "text": "A Semantic model refresh activity at the end of the pipeline"
+        },
+        {
+          "id": "d",
+          "text": "A second schedule an hour later"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The Semantic model refresh activity refreshes a model as a pipeline step, so it runs only after the load succeeds.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-factory/semantic-model-refresh-activity",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "3.1.3-q4",
+      "type": "single",
+      "stem": "An import semantic model's scheduled refresh has failed several nights in a row, and now it doesn't run at all. What happened?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The model was deleted"
+        },
+        {
+          "id": "b",
+          "text": "The capacity was paused by Microsoft"
+        },
+        {
+          "id": "c",
+          "text": "Power BI deactivated the schedule after repeated consecutive failures; fix the cause and turn the schedule back on"
+        },
+        {
+          "id": "d",
+          "text": "The refresh moved to Direct Lake by itself"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "After four consecutive failures Power BI deactivates the refresh schedule. Check the refresh history for the error, fix it, and re-enable the schedule.",
+      "source": "https://learn.microsoft.com/en-us/power-bi/connect-data/refresh-scheduled-refresh",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

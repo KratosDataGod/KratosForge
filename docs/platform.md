@@ -31,6 +31,8 @@ Without a platform in Fabric, the same tables live in a SQLite file on your PC (
 4. Each step reports **done** or **failed**. A failed step says what to do; fix it and choose **Finish or repair**. Every step is safe to run again: what exists is kept.
 5. You become the platform's first **platform admin**. Add the rest of the central team on **Platform > Settings**.
 
+**Finish or repair** turns on public access for each of `UDF_Platform`'s functions, because KratosForge calls them through Fabric's REST API. Calls still need an Entra sign-in and a role on the Platform workspace; no one can call them anonymously. If your tenant blocks public access to items, or allows only Private Link, IT needs to allow it for `UDF_Platform` ([Security](security.md)).
+
 If the step **Platform tables** fails because `UDF_Platform` has no connection to the database, open `UDF_Platform` in Fabric, choose **Manage connections**, add `SQL_Platform` with the alias `platform`, publish, and choose **Finish or repair**.
 
 ## Join it from other PCs
@@ -98,7 +100,7 @@ Each domain row on **Data mesh > Domains** has **Access groups**: one Entra ID s
 | Creators | Data engineers and analysts who build | Contributor on the domain's workspaces | Dev, Test |
 | Data readers | Other teams approved to read the domain's data products | Read through a OneLake data access role; no workspace role | Prod |
 | Report viewers | Business users of the domain's reports | Viewer on the domain's workspaces, or its app's audience | Prod |
-| Data stewards | People who keep the domain's glossary terms and descriptions | No Fabric role (the glossary here, Purview data curator if you use it) | All |
+| Data stewards | People who keep the domain's glossary terms and descriptions | No Fabric role (the glossary here) | All |
 
 - **Names** come from one pattern for every domain, which platform admins change with **Naming**. The default is `{PREFIX}-{DOMAIN}-{SUBDOMAIN}-{ROLE}-{ENV}` with the prefix `SG-FAB`, so Sales gets `SG-FAB-SALES-READERS-PROD`. An empty part takes its separator with it. Names use letters, digits, `-`, `_` and `.` only, and the mail nickname is the name in lower case (64 characters at most). A role can be turned off so no group is suggested for it.
 - **Link existing group** uses a group you already have for a role instead of the suggested one: find it by name, or paste its object ID. Platform admins and the domain's owners (or its parent domain's) can link. Distribution lists are shown but can't be picked: they can't hold Fabric roles. Links are kept in `catalog.entra_group` and on the Audit tab.
@@ -151,7 +153,7 @@ A request waiting on someone, a decision or withdrawal, a shortcut that breaks o
 
 People are named by their UPN. A request's reason is never put in a Teams message, which anyone in the channel can read: the message names the request and says where to open it in the app. Webhook addresses work like passwords: the app never shows them again after they're saved, leaves them out of the audit log, and leaves them out of backups.
 
-Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. Email isn't supported yet: it needs a way to send without an app registration.
+Routes and quiet hours are set in **Settings > Notifications > Platform notices**, and the bell's **Platform** filter lists what's still open ([Platform notices](user-guide.md#platform-notices-preview)). The requests and shortcut pages don't send notices yet. A route can also send to a Power Automate flow or by email through the company mail server, neither of which needs an app registration ([Platform notices](user-guide.md#platform-notices-preview)).
 
 ## One landing zone
 

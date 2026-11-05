@@ -87,6 +87,7 @@ class ModelOssieMixin:
 
     def meta_model_ossie_export(self, env: str = "test", name: str = "", translate_dax: bool = True) -> dict[str, Any]:
         """The named model as Ossie YAML with the conversion report. Reads only; nothing is saved."""
+        model_ossie.require()  # before reading from Fabric
         _, cfg = self._ossie_workspace(env)
         model = self._ossie_model(cfg["workspace_id"], name)
         if model is None:
@@ -103,14 +104,17 @@ class ModelOssieMixin:
 
     def meta_model_ossie_folders(self) -> dict[str, Any]:
         """The semantic models kept in the project's folder (semantic/<name>.SemanticModel/, the Power BI
-        project layout Save TMDL to Git writes), which Export reads on this PC with no Fabric call."""
+        project layout Save TMDL to Git writes), which Export reads on this PC with no Fabric call. ``unavailable``
+        says why Export and Import can't run on this engine (a missing package), or is empty."""
         project = self._project()  # type: ignore[attr-defined]
         return {"folders": [{"path": p.relative_to(project.root).as_posix(), "name": p.name.removesuffix(".SemanticModel")}
-                            for p in self._model_folders(project)]}
+                            for p in self._model_folders(project)],
+                "unavailable": model_ossie.unavailable()}
 
     def meta_model_ossie_export_folder(self, path: str, translate_dax: bool = True) -> dict[str, Any]:
         """A model kept in the project's folder as Ossie YAML, read from its TMDL (or model.bim) on this PC.
         Nothing is read from Fabric and nothing is saved. The report also lists anything the TMDL reader left out."""
+        model_ossie.require()
         project = self._project()  # type: ignore[attr-defined]
         rel = PurePosixPath(path.replace("\\", "/"))
         folder = next((p for p in self._model_folders(project) if p.relative_to(project.root).as_posix() == rel.as_posix()), None)
@@ -171,6 +175,7 @@ class ModelOssieMixin:
                            layer: str | None) -> dict[str, Any]:
         if mode not in MODES:
             raise ValueError(f"mode is one of {', '.join(MODES)}")
+        model_ossie.require()  # before any Fabric call, even when a name is given and the file isn't parsed yet
         project, cfg = self._ossie_workspace(env)
         name = (name or model_ossie.parse(text)["name"]).strip()
         store = self._store(project, env)  # type: ignore[attr-defined]

@@ -241,6 +241,7 @@ function renderQuery() {
     const practices = async () => {
       if (!SQL_PRACTICE_TARGETS.includes(dialect)) return null;
       const pol = await sqlPracticeSettings();
+      learnSetTeam("sql", pol.guidance);  // learn.js: the team's default level (GD-09)
       try {
         const out = await rpc("sql_practices", { query: text, target: dialect, settings: pol.settings || {} });
         await learnPrepareFindings(out.findings, (f) => text.split("\n")[f.line - 1]);  // learn.js: for Dismiss
@@ -928,7 +929,8 @@ function renderQuery() {
       learnDismissedBlock(hidden, ctx),
       h("p", { class: "muted-text sql-compat-note" }, r.policies.length
         ? `Tuned by ${r.policies.join(", ")}: a rule a policy turns off isn't shown.`
-        : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by.")]
+        : "No policy for this project names a SQL rule, so every rule is on as built. A governance policy can name them in Checked by."),
+      learnTeamNote("sql")]
       .filter(Boolean));
   }
   drawCompat();

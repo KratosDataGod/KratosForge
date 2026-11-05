@@ -1,0 +1,75 @@
+{
+  "schema": "kratosforge/learn-module@1",
+  "id": "LM-13",
+  "kind": "module",
+  "title": "NULL: the value that isn't there",
+  "path": "data-fundamentals",
+  "level": "beginner",
+  "minutes": 12,
+  "objectives": [
+    "Find empty values with IS NULL, never = NULL",
+    "Predict what a comparison with NULL keeps or drops",
+    "Keep rows with no value on purpose with IS DISTINCT FROM or COALESCE"
+  ],
+  "prerequisites": [
+    "LM-01"
+  ],
+  "platforms": [
+    "DuckDB",
+    "Fabric Warehouse",
+    "SQL analytics endpoint"
+  ],
+  "engines": [
+    "duckdb"
+  ],
+  "lesson": "lesson.md",
+  "datasets": [],
+  "exercises": [
+    {
+      "id": "open-not-low",
+      "prompt": "List the open tickets (closed_at is empty) that aren't low priority, including tickets with no priority set. Show ticket_id and priority, in ticket_id order.",
+      "engine": "duckdb",
+      "setup": "setup.sql",
+      "starter": "starter.sql",
+      "solution": "solution.sql",
+      "hints": [
+        "Run the starter. It returns nothing at all. What does closed_at = NULL give for every row?",
+        "Use closed_at IS NULL. Then look at ticket 3: its priority is empty, and priority <> 'low' is neither true nor false for it.",
+        "priority IS DISTINCT FROM 'low' is true for an empty priority too."
+      ],
+      "checks": [
+        {
+          "kind": "result_matches",
+          "ordered": true
+        }
+      ],
+      "expected": {
+        "columns": [
+          "ticket_id",
+          "priority"
+        ],
+        "rows": [
+          [
+            1,
+            "high"
+          ],
+          [
+            3,
+            null
+          ],
+          [
+            5,
+            "medium"
+          ]
+        ]
+      }
+    }
+  ],
+  "rules": [],
+  "docs": [
+    "https://duckdb.org/docs/sql/data_types/nulls"
+  ],
+  "version": 1,
+  "status": "live",
+  "reviewed": "2026-11-02"
+}

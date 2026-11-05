@@ -26,7 +26,7 @@ before(async () => {
     viewport: { width: 1440, height: 1000 },
     mocks: {
       readiness_check: () => [],
-      incidents_list: () => ({ env: "prod", incidents: [INC, { ...INC, id: "inc-2", workload: null, kind: "reported", kind_label: "Reported" }], agents: { readable: true, agents: [] }, user: "chris@contoso.com" }),
+      incidents_board: () => ({ env: "prod", incidents: [INC, { ...INC, id: "inc-2", workload: null, kind: "reported", kind_label: "Reported" }], agents: { readable: true, agents: [] }, user: "chris@contoso.com" }),
       incident_impact: (p) => { calls.push(["impact", p]); return IMPACT; },
       incident_tell_impacted: (p) => { calls.push(["tell", p]); return { told: true, result: "sent", routes: ["default"], people: IMPACT.people }; },
     },

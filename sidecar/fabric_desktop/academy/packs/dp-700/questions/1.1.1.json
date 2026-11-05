@@ -1,0 +1,136 @@
+{
+  "schema": "kratosforge/academy-question@1",
+  "objective": "1.1.1",
+  "questions": [
+    {
+      "id": "1.1.1-q1",
+      "type": "single",
+      "stem": "Notebook users complain that Spark sessions take minutes to start. The workspace uses a custom pool for small, interactive jobs. What change gives the fastest session start?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Increase the custom pool's maximum node count"
+        },
+        {
+          "id": "b",
+          "text": "Turn off autoscale on the custom pool"
+        },
+        {
+          "id": "c",
+          "text": "Use the starter pool, whose clusters are kept ready"
+        },
+        {
+          "id": "d",
+          "text": "Move the notebooks into a different workspace"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Starter pools are kept warm by Fabric, so sessions usually start in seconds. Custom pools start their nodes on demand, which takes longer, and changing their size doesn't change that.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/spark-compute",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.1-q2",
+      "type": "single",
+      "stem": "Every notebook in a workspace needs the same Python libraries and Spark properties. How do you provide them by default?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Put the libraries in a lakehouse Files folder"
+        },
+        {
+          "id": "b",
+          "text": "Paste the same %pip install cell at the top of every notebook"
+        },
+        {
+          "id": "c",
+          "text": "Install the libraries on each developer's PC"
+        },
+        {
+          "id": "d",
+          "text": "Attach an environment with those libraries and properties as the workspace's default environment"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "An environment holds libraries and Spark settings, and choosing it as the workspace default in the workspace's Spark settings applies it to notebooks and Spark job definitions that don't pick another.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/workspace-admin-settings",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.1-q3",
+      "type": "multiple",
+      "stem": "Which three can you set when you create a custom Spark pool for a workspace? Each correct answer is part of the solution.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The KQL cache period"
+        },
+        {
+          "id": "b",
+          "text": "The Git branch the pool uses"
+        },
+        {
+          "id": "c",
+          "text": "Dynamic executor allocation"
+        },
+        {
+          "id": "d",
+          "text": "Autoscale with a minimum and maximum number of nodes"
+        },
+        {
+          "id": "e",
+          "text": "The node size"
+        }
+      ],
+      "answer": [
+        "e",
+        "d",
+        "c"
+      ],
+      "explanation": "A custom pool sets its node size, autoscale range and whether executors are allocated dynamically. Cache periods belong to KQL databases and branches to Git integration.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/create-custom-spark-pools",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    },
+    {
+      "id": "1.1.1-q4",
+      "type": "single",
+      "stem": "Several notebooks run one after another for the same user and each waits for its own Spark session. Which workspace setting lets them share a session?",
+      "options": [
+        {
+          "id": "a",
+          "text": "High concurrency mode"
+        },
+        {
+          "id": "b",
+          "text": "Workspace identity"
+        },
+        {
+          "id": "c",
+          "text": "Starter pool autoscale"
+        },
+        {
+          "id": "d",
+          "text": "Delta auto-optimize"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "High concurrency mode lets several notebooks share one Spark session, so later notebooks start without waiting for a new session.",
+      "source": "https://learn.microsoft.com/en-us/fabric/data-engineering/high-concurrency-overview",
+      "version": 1,
+      "status": "live",
+      "reviewed": "2026-11-03"
+    }
+  ]
+}

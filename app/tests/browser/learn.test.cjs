@@ -8,7 +8,7 @@ const { playwright, openApp, axeSource, axeFindings } = require("./harness.cjs")
 
 const SHOTS = process.env.SCREENSHOT_DIR;
 const skip = !playwright && "Playwright is not installed";
-const ENGINE = ["app_settings", "save_app_settings", "learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
+const ENGINE = ["app_settings", "save_app_settings", "academy_catalog", "academy_readiness", "learn_catalog", "learn_module", "learn_lab_start", "learn_lab_save", "learn_lab_run",
   "learn_lab_check", "learn_lab_hint", "learn_lab_reset", "notebook_practice_rules", "sql_practice_rules"];
 const GOOD = "SELECT order_id, customer, amount\nFROM orders\nWHERE region = 'North' AND amount > 100\nORDER BY amount DESC;";
 
@@ -28,12 +28,14 @@ async function axe(scope) {
   return axeFindings(page(), scope);
 }
 
-test("Learn sits at the bottom of the rail, before Source control and Settings, and keeps the main rail at 8", { skip }, async () => {
+test("Learn opens from Academy > Practice, and the rail lights Academy while it's open", { skip }, async () => {
   const bottom = await page().locator("#rail-bottom .rail-item").allTextContents();
-  assert.deepStrictEqual(bottom.map((t) => t.trim()), ["Learn", "Source control", "Settings"]);
+  assert.deepStrictEqual(bottom.map((t) => t.trim()), ["Academy", "Source control", "Settings"]);
   assert.ok(await page().locator("#rail-main .rail-item").count() <= 8);
-  await page().locator("#rail-bottom .rail-item", { hasText: "Learn" }).click();
+  await page().evaluate(() => { academyPage.open = null; academyPage.tab = "practice"; go("academy"); });
+  await page().locator("button", { hasText: "Open lessons and labs" }).click();
   await page().locator(".learn-continue h2").waitFor();
+  assert.strictEqual(await page().locator("#rail-bottom .rail-item[aria-current=page]").textContent().then((t) => t.trim()), "Academy");
   assert.match(await page().locator(".page.learn h1").textContent(), /Learn\s*Preview/);
   assert.strictEqual(await page().locator(".head-actions button").count(), 0, "Home's card is the one Start");
   assert.match(await page().locator(".learn-body").textContent(), /never read or write OneLake/);
@@ -47,7 +49,7 @@ test("Paths lists each path's lessons, and Best practices links every rule to it
   await page().locator(".learn-paths section").first().waitFor();
   const text = await page().locator(".learn-paths").textContent();
   assert.match(text, /Data Fundamentals[\s\S]*LM-01 · Your first query on this PC/);
-  assert.match(text, /Lessons for this path come in a later update/);
+  assert.match(text, /Enterprise Architecture[\s\S]*LM-30 · Data contracts/);
   await page().locator(".subtabs [role=tab]", { hasText: "Best practices" }).click();
   await page().locator(".learn-rules").first().waitFor();
   await page().locator(".learn-rules a", { hasText: "About SQ002" }).click();

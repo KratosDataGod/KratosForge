@@ -22,6 +22,7 @@ never resumed automatically.
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 import time
@@ -34,7 +35,7 @@ from ..redact import describe
 from .activities import default_registry
 from .adapters import ActivityFailed, child_key, notebook_key, timespan
 from .definition import DEFINITION_VERSION, Activity, DefinitionError, ImportedPipeline, loads
-from .evaluate import Scope
+from .evaluate import Scope, over, weight
 from .registry import ActivityRegistry, CheckContext
 from .validate import validate
 
@@ -180,6 +181,7 @@ class PipelineRun:
         self.problems: list[dict[str, Any]] = []
         self.parameters: dict[str, Any] = {}
         self.variables: dict[str, Any] = {}
+        self._weights: dict[str, tuple[int, int]] = {}   # set_variable's running size of each variable
         self.scope = Scope(self.parameters, self.variables, {}, {}, [], now or (lambda: datetime.now(timezone.utc)))
         try:
             self._ns = uuid.UUID(self.id)
@@ -664,6 +666,20 @@ class _Context:
                 if not isinstance(current, list):
                     raise ActivityFailed(f"Variable {name!r} isn't an array, so nothing can be appended.",
                                          "LocalVariableType")
+                had = self.run._weights.get(name) or weight(current)
+                add = weight(value)
+                total = (had[0] + add[0], had[1] + add[1])
+            else:
+                total = weight(value)
+            why = over(*total)
+            if why:   # a value that grows on every pass of a loop stops here, not when memory runs out
+                raise ActivityFailed(f"Variable {name!r} would hold {why}, the limit for one pipeline value.",
+                                     "LocalValueTooBig")
+            self.run._weights[name] = total
+            # A copy, as Fabric holds values: b = @variables('a') mustn't alias a, and appending a to
+            # itself mustn't make a list that holds itself.
+            value = copy.deepcopy(value)
+            if append:
                 current.append(value)
             else:
                 self.run.variables[name] = value

@@ -980,9 +980,9 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
                               "description": "Classifications that count as a sensitivity label"}}},
     "data-contract": {
         "name": "Data contract", "category": "contract", "severity": "medium", "enforcement": "warn", "scopes": _ALL_SCOPES,
-        "description": "A published data product loads within N hours, records its row count on every load, and links business terms.",
-        "rule": "contract.freshness, contract.row_count, contract.terms_linked",
-        "remediation": "Run or schedule the product's entities, and add its business terms on its page.",
+        "description": "A published data product loads within N hours and records its row count on every load.",
+        "rule": "contract.freshness, contract.row_count",
+        "remediation": "Run or schedule the product's entities.",
         "params": {"within_hours": {"value": 24, "stricter": "lower", "description": "Hours since the last successful load"},
                    "min_rows": {"value": 1, "stricter": "higher", "description": "Rows the last load wrote, at least"}}},
 }

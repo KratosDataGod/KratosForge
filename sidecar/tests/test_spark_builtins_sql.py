@@ -352,10 +352,24 @@ def test_to_char_writes_sparks_number_formats(query, want):
     assert one(query) == want
 
 
-def test_to_char_of_a_double_is_refused_by_name():
-    # Spark casts a double to decimal(30,15) first, rounding as Java does; that isn't repeated here.
-    with pytest.raises(duckdb.Error, match="to_char.*this PC.*decimal"):
-        sql.run("SELECT to_char(4.5D, '9.9')")
+@pytest.mark.parametrize("query, want", [
+    ("SELECT to_char(4.5D, '9.9')", "4.5"),                  # Spark: a double through DECIMAL(30,15)
+    ("SELECT to_char(CAST(5e-19 AS DOUBLE), '9.99')", "0.00"),  # read through a wider decimal first
+    ("SELECT to_char(CAST(1e20 AS DOUBLE), '9.99')", None),    # beyond DECIMAL(30,15): NULL, as in Spark
+    ("SELECT to_char(CAST('NaN' AS DOUBLE), '9.9')", None),
+    ("SELECT to_char(CAST(-2.5 AS FLOAT), '9.99S')", "2.50-"),
+    ("SELECT to_char('12.5', '99.9')", "12.5"),               # text is read as DECIMAL(38,18)
+    ("SELECT to_char('x', '99.9')", None),
+    ("SELECT to_char(-12454.8, '99g999d9s')", "12,454.8-"),   # Spark reads the format in upper case
+    ("SELECT to_number('45-', '99mi')", Decimal("-45")),
+])
+def test_to_char_writes_doubles_text_and_lower_case_formats_as_spark_does(query, want):
+    assert one(query) == want
+
+
+def test_to_char_of_another_type_is_refused_by_name():
+    with pytest.raises(duckdb.Error, match="to_char.*this PC"):
+        sql.run("SELECT to_char(DATE '2024-01-01', '9.9')")
 
 
 def test_to_char_is_named_as_spark_names_it():
@@ -366,7 +380,7 @@ def test_a_format_written_as_joined_literals_is_read_as_spark_joins_them():
     # Spark joins adjacent literals, so '9''9' is the format '99' (Apache Spark 3.5.3).
     assert one("SELECT try_to_number('12', '9''9')") == Decimal("12")
     assert one("SELECT to_char(12, '9''9')") == "12"
-    with pytest.raises(ValueError, match="number format 'a9' isn't valid"):
+    with pytest.raises(ValueError, match="number format 'A9' isn't valid"):
         sql.run("SELECT try_to_number('1', 'a''9')")
 
 

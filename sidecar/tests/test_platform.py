@@ -964,12 +964,8 @@ def test_moving_sources_to_the_platform_keeps_their_ids_and_reports_clashes(plat
     again = platform.call("adopt_sources", systems=[{"id": 3, "code": "CRM"}])
     assert again["moved"] == [] and again["conflicts"] == ["CRM is id 2 in the platform but 3 in this project"]
     # Only platform admins move sources.
-    db = platform._db().__enter__()
-    try:
-        with pytest.raises(core.PlatformError, match="Only platform admins"):
-            core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
-    finally:
-        db.conn.close()
+    with platform._db() as db, pytest.raises(core.PlatformError, match="Only platform admins"):
+        core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
 
 
 def test_a_project_reads_platform_sources_with_the_platform_ids(svc):

@@ -1,0 +1,25 @@
+{
+  "runner": "GitHub Actions windows-latest (Windows Server 2025, 4 CPUs), Performance workflow run 42051932696",
+  "recorded": "2026-11-05",
+  "commit": "3c5813d5eb65e72ab8755b6301136308e9640399",
+  "machine": {
+    "python": "3.12.10",
+    "system": "Windows-2025Server-10.0.26100-SP0",
+    "cpus": 4
+  },
+  "settings": {
+    "runs": 5,
+    "warmup": 1,
+    "rows": 1000000
+  },
+  "medians": {
+    "startup": 979.6,
+    "notebook first cell": 753.5,
+    "notebook first spark cell": 754.4,
+    "SQL first query on a new project": 1.5,
+    "SQL count": 1.5,
+    "SQL group by": 6.9,
+    "SQL filter": 4.6,
+    "SQL t-sql top": 28.3
+  }
+}

@@ -12,6 +12,8 @@ its lease in the queue; each table it writes is held under a write lease in OneL
 the service (SIGTERM, Ctrl+C, service stop) stops taking new jobs and waits for running ones;
 anything cut off is picked up again by the next start. With ``[shortcut_health]`` it also checks
 the environments' shortcuts every ``shortcut_health.minutes`` and posts each new break to Teams once.
+It looks at the organization's policy file at start and every POLICY_CHECK_SECONDS, and writes a change
+to its audit log as the desktop app does (policy_watch.py), since the policy applies to it too.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 
-from . import agent_status, shared_schedules, shortcut_watch
+from . import agent_status, policy_watch, shared_schedules, shortcut_watch
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .dataops_service import post_teams
@@ -51,6 +53,7 @@ AGENT_NO_EMAIL = ("Email routes are sent from the KratosForge app; on an agent u
                   "(flow:https://...). This route's messages go nowhere")
 
 KIND_META = "meta"
+POLICY_CHECK_SECONDS = 900  # how often a running agent looks for a change to the policy file
 
 
 def _epoch(local: dt.datetime) -> float:
@@ -81,6 +84,7 @@ class Agent:
         self.started_at = clock()
         self._status_at = 0.0
         self._pruned_at: float | None = None
+        self._policy_at: float | None = None
         self._controls: dict[str, Any] = {}
         self._controls_lock = threading.Lock()  # the shortcut check's thread builds them too
         self.mailbox: Mailbox | None = None
@@ -540,6 +544,18 @@ class Agent:
         if self._pruned_at is None or self.clock() - self._pruned_at >= 86400:
             self._pruned_at = self.clock()
             self.prune_queue()
+        if self._policy_at is None or self.clock() - self._policy_at >= POLICY_CHECK_SECONDS:
+            self._policy_at = self.clock()
+            self.check_policy()
+
+    def check_policy(self) -> None:
+        """Records a change to the policy file in the agent's audit log (policy_file_seen the first time,
+        policy_file_changed after), against the record in its home's policy-seen.json. A check that
+        fails is logged and tried again at the next one; it never stops the loop."""
+        try:
+            policy_watch.check(self.config.home, self.audit)
+        except Exception as exc:  # noqa: BLE001 - a record that can't be made never stops jobs
+            self.log.warning("couldn't check the policy file", extra=fields(error=f"{type(exc).__name__}: {exc}"))
 
     def prune_queue(self) -> None:
         """Remove finished jobs older than queue_retention_days. Last in the pass, after the mailbox has

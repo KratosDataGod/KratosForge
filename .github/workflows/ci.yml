@@ -623,13 +623,14 @@ jobs:
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum kratosforge.exe | cut -d' ' -f1)" \
             --arg msi "$(sha256sum kratosforge.msi | cut -d' ' -f1)" \
+            --arg vsix "$(sha256sum kratosforge.vsix | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             --arg update "$(sha256sum fabric-desktop-engine-update.zip | cut -d' ' -f1)" \
             --arg source "$(sha256sum sidecar-source.zip | cut -d' ' -f1)" \
             --arg runtime "$RUNTIME" \
             --argjson published "$(date -u +%s)" \
             --argjson signed "${{ needs.shell.outputs.signed == 'true' }}" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, engine_sha256: $engine,
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, msi_sha256: $msi, vsix_sha256: $vsix, engine_sha256: $engine,
               engine_runtime: $runtime, engine_update_sha256: $update, sidecar_source_sha256: $source,
               published: $published, signed: $signed}' > version.json
           # Every published build also gets a release of its own that never changes, so it can be

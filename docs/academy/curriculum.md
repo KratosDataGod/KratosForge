@@ -7,7 +7,9 @@ the app generates on this PC, so the same seed always gives the same data and th
 **This is an inventory, not finished content.** An exercise is done only when it has a lesson, a
 starter, an independently runnable reference solution, validation rules, and a CI test that runs
 the solution and the validation. Status today: planned, unless the *Reuse* column names Learn
-content it is built from.
+content it is built from. Built as drafts in the `dp-700` pack, with CI running each reference
+solution and planted wrong answers: E19, E21, E23, E24, E25, E33, E35, E36, E37, E38, E39, E43, E48, E49, E57,
+E58, E59.
 
 **Modes.** G Guided (explains, demonstrates, then a guided task with progressive hints).
 C Challenge (a realistic problem, limited guidance, the learner's artifacts are graded).

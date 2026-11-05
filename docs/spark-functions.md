@@ -19,10 +19,10 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Status | Functions |
 | --- | ---: |
-| Runs | 354 |
+| Runs | 361 |
 | Differs | 0 |
-| Refused | 31 |
-| Fails | 3 |
+| Refused | 27 |
+| Fails | 0 |
 | Not checked | 50 |
 | **All** | **438** |
 
@@ -40,7 +40,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `bit_or` | Runs | `SELECT bit_or(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bit_xor` | Runs | `SELECT bit_xor(col) FROM VALUES (3), (5) AS tab(col)` |  |
 | `bitmap_construct_agg` | Runs | `SELECT substring(hex(bitmap_construct_agg(bitmap_bit_position(col))), 0, 6) FROM VALUES (1), (2), (3) AS tab(col)` |  |
-| `bitmap_or_agg` | Fails | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` | Could not read the query: Expecting ). Line 1, Col: 67. |
+| `bitmap_or_agg` | Runs | `SELECT substring(hex(bitmap_or_agg(col)), 0, 6) FROM VALUES (X '10'), (X '20'), (X '40') AS tab(col)` |  |
 | `bool_and` | Runs | `SELECT bool_and(col) FROM VALUES (true), (true), (true) AS tab(col)` |  |
 | `bool_or` | Runs | `SELECT bool_or(col) FROM VALUES (true), (false), (false) AS tab(col)` |  |
 | `collect_list` | Runs | `SELECT collect_list(col) FROM VALUES (1), (2), (1) AS tab(col)` |  |
@@ -209,7 +209,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `dayofmonth` | Runs | `SELECT dayofmonth('2009-07-30')` |  |
 | `dayofweek` | Runs | `SELECT dayofweek('2009-07-30')` |  |
 | `dayofyear` | Runs | `SELECT dayofyear('2016-04-09')` |  |
-| `extract` | Refused | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: EXTRACT from TIMESTAMPTZ / TIMESTAMPLTZ may produce different results due to  |
+| `extract` | Runs | `SELECT extract(YEAR FROM TIMESTAMP '2019-08-12 01:00:00.123456')` |  |
 | `from_unixtime` | Runs | `SELECT from_unixtime(0, 'yyyy-MM-dd HH:mm:ss')` |  |
 | `from_utc_timestamp` | Runs | `SELECT from_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `hour` | Runs | `SELECT hour('2009-07-30 12:58:59')` |  |
@@ -229,7 +229,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `now` | Not checked | `SELECT now()` |  |
 | `quarter` | Runs | `SELECT quarter('2016-08-31')` |  |
 | `second` | Runs | `SELECT second('2009-07-30 12:58:59')` |  |
-| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabri |
+| `session_window` | Refused | `SELECT a, session_window.start, session_window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:10:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, session_window(b, '5 minutes') ORDER BY a, start` | session_window() can't run on this PC the way it runs in Fabric, so nothing ran: session windows run in Fabric only. Run the cell in Fabric. |
 | `timestamp_micros` | Runs | `SELECT timestamp_micros(1230219000123123)` |  |
 | `timestamp_millis` | Runs | `SELECT timestamp_millis(1230219000123)` |  |
 | `timestamp_seconds` | Runs | `SELECT timestamp_seconds(1230219000)` |  |
@@ -237,7 +237,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `to_timestamp` | Runs | `SELECT to_timestamp('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ltz` | Runs | `SELECT to_timestamp_ltz('2016-12-31 00:12:00')` |  |
 | `to_timestamp_ntz` | Runs | `SELECT to_timestamp_ntz('2016-12-31 00:12:00')` |  |
-| `to_unix_timestamp` | Refused | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` | unix_timestamp can't read part of its format (yyyy-MM-dd) on this PC. Use pattern letters such as yyyy, MM, dd, HH, mm, ss and SSS. |
+| `to_unix_timestamp` | Runs | `SELECT to_unix_timestamp('2016-04-08', 'yyyy-MM-dd')` |  |
 | `to_utc_timestamp` | Runs | `SELECT to_utc_timestamp('2016-08-31', 'Asia/Seoul')` |  |
 | `trunc` | Runs | `SELECT trunc('2019-08-04', 'week')` |  |
 | `try_to_timestamp` | Runs | `SELECT try_to_timestamp('2016-12-31 00:12:00')` |  |
@@ -248,8 +248,8 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `unix_timestamp` | Not checked | `SELECT unix_timestamp()` |  |
 | `weekday` | Runs | `SELECT weekday('2009-07-30')` |  |
 | `weekofyear` | Runs | `SELECT weekofyear('2008-02-20')` |  |
-| `window` | Fails | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` | Parser Error: syntax error at or near "(" |
-| `window_time` | Refused | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` | window_time() can't run on this PC the way it runs in Fabric, so nothing ran: time windows (window, session_window) run in Fabric only. Run the cell in Fabric. |
+| `window` | Runs | `SELECT a, window.start, window.end, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, start` |  |
+| `window_time` | Runs | `SELECT a, window.start as start, window.end as end, window_time(window), cnt FROM (SELECT a, window, count(*) as cnt FROM VALUES ('A1', '2021-01-01 00:00:00'), ('A1', '2021-01-01 00:04:30'), ('A1', '2021-01-01 00:06:00'), ('A2', '2021-01-01 00:01:00') AS tab(a, b) GROUP by a, window(b, '5 minutes') ORDER BY a, window.start)` |  |
 | `year` | Runs | `SELECT year('2016-07-30')` |  |
 
 ## Generator
@@ -402,7 +402,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 | `assert_true` | Runs | `SELECT assert_true(0 < 1)` |  |
 | `bitmap_bit_position` | Runs | `SELECT bitmap_bit_position(1)` |  |
 | `bitmap_bucket_number` | Runs | `SELECT bitmap_bucket_number(123)` |  |
-| `bitmap_count` | Fails | `SELECT bitmap_count(X '1010')` | Could not read the query: Expecting ). Line 1, Col: 28. |
+| `bitmap_count` | Runs | `SELECT bitmap_count(X '1010')` |  |
 | `current_catalog` | Not checked | `SELECT current_catalog()` |  |
 | `current_database` | Not checked | `SELECT current_database()` |  |
 | `current_schema` | Not checked | `SELECT current_schema()` |  |
@@ -542,7 +542,7 @@ differ on other input. [Engines](engines.md) lists the differences known in more
 
 | Function | Status | Example | Note |
 | --- | --- | --- | --- |
-| `parse_url` | Refused | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` | Part of this query can't run on this PC the way it runs in Fabric, so nothing ran: PARSE_URL is not supported in DuckDB Run it in Fabric, or rewrite that part. |
+| `parse_url` | Runs | `SELECT parse_url('http://spark.apache.org/path?query=1', 'HOST')` |  |
 | `url_decode` | Runs | `SELECT url_decode('https%3A%2F%2Fspark.apache.org')` |  |
 | `url_encode` | Runs | `SELECT url_encode('https://spark.apache.org')` |  |
 

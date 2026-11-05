@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fabric_desktop import parity
+from fabric_desktop import parity, skins
 
 TESTS = Path(__file__).resolve().parent
 DOC = Path(__file__).resolve().parents[2] / "docs" / "parity.md"
@@ -38,9 +38,10 @@ def test_a_cell_cant_claim_more_than_its_evidence(cell, message):
         parity.Cell(**cell)
 
 
-def test_familiar_looks_need_a_skin_and_equivalence_needs_a_comparison():
+def test_familiar_looks_need_a_skin_and_equivalence_needs_a_comparison(monkeypatch):
     built = parity.Cell("built", ("test_x.py",))
-    # Snowflake has no built-in skin yet; Fabric has one (Fabric-familiar), so its look may be claimed.
+    # Without a built-in skin that targets Snowflake, its look can't be claimed; Fabric's can (Fabric-familiar).
+    monkeypatch.setattr(parity.skins, "built_in", lambda: [s for s in skins.BUILT_IN.values() if s["id"] != "snowflake"])
     with pytest.raises(ValueError, match="needs a built-in skin that targets snowflake"):
         parity.Area("snowflake", "x", "X", {"visual": built})
     assert parity.Area("fabric", "x", "X", {"visual": built}).cell("visual").status == "built"

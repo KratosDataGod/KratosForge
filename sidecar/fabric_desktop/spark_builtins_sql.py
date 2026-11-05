@@ -533,9 +533,9 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
                                                        "XPATH_INT", "XPATH_LONG", "XPATH_NUMBER", "XPATH_SHORT",
                                                        "XPATH_STRING")},
     "WINDOW": _time_window,
-    "XXHASH64": _hash("xxhash64"),
     "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
     "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
+    "XXHASH64": _hash("xxhash64"),
 }
 
 

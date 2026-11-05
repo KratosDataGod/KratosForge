@@ -13,12 +13,14 @@ How: every argument becomes a list of items, each one value to hash: kind 'i' (a
 (a long, in ``i``) or 'b' (bytes, as hex in ``h``). An argument's text is read by its DuckDB type, so
 any type binds (DuckDB checks every CASE branch's types, even ones a row never takes). One fold over
 all the items then runs the hash. Maps, structs, arrays of arrays and intervals stop the cell by name.
-Checked against Apache Spark 3.5.3 (tests/test_spark_hash.py).
+A TIMESTAMP (no zone) is read in the session time zone, as Spark reads its timestamps: the same
+zone here and in Fabric gives the same number. Checked against Apache Spark 3.5.3 (tests/test_spark_hash.py).
 """
 
 from __future__ import annotations
 
 import itertools
+import threading
 
 _names = itertools.count()
 
@@ -284,8 +286,16 @@ def _values(value: str) -> str:
     return _let(f"TYPEOF({value})", body)
 
 
+_BUILDING = threading.Lock()  # the name counter is shared: two builds at once would mix their lambda names
+
+
 def hash_sql(name: str, count: int) -> str:
     """DuckDB SQL for Spark's ``hash`` (an INTEGER) or ``xxhash64`` (a BIGINT) of fj_arg0, fj_arg1, ..."""
+    with _BUILDING:
+        return _hash_sql(name, count)
+
+
+def _hash_sql(name: str, count: int) -> str:
     _reset_names()
     values = [_values(f"fj_arg{i}") for i in range(count)]
     values_sql = f"LIST_CONCAT({', '.join(values)})" if count > 1 else values[0]

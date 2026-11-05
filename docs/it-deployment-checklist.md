@@ -51,7 +51,7 @@ One page to follow when you roll KratosForge out to a pilot group, from first do
 
 ## Not ready yet
 
-These are the gaps the [enterprise readiness scorecard](audits/ENTERPRISE_READINESS.md#enterprise-deployment-10-20) lists for enterprise deployment. Plan your pilot around them:
+These are the gaps the [enterprise readiness scorecard](audits/ENTERPRISE_READINESS.md#enterprise-deployment-10) lists for enterprise deployment. Plan your pilot around them:
 
 <!-- Kept the same as "What's missing" under Enterprise deployment in audits/ENTERPRISE_READINESS.md; the test checks. -->
 - The builds are unsigned.

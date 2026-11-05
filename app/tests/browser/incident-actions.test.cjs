@@ -9,6 +9,8 @@ const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const { playwright, openApp, startupReads, axeSource, axeFindings } = require("./harness.cjs");
+// axe covers dialogs (#1673, ui.test.cjs): the cases below run axe while these are open.
+// axe covers dialogs: incidents.js:incConfirm, incidents.js:reportIncident
 
 
 let app;

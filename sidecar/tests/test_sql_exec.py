@@ -677,6 +677,9 @@ def test_export_and_import_database_are_refused_as_writes_outside_the_project(lo
     ("SELECT 1 -- ; EXPORT DATABASE 'x'", ""),  # inside a comment
     ("SELECT 1; /* note */ EXPORT DATABASE 'x'", "EXPORT"),
     ("SELECT 'it''s'; EXPORT DATABASE 'x'", "EXPORT"),
+    ("SELECT E'it\\'s'; EXPORT DATABASE 'x'", "EXPORT"),  # a backslash escape in an E'...' string
+    ("SELECT e'a\\\\'; EXPORT DATABASE 'x'", "EXPORT"),  # an escaped backslash, then the closing quote
+    ("SELECT name'x'; EXPORT DATABASE 'x'", "EXPORT"),  # a word ending in e before a quote isn't E'...'
     ("SELECT 1 FROM", ""),
 ])
 def test_export_and_import_database_are_found_after_comments_only(query, word):
@@ -684,7 +687,7 @@ def test_export_and_import_database_are_found_after_comments_only(query, word):
 
 
 def test_finding_export_database_stays_linear():
-    for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
+    for text in (";--" * 50_000, ";/*" * 50_000, "'" * 100_000, "E'\\" * 50_000, ";" * 150_000 + "EXPORT DATABASE 'x'"):
         started = time.perf_counter()
         sql_exec._outside_command(text)
         assert time.perf_counter() - started < 1.0, text[:12]

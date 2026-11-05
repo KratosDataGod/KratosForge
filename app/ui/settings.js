@@ -770,7 +770,7 @@ async function renderSettings() {
           renderUpdateBanner();
           render();
         } }), h("span", {}, updateWatchOn() ? "On" : "Off")))),
-    h("div", { class: "row" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
+    h("div", { class: "row wrap" }, btn("Check for updates", "sync", checkForUpdates, "tool link small"),
       btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 

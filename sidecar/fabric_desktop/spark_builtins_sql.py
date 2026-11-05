@@ -11,6 +11,7 @@ name with a message, so a cell stops before anything runs with another answer.
 
 from __future__ import annotations
 
+import re
 from typing import Callable, cast
 
 import sqlglot
@@ -104,6 +105,13 @@ _BITMAP_CONSTRUCT_AGG = (
     "(LIST_TRANSFORM([CAST(BITSTRING_AGG(fj_arg0, 0, 32767) AS VARCHAR)], kf_s -> CASE WHEN kf_s IS NULL THEN NULL "
     "ELSE UNHEX(ARRAY_TO_STRING(LIST_TRANSFORM(RANGE(4096), kf_i -> LPAD(HEX(CAST('0b' || "
     "REVERSE(SUBSTR(kf_s, kf_i * 8 + 1, 8)) AS INTEGER)), 2, '0')), '')) END))[1]")
+
+# bitmap_count and bitmap_or_agg read a bitmap's bytes as DuckDB's BIT. A zero byte is added first,
+# because an empty BLOB can't be cast to BIT and the extra byte has no bits set. bitmap_or_agg ORs
+# the first 4096 bytes of each bitmap into Spark's 4096-byte result: all zero bytes when no row has one.
+_BITMAP_COUNT = "CAST(BIT_COUNT(CAST(fj_arg0 || UNHEX('00') AS BIT)) AS BIGINT)"
+_BITMAP_OR_AGG = ("COALESCE(CAST(BIT_OR(CAST(LEFT(RPAD(CAST(CAST(fj_arg0 || UNHEX('00') AS BIT) AS VARCHAR), "
+                  "32768, '0'), 32768) AS BIT)) AS BLOB), UNHEX(REPEAT('00', 4096)))")
 
 # luhn_check: digits only, and the Luhn sum (every second digit from the right doubled) ends in 0.
 _LUHN = ("(LIST_TRANSFORM([CAST(fj_arg0 AS VARCHAR)], kf_s -> CASE WHEN kf_s IS NULL THEN NULL "
@@ -363,6 +371,70 @@ def _octet_length(node: exp.Expression, args: list[exp.Expression]) -> exp.Expre
                       "ELSE ENCODE(CAST(fj_arg0 AS VARCHAR)) END)", args)
 
 
+# A window's start as an instant (TIMESTAMPTZ, so the buckets are counted in UTC from 1970, as in
+# Spark), and its end that many microseconds later (a day is 86,400 seconds, as in Spark, even when
+# the session's time zone changes its clocks that day). Both are shown in the session's time zone.
+_WINDOW_START = ("TIME_BUCKET(CAST(fj_arg1 AS INTERVAL), TRY_CAST(fj_arg0 AS TIMESTAMPTZ), "
+                 "TIMESTAMPTZ '1970-01-01 00:00:00+00')")
+_WINDOW = ("STRUCT_PACK(\"start\" := CAST(fj_arg0 AS TIMESTAMP), \"end\" := CAST(fj_arg0 + "
+           "TO_MICROSECONDS(CAST(ROUND(EPOCH(CAST(fj_arg1 AS INTERVAL)) * 1000000) AS BIGINT)) AS TIMESTAMP))")
+_WINDOWS_HERE = "this PC runs window(time, duration) with one duration, given as text such as '5 minutes'."
+
+
+def _time_window(node: exp.Expression, args: list[exp.Expression]) -> exp.Expression:
+    """window(time, '5 minutes'): Spark's tumbling window, a struct of start and end. Windows start
+    at whole multiples of the duration since 1970-01-01 UTC, as in Spark. Sliding windows and a start
+    offset (window's third and fourth arguments) are refused, as is a duration in months or years,
+    which Spark doesn't take."""
+    if len(args) != 2:
+        _refuse("window", "sliding windows and a start time aren't read here: " + _WINDOWS_HERE)(node, args)
+    duration = args[1]
+    text = duration.name.strip().lower() if duration.is_string else ""
+    text = text[len("interval"):].strip() if text.startswith("interval") else text
+    if not re.fullmatch(r"(\d+\s*[a-z]+\s*)+", text) or re.search(r"mon|year", text):
+        _refuse("window", "its duration isn't one this PC reads: " + _WINDOWS_HERE)(node, args)
+    start = _with_args(_WINDOW_START, [args[0], exp.Literal.string(text)])
+    return _with_args(_WINDOW, [start, exp.Literal.string(text)])
+
+
+def _is_window(node: exp.Expression) -> bool:
+    return isinstance(node, exp.Anonymous) and node.name.upper() == "WINDOW" and bool(node.meta.get(_MARK))
+
+
+def _window_columns(statement: exp.Expression) -> None:
+    """Where a query groups by window(...), its ``window`` (and ``window.start``, ``window.end``)
+    is that window, as Spark names it. Each query with a window() also skips rows whose time is
+    NULL (or isn't a time), as Spark's time windows do."""
+    for select in list(statement.find_all(exp.Select)):
+        mine = [w for w in select.find_all(exp.Anonymous) if _is_window(w) and w.find_ancestor(exp.Select) is select]
+        if not mine:
+            continue
+        group = select.args.get("group")
+        grouped = [w for w in mine if group is not None and w.find_ancestor(exp.Group) is group]
+        if grouped:
+            window = grouped[0]
+            for part in [*select.expressions, select.args.get("having"), select.args.get("order")]:
+                if part is None:
+                    continue
+                for column in list(part.find_all(exp.Column)):
+                    if column.find_ancestor(exp.Select) is not select:
+                        continue
+                    if column.table.lower() == "window" and column.name.lower() in ("start", "end") and not column.args.get("db"):
+                        field = exp.Anonymous(this="STRUCT_EXTRACT",
+                                              expressions=[window.copy(), exp.Literal.string(column.name.lower())])
+                        named = column.parent is select
+                        column.replace(exp.alias_(field, column.name) if named else field)
+                    elif not column.table and column.name.lower() == "window":
+                        named = column.parent is select
+                        column.replace(exp.alias_(window.copy(), "window") if named else window.copy())
+        for w in mine:
+            if w.parent is select:
+                w.replace(exp.alias_(w.copy(), "window"))
+            if len(w.expressions) >= 1:
+                select.where(exp.TryCast(this=w.expressions[0].copy(), to=exp.DataType.build("TIMESTAMPTZ"))
+                             .is_(exp.null()).not_(), copy=False)
+
+
 _SKETCH = "it builds a DataSketches or count-min sketch whose bytes this PC can't make the same way."
 _XPATH = "XPath isn't available in the engine on this PC."
 _ANON: dict[str, Callable[..., exp.Expression | None]] = {
@@ -430,8 +502,9 @@ _ANON: dict[str, Callable[..., exp.Expression | None]] = {
     **{name: _refuse(name.lower(), _XPATH) for name in ("XPATH", "XPATH_BOOLEAN", "XPATH_DOUBLE", "XPATH_FLOAT",
                                                        "XPATH_INT", "XPATH_LONG", "XPATH_NUMBER", "XPATH_SHORT",
                                                        "XPATH_STRING")},
-    "WINDOW_TIME": _refuse("window_time", "time windows (window, session_window) run in Fabric only."),
-    "SESSION_WINDOW": _refuse("session_window", "time windows (window, session_window) run in Fabric only."),
+    "WINDOW": _time_window,
+    "WINDOW_TIME": _template("CAST(STRUCT_EXTRACT(fj_arg0, 'end') - INTERVAL 1 MICROSECOND AS TIMESTAMP)", 1),
+    "SESSION_WINDOW": _refuse("session_window", "session windows run in Fabric only."),
 }
 
 
@@ -450,6 +523,8 @@ def _typed() -> list[tuple[type, Callable[..., exp.Expression | None]]]:
         ("TsOrDsToDate", _to_date_with_format),
         ("ArraysZip", _arrays_zip),
         ("BitmapConstructAgg", _template(_BITMAP_CONSTRUCT_AGG, 1)),
+        ("BitmapCount", _template(_BITMAP_COUNT, 1)),
+        ("BitmapOrAgg", _template(_BITMAP_OR_AGG, 1)),
         ("FirstValue", lambda n, a: None if n.find_ancestor(exp.Window) else _with_args("FIRST(fj_arg0)", [n.this])),
         ("LastValue", lambda n, a: None if n.find_ancestor(exp.Window) else _with_args("LAST(fj_arg0)", [n.this])),
         ("Format", _format_string),
@@ -545,8 +620,9 @@ _GENERATORS = {"INLINE_OUTER", "JSON_TUPLE"}
 
 
 def names() -> set[str]:
-    """The function names rewritten here that keep Spark's name for a selected column."""
-    return set(_ANON) - _GENERATORS
+    """The function names rewritten here that keep Spark's name for a selected column (a selected
+    window() is named window, as in Spark: _window_columns names it)."""
+    return set(_ANON) - _GENERATORS - {"WINDOW"}
 
 
 def typed_classes() -> tuple[type, ...]:
@@ -568,7 +644,7 @@ def mark(statement: exp.Expression) -> exp.Expression:
     never read as a Spark call."""
     _named_tuples(statement)
     for node in _candidates(statement):
-        if isinstance(node, exp.Anonymous) and str(node.this).upper() not in _ANON:
+        if isinstance(node, exp.Anonymous) and node.name.upper() not in _ANON:
             continue
         for ident in node.find_all(exp.Identifier):
             if ident.name.lower().startswith("kf_"):  # the rewrites' own lambda names (as sql._no_reserved_names)
@@ -581,11 +657,12 @@ def mark(statement: exp.Expression) -> exp.Expression:
 
 def rewrite(statement: exp.Expression) -> exp.Expression:
     """Every marked call above in ``statement``, deepest first, as DuckDB SQL that gives Spark's value."""
+    _window_columns(statement)
     found = [n for n in _candidates(statement) if n.meta.get(_MARK)]
     for node in reversed(found):
         replacement: exp.Expression | None = None
         if isinstance(node, exp.Anonymous):
-            build = _ANON.get(str(node.this).upper())
+            build = _ANON.get(node.name.upper())
             if build is not None:
                 replacement = build(node, list(node.expressions))
         elif isinstance(node, exp.Any):

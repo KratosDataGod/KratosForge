@@ -2550,10 +2550,10 @@
     },
     {
       "id": "PB-060",
-      "title": "Sensitive data classification that complements Purview",
+      "title": "Sensitive data classification that complements Fabric sensitivity labels",
       "category": "Data Governance and Quality",
       "problem": "Columns carry no classification; a UDF exists with no caller.",
-      "capability": "Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.",
+      "capability": "Classification captured in contracts and carried to products, reading and writing Fabric sensitivity labels rather than replacing them.",
       "evidence": [
         "central/udf.py set_classification has no caller"
       ],
@@ -2585,7 +2585,7 @@
       "confidence": "Low",
       "state": "Proposed",
       "external_dependencies": [
-        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features"
+        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with external catalogs such as Collibra rather than build catalog features"
       ],
       "computed": {
         "benefit": 3.0,
@@ -3607,7 +3607,7 @@
       "evidence": [
         "service.py endorsements returns available:false",
         "docs/troubleshooting.md",
-        "Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing",
+        "Endorsement badges show on data products (#627); the catalog filter is still missing",
         "The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93",
         "No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)"
       ],

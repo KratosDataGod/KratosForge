@@ -103,7 +103,7 @@ const PREVIEW_FEATURES = {
   pipelineRuns: "Pipeline runs in Monitor",
   cancelFabricRun: "Cancel a Fabric run",
   requestsCoreFour: "Workspace, domain and exception requests",
-  trustBadges: "Endorsement and business terms",
+  trustBadges: "Endorsement",
   warehouse: "Warehouse queries",
   sqlResultViews: "Messages and Chart on the SQL page",
   sqlPractices: "SQL best practices",

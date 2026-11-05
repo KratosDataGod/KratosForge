@@ -100,7 +100,7 @@ Each domain row on **Data mesh > Domains** has **Access groups**: one Entra ID s
 | Creators | Data engineers and analysts who build | Contributor on the domain's workspaces | Dev, Test |
 | Data readers | Other teams approved to read the domain's data products | Read through a OneLake data access role; no workspace role | Prod |
 | Report viewers | Business users of the domain's reports | Viewer on the domain's workspaces, or its app's audience | Prod |
-| Data stewards | People who keep the domain's glossary terms and descriptions | No Fabric role (the glossary here, Purview data curator if you use it) | All |
+| Data stewards | People who keep the domain's glossary terms and descriptions | No Fabric role (the glossary here) | All |
 
 - **Names** come from one pattern for every domain, which platform admins change with **Naming**. The default is `{PREFIX}-{DOMAIN}-{SUBDOMAIN}-{ROLE}-{ENV}` with the prefix `SG-FAB`, so Sales gets `SG-FAB-SALES-READERS-PROD`. An empty part takes its separator with it. Names use letters, digits, `-`, `_` and `.` only, and the mail nickname is the name in lower case (64 characters at most). A role can be turned off so no group is suggested for it.
 - **Link existing group** uses a group you already have for a role instead of the suggested one: find it by name, or paste its object ID. Platform admins and the domain's owners (or its parent domain's) can link. Distribution lists are shown but can't be picked: they can't hold Fabric roles. Links are kept in `catalog.entra_group` and on the Audit tab.

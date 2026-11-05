@@ -939,7 +939,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | Accepted |
 | [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Accepted |
 | [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Accepted |
-| [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
+| [PB-060](#pb-060) | Sensitive data classification that complements Fabric sensitivity labels | P2 | Enterprise readiness | L | Proposed |
 | [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Accepted |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Accepted |
 | [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Accepted |
@@ -994,13 +994,13 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-060
 
-**Sensitive data classification that complements Purview** · P2 (score 1.8) · L · confidence Low · Proposed
+**Sensitive data classification that complements Fabric sensitivity labels** · P2 (score 1.8) · L · confidence Low · Proposed
 
 - **Problem:** Columns carry no classification; a UDF exists with no caller.
-- **Proposed capability:** Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.
+- **Proposed capability:** Classification captured in contracts and carried to products, reading and writing Fabric sensitivity labels rather than replacing them.
 - **Current-state evidence:** central/udf.py set_classification has no caller
 - **Inventory features:** [FEAT-GOV-06](FEATURE_INVENTORY.md#feat-gov-06)
-- **Dependencies:** [PB-056](#pb-056), Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features
+- **Dependencies:** [PB-056](#pb-056), Direction (Chris's unit testing, 2026-10-18, item 27): integrate with external catalogs such as Collibra rather than build catalog features
 - **Owner:** Enterprise readiness (FD-131, GOV-00x)
 - **Acceptance criteria:**
     - As defined in FD-131 and the governance foundation thread
@@ -1039,7 +1039,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** The Endorsed filter is always unavailable and its reason text points at an embedded catalog that doesn't exist.
 - **Proposed capability:** Fix the text now; read endorsements when a supported API is confirmed.
-- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges and Purview term links show on data products (#627, #642); the catalog filter is still missing; The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
+- **Current-state evidence:** service.py endorsements returns available:false; docs/troubleshooting.md; Endorsement badges show on data products (#627); the catalog filter is still missing; The Endorsed filter's reason text and troubleshooting.md say what happens (#889) on main at 188d5a93; No implementation review; checked against product data and main in acceptance batch 2 of 2026-10-29 (product-management/in-review-acceptance-batch-2.html): Accepted (Chris chose 'Accept all as recommended' on the decision card, 2026-10-30, project message cmsg_018T4o2pQdpbLBNhHpgVNNGpKnZygxfq5AA9Hd5e1zTC9b)
 - **Inventory features:** [FEAT-ONE-02](FEATURE_INVENTORY.md#feat-one-02)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
